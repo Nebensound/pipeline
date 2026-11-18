@@ -44,11 +44,11 @@ jobs:
 ```
 
 One job, no inputs: what the repository is stands in its declaration, and the
-workflow reads it there. The reference is pinned to an exact version, so that
-every change to the pipeline reaches a repository as a pull request instead of
-as a silent switch. Until the first release there is no version, so it is pinned
-to the full 40-character SHA of a commit on `main`; from then on to a release
-tag such as `v0.0.1`.
+workflow reads it there. The reference is pinned to an exact version, so that a
+change to the pipeline never reaches a repository as a silent switch. Until the
+first release there is no version, so it is pinned to the full 40-character SHA
+of a commit on `main` and raised by hand; from then on to a release tag such as
+`v0.0.1`, which Dependabot raises as a pull request.
 
 A run reports as `nebensound / Declare` (phase 0: the declaration read and
 checked against the tree), one job per unit that runs a check
