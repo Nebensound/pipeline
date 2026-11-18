@@ -1,0 +1,5 @@
+{
+  // A comment, which JSONC allows.
+  "name": "fixture",
+  "values": [1, 2, 3],
+}

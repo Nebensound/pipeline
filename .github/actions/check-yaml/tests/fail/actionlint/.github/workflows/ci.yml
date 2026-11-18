@@ -1,0 +1,13 @@
+name: ci
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    steps:
+      - name: Say hello
+        run: echo "A job without runs-on."

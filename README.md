@@ -289,6 +289,73 @@ Checks that belong to one repository alone run through its xtask, inside
 - The xtask is Rust code like any other: phase 0 demands a unit that runs the
   `rust` check over `xtask/`.
 
+## Test cases of the building blocks
+
+A wrong block is wrong in every repository at once, so every block is held to
+fixed test cases on every pull request here, through this repository's own
+xtask in `xtask/` and the step above.
+
+Each block brings its cases beside its `action.yml`: at least one under
+`tests/pass/` and one under `tests/fail/`. A case is a folder that holds a small
+repository of its own, with its own `.nebensound/repo.toml`. A failing case also
+holds a file `expected-finding`, which names what the block must report: every
+line that is not empty and does not start with `#` must match a whole line the
+block prints, with `*` standing for any text, for example
+`::error file=data.json::not formatted the way Prettier writes it`. That file is
+not part of the case's repository.
+
+`cargo xtask check --all` first holds the blocks, the register and
+`nebensound.yml` to each other:
+
+- every directory under `.github/actions/` is a block that belongs to a register
+  entry (`check-<name>`, `version-<writer>`, `build-<name>`,
+  `publish-<target>`), or the workflow's own machinery (`phase0`, `tool`);
+- every block is called from a step of `nebensound.yml` that is named after its
+  entry and switched on it, as `contains(matrix.checks, '<name>')`;
+- the step `Not written yet` counts exactly the checks that have a block as
+  written;
+- every block has a passing and a failing case.
+
+Then it runs every block against its cases. It builds the tool through
+[`.github/actions/tool`](.github/actions/tool), copies each case into a fresh
+Git repository, runs [`.github/actions/phase0`](.github/actions/phase0) on it,
+and runs the block once for every unit the plan starts the block's check for,
+just as a unit job does. A passing case needs the block to succeed everywhere. A
+failing case needs it to fail and to print every finding the case names, so a
+block that fails for another reason does not count. `cargo xtask check <block>…`
+runs the cases of the blocks named.
+
+The xtask keeps no copy of what a block does. It reads every step from the
+block's `action.yml` and runs it the way the runner of GitHub Actions does: it
+decides each `if:`, fills in every `${{ … }}`, hands each `run:` to bash and
+reads back what the step writes to `GITHUB_OUTPUT`, `GITHUB_ENV` and
+`GITHUB_PATH`. A composite action a block calls, such as lychee's, is fetched at
+the ref the block names and run the same way. An action that runs on Node.js
+cannot run like that; for the ones the blocks call, the xtask stands in:
+
+| Action                                                               | What stands in                                                                                |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `actions/setup-node`, `actions/setup-go`                             | The tool already on the PATH, in the version the step asks for; anything else fails the step. |
+| `Swatinem/rust-cache`, `actions/cache/restore`, `actions/cache/save` | Nothing: a cache changes how fast a step runs, not what it finds.                             |
+
+Any other such action fails the xtask until it has a stand-in. In the gate, the
+blocks that ran before the xtask in `Check repository` have put Node.js and Go
+on the PATH. One step does not run: `Make room on the runner` of `check-rust`,
+which deletes software of the machine with `sudo`; on a developer's machine,
+that software would be theirs. A step the xtask leaves out has to exist, so
+renaming it fails the xtask instead of letting the step run.
+
+What a step prints stands in the log behind a `|`, so that the findings of a
+failing case do not become annotations of the gate. What the xtask itself
+finds is an annotation.
+
+The blocks are written for the Linux runners of GitHub Actions, and so the cases
+run on Linux only; elsewhere the xtask holds the blocks, the register and
+`nebensound.yml` to each other and then refuses to run the cases. The cases are
+taken out of this repository's own checks with `[[exclude]]` and a reason in
+[`.nebensound/repo.toml`](.nebensound/repo.toml). A case of `check-rust` is a
+whole Cargo package, the only way Rust code can be excluded.
+
 ## Licence
 
 Licensed under the [European Union Public Licence v. 1.2](LICENSE) (EUPL-1.2).

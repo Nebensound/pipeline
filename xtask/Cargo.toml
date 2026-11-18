@@ -1,0 +1,32 @@
+# The tasks of this repository, reached from the root as `cargo xtask` through the
+# alias in .cargo/config.toml. Its `check` task runs every building block against
+# its test cases and holds the building blocks, the register and nebensound.yml to
+# each other. The central workflow runs `cargo xtask check --all` as the last step
+# of `Check repository`, as it does for every repository with an xtask.
+#
+# A workspace of its own and not a member of the tool's: Cargo resolves the xtask
+# from here, and nothing in it is built or published.
+[package]
+name         = "xtask"
+description  = "Runs the building blocks of the pipeline against their test cases."
+edition      = "2024"
+rust-version = "1.98"
+license      = "EUPL-1.2"
+repository   = "https://github.com/Nebensound/pipeline"
+publish      = false
+
+[dependencies]
+serde_json = "1"
+tempfile   = "3"
+toml       = "1"
+yaml-rust2 = "0.13"
+
+[lints.rust]
+missing_docs = "deny"
+unsafe_code  = "forbid"
+
+[lints.clippy]
+all         = { level = "deny", priority = -1 }
+pedantic    = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
