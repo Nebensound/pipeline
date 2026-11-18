@@ -1,0 +1,9 @@
+# Build output. Unanchored, so that a Cargo project below the root is caught as
+# well and not only one at the root.
+target/
+**/*.rs.bk
+*.pdb
+
+# Local secrets and editor or system files.
+.env
+.DS_Store

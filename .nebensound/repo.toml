@@ -1,0 +1,6 @@
+# The declaration of this repository: what it consists of and what the pipeline
+# does with it. The pipeline reads it in every run and checks it against the
+# tree. "none" applies no preset: nothing here is built or published.
+
+[repo]
+pipeline = "none"
