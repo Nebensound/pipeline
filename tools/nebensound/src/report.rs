@@ -8,7 +8,9 @@ use nebensound_declaration::annotate::{Coverage, Node};
 use nebensound_declaration::finding::UnitName;
 use nebensound_declaration::names::CheckName;
 use nebensound_declaration::path::RelativePath;
-use nebensound_declaration::resolve::{Origin, PipelineSource, Unit};
+use nebensound_declaration::resolve::{
+    MinimumVersionSource, Origin, PipelineSource, ReleaseSource, Unit,
+};
 use nebensound_declaration::{Analysis, Central, Publish, Severity};
 
 /// The column the annotations start in.
@@ -74,6 +76,48 @@ fn source(source: &PipelineSource) -> String {
     }
 }
 
+/// A list of names, separated by commas.
+fn listed<T: ToString>(names: &[T]) -> String {
+    names
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// How the unit is released, and where that came from.
+fn release(unit: &Unit) -> String {
+    let resolved = &unit.release;
+    let why = match &resolved.source {
+        ReleaseSource::Written { default } if *default == resolved.release => {
+            "written, the same as the default".to_owned()
+        }
+        ReleaseSource::Written { default } => format!("written, over the default {default}"),
+        ReleaseSource::Targets { deciding } if deciding.is_empty() => {
+            "the default for a unit that publishes nothing".to_owned()
+        }
+        ReleaseSource::Targets { deciding } => {
+            format!("the default for publishing to {}", listed(deciding))
+        }
+        ReleaseSource::Inherited { by } => format!("inherited from {by}"),
+    };
+    format!("{} ({why})", resolved.release)
+}
+
+/// The version below which the unit's version never falls, and where it came
+/// from.
+fn minimum_version(unit: &Unit) -> String {
+    let Some(floor) = &unit.minimum_version else {
+        return "none".to_owned();
+    };
+    match &floor.source {
+        MinimumVersionSource::Written => format!("{} (written)", floor.version),
+        MinimumVersionSource::Inherited { by } => {
+            format!("{} (inherited from {by})", floor.version)
+        }
+    }
+}
+
 fn unit_lines(unit: &Unit) -> Vec<String> {
     let mut lines = vec![format!(
         "{}{}",
@@ -99,22 +143,14 @@ fn unit_lines(unit: &Unit) -> Vec<String> {
     if let Publish::To(targets) = &unit.pipeline.publish
         && !targets.is_empty()
     {
-        let list = targets
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(", ");
-        lines.push(format!("{}{list}", column(6, "Publish")));
+        lines.push(format!("{}{}", column(6, "Publish"), listed(targets)));
     }
     if !unit.pipeline.dependabot.is_empty() {
-        let list = unit
-            .pipeline
-            .dependabot
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(", ");
-        lines.push(format!("{}{list}", column(6, "Dependabot")));
+        lines.push(format!(
+            "{}{}",
+            column(6, "Dependabot"),
+            listed(&unit.pipeline.dependabot)
+        ));
     }
     let version = unit
         .version_file()
@@ -123,6 +159,12 @@ fn unit_lines(unit: &Unit) -> Vec<String> {
         "{}{version} (versioning = \"{}\")",
         column(6, "Version"),
         unit.versioning
+    ));
+    lines.push(format!("{}{}", column(6, "Release"), release(unit)));
+    lines.push(format!(
+        "{}{}",
+        column(6, "Minimum version"),
+        minimum_version(unit)
     ));
     lines
 }
@@ -276,6 +318,29 @@ pub fn explain(analysis: &Analysis, path: &RelativePath) -> Option<String> {
         .join(", ");
     let mut lines = vec![shown(&node.path.to_string()), String::new()];
     lines.push(format!("{}{units}", column(2, "Units")));
+    // Every unit containing the path is released on its own terms, so each
+    // says how, and where that came from.
+    let containing: Vec<&Unit> = analysis
+        .units
+        .iter()
+        .filter(|unit| node.units.contains(&unit.name))
+        .collect();
+    for unit in &containing {
+        lines.push(format!(
+            "{}{}: {}",
+            column(2, "Release"),
+            unit.name,
+            release(unit)
+        ));
+    }
+    for unit in &containing {
+        lines.push(format!(
+            "{}{}: {}",
+            column(2, "Minimum version"),
+            unit.name,
+            minimum_version(unit)
+        ));
+    }
     lines.push(format!("{}{}", column(2, "Checks"), names(&node.checks)));
     match node.coverage() {
         Some(coverage) => lines.push(format!(

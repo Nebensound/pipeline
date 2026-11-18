@@ -103,12 +103,14 @@ out, and its effect.
 
 ### `[repo]`
 
-| Field          | Type                    | Default             | Effect                                                                                                                                                   |
-| -------------- | ----------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pipeline`     | preset name or table    | nothing is declared | What runs for the repository beyond the base set. See [Pipeline](#pipeline).                                                                             |
-| `versioning`   | string                  | `"self"`            | Which units around the repository carry a version. Only the values that include `self` are open to the repository. See [Versioning](#versioning).        |
-| `allow-unused` | table of check → reason | none                | Checks of this unit's own pipeline that may find no file without failing, each with the reason why it stays. Without an entry, such a check is an error. |
-| `component`    | table                   | none                | The pipeline a component can ask for with `pipeline = { repo = true }`. See `[repo.component]` below.                                                    |
+| Field             | Type                    | Default                        | Effect                                                                                                                                                   |
+| ----------------- | ----------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pipeline`        | preset name or table    | nothing is declared            | What runs for the repository beyond the base set. See [Pipeline](#pipeline).                                                                             |
+| `versioning`      | string                  | `"self"`                       | Which units around the repository carry a version. Only the values that include `self` are open to the repository. See [Versioning](#versioning).        |
+| `release`         | string                  | decided by the publish targets | `"single-stage"` or `"two-stage"`: how the unit's version reaches a full release. See [Releases](#releases).                                             |
+| `minimum-version` | version `"X.Y.Z"`       | none                           | The version the unit gets is never lower than this. See [Releases](#releases).                                                                           |
+| `allow-unused`    | table of check → reason | none                           | Checks of this unit's own pipeline that may find no file without failing, each with the reason why it stays. Without an entry, such a check is an error. |
+| `component`       | table                   | none                           | The pipeline a component can ask for with `pipeline = { repo = true }`. See `[repo.component]` below.                                                    |
 
 ### `[repo.component]`
 
@@ -128,12 +130,14 @@ or digit, and holds no `..`; it is meant to survive a Git tag, a file name, a
 shell argument and a URL without quoting. No two units may share a name,
 generated ones included.
 
-| Field          | Type                    | Default             | Effect                                                                                                                                                   |
-| -------------- | ----------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `path`         | path                    | required            | Where the component lives: a folder, or a single file. It has to hold something Git tracks, otherwise `missing-path`.                                    |
-| `pipeline`     | preset name or table    | nothing is declared | What runs for the component beyond the base set. See [Pipeline](#pipeline).                                                                              |
-| `versioning`   | string                  | `"self"`            | Which units around the component carry a version. See [Versioning](#versioning).                                                                         |
-| `allow-unused` | table of check → reason | none                | Checks of this unit's own pipeline that may find no file without failing, each with the reason why it stays. Without an entry, such a check is an error. |
+| Field             | Type                    | Default                        | Effect                                                                                                                                                   |
+| ----------------- | ----------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `path`            | path                    | required                       | Where the component lives: a folder, or a single file. It has to hold something Git tracks, otherwise `missing-path`.                                    |
+| `pipeline`        | preset name or table    | nothing is declared            | What runs for the component beyond the base set. See [Pipeline](#pipeline).                                                                              |
+| `versioning`      | string                  | `"self"`                       | Which units around the component carry a version. See [Versioning](#versioning).                                                                         |
+| `release`         | string                  | decided by the publish targets | `"single-stage"` or `"two-stage"`: how the unit's version reaches a full release. See [Releases](#releases).                                             |
+| `minimum-version` | version `"X.Y.Z"`       | none                           | The version the unit gets is never lower than this. See [Releases](#releases).                                                                           |
+| `allow-unused`    | table of check → reason | none                           | Checks of this unit's own pipeline that may find no file without failing, each with the reason why it stays. Without an entry, such a check is an error. |
 
 ### `pipeline`
 
@@ -235,8 +239,8 @@ itself is included.
   ASCII letter or digit left, such as `日本.typ`, is the error
   `ungeneratable-name`.
 - A generated unit has nowhere to say anything of its own. It takes the
-  pipeline and `allow-unused` of the unit that generated it, and carries a
-  version of its own.
+  pipeline, `allow-unused`, `release` and `minimum-version` of the unit that
+  generated it, and carries a version of its own.
 - A unit that generates children leaves the building to them, also when it
   carries a version beside theirs.
 
@@ -245,6 +249,43 @@ build, and whether it may publish and select version writers. The report of
 phase 0 names the file that is to hold the version: `.nebensound/version` for
 the repository, `.nebensound/versions/<name>` for a component. Versions are not
 computed, written or tagged yet.
+
+## Releases
+
+`release` says how a unit's version reaches a full release:
+
+| Value            | Meaning                                                                                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `"single-stage"` | A merge to `main` is a full release.                                                                                                                                                       |
+| `"two-stage"`    | A merge to `main` is a pre-release `X.Y.Z-pre.N`. A pull request from `main` into the branch `release`, merged with a merge commit, makes the commit it promotes the full release `X.Y.Z`. |
+
+- Without the field, the unit's publish targets decide.
+  [The register](register.md#publish-targets) names for every target how a
+  unit that publishes there is released: two stages for `crates.io` and
+  `private-registry`, one stage for `ghcr`, `pages` and `release-assets`. A
+  unit with several targets takes two stages if any of them does, and a unit
+  that publishes nothing takes one stage. A unit with the preset
+  `rust-library-public` is therefore released in two stages, and one with
+  `rust-service` in one.
+- A value written on the unit wins over that default.
+- Which mode holds is written down, never derived from whether the branch
+  `release` exists: a deleted branch must not turn the next merge into a full
+  release.
+
+`minimum-version` is a floor: the version a unit gets is never lower. It is how
+a person takes the step to `0.1.0` or `1.0.0`. It is three numbers, as
+`"0.1.0"`, without a leading zero, a prefix such as `v` or a suffix. Anything
+else stops phase 0, as described under
+[When the file cannot be read](#when-the-file-cannot-be-read), and `check-toml`
+marks it at its line and column.
+
+A generated unit takes both from the unit that generated it. The report of phase
+0 and `nebensound explain` show for every unit how it is released and its
+minimum version, each with where it came from: written on the unit, the default
+of its publish targets, or inherited from the unit that generated it.
+
+Neither field changes a run yet: versions are not computed, tagged or released
+so far.
 
 ## Findings
 
@@ -388,6 +429,8 @@ sentence that names the file and the mistake, and fails:
 - the TOML does not parse;
 - a key is unknown, a required one is missing, or a value has the wrong type;
 - a name, path or pattern breaks the rules above, or a reason is blank;
+- `release` is neither `"single-stage"` nor `"two-stage"`, or
+  `minimum-version` is not a version `X.Y.Z`;
 - an `[[exclude]]` entry names a pattern, or the same path stands twice under
   `[[exclude]]`;
 - a pipeline combines `repo = true` with other keys, or says `repo = false`, or

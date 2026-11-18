@@ -212,3 +212,44 @@ fn the_pattern_schema_lets_through_everything_the_parser_accepts() {
         }
     }
 }
+
+#[test]
+fn the_version_pattern_accepts_exactly_what_the_parser_accepts() {
+    use nebensound_declaration::Version;
+
+    // Short strings hold no number beyond `u64`, the one thing the parser
+    // refuses that a pattern cannot say.
+    let regex = pattern(&committed()["definitions"]["Version"]);
+    for candidate in strings(&['0', '1', '.', 'v', '-'], 6) {
+        assert_eq!(
+            regex.is_match(&candidate),
+            Version::parse(&candidate).is_ok(),
+            "the schema and the parser disagree on {candidate:?}"
+        );
+    }
+}
+
+#[test]
+fn both_fields_stand_on_the_repository_and_on_a_component() {
+    let schema = committed();
+    let definitions = &schema["definitions"];
+
+    for table in ["Repo", "Component"] {
+        let properties = &definitions[table]["properties"];
+        assert_eq!(
+            properties["release"]["anyOf"][0]["$ref"], "#/definitions/Release",
+            "{table}"
+        );
+        assert_eq!(
+            properties["minimum-version"]["anyOf"][0]["$ref"], "#/definitions/Version",
+            "{table}"
+        );
+    }
+    let values: Vec<&serde_json::Value> = definitions["Release"]["oneOf"]
+        .as_array()
+        .expect("the values of a release mode")
+        .iter()
+        .map(|value| &value["const"])
+        .collect();
+    assert_eq!(values, ["single-stage", "two-stage"]);
+}

@@ -415,6 +415,7 @@ extensions = [".md"]
 produces = "thing"
 [target.t]
 accepts = ["thing"]
+release = "single-stage"
 [ecosystem.e]
 package-ecosystem = "e"
 manifests = ["E.toml"]
