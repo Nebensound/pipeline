@@ -1,5 +1,5 @@
 //! Which version every unit carries, read from real Git repositories: tags,
-//! the first-parent line of `HEAD` and the branch `origin/release`.
+//! the line of `main` and the branch `origin/release`.
 //!
 //! Each fixture is built commit by commit in a temporary directory and tagged
 //! the way the release stages tag it, so that what is checked is the history a
@@ -492,6 +492,104 @@ fn the_merges_of_main_below_the_start_of_release_promoted_nothing() {
     // goes on from the newest of them.
     assert_eq!(base(&analysis, "lib-v"), "0.0.3");
     assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.4"));
+}
+
+#[test]
+fn the_pull_request_into_release_reads_the_line_of_main() {
+    let git = units();
+    for prefix in ["v", "app-v", "lib-v"] {
+        release(&git, prefix);
+    }
+    git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
+    git.commit("fix: lib one");
+    release(&git, "v");
+    assert_eq!(release(&git, "lib-v"), "0.0.1-pre.2");
+    git.promote();
+    assert_eq!(release(&git, "lib-v"), "0.0.1");
+    git.write(&[("app/a.md", "# App\n\nOne.\n")]);
+    git.commit("fix: app one");
+    release(&git, "v");
+    assert_eq!(release(&git, "app-v"), "0.0.2");
+    git.write(&[("lib/b.md", "# Lib\n\nTwo.\n")]);
+    git.commit("fix: lib two");
+    release(&git, "v");
+    assert_eq!(release(&git, "lib-v"), "0.0.2-pre.1");
+
+    // Its first parent is release, whose first-parent line holds the merges
+    // of release; the commits of main and their tags are those the merge
+    // brings in.
+    git.merge_into_release();
+    let analysis = analysed(&git);
+    assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
+    assert_eq!(base(&analysis, "v"), "0.0.4");
+    assert_eq!(base(&analysis, "app-v"), "0.0.2");
+    assert_eq!(base(&analysis, "lib-v"), "0.0.1");
+    // A merge touches nothing and is no promoted commit of main.
+    assert!(versions(&analysis).values().all(Option::is_none));
+
+    // Once it is merged and origin/release points at it, the same holds for
+    // the merge itself.
+    git.run(&["update-ref", "refs/remotes/origin/release", "HEAD"]);
+    let analysis = analysed(&git);
+    assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
+    assert_eq!(base(&analysis, "lib-v"), "0.0.1");
+}
+
+#[test]
+fn the_pull_request_into_release_keeps_a_switch_to_one_stage() {
+    let both = UNITS.replace(
+        "path     = \"app\"\npipeline = \"none\"\n",
+        "path     = \"app\"\npipeline = \"none\"\nrelease  = \"two-stage\"\n",
+    );
+    let git = units_declared(&both);
+    assert_eq!(release(&git, "app-v"), "0.0.1-pre.1");
+    git.write(&[("app/a.md", "# App\n\nOne.\n")]);
+    git.commit("fix: app one");
+    assert_eq!(release(&git, "app-v"), "0.0.1-pre.2");
+    git.promote();
+    assert_eq!(release(&git, "app-v"), "0.0.1");
+    git.write(&[(".nebensound/repo.toml", UNITS)]);
+    git.commit("feat: release app in one stage");
+    assert_eq!(release(&git, "app-v"), "0.0.2");
+
+    // On release's own line the only tag of app is the pre-release on the
+    // first commit; on the line of main it was promoted and released since.
+    git.merge_into_release();
+    let analysis = analysed(&git);
+    assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
+    assert_eq!(base(&analysis, "app-v"), "0.0.2");
+}
+
+#[test]
+fn a_pull_request_into_main_onto_the_start_of_release_reads_its_own_line() {
+    // release is started on the tip of main, so the merge commit of a pull
+    // request into main has it as its first parent, like a merge into
+    // release. What it merges is no commit of main.
+    let git = units();
+    git.run(&["update-ref", "refs/remotes/origin/main", "main"]);
+    git.run(&["checkout", "--quiet", "-b", "feature"]);
+    git.write(&[("app/a.md", "# App\n\nA feature.\n")]);
+    let feature = git.commit("feat: a feature");
+    git.tag("app-v9.0.0", &feature);
+    git.run(&["checkout", "--quiet", "--detach", "main"]);
+    git.run(&[
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "--message",
+        "Merge feature",
+        "feature",
+    ]);
+
+    let analysis = analysed(&git);
+    let unexpected = found(&analysis, Rule::UnexpectedTag);
+    assert_eq!(unexpected.len(), 1, "{unexpected:?}");
+    assert!(
+        unexpected[0].contains("\"app-v9.0.0\"")
+            && unexpected[0].contains("off the first-parent line of main"),
+        "{unexpected:?}"
+    );
+    assert_eq!(base(&analysis, "app-v"), "0.0.0");
 }
 
 #[test]

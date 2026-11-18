@@ -9,16 +9,18 @@
 //! raises on its own, so two runs on `main` at the same time come to different
 //! numbers without waiting for each other.
 //!
+//! - The **line** of `main` is the first-parent line of `HEAD`; at a merge
+//!   into `release` it is `HEAD` followed by the first-parent line of the
+//!   commit of `main` it merges ([`History::line`]).
 //! - The **base** of a unit is its highest full release on a released commit
 //!   that `HEAD` contains; `0.0.0` without one. In one stage a released commit
-//!   lies on the first-parent line of `HEAD`. In two stages it is a commit
-//!   promoted into `release`, or a commit of that line older than the first
-//!   promotion, so that the releases from before a switch keep counting. A
-//!   pre-release counts, in either mode, only on a commit of that line.
+//!   lies on the line. In two stages it is a commit promoted into `release`,
+//!   or a commit of the line older than the first promotion, so that the
+//!   releases from before a switch keep counting. A pre-release counts, in
+//!   either mode, only on a commit of the line.
 //! - A commit **touches** a unit when it changes a file below the unit's path
 //!   or the declaration itself. The repository is touched by every commit.
-//!   Only the first-parent line of `HEAD` counts, and a merge commit touches
-//!   nothing.
+//!   Only the line counts, and a merge commit touches nothing.
 //! - **One stage**: a commit that touches the unit is the base raised once per
 //!   touching commit since the base, each by its own change.
 //! - **Two stages**: the target is the base raised once by the highest change
@@ -54,7 +56,7 @@ use crate::version::{Change, TagVersion, Version, change_of};
 /// what the declaration says about a unit is part of the unit.
 pub const DECLARATION: &str = ".nebensound/repo.toml";
 
-/// One commit of the line `HEAD` stands on.
+/// One commit of the line of `main`.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Commit {
     /// Its full hash.
@@ -120,8 +122,10 @@ pub struct Tag {
 pub struct History {
     /// Whether the clone holds only part of the history.
     pub shallow: bool,
-    /// The first-parent line of `HEAD`, `HEAD` first. Empty when the
-    /// repository has no commit yet.
+    /// The line of `main`, `HEAD` first: its first-parent line, or at a merge
+    /// into `release` the merge followed by the first-parent line of the
+    /// commit of `main` it merges, since below the merge's first parent lie
+    /// the merges of `release`. Empty when the repository has no commit yet.
     pub line: Vec<Commit>,
     /// The parents of every commit that `HEAD` or `origin/release` contains,
     /// the first parent first.
@@ -156,7 +160,7 @@ impl History {
 
     /// The commits promoted into `release`, the newest first: the second
     /// parent of each merge commit on its first-parent line, where that parent
-    /// is a commit of `main`, the first-parent line of `HEAD`. Nothing but such
+    /// is a commit of the line of `main`. Nothing but such
     /// merges enters the branch, so these are the commits of `main` that
     /// became full releases.
     ///
@@ -214,7 +218,7 @@ struct Context<'h> {
     head: Option<&'h Commit>,
     /// What it contains.
     in_head: BTreeSet<&'h str>,
-    /// The commits of its first-parent line.
+    /// The commits of the line of `main`.
     on_line: BTreeSet<&'h str>,
     /// The commits promoted into `release`.
     promoted: BTreeSet<&'h str>,
@@ -352,7 +356,7 @@ pub fn versions(units: &[Unit], history: &History) -> Versions {
 /// A tag that does not count is the warning `unexpected-tag`: one that is no
 /// version, one on something other than a commit, a full release on a commit
 /// that was not released ([`Context::released`]), and a pre-release on a
-/// commit off the first-parent line of `HEAD`. A tag on a commit
+/// commit off the line of `main`. A tag on a commit
 /// `HEAD` does not contain is passed over without one: it lies in history this
 /// commit does not have, such as a newer release, and whether it counts is not
 /// this commit's to judge.
@@ -409,7 +413,7 @@ fn count_tags<'h>(
             // first-parent line of main, and only there.
             if !context.on_line.contains(commit) {
                 findings.push(unexpected(
-                    "is a pre-release on a commit off the first-parent line of HEAD, and only \
+                    "is a pre-release on a commit off the first-parent line of main, and only \
                      a commit of that line is ever given a pre-release"
                         .to_owned(),
                 ));
@@ -425,7 +429,7 @@ fn count_tags<'h>(
                 findings.push(unexpected(
                     match release {
                         Release::SingleStage => {
-                            "is a full release on a commit off the first-parent line of HEAD; \
+                            "is a full release on a commit off the first-parent line of main; \
                              the unit is released in one stage, where only a commit of that \
                              line is one"
                         }

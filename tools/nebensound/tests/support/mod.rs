@@ -191,6 +191,23 @@ impl Git {
         promoted
     }
 
+    /// Checks out the merge commit GitHub builds for a pull request from
+    /// `main` into `release`: `release` merged with the tip of `main`, `HEAD`
+    /// detached on it, and `origin/main` where `main` is. Returns the merge.
+    pub fn merge_into_release(&self) -> String {
+        self.run(&["update-ref", "refs/remotes/origin/main", "main"]);
+        self.run(&["checkout", "--quiet", "--detach", "release"]);
+        self.run(&[
+            "merge",
+            "--quiet",
+            "--no-ff",
+            "--message",
+            "Merge main into release",
+            "main",
+        ]);
+        self.head()
+    }
+
     /// One call of git, without the configuration of whoever runs it.
     pub fn run(&self, args: &[&str]) -> String {
         let output = Command::new("git")

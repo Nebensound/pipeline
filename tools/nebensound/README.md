@@ -137,8 +137,9 @@ judge things the repository does not have.
 
 `git add` is enough; a commit is not needed, because `ls-files` reads the index.
 
-The versions come from Git as well: the first-parent line of `HEAD`, the tags
-and the branch `origin/release`. A repository without a commit has no version
+The versions come from Git as well: the line of `main` (the first-parent line
+of `HEAD`, or at a merge into `release` that of the commit of `main` it
+merges), the tags and the branches `origin/release` and `origin/main`. A repository without a commit has no version
 yet; a shallow clone is an error, because the history it lacks could hold the
 last release. Every option the person's Git configuration could change, such as
 rename detection, is given on the command line, so the answer does not depend

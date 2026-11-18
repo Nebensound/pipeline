@@ -24,6 +24,9 @@ pub const DECLARATION: &str = nebensound_declaration::history::DECLARATION;
 /// Where the full releases of a unit released in two stages are promoted to.
 const RELEASE_BRANCH: &str = "refs/remotes/origin/release";
 
+/// Where every version is given out.
+const MAIN_BRANCH: &str = "refs/remotes/origin/main";
+
 /// Why a repository could not be read.
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -245,6 +248,17 @@ impl Repository {
     /// clone one that says only that it is shallow: what it holds of the
     /// history would give versions that are wrong.
     ///
+    /// The line of `main` is the first-parent line of `HEAD`, except at a
+    /// merge into `release`: the merge commit GitHub builds for the pull
+    /// request from `main`, or the merge itself. Its first parent is a commit
+    /// of `release`, and the first-parent line below it holds the merges of
+    /// `release` rather than the commits of `main`. There the line is `HEAD`
+    /// followed by the first-parent line of the commit of `main` it merges.
+    /// Such a merge is told by its parents: the first one on the first-parent
+    /// line of `origin/release`, the second one on that of `origin/main`. A
+    /// pull request into `main` also merges onto a commit `origin/release` may
+    /// stand on, but what it merges is not a commit of `main` yet.
+    ///
     /// Every option a setting of the person running it could change is given
     /// on the command line, so that the answer does not depend on their
     /// configuration: rename detection would hide the old path of a moved
@@ -275,28 +289,32 @@ impl Repository {
                 ..History::default()
             });
         };
+        let main = self.commit(MAIN_BRANCH)?;
         let mut reachable = vec!["rev-list", "--parents", head.as_str()];
         reachable.extend(release.as_deref());
+        reachable.extend(main.as_deref());
         let parents = parents(&self.git_output(&reachable)?);
-        let line = line(&self.git_output(&[
-            "-c",
-            "log.showRoot=true",
-            "log",
-            "--first-parent",
-            "--diff-merges=first-parent",
-            "-z",
-            "--raw",
-            "--no-abbrev",
-            "--no-renames",
-            "--no-relative",
-            "--ignore-submodules=none",
-            "--no-color",
-            "--no-notes",
-            "--no-show-signature",
-            "--encoding=UTF-8",
-            "--format=%x00%H%x00%P%x00%B",
-            head.as_str(),
-        ])?);
+        let merged = match (
+            parents.get(&head).map(Vec::as_slice),
+            release.as_deref(),
+            main.as_deref(),
+        ) {
+            (Some([first, second, ..]), Some(release), Some(main))
+                if on_first_parent_line(&parents, release, first)
+                    && on_first_parent_line(&parents, main, second) =>
+            {
+                Some(second.as_str())
+            }
+            _ => None,
+        };
+        // Both listings put together read as one: each commit starts with
+        // an empty field, and the merge comes first, as `HEAD` does.
+        let mut listing = Vec::new();
+        if merged.is_some() {
+            listing = self.log(&["--max-count=1", head.as_str()])?;
+        }
+        listing.extend(self.log(&[merged.unwrap_or(head.as_str())])?);
+        let line = line(&listing);
         let mut declarations = BTreeMap::new();
         for object in line
             .iter()
@@ -318,6 +336,30 @@ impl Repository {
             tags,
             declarations,
         })
+    }
+
+    /// The first-parent line from a commit on, as [`line`] reads it.
+    fn log(&self, start: &[&str]) -> Result<Vec<u8>, Error> {
+        let mut args = vec![
+            "-c",
+            "log.showRoot=true",
+            "log",
+            "--first-parent",
+            "--diff-merges=first-parent",
+            "-z",
+            "--raw",
+            "--no-abbrev",
+            "--no-renames",
+            "--no-relative",
+            "--ignore-submodules=none",
+            "--no-color",
+            "--no-notes",
+            "--no-show-signature",
+            "--encoding=UTF-8",
+            "--format=%x00%H%x00%P%x00%B",
+        ];
+        args.extend(start);
+        self.git_output(&args)
     }
 
     /// The commit a reference names, or [`None`] when it names none.
@@ -401,6 +443,25 @@ fn parents(listing: &[u8]) -> BTreeMap<String, Vec<String>> {
             (ids.next().unwrap_or_default(), ids.collect())
         })
         .collect()
+}
+
+/// Whether a commit lies on the first-parent line that starts at another.
+fn on_first_parent_line(
+    parents: &BTreeMap<String, Vec<String>>,
+    start: &str,
+    commit: &str,
+) -> bool {
+    let mut next = Some(start);
+    while let Some(current) = next {
+        if current == commit {
+            return true;
+        }
+        next = parents
+            .get(current)
+            .and_then(|parents| parents.first())
+            .map(String::as_str);
+    }
+    false
 }
 
 /// The first-parent line from `log --raw`.

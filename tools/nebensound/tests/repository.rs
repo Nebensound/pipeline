@@ -180,6 +180,7 @@ fn a_git_that_does_not_answer_about_the_history_is_reported() {
     for word in [
         "--is-shallow-repository",
         "refs/remotes/origin/release^{commit}",
+        "refs/remotes/origin/main^{commit}",
         "for-each-ref",
         "rev-list",
         "log",
@@ -200,4 +201,20 @@ fn a_git_that_does_not_answer_about_the_history_is_reported() {
         .analyse(&central().expect("what is compiled into the tool"))
         .expect_err("the history is part of phase 0");
     assert!(error.to_string().contains("refused log"), "{error}");
+
+    // A merge into release reads the merge on its own, then the line of
+    // main from the commit it merges.
+    git.write(&[("README.md", "# x\n\nMore.\n")]);
+    git.commit("docs: more");
+    git.merge_into_release();
+    for word in ["--max-count=1", "cat-file"] {
+        let error = Repository::at(git.path())
+            .with_git(refusing(tools.path(), word))
+            .history()
+            .expect_err(word);
+        assert!(
+            error.to_string().contains(&format!("refused {word}")),
+            "{word}: {error}"
+        );
+    }
 }

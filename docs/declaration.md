@@ -325,29 +325,38 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
 
 ### How a version is resolved
 
+- **The line of `main`** is the first-parent line of `HEAD`. A merge into
+  `release` is the exception: the merge commit GitHub builds for the pull
+  request from `main`, or the merge itself. Below its first parent lie the
+  merges of `release`, so there the line is `HEAD` followed by the
+  first-parent line of the commit of `main` it merges. Phase 0 tells such a
+  merge by its parents: the first one lies on the first-parent line of
+  `origin/release`, the second one on that of `origin/main`.
 - **The base** is the unit's highest full release on a released commit that
   `HEAD` contains. Without such a tag the base is `0.0.0`. A person with write
   access can push any tag, so only tags on released commits count:
-  - in one stage, a commit on the first-parent line of `HEAD`;
+  - in one stage, a commit on the line of `main`;
   - in two stages, a commit promoted into `release` (the second parent of a
     merge commit on the first-parent line of `origin/release`, when it is a
-    commit of the first-parent line of `HEAD`), or a commit on the
-    first-parent line of `HEAD` older than the first promotion, so that the
-    releases from before a switch to two stages keep counting. While nothing
-    is promoted yet, every commit of that line is older than the first
-    promotion. Below the commit `release` was started on, the first-parent
-    line of `origin/release` goes on through the history of `main`; a merge
-    there brought a side branch into `main` and promoted nothing.
+    commit of the line of `main`), or a commit on the line of `main` older
+    than the first promotion, so that the releases from before a switch to
+    two stages keep counting. While nothing is promoted yet, every commit of
+    that line is older than the first promotion. Below the commit `release`
+    was started on, the first-parent line of `origin/release` goes on through
+    the history of `main`; a merge there brought a side branch into `main`
+    and promoted nothing. A full release from a later period in one stage is
+    newer than the first promotion and does not count once the unit is back
+    in two stages; whether it should is not decided yet.
 
   Any other full release with the unit's prefix on a commit `HEAD` contains is
   the warning `unexpected-tag` and does not count. A pre-release is given to a
-  commit of the first-parent line of `HEAD` in either mode, so one on any other
-  commit `HEAD` contains is the warning `unexpected-tag` as well.
+  commit of the line of `main` in either mode, so one on any other commit
+  `HEAD` contains is the warning `unexpected-tag` as well.
 
 - **A commit touches a unit** when it changes a file below the unit's path, or
   `.nebensound/repo.toml`. The repository is touched by every commit. Only the
-  first-parent line of `HEAD` counts, and a merge commit touches nothing. A
-  moved or removed file touches the unit it left as well.
+  line of `main` counts, and a merge commit touches nothing. A moved or removed
+  file touches the unit it left as well.
 - **The change of a commit** follows from its message as a
   [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/). A
   message that is not a Conventional Commit counts as a patch. What a change
@@ -405,8 +414,10 @@ this window or the release stages do is not decided yet.
 
 Phase 0 reads the whole history and every tag. A shallow clone is the error
 `shallow-clone`, and a unit released in two stages needs the branch
-`origin/release` (`missing-release-branch`). The job `nebensound / Declare`
-checks the repository out with both. A release tag on a commit `HEAD` does not
+`origin/release` (`missing-release-branch`). A merge into `release` is told
+apart only with `origin/main` as well; without it, the line of `main` is the
+first-parent line of `HEAD`. The job `nebensound / Declare` checks the
+repository out with its whole history and every branch and tag. A release tag on a commit `HEAD` does not
 contain is passed over without a finding: it lies in history this commit does
 not have, such as a newer release, and whether it counts is not this commit's
 to judge.
@@ -549,14 +560,14 @@ ecosystem from its `dependabot` list. An ecosystem of the base set is exempt.
 Warning. A tag carries a unit's prefix and is no release of that unit, so it
 does not count: it does not read `<prefix>X.Y.Z` or `<prefix>X.Y.Z-pre.N`, it
 points at something other than a commit, it is a full release on a commit
-that was not released, or it is a pre-release off the first-parent line of
-`HEAD`. In one stage only a commit on the first-parent line of `HEAD` is
-released, so a full release on a merged side branch does not count. In two
+that was not released, or it is a pre-release off the line of `main`. In one
+stage only a commit on the line of `main` is released, so a full release on a
+merged side branch does not count. In two
 stages only a promoted commit is released, or a commit of that line older than
 the first promotion, so a full release on any other commit of `main` does not
 count, even once a later promotion makes `origin/release` contain it. A
-pre-release is given only to a commit of the first-parent line of `HEAD`, in
-either mode, so one on a merged side branch does not count either, and does not
+pre-release is given only to a commit of the line of `main`, in either mode, so
+one on a merged side branch does not count either, and does not
 stop a switch to one stage.
 A person with write access can push any tag; only the releases the pipeline
 makes count. Delete the tag, or rename it so that it carries no unit's prefix.
