@@ -1,7 +1,0 @@
-[package]
-name    = "proof-58"
-version = "0.0.0"
-edition = "2021"
-
-[lints]
-workspac = true
