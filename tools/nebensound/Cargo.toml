@@ -30,7 +30,6 @@ nebensound-declaration = { path = "crates/nebensound-declaration", features = [
 ] }
 
 clap.workspace         = true
-evidence-a             = { path = "crates/evidence-a" }
 globset.workspace      = true
 ignore.workspace       = true
 jsonc-parser.workspace = true
@@ -70,7 +69,7 @@ required-features = ["ui"]
 workspace = true
 
 [workspace]
-members  = ["crates/*", "crates/evidence-a/inner"]
+members  = ["crates/*"]
 resolver = "3"
 
 [workspace.package]

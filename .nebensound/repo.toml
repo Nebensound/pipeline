@@ -18,11 +18,3 @@ pipeline = "none"
 path       = "tools/nebensound"
 pipeline   = "rust-workspace"
 versioning = "none"
-
-[[exclude]]
-path   = "tools/nebensound/crates/evidence-a"
-reason = "evidence for #10: a workspace member that stands for a vendored copy"
-
-[[include]]
-path   = "tools/nebensound/crates/evidence-a/inner"
-reason = "evidence for #10: a package inside the excluded one, kept in"
