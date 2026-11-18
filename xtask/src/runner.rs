@@ -6,9 +6,10 @@
 //! over (`bash --noprofile --norc -eo pipefail`), and the file commands a step
 //! writes (`GITHUB_OUTPUT`, `GITHUB_ENV`, `GITHUB_PATH`) are read back
 //! afterwards. A step that calls another composite action runs that action's
-//! steps the same way, fetched at the ref the step names. So the xtask runs
-//! the blocks' own steps, read from their `action.yml`, and keeps no copy of
-//! them that could drift.
+//! steps the same way, fetched at the ref the step names; inside it,
+//! `success()` and `failure()` look at that action's own steps. So the xtask
+//! runs the blocks' own steps, read from their `action.yml`, and keeps no copy
+//! of them that could drift.
 //!
 //! An action that runs on Node.js cannot run here. The few the blocks call
 //! have a stand-in below; any other one is refused by name.
