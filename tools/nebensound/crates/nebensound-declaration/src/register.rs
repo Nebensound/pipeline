@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::model::Publish;
+use crate::model::{Publish, Release};
 use crate::names::{
     ArtifactKind, BuildName, CheckName, EcosystemName, Extension, PresetName, TargetName,
     VersionWriterName,
@@ -84,6 +84,10 @@ pub struct Target {
     /// A check the unit must run before it may publish here.
     #[serde(default)]
     pub requires_check: Option<CheckName>,
+    /// How a unit that publishes here is released when its declaration does
+    /// not say. Required: a target that left it open would leave the default
+    /// of every unit publishing there open as well.
+    pub release: Release,
 }
 
 /// A named pipeline, looked up instead of written out.

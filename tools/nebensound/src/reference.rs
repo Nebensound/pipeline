@@ -145,14 +145,18 @@ fn targets(register: &Register) -> String {
                 code(name),
                 codes(&target.accepts),
                 target.requires_check.as_ref().map_or_else(none, code),
+                code(&target.release),
             ]
         })
         .collect();
     section(
         "Publish targets",
         "A target accepts some kinds of artifact, and it can demand that a check is in\n\
-         force for the unit that publishes there.",
-        &["Target", "Accepts", "Requires check"],
+         force for the unit that publishes there. It also says how a unit that publishes\n\
+         there is released when the unit does not say: a unit with several targets is\n\
+         released in two stages if any of them is, and a unit without a target in one\n\
+         (see [Releases](declaration.md#releases)).",
+        &["Target", "Accepts", "Requires check", "Release"],
         &rows,
     )
 }

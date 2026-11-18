@@ -7,13 +7,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::finding::{Finding, Rule, UnitName};
-use crate::model::{Declaration, Pipeline, Publish, Versioning};
+use crate::model::{Declaration, Pipeline, Publish, Release, Versioning};
 use crate::names::{
-    BuildName, CheckName, ComponentName, EcosystemName, PresetName, Reason, VersionWriterName,
+    BuildName, CheckName, ComponentName, EcosystemName, PresetName, Reason, TargetName,
+    VersionWriterName,
 };
 use crate::path::RelativePath;
 use crate::register::Register;
 use crate::tree::Tree;
+use crate::version::Version;
 
 /// Where a unit came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,6 +83,61 @@ impl ResolvedPipeline {
     }
 }
 
+/// Where a unit's release mode came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReleaseSource {
+    /// Written on the unit. It wins over the default its publish targets
+    /// would have decided, which is kept so that a log can say what it won
+    /// over.
+    Written {
+        /// What the publish targets would have decided.
+        default: Release,
+    },
+    /// Left out, so the unit's publish targets decided: two stages if any of
+    /// them releases in two, otherwise one.
+    Targets {
+        /// The targets that decided it: those releasing in two stages when
+        /// there are any, otherwise every target. Empty for a unit that
+        /// publishes nothing, which is released in one stage.
+        deciding: Vec<TargetName>,
+    },
+    /// Inherited from the unit that generated this one.
+    Inherited {
+        /// The unit that generated it.
+        by: UnitName,
+    },
+}
+
+/// How a unit's version reaches a full release, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedRelease {
+    /// One stage or two.
+    pub release: Release,
+    /// Where that came from.
+    pub source: ReleaseSource,
+}
+
+/// Where a unit's minimum version came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MinimumVersionSource {
+    /// Written on the unit.
+    Written,
+    /// Inherited from the unit that generated this one.
+    Inherited {
+        /// The unit that generated it.
+        by: UnitName,
+    },
+}
+
+/// The version below which a unit's version never falls, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedMinimumVersion {
+    /// The floor.
+    pub version: Version,
+    /// Where it came from.
+    pub source: MinimumVersionSource,
+}
+
 /// One unit, with everything about it decided.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unit {
@@ -96,6 +153,10 @@ pub struct Unit {
     pub versioning: Versioning,
     /// Whether it carries a version of its own.
     pub carries_version: bool,
+    /// Whether it is released in one stage or in two.
+    pub release: ResolvedRelease,
+    /// The version below which its version never falls, if one is set.
+    pub minimum_version: Option<ResolvedMinimumVersion>,
     /// Checks it allows to find nothing.
     pub allow_unused: BTreeMap<CheckName, Reason>,
 }
@@ -144,6 +205,8 @@ pub fn resolve(declaration: &Declaration, register: &Register, tree: &Tree) -> R
             name: unit,
             path: component.path.clone(),
             origin: Origin::Declared,
+            release: release(component.release, &pipeline, register),
+            minimum_version: minimum_version(component.minimum_version),
             pipeline,
             versioning,
             carries_version: versioning.covers_self(),
@@ -180,21 +243,78 @@ fn repository_unit(
         Versioning::Own
     };
 
+    let pipeline = resolve_pipeline(
+        declaration.repo.pipeline.as_ref(),
+        declaration,
+        register,
+        &UnitName::Repository,
+        findings,
+    );
     Unit {
         name: UnitName::Repository,
         path: RelativePath::root(),
         origin: Origin::Declared,
-        pipeline: resolve_pipeline(
-            declaration.repo.pipeline.as_ref(),
-            declaration,
-            register,
-            &UnitName::Repository,
-            findings,
-        ),
+        release: release(declaration.repo.release, &pipeline, register),
+        minimum_version: minimum_version(declaration.repo.minimum_version),
+        pipeline,
         versioning,
         carries_version: true,
         allow_unused: declaration.repo.allow_unused.clone(),
     }
+}
+
+/// The release mode a unit's publish targets decide: two stages if any of
+/// them releases in two, otherwise one — and one for a unit without a target.
+/// Returned with the targets that decided it.
+fn release_by_targets(
+    pipeline: &ResolvedPipeline,
+    register: &Register,
+) -> (Release, Vec<TargetName>) {
+    let targets = pipeline.targets();
+    // Every target here is one the register has: resolving the pipeline
+    // already dropped the unknown ones with a finding.
+    let two_stage: Vec<TargetName> = targets
+        .iter()
+        .filter(|target| {
+            register
+                .target
+                .get(*target)
+                .is_some_and(|definition| definition.release == Release::TwoStage)
+        })
+        .cloned()
+        .collect();
+    if two_stage.is_empty() {
+        (Release::SingleStage, targets.to_vec())
+    } else {
+        (Release::TwoStage, two_stage)
+    }
+}
+
+/// What holds for a declared unit: what it wrote, otherwise what its targets
+/// decide.
+fn release(
+    written: Option<Release>,
+    pipeline: &ResolvedPipeline,
+    register: &Register,
+) -> ResolvedRelease {
+    let (default, deciding) = release_by_targets(pipeline, register);
+    match written {
+        Some(release) => ResolvedRelease {
+            release,
+            source: ReleaseSource::Written { default },
+        },
+        None => ResolvedRelease {
+            release: default,
+            source: ReleaseSource::Targets { deciding },
+        },
+    }
+}
+
+fn minimum_version(written: Option<Version>) -> Option<ResolvedMinimumVersion> {
+    written.map(|version| ResolvedMinimumVersion {
+        version,
+        source: MinimumVersionSource::Written,
+    })
 }
 
 fn resolve_pipeline(
@@ -398,13 +518,28 @@ fn generate_children(declared: &[Unit], tree: &Tree, findings: &mut Vec<Finding>
                             by: parent.name.clone(),
                         },
                         // A generated unit has nowhere to say anything, so it
-                        // inherits everything from the unit that made it.
+                        // inherits everything from the unit that made it: the
+                        // pipeline, the release mode and the minimum version.
                         pipeline: ResolvedPipeline {
                             source: PipelineSource::Inherited,
                             ..parent.pipeline.clone()
                         },
                         versioning: Versioning::Own,
                         carries_version: true,
+                        release: ResolvedRelease {
+                            release: parent.release.release,
+                            source: ReleaseSource::Inherited {
+                                by: parent.name.clone(),
+                            },
+                        },
+                        minimum_version: parent.minimum_version.as_ref().map(|floor| {
+                            ResolvedMinimumVersion {
+                                version: floor.version,
+                                source: MinimumVersionSource::Inherited {
+                                    by: parent.name.clone(),
+                                },
+                            }
+                        }),
                         allow_unused: parent.allow_unused.clone(),
                     });
                 }

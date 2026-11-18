@@ -26,6 +26,14 @@
           },
           "type": "object"
         },
+        "minimum-version": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Version"
+            }
+          ],
+          "description": "The version it gets is never lower than this."
+        },
         "path": {
           "allOf": [
             {
@@ -41,6 +49,14 @@
             }
           ],
           "description": "What runs for it."
+        },
+        "release": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Release"
+            }
+          ],
+          "description": "Whether it is released in one stage or in two. Left out, its publish\ntargets decide."
         },
         "versioning": {
           "anyOf": [
@@ -231,6 +247,21 @@
       "pattern": "^(?:\\.|(?:[^/\\\\.][^/\\\\]*|\\.[^/\\\\.][^/\\\\]*|\\.\\.[^/\\\\]+)(?:/(?:[^/\\\\.][^/\\\\]*|\\.[^/\\\\.][^/\\\\]*|\\.\\.[^/\\\\]+))*/?)$",
       "type": "string"
     },
+    "Release": {
+      "description": "How a unit's version reaches a full release.\n\nWritten down rather than read off the repository: whether a branch\n`release` exists says nothing, since a deleted branch must not turn the next\nmerge into a full release.",
+      "oneOf": [
+        {
+          "const": "single-stage",
+          "description": "A merge to `main` is a full release.",
+          "type": "string"
+        },
+        {
+          "const": "two-stage",
+          "description": "A merge to `main` is a pre-release, and a pull request from `main` into\n`release` makes the full release.",
+          "type": "string"
+        }
+      ]
+    },
     "Repo": {
       "additionalProperties": false,
       "description": "The repository as a unit.",
@@ -253,6 +284,14 @@
           ],
           "description": "The default a component can ask for with `pipeline.repo = true`."
         },
+        "minimum-version": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Version"
+            }
+          ],
+          "description": "The version it gets is never lower than this."
+        },
         "pipeline": {
           "anyOf": [
             {
@@ -260,6 +299,14 @@
             }
           ],
           "description": "What runs for it."
+        },
+        "release": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Release"
+            }
+          ],
+          "description": "Whether it is released in one stage or in two. Left out, its publish\ntargets decide."
         },
         "versioning": {
           "anyOf": [
@@ -275,6 +322,11 @@
     "TargetName": {
       "description": "A valid target name: lowercase letters, digits, '-' and '.', starting and ending on a letter or digit, without '..'.",
       "pattern": "^[a-z0-9](?:(?:\\.?[a-z0-9-])*\\.?[a-z0-9])?$",
+      "type": "string"
+    },
+    "Version": {
+      "description": "A version of three numbers, as X.Y.Z, without a leading zero, a prefix or a suffix.",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$",
       "type": "string"
     },
     "VersionWriterName": {

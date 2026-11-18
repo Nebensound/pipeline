@@ -94,15 +94,18 @@ it.
 ## Publish targets
 
 A target accepts some kinds of artifact, and it can demand that a check is in
-force for the unit that publishes there.
+force for the unit that publishes there. It also says how a unit that publishes
+there is released when the unit does not say: a unit with several targets is
+released in two stages if any of them is, and a unit without a target in one
+(see [Releases](declaration.md#releases)).
 
-| Target             | Accepts                              | Requires check |
-| ------------------ | ------------------------------------ | -------------- |
-| `crates.io`        | `crate`                              | `rust`         |
-| `ghcr`             | `container`                          | none           |
-| `pages`            | `site`                               | none           |
-| `private-registry` | `crate`                              | none           |
-| `release-assets`   | `executable`, `firmware`, `document` | none           |
+| Target             | Accepts                              | Requires check | Release        |
+| ------------------ | ------------------------------------ | -------------- | -------------- |
+| `crates.io`        | `crate`                              | `rust`         | `two-stage`    |
+| `ghcr`             | `container`                          | none           | `single-stage` |
+| `pages`            | `site`                               | none           | `single-stage` |
+| `private-registry` | `crate`                              | none           | `two-stage`    |
+| `release-assets`   | `executable`, `firmware`, `document` | none           | `single-stage` |
 
 ## Version writers
 

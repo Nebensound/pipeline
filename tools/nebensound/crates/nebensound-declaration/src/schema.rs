@@ -24,6 +24,7 @@ use crate::names::{
 };
 use crate::path::RelativePath;
 use crate::pattern::Pattern;
+use crate::version::Version;
 
 /// The schema of `.nebensound/repo.toml`, as JSON Schema draft 7.
 ///
@@ -64,6 +65,11 @@ const NAME: &str = r"[a-z0-9](?:(?:\.?[a-z0-9-])*\.?[a-z0-9])?";
 /// One segment of a path as `RelativePath::new` accepts it: not empty, not
 /// `.` or `..`, and neither `/` nor a backslash in it.
 const SEGMENT: &str = r"(?:[^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+)";
+
+/// One number of a version as `Version::parse` accepts it: `0`, or digits
+/// that do not start on `0`. The parser also refuses a number beyond `u64`,
+/// which a pattern cannot say; there the schema is looser.
+const NUMBER: &str = r"(?:0|[1-9][0-9]*)";
 
 fn name_schema(kind: &str) -> Schema {
     json_schema!({
@@ -131,6 +137,21 @@ impl JsonSchema for RelativePath {
             "description": "A path inside the repository, separated by '/': '.' for the \
                             repository itself, never absolute, no '.' or '..' segment.",
             "pattern": path_pattern(),
+        })
+    }
+}
+
+impl JsonSchema for Version {
+    fn schema_name() -> Cow<'static, str> {
+        "Version".into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "type": "string",
+            "description": "A version of three numbers, as X.Y.Z, without a leading zero, a \
+                            prefix or a suffix.",
+            "pattern": format!(r"^{NUMBER}\.{NUMBER}\.{NUMBER}$"),
         })
     }
 }

@@ -95,7 +95,8 @@ fn the_page_names_what_the_register_says() {
             "`Dockerfile`, `Containerfile`",
         ],
         &["`docker`", "`container`"],
-        &["`crates.io`", "`crate`", "`rust`"],
+        &["`crates.io`", "`crate`", "`rust`", "`two-stage`"],
+        &["`ghcr`", "`container`", "none", "`single-stage`"],
         &[
             "`cargo`",
             "the package version in the unit's Cargo.toml, written through Cargo",
