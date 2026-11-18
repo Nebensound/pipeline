@@ -162,6 +162,26 @@ the only place where a file is taken out of a check
 ([#10](https://github.com/Nebensound/pipeline/issues/10)). `exclude` in
 `taplo.toml` already takes nothing out of `check-toml`.
 
+## A repository's own checks
+
+Checks that belong to one repository alone run through its xtask, inside
+`Check`, without a workflow or a ruleset entry of their own:
+
+- The xtask is a Rust program whose manifest lies at `xtask/Cargo.toml` in the
+  repository root, reached from the root as `cargo xtask` (usually through an
+  alias in `.cargo/config.toml`).
+- When `xtask/Cargo.toml` exists, the last step of
+  `nebensound / Check repository` runs `cargo xtask check --all` from the
+  repository root, with the toolchain the xtask pins: the `rust-toolchain.toml`
+  in `xtask/`, else the one in the repository root. An xtask that pins none
+  fails the step.
+- A non-zero exit code fails the step, and with it `nebensound / Check`. What
+  the xtask prints stands in the log of that step.
+- A repository without `xtask/Cargo.toml` gets the step skipped and nothing
+  else.
+- The xtask is Rust code like any other: phase 0 demands a unit that runs the
+  `rust` check over `xtask/`.
+
 ## Licence
 
 Licensed under the [European Union Public Licence v. 1.2](LICENSE) (EUPL-1.2).

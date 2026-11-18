@@ -137,6 +137,44 @@ jobs:
         with:
           working-directory: ${{ matrix.path }}
 
+      # The repository's own checks, as its xtask runs them: the last step of
+      # `Check repository`, so that they are as mandatory as the register's
+      # without a workflow or a ruleset entry of their own. Without
+      # xtask/Cargo.toml the step is skipped and nothing else changes.
+      #
+      # The toolchain is the one the xtask pins: the rust-toolchain.toml in
+      # xtask/, else the one in the repository root. rustup resolves it from
+      # xtask/, and the command runs from the root with that toolchain, since
+      # the root is where `cargo xtask` is reached. An xtask that pins none
+      # fails here rather than running on whatever the runner brings. That the
+      # xtask's own code is checked is phase 0's demand: xtask/ needs a unit
+      # that runs the rust check, like any other Rust code.
+      - name: xtask check --all
+        if: >-
+          ${{ !cancelled() && matrix.kind == 'repository'
+          && hashFiles('xtask/Cargo.toml') != '' }}
+        run: |
+          set -euo pipefail
+          pin=""
+          for file in xtask/rust-toolchain.toml xtask/rust-toolchain \
+            rust-toolchain.toml rust-toolchain; do
+            if [ -f "$file" ]; then
+              pin="$file"
+              break
+            fi
+          done
+          if [ -z "$pin" ]; then
+            echo "::error file=xtask/Cargo.toml::The xtask pins no toolchain: neither xtask/ nor the repository root holds a rust-toolchain.toml."
+            exit 1
+          fi
+          # A top-level command, so that set -e stops the step at a failing
+          # install; inside $(...) bash would not.
+          (cd xtask && rustup toolchain install)
+          toolchain="$(cd xtask && rustup show active-toolchain | cut -d ' ' -f 1)"
+          echo "Running the xtask with $toolchain, pinned in $pin."
+          export RUSTUP_TOOLCHAIN="$toolchain"
+          cargo xtask check --all
+
   # The one name a ruleset can require. A matrix gives one context per unit,
   # and those names change with the repository; this job gathers them.
   check:
