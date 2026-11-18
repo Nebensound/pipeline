@@ -2102,6 +2102,42 @@
           "key": "https://github.com/boozook/playdate/blob/main/support/build/README.md#options"
         }
       }
+    },
+    "PackageLints": {
+      "type": "object",
+      "properties": {
+        "rust": {
+          "$ref": "cargo-lints-rust.json",
+          "description": "Lint settings for the Rust compiler. See the Rust compiler's [individual lints](https://doc.rust-lang.org/rustc/lints/listing/index.html) or [lint groups](https://doc.rust-lang.org/rustc/lints/groups.html)."
+        },
+        "rustdoc": {
+          "$ref": "cargo-lints-rustdoc.json",
+          "description": "Lint settings for [Rustdoc](https://doc.rust-lang.org/rustdoc/). See Rustdoc's [individual lints](https://doc.rust-lang.org/rustdoc/lints.html)."
+        },
+        "clippy": {
+          "$ref": "cargo-lints-clippy.json",
+          "description": "Lint settings for [Clippy](https://doc.rust-lang.org/clippy/). See Clippy's [individual lints](https://rust-lang.github.io/rust-clippy/master/index.html) or [lint groups](https://doc.rust-lang.org/clippy/lints.html) documentation."
+        },
+        "cargo": {
+          "$ref": "cargo-lints-cargo.json",
+          "description": "Lint settings for [Cargo](https://doc.rust-lang.org/cargo/). See Cargo's [individual lints](https://doc.rust-lang.org/cargo/reference/lints.html) documentation."
+        },
+        "workspace": {
+          "type": "boolean",
+          "description": "Inherit lints from the workspace manifest."
+        }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "description": "Tool lint settings",
+        "additionalProperties": {
+          "$ref": "#/definitions/Lint"
+        },
+        "x-tombi-additional-key-label": "lint_name",
+        "x-tombi-table-keys-order": "version-sort"
+      },
+      "x-tombi-additional-key-label": "tool_name",
+      "x-tombi-table-keys-order": "version-sort"
     }
   },
   "description": "A schema for `Cargo.toml`.",
@@ -2356,28 +2392,12 @@
     },
     "lints": {
       "description": "Override the default level of lints from different tools by assigning them to a new level in a table.",
-      "anyOf": [
-        {
-          "$ref": "#/definitions/Lints"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "workspace": {
-              "type": "boolean",
-              "description": "Inherit lints from the workspace manifest."
-            }
-          },
-          "required": ["workspace"],
-          "additionalProperties": false,
-          "x-tombi-table-keys-order": "version-sort"
-        }
-      ],
       "x-taplo": {
         "links": {
           "key": "https://doc.rust-lang.org/stable/cargo/reference/manifest.html#the-lints-section"
         }
-      }
+      },
+      "$ref": "#/definitions/PackageLints"
     },
     "patch": {
       "description": "The `[patch]` section of `Cargo.toml` can be used to override dependencies\nwith other copies. The syntax is similar to the\n[`[dependencies]`](https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html) section.\n\n",
