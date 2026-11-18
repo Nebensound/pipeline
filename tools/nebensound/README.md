@@ -26,7 +26,7 @@ channel would be a second version that can fall behind.
 ## Calls
 
 ```text
-nebensound [-C <directory>] [check | tree | explain <path> | plan | schema | ui]
+nebensound [-C <directory>] [check | tree | explain <path> | plan | schema | register | ui]
 ```
 
 | Call             | What it does                                                                                                                                                                                                                                                                                     |
@@ -36,6 +36,7 @@ nebensound [-C <directory>] [check | tree | explain <path> | plan | schema | ui]
 | `explain <path>` | What holds for one path and why: which units contain it, which checks are in force, how its coverage stands.                                                                                                                                                                                     |
 | `plan`           | Which unit runs which check and builds what, as one line of JSON for a matrix to read.                                                                                                                                                                                                           |
 | `schema`         | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. `check-toml` assigns the copy committed beside it; [its README](../../.github/actions/check-toml/schemas/README.md#nebensound-declarationjson) says how to write that copy again. |
+| `register`       | The register as Markdown, exactly as [`docs/register.md`](../../docs/register.md) holds it, which a test compares with this output. Reads no repository.                                                                                                                                         |
 | `ui`             | The same result to walk through. Only in a build with the `ui` feature.                                                                                                                                                                                                                          |
 
 Exit code: `0` when there is nothing to report; `1` when the repository has a
