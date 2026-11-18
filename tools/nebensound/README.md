@@ -191,11 +191,13 @@ cargo test --workspace --locked --no-default-features
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked
 cargo llvm-cov --workspace --all-features --locked \
   --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
+cargo llvm-cov --workspace --no-default-features --locked \
+  --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
 ```
 
 Together these are the gate for the tool: formatting, Clippy with
 `-D warnings` in both builds, the tests in both builds, the doc tests, rustdoc
-and full coverage of lines, regions and functions.
+and full coverage of lines, regions and functions in both builds.
 
 Raw mode, the alternate screen and the blocking read live in `src/terminal.rs`
 and are checked from inside a **pseudo terminal** (`tests/pty.rs`) — the same
