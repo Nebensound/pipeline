@@ -10,9 +10,9 @@ Thank you for helping. Every change follows the rules in
    instead, as described in [`SECURITY.md`](SECURITY.md).
 2. Create a branch from `main`, in a fork if you cannot push to this
    repository.
-3. Open one pull request per issue, against `main`. Its description names the
-   decisions the issue leaves open, and it closes the issue with
-   `Closes #<number>`.
+3. Open one pull request per issue, against `main`. Its description lists the
+   details it chose within the issue's scope and any decision the issue does
+   not make, and it closes the issue with `Closes #<number>`.
 
 ## Commit messages
 
