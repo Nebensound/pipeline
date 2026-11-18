@@ -1,0 +1,172 @@
+name: check-rust
+description: >-
+  The Rust check over one Cargo workspace: formatting, Clippy, tests in every
+  feature mode, documentation, a release build, the oldest supported Rust
+  version, full coverage, and every published package built and tested from
+  its own contents.
+
+# One input, and it is not a setting: where the workspace is. It comes from the
+# plan of phase 0, never from the calling repository. The toolchain is the one
+# the workspace pins in its rust-toolchain.toml, and the oldest supported
+# version is its `rust-version` — both are read here rather than handed in, so
+# that no repository can tell this check to look away.
+#
+# One step runs elsewhere: coverage is measured on a nightly toolchain pinned
+# below, because only there does `#[coverage(off)]` take effect.
+
+inputs:
+  working-directory:
+    description: The directory of the Cargo workspace, as the plan names it.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # A workspace that pulls in a database engine fills a hosted runner before
+    # its tests are done. What is removed here is software this check never
+    # calls.
+    - name: Make room on the runner
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
+    - name: Install the toolchain the workspace pins
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        rustup toolchain install
+        rustup component add rustfmt clippy
+        rustc --version
+
+    - name: Cache what Cargo builds
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: ${{ inputs.working-directory }}
+
+    - name: Formatting
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: cargo fmt --all -- --check
+
+    - name: Clippy, all features
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+
+    - name: Clippy, no default features
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: cargo clippy --locked --workspace --all-targets --no-default-features -- -D warnings
+
+    - name: Tests, all features
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        cargo test --locked --workspace --all-features
+        cargo test --locked --workspace --all-features --doc
+
+    - name: Tests, no default features
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: cargo test --locked --workspace --no-default-features
+
+    - name: Documentation without warnings
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        RUSTDOCFLAGS: -D warnings
+      run: cargo doc --locked --workspace --all-features --no-deps
+
+    - name: Release build
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: cargo build --locked --workspace --all-features --release
+
+    # The oldest `rust-version` any package of the workspace claims. A
+    # workspace that claims none has nothing to prove here.
+    - name: Oldest supported Rust version
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        msrv="$(cargo metadata --locked --format-version 1 --no-deps \
+          | jq -r '[.packages[].rust_version | select(. != null)] | sort_by(split(".") | map(tonumber)) | first // empty')"
+        if [ -z "$msrv" ]; then
+          echo "No package claims a rust-version, so there is no oldest version to build with."
+          exit 0
+        fi
+        echo "Building with $msrv, the oldest version a package claims."
+        rustup toolchain install "$msrv" --profile minimal
+        cargo "+$msrv" build --locked --workspace --all-features
+
+    # Both pinned, so that what measures the coverage is the same in every run,
+    # and both raised by hand in a pull request of their own.
+    #
+    # The toolchain is a nightly pinned by date. On a nightly toolchain
+    # cargo-llvm-cov sets the cfg `coverage_nightly`, and only there does
+    # `#[coverage(off)]` exist, so a workspace marks a function it justifies
+    # leaving out with `#[cfg_attr(coverage_nightly, coverage(off))]` and builds
+    # unchanged on its own toolchain. Every other step runs on that one.
+    #
+    # The tool is installed from source with its lockfile.
+    - name: Coverage tools
+      id: coverage-tools
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        TOOLCHAIN: nightly-2026-11-14
+      run: |
+        set -euo pipefail
+        rustup toolchain install "$TOOLCHAIN" --profile minimal --component llvm-tools-preview
+        rustc "+$TOOLCHAIN" --version
+        cargo install cargo-llvm-cov --locked --version 0.9.0
+        echo "toolchain=$TOOLCHAIN" >> "$GITHUB_OUTPUT"
+
+    - name: Regions, lines and functions are fully covered
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        TOOLCHAIN: ${{ steps.coverage-tools.outputs.toolchain }}
+      run: |
+        cargo "+$TOOLCHAIN" llvm-cov --locked --workspace --all-features \
+          --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
+
+    # Only what is published. A package with publish = false has no package
+    # anyone could build from the outside, and `cargo package --workspace`
+    # fails on it instead of skipping it.
+    - name: Each published package builds and tests from its own contents
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        published="$(cargo metadata --locked --format-version 1 --no-deps \
+          | jq -r '.packages[] | select(.publish != []) | .name')"
+        if [ -z "$published" ]; then
+          echo "Nothing is published from here, so there is nothing to verify."
+          exit 0
+        fi
+        for name in $published; do
+          cargo package --locked -p "$name"
+        done
+        # Outside the workspace its rust-toolchain.toml no longer applies, so
+        # the toolchain is named for the copies.
+        toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
+        tested=0
+        for dir in target/package/*/; do
+          name="$(basename "$dir")"
+          case "$name" in tmp-crate) continue ;; esac
+          [ -f "$dir/Cargo.toml" ] || continue
+          rm -rf "$RUNNER_TEMP/$name"
+          cp -r "$dir" "$RUNNER_TEMP/$name"
+          ( cd "$RUNNER_TEMP/$name" && cargo "+$toolchain" test --all-features )
+          tested=$((tested + 1))
+        done
+        if [ "$tested" -eq 0 ]; then
+          echo "No package was produced, so nothing was verified." >&2
+          exit 1
+        fi
+        echo "Verified $tested package(s) outside the source tree."
