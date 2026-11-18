@@ -1,0 +1,39 @@
+# The workspace of the tool `nebensound`: what reads, resolves and checks a
+# repository's `.nebensound/repo.toml`. It stands here and not at the root
+# because the repository's product is the workflow and its building blocks;
+# this is what they run.
+#
+# Below crates/ lies what carries a version of its own and could be published
+# separately: today the library that understands the declaration. The packages
+# share one lockfile, so everything builds against exactly the versions the
+# library was checked against, and one set of lints, so it does not stand as a
+# copy in every manifest.
+#
+# No manifest carries a `version`: versions come from tags.
+
+[workspace]
+members  = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
+edition      = "2024"
+rust-version = "1.98"
+license      = "EUPL-1.2"
+repository   = "https://github.com/Nebensound/pipeline"
+
+[workspace.dependencies]
+serde     = { version = "1", features = ["derive"] }
+thiserror = "2"
+toml      = "1"
+toml_edit = "0.25"
+
+[workspace.lints.rust]
+missing_docs    = "deny"
+unsafe_code     = "forbid"
+unexpected_cfgs = "deny"
+
+[workspace.lints.clippy]
+all         = { level = "deny", priority = -1 }
+pedantic    = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
