@@ -61,6 +61,46 @@ This repository calls the workflow the same way, with one difference: its own
 [`gate.yml`](.github/workflows/gate.yml) calls the workflow at the commit that
 is running, so a change to the pipeline is checked by the pipeline it changes.
 
+## Building blocks
+
+Each block lives under `.github/actions/<block>` and takes one input, the
+unit's path from the plan of phase 0. It checks the files Git tracks below that
+path, with its tools pinned and installed outside the checkout. Every step runs
+even when one before it failed, so one run shows every finding, each as an
+annotation on its file.
+
+`check-markdown` checks every `.md` and `.markdown` file of the unit:
+
+- Formatted the way Prettier writes it.
+- No Markdownlint finding. Where the repository brings no Markdownlint
+  configuration, the one beside the action applies (`MD013` off, since Prettier
+  does not wrap prose).
+- Every link into the repository leads to a file and a heading that exist
+  (lychee, `--offline`). Links to the outside are not checked in a pull
+  request: it should not turn red because someone else's server does not
+  answer.
+
+`check-yaml` checks every `.yml` and `.yaml` file of the unit:
+
+- Formatted the way Prettier writes it.
+- No yamllint finding. Where the repository brings no yamllint configuration,
+  the one beside the action applies: the defaults, less what contradicts
+  Prettier or GitHub Actions.
+- Every workflow directly under `.github/workflows` passes actionlint, with
+  ShellCheck reading every `run:` script. actionlint 1.7.12 does not know `$/`
+  yet and reports every such call as invalid; the block drops exactly these
+  two messages, and only for a `uses:` that begins with `$/`.
+- `.github/dependabot.yml` matches the Dependabot schema (`check-jsonschema`,
+  pinned, with the schema it brings along). An unknown key fails the check
+  with the file and the key named, instead of surfacing only after the merge.
+
+**Transition rule for exclusions:** for now, the blocks honour the exclusions a
+repository gives its tools: `.prettierignore`, its own Markdownlint or yamllint
+configuration, `lychee.toml`. That is temporary: such an exclusion needs no
+reason and can turn a check green that checked nothing. Once the plan carries
+the `[[exclude]]` entries of the declaration, `repo.toml` is the only source
+([#10](https://github.com/Nebensound/pipeline/issues/10)).
+
 ## Licence
 
 Licensed under the [European Union Public Licence v. 1.2](LICENSE) (EUPL-1.2).

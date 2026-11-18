@@ -63,8 +63,8 @@ jobs:
   #       working-directory: ${{ matrix.path }}
   #
   # Every step runs after a failing one, so that one run shows every finding of
-  # the unit. No building block is written yet; each one adds its step below
-  # and its name to the list in "Not written yet".
+  # the unit. Each building block adds its step below and its name to the list
+  # in "Not written yet".
   units:
     name: >-
       ${{ matrix.kind == 'repository' && 'Check repository'
@@ -91,7 +91,7 @@ jobs:
       - name: Not written yet
         env:
           CHECKS: ${{ toJSON(matrix.checks) }}
-          WRITTEN: "[]"
+          WRITTEN: '["markdown", "yaml"]'
           UNIT_PATH: ${{ matrix.path }}
         run: |
           set -euo pipefail
@@ -106,6 +106,18 @@ jobs:
             echo "::error::The check '$check' has no building block yet, so '$UNIT_PATH' is not checked for it. It is to be written under .github/actions/check-$check."
           done <<< "$missing"
           exit 1
+
+      - name: markdown
+        if: ${{ !cancelled() && contains(matrix.checks, 'markdown') }}
+        uses: $/.github/actions/check-markdown
+        with:
+          working-directory: ${{ matrix.path }}
+
+      - name: yaml
+        if: ${{ !cancelled() && contains(matrix.checks, 'yaml') }}
+        uses: $/.github/actions/check-yaml
+        with:
+          working-directory: ${{ matrix.path }}
 
   # The one name a ruleset can require. A matrix gives one context per unit,
   # and those names change with the repository; this job gathers them.

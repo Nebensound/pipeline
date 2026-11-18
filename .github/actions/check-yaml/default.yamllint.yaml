@@ -1,0 +1,23 @@
+# What holds where a repository brings no yamllint configuration of its own:
+# the defaults, less what contradicts Prettier or GitHub Actions.
+extends: default
+
+rules:
+  # Prettier puts one space before a comment; the default asks for two.
+  comments:
+    min-spaces-from-content: 1
+  # Prettier writes a flow mapping with one space inside the braces,
+  # `{ required: true }`, and an empty one as `{}`; the default forbids the
+  # spaces.
+  braces:
+    min-spaces-inside: 1
+    max-spaces-inside: 1
+    min-spaces-inside-empty: 0
+    max-spaces-inside-empty: 0
+  # Prettier removes no `---` and adds none.
+  document-start: disable
+  # Prettier does not break a long scalar.
+  line-length: disable
+  # `on:` is a key in every workflow.
+  truthy:
+    check-keys: false
