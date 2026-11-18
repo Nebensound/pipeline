@@ -200,3 +200,23 @@ fn a_name_that_could_forge_a_line_is_escaped() {
         report::explain(&analysis, &path("forged\nline.md")).expect("the file is in the tree");
     assert!(explained.starts_with("forged\\nline.md"), "{explained}");
 }
+
+#[test]
+fn the_tree_shows_a_file_the_declaration_excludes_with_its_reason() {
+    let declaration = "\
+[repo]
+pipeline = \"none\"
+
+[[exclude]]
+path   = \"docs/draft.md\"
+reason = \"a draft that is not published\"
+";
+    let text = report::tree(&analysis(declaration, &["README.md", "docs/draft.md"]));
+
+    assert!(
+        text.lines()
+            .any(|line| line.trim_start().starts_with("draft.md")
+                && line.ends_with("\u{2013} docs/draft.md: a draft that is not published")),
+        "{text}"
+    );
+}

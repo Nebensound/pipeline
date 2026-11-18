@@ -13,6 +13,17 @@ description: >-
 #
 # One step runs elsewhere: coverage is measured on a nightly toolchain pinned
 # below, because only there does `#[coverage(off)]` take effect.
+#
+# The files are the ones `nebensound files` names for the check and the unit:
+# the `.rs` files Git tracks below the workspace, less what an `[[exclude]]`
+# entry of the declaration takes out. Rust code is excluded by the package,
+# never by the file; phase 0 fails on an entry that takes out part of a
+# package. A package `nebensound excluded-packages` names is out of every step:
+# not formatted, not linted, not tested, not documented, not counted for
+# coverage. It is only compiled where another package depends on it, and
+# rustc still prints its own warnings for it then, which fail nothing. That
+# holds for a workspace member and for a path dependency outside the workspace
+# alike. The calling job puts the tool on the PATH first (the action `tool`).
 
 inputs:
   working-directory:
@@ -22,6 +33,33 @@ inputs:
 runs:
   using: composite
   steps:
+    # At the repository root, where the paths the tool names start.
+    - name: Find the Rust files
+      id: files
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        list="$RUNNER_TEMP/check-rust-files"
+        excluded="$RUNNER_TEMP/check-rust-excluded.json"
+        # The tool writes a refusal where the list would go: into the log
+        # with it, or the step fails without saying why.
+        if ! nebensound files -z -- rust "$UNIT" > "$list"; then
+          cat "$list" >&2
+          exit 1
+        fi
+        if ! nebensound excluded-packages > "$excluded"; then
+          cat "$excluded" >&2
+          exit 1
+        fi
+        {
+          echo "list=$list"
+          echo "excluded=$excluded"
+        } >> "$GITHUB_OUTPUT"
+        echo "$(tr -cd '\0' < "$list" | wc -c) Rust file(s) to check:"
+        tr '\0' '\n' < "$list"
+
     # A workspace that pulls in a database engine fills a hosted runner before
     # its tests are done. What is removed here is software this check never
     # calls.
@@ -46,62 +84,246 @@ runs:
       with:
         workspaces: ${{ inputs.working-directory }}
 
-    - name: Formatting
+    # Cargo's local packages, the workspace members and the path dependencies
+    # wherever they lie, held against the packages `[[exclude]]` takes out. A
+    # package is out when the tool names its folder: the tool judges each
+    # package by its own manifest and code, so a package inside an excluded
+    # one that the declaration keeps in (`[[include]]`) is not named and stays
+    # in. What stays is every member not out, and every other local package
+    # not out, which is formatted only, as `cargo fmt --all` did; what is out
+    # is left out of every step below by name (`--exclude`, members only) and
+    # by its files (coverage). Each package carries the folders of the
+    # packages inside it, which coverage keeps counting. With all features, so
+    # that an optional path dependency is seen as well.
+    - name: Find the packages
+      id: packages
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      run: cargo fmt --all -- --check
-
-    - name: Clippy, all features
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-
-    - name: Clippy, no default features
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      run: cargo clippy --locked --workspace --all-targets --no-default-features -- -D warnings
-
-    - name: Tests, all features
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
+      env:
+        EXCLUDED: ${{ steps.files.outputs.excluded }}
       run: |
         set -euo pipefail
-        cargo test --locked --workspace --all-features
-        cargo test --locked --workspace --all-features --doc
+        packages="$RUNNER_TEMP/check-rust-packages.json"
+        cargo metadata --locked --format-version 1 --all-features \
+          | jq --arg root "$(realpath "$GITHUB_WORKSPACE")" --slurpfile out "$EXCLUDED" '
+              .workspace_members as $members
+              | [ .packages[] | select(.source == null)
+                  | { id, name,
+                      dir: (.manifest_path | ltrimstr($root + "/")
+                        | if . == "Cargo.toml" then "." else rtrimstr("/Cargo.toml") end),
+                      targets: [ .targets[] | { path: .src_path, edition } ] } ]
+              | . as $local
+              | [ $local[] | .dir as $dir
+                  | { name, dir: $dir, member: (.id as $id | any($members[]; . == $id)),
+                      nested: [ $local[].dir
+                        | select(. != $dir and ($dir == "." or startswith($dir + "/"))) ],
+                      reason: (first($out[0][] | select(.path == $dir) | .reason) // null),
+                      targets } ]
+              | { checked: [ .[] | select(.member and .reason == null) | .name ],
+                  others: [ .[] | select((.member | not) and .reason == null)
+                    | { name, dir, targets } ],
+                  excluded: [ .[] | select(.reason != null) | del(.targets) ] }' > "$packages"
+        {
+          echo "json=$packages"
+          echo "checked=$(jq '.checked | length' "$packages")"
+          echo "others=$(jq '.others | length' "$packages")"
+        } >> "$GITHUB_OUTPUT"
+        echo "Checked: $(jq -r '.checked | join(", ")' "$packages")"
+        jq -r '.others[]
+          | "Formatted only, a path dependency that is no member: \(.name) at \(.dir)"' \
+          "$packages"
+        jq -r '.excluded[]
+          | "Left out of every step, \(if .member then "a member" else "a path dependency" end): \(.name) at \(.dir): \(.reason)"' \
+          "$packages"
+        if [ "$(jq '.checked | length' "$packages")" -eq 0 ]; then
+          echo "Every member of the workspace is excluded, so there is nothing to check."
+        fi
 
-    - name: Tests, no default features
+    # Every local package that is not out, and nothing of one that is:
+    # `cargo fmt --all` would take in the excluded ones as well, and
+    # `--package` takes members only. So the members that stay go through
+    # `cargo fmt --package`, and every other package that stays, a path
+    # dependency that is no member, goes to rustfmt the way `cargo fmt --all`
+    # hands it over: the root file of each of its targets, with the target's
+    # edition. rustfmt names every file that differs on standard output, by
+    # its absolute path, and each one fails the step. On standard error it
+    # warns without failing (an option the toolchain does not support, say)
+    # and reports what keeps it from formatting; a line there that is not a
+    # warning fails the step. rustfmt reads the repository's own configuration,
+    # so a repository decides how it formats, but `disable_all_formatting`
+    # there would pass every file it reaches unchecked: the flag sets it aside,
+    # since the command line wins over the configuration. Its `ignore`, which
+    # takes single files out on a nightly toolchain, cannot be set aside on the
+    # command line; phase 0 fails on every file it takes out.
+    - name: Formatting
+      if: steps.packages.outputs.checked != '0' || steps.packages.outputs.others != '0'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      run: cargo test --locked --workspace --no-default-features
+      env:
+        LIST: ${{ steps.files.outputs.list }}
+        PACKAGES: ${{ steps.packages.outputs.json }}
+      run: |
+        set -euo pipefail
+        mapfile -t selected < <(jq -r '.checked[] | "--package=\(.)"' "$PACKAGES")
+        mapfile -t editions < <(jq -r '[.others[].targets[].edition] | unique | .[]' "$PACKAGES")
+        # rustfmt in check mode over everything that stays, with these
+        # options; one call per edition for the packages that are no member.
+        check() {
+          local failure=0 edition
+          if [ "${#selected[@]}" -gt 0 ]; then
+            cargo fmt "${selected[@]}" -- --check --config disable_all_formatting=false "$@" \
+              || failure=$?
+          fi
+          for edition in "${editions[@]}"; do
+            jq -j --arg edition "$edition" \
+              '.others[].targets[] | select(.edition == $edition) | "\(.path)\u0000"' \
+              "$PACKAGES" \
+              | xargs -0 rustfmt --edition "$edition" --check \
+                --config disable_all_formatting=false "$@" || failure=$?
+          done
+          return "$failure"
+        }
+        status=0
+        check --files-with-diff \
+          > "$RUNNER_TEMP/check-rust-fmt" 2> "$RUNNER_TEMP/check-rust-fmt-err" \
+          || status=$?
+        cat "$RUNNER_TEMP/check-rust-fmt-err" >&2
+        if [ "$status" -eq 0 ]; then
+          echo "Every file is formatted the way cargo fmt writes it."
+          exit 0
+        fi
+        # A file name is a property of the workflow command: escaped, so that
+        # a `,` or `:` in it does not cut the name short.
+        property() {
+          local value="$1"
+          value="${value//'%'/'%25'}"
+          value="${value//':'/'%3A'}"
+          value="${value//','/'%2C'}"
+          printf '%s' "$value"
+        }
+        failed=0
+        if grep -qv '^Warning: ' "$RUNNER_TEMP/check-rust-fmt-err"; then
+          failed=1
+        fi
+        # A failure that names no file is one, whatever standard error says.
+        if [ ! -s "$RUNNER_TEMP/check-rust-fmt" ]; then
+          echo "Formatting failed with exit code $status and named no file."
+          failed=1
+        fi
+        while IFS= read -r line; do
+          file="${line#"$GITHUB_WORKSPACE"/}"
+          if [ "$file" != "$line" ] && grep -qzxF -- "$file" "$LIST"; then
+            echo "::error file=$(property "$file")::not formatted the way cargo fmt writes it"
+            failed=1
+          else
+            echo "$line"
+            failed=1
+          fi
+        done < "$RUNNER_TEMP/check-rust-fmt"
+        if [ "$failed" -ne 0 ]; then
+          # The differences themselves, for the log.
+          check || true
+        fi
+        exit "$failed"
+
+    # Every step from here on leaves out the members that are excluded
+    # (`--exclude`). Clippy lints a workspace member it compiles as a
+    # dependency of another one all the same, `-D warnings` included, unless it
+    # is told `--no-deps`: then it lints only the packages it was asked for.
+    # A path dependency outside the workspace it never lints.
+    - name: Clippy, all features
+      if: steps.packages.outputs.checked != '0'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PACKAGES: ${{ steps.packages.outputs.json }}
+      run: |
+        set -euo pipefail
+        mapfile -t without < <(jq -r '.excluded[] | select(.member) | "--exclude=\(.name)"' "$PACKAGES")
+        cargo clippy --locked --workspace "${without[@]}" --all-targets --all-features --no-deps \
+          -- -D warnings
+
+    - name: Clippy, no default features
+      if: steps.packages.outputs.checked != '0'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PACKAGES: ${{ steps.packages.outputs.json }}
+      run: |
+        set -euo pipefail
+        mapfile -t without < <(jq -r '.excluded[] | select(.member) | "--exclude=\(.name)"' "$PACKAGES")
+        cargo clippy --locked --workspace "${without[@]}" --all-targets --no-default-features \
+          --no-deps -- -D warnings
+
+    - name: Tests, all features
+      if: steps.packages.outputs.checked != '0'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PACKAGES: ${{ steps.packages.outputs.json }}
+      run: |
+        set -euo pipefail
+        mapfile -t without < <(jq -r '.excluded[] | select(.member) | "--exclude=\(.name)"' "$PACKAGES")
+        cargo test --locked --workspace "${without[@]}" --all-features
+        cargo test --locked --workspace "${without[@]}" --all-features --doc
+
+    - name: Tests, no default features
+      if: steps.packages.outputs.checked != '0'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PACKAGES: ${{ steps.packages.outputs.json }}
+      run: |
+        set -euo pipefail
+        mapfile -t without < <(jq -r '.excluded[] | select(.member) | "--exclude=\(.name)"' "$PACKAGES")
+        cargo test --locked --workspace "${without[@]}" --no-default-features
 
     - name: Documentation without warnings
+      if: steps.packages.outputs.checked != '0'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         RUSTDOCFLAGS: -D warnings
-      run: cargo doc --locked --workspace --all-features --no-deps
-
-    - name: Release build
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      run: cargo build --locked --workspace --all-features --release
-
-    # The oldest `rust-version` any package of the workspace claims. A
-    # workspace that claims none has nothing to prove here.
-    - name: Oldest supported Rust version
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
+        PACKAGES: ${{ steps.packages.outputs.json }}
       run: |
         set -euo pipefail
+        mapfile -t without < <(jq -r '.excluded[] | select(.member) | "--exclude=\(.name)"' "$PACKAGES")
+        cargo doc --locked --workspace "${without[@]}" --all-features --no-deps
+
+    - name: Release build
+      if: steps.packages.outputs.checked != '0'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PACKAGES: ${{ steps.packages.outputs.json }}
+      run: |
+        set -euo pipefail
+        mapfile -t without < <(jq -r '.excluded[] | select(.member) | "--exclude=\(.name)"' "$PACKAGES")
+        cargo build --locked --workspace "${without[@]}" --all-features --release
+
+    # The oldest `rust-version` any package of the workspace claims that is
+    # not excluded. A workspace that claims none has nothing to prove here.
+    - name: Oldest supported Rust version
+      if: steps.packages.outputs.checked != '0'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PACKAGES: ${{ steps.packages.outputs.json }}
+      run: |
+        set -euo pipefail
+        mapfile -t without < <(jq -r '.excluded[] | select(.member) | "--exclude=\(.name)"' "$PACKAGES")
         msrv="$(cargo metadata --locked --format-version 1 --no-deps \
-          | jq -r '[.packages[].rust_version | select(. != null)] | sort_by(split(".") | map(tonumber)) | first // empty')"
+          | jq -r --slurpfile packages "$PACKAGES" '
+              [.packages[] | select(.name | IN($packages[0].checked[])) | .rust_version
+                | select(. != null)]
+              | sort_by(split(".") | map(tonumber)) | first // empty')"
         if [ -z "$msrv" ]; then
           echo "No package claims a rust-version, so there is no oldest version to build with."
           exit 0
         fi
         echo "Building with $msrv, the oldest version a package claims."
         rustup toolchain install "$msrv" --profile minimal
-        cargo "+$msrv" build --locked --workspace --all-features
+        cargo "+$msrv" build --locked --workspace "${without[@]}" --all-features
 
     # Both pinned, so that what measures the coverage is the same in every run,
     # and both raised by hand in a pull request of their own.
@@ -122,6 +344,7 @@ runs:
     # The tool is installed from source with its lockfile.
     - name: Coverage tools
       id: coverage-tools
+      if: steps.packages.outputs.checked != '0'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
@@ -133,25 +356,63 @@ runs:
         cargo install cargo-llvm-cov --locked --version 0.9.0
         echo "toolchain=$TOOLCHAIN" >> "$GITHUB_OUTPUT"
 
+    # An excluded package is not counted, a member or a path dependency:
+    # llvm-cov names every file by its absolute path, so each folder is
+    # matched as exactly that, from the start. Where another package lies
+    # inside the excluded one, its folder would take that package's files
+    # along, so the excluded package's own `.rs` files are matched one by one
+    # instead, the ones Git tracks in its folder and in none of the packages
+    # inside it.
     - name: Regions, lines and functions are fully covered
+      if: steps.packages.outputs.checked != '0'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         TOOLCHAIN: ${{ steps.coverage-tools.outputs.toolchain }}
+        PACKAGES: ${{ steps.packages.outputs.json }}
       run: |
-        cargo "+$TOOLCHAIN" llvm-cov --locked --workspace --all-features \
-          --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
+        set -euo pipefail
+        mapfile -t without < <(jq -r '.excluded[] | select(.member) | "--exclude=\(.name)"' "$PACKAGES")
+        root="$(realpath "$GITHUB_WORKSPACE")"
+        git -C "$root" ls-files -z -- '*.rs' > "$RUNNER_TEMP/check-rust-tracked"
+        pattern="$(jq -r --arg root "$root" --rawfile tracked "$RUNNER_TEMP/check-rust-tracked" '
+          def literal: gsub("(?<c>[\\[\\]\\\\.*^$+?(){}|])"; "\\\(.c)");
+          def below($dir): $dir == "." or startswith($dir + "/");
+          ($tracked | split("\u0000") | map(select(. != ""))) as $files
+          | [ .excluded[]
+              | if (.nested | length) == 0 then
+                  (if .dir == "." then $root else "\($root)/\(.dir)" end | literal) + "/"
+                else
+                  . as $package
+                  | $files[]
+                  | select(below($package.dir)
+                      and (. as $file | all($package.nested[]; . as $dir | $file | below($dir) | not)))
+                  | ("\($root)/\(.)" | literal) + "$"
+                end ]
+          | join("|")' "$PACKAGES")"
+        ignore=()
+        if [ -n "$pattern" ]; then
+          echo "Not counted: ^($pattern)"
+          ignore=(--ignore-filename-regex "^($pattern)")
+        fi
+        cargo "+$TOOLCHAIN" llvm-cov --locked --workspace "${without[@]}" --all-features \
+          "${ignore[@]}" --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
 
-    # Only what is published. A package with publish = false has no package
-    # anyone could build from the outside, and `cargo package --workspace`
-    # fails on it instead of skipping it.
+    # Only what is published, and not excluded. A package with publish = false
+    # has no package anyone could build from the outside, and
+    # `cargo package --workspace` fails on it instead of skipping it.
     - name: Each published package builds and tests from its own contents
+      if: steps.packages.outputs.checked != '0'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      env:
+        PACKAGES: ${{ steps.packages.outputs.json }}
       run: |
         set -euo pipefail
         published="$(cargo metadata --locked --format-version 1 --no-deps \
-          | jq -r '.packages[] | select(.publish != []) | .name')"
+          | jq -r --slurpfile packages "$PACKAGES" '
+              .packages[] | select(.publish != [] and (.name | IN($packages[0].checked[])))
+              | .name')"
         if [ -z "$published" ]; then
           echo "Nothing is published from here, so there is nothing to verify."
           exit 0

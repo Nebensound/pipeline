@@ -5,13 +5,16 @@ description: >-
   `.toml` file is formatted the way Taplo writes it.
 
 # One input, and it is not a setting: where the unit is. It comes from the plan
-# of phase 0. The files are what Git tracks below that path, so a file nobody
-# committed is not judged and a committed one is not missed. Every step runs at
-# the repository root, where the calling job checked the repository out and
-# where Taplo finds the repository's own `taplo.toml`.
-#
-# That `taplo.toml` decides how the repository formats `.toml` files. Its
-# `exclude` takes nothing out of this check; see the last step.
+# of phase 0. The files are the ones `nebensound files` names for the check and
+# the unit: what Git tracks below that path with an extension the register
+# gives the check, less what an `[[exclude]]` entry of the declaration takes
+# out. A file nobody committed is not judged, a committed one is not missed,
+# and no ignore mechanism of a tool takes one out. The calling job checks the
+# repository out and puts the tool on the PATH first (the action `tool`); every
+# step runs at the repository root.
+# That is where Taplo finds the repository's own `taplo.toml`, which decides
+# how the repository formats `.toml` files. Its `include` and `exclude` take
+# nothing out of this check; see the last step.
 
 inputs:
   working-directory:
@@ -31,17 +34,12 @@ runs:
         list="$RUNNER_TEMP/check-toml-files"
         # The extensions the register gives `toml`: `.toml`, and `.lock` for
         # Cargo.lock and the other lockfiles written in TOML.
-        #
-        # The unit's path is taken literally: as a plain pathspec, a path
-        # holding `[`, `*`, `?` or a leading `:` would select other files than
-        # its own. The extension is then matched here, not by Git.
-        if [ "$UNIT" = "." ]; then scope=(); else scope=(":(top,literal)${UNIT%/}"); fi
-        : > "$list"
-        while IFS= read -r -d '' file; do
-          case "$file" in
-            *.toml | *.lock) printf '%s\0' "$file" >> "$list" ;;
-          esac
-        done < <(git ls-files -z -- "${scope[@]}")
+        # The tool writes a refusal where the list would go: into the log
+        # with it, or the step fails without saying why.
+        if ! nebensound files -z -- toml "$UNIT" > "$list"; then
+          cat "$list" >&2
+          exit 1
+        fi
         count="$(tr -cd '\0' < "$list" | wc -c)"
         echo "count=$count" >> "$GITHUB_OUTPUT"
         echo "list=$list" >> "$GITHUB_OUTPUT"
@@ -89,11 +87,9 @@ runs:
     #
     # Taplo reads every file from standard input. Given a path, Taplo 0.10.0
     # silently skips a file outside its default `include` of `**/*.toml` —
-    # every `.lock` file — and one the repository's taplo.toml excludes, and
-    # reports success for both. So a repository's `exclude` takes nothing out
-    # of this check. That stays: once the plan carries the `[[exclude]]`
-    # entries of the declaration (#10), they are the only way to take a file
-    # out.
+    # every `.lock` file — and one the repository's taplo.toml leaves out, and
+    # reports success for both. So a repository's `include` and `exclude` take
+    # nothing out of this check: what is not to be checked is not in the list.
     #
     # Formatting: `.toml` files are formatted the way Taplo writes them, with
     # the repository's taplo.toml, and `--stdin-filepath` keeps its per-path

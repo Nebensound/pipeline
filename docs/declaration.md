@@ -189,9 +189,27 @@ only once.
 | `path`   | path   | required | The file, or the folder whose files are taken out.                         |
 | `reason` | string | required | Why nobody looks there. It must say something: a blank reason is an error. |
 
-Today an exclusion settles a file for phase 0. The building blocks do not read
-`[[exclude]]` yet; until they do, they honour the exclusions a repository gives
-its tools, as [the README](../README.md#exclusions-for-now) describes.
+An exclusion takes the file out of phase 0 and out of its check alike: every
+building block checks exactly the files `nebensound files <check> <unit>` names,
+and those are the unit's files less what `[[exclude]]` takes out.
+
+Rust code is excluded by the package, never by the file. An entry that takes a
+`.rs` file out of a package without taking out the whole package, the folder
+that holds its `Cargo.toml`, is an error (see
+[`partial-package-exclusion`](#partial-package-exclusion)). Inside a package,
+Rust has its own means: `#[rustfmt::skip]`, `#[coverage(off)]` with a
+justification, `#[allow(...)]`. A package excluded as a whole is meant for code
+of others inside the repository, such as a vendored copy: `check-rust` leaves it
+out of every step and compiles it only as a dependency of others (see
+[the README](../README.md#check-rust)), and every run names it with its reason.
+A package in a Git submodule cannot be excluded this way: phase 0 sees the files
+Git tracks, where a submodule is a single entry, and the gate checks out no
+submodules.
+
+`[[exclude]]` is the only way out of a check: a tool's own ignore setting takes nothing out of a building block, and
+phase 0 fails on every file such a setting takes out that no `[[exclude]]` entry
+does (see [`unexcused-ignore`](#unexcused-ignore) and
+[the README](../README.md#exclusions)).
 
 ## Paths and patterns
 
@@ -298,7 +316,9 @@ stable code; the wording of its message may improve, the code does not change.
   not true, not that something is broken.
 
 A finding reads like `error[uncovered-file] at src/main.rs: …`: the severity, the
-code, the unit or path it is about, and a sentence. The report of phase 0 shows
+code, the unit or path it is about, and a sentence. A finding that points at a
+place in a file adds its line and column, counted from 1:
+`error[partial-package-exclusion] at .nebensound/repo.toml:12:8: …`. The report of phase 0 shows
 each finding under the path it is about in the tree, and lists them all under
 `Findings`.
 
@@ -420,6 +440,44 @@ file.
 Warning. A unit has an ecosystem watched and holds no manifest of it. Remove the
 ecosystem from its `dependabot` list. An ecosystem of the base set is exempt.
 
+### `unexcused-ignore`
+
+Error. A tool's own setting takes a file out of what that tool reads in a
+building block (a line of `.prettierignore`, for example), and no `[[exclude]]`
+entry takes it out. The building block checks the file all the same, since it
+reads no such setting; run by hand, the tool would skip it. Give the file an
+`[[exclude]]` entry with a reason, or let the setting keep it in. A `.rs` file
+that rustfmt's `ignore` takes out is excused only by an entry that takes out its
+whole package (see
+[`partial-package-exclusion`](#partial-package-exclusion)); inside a package,
+`#[rustfmt::skip]` is the means.
+[The README](../README.md#exclusions) lists the settings phase 0 reads.
+
+### `unreadable-ignore-file`
+
+Error. A tool's setting that takes files out cannot be read: it does not parse,
+a pattern or an entry is not what the tool takes, or a file it names through
+`ignore-from-file` or `extends` cannot be read. Phase 0 cannot hold it against
+the declaration, so it cannot tell whether the setting takes out more than
+`[[exclude]]` does. Correct the setting. The message says what is wrong.
+
+### `partial-package-exclusion`
+
+Error. An `[[exclude]]` entry takes code out of a Rust package and not the whole
+package: it names a `.rs` file or a folder inside the package, or it takes out
+the package's folder while an `[[include]]` pulls a file of it back in. Cargo
+compiles a package with all of its files, so a file with code cannot be left
+out on its own. The finding stands at the entry's `path` in
+`.nebensound/repo.toml`, with line and column. Remove the entry and use what
+Rust has for the case: `#[rustfmt::skip]`, `#[coverage(off)]` with a
+justification, `#[allow(...)]`. For code of others, exclude the package's whole
+folder and pull nothing of it back in.
+
+A package is a folder whose `Cargo.toml` Git tracks and has a `[package]` table;
+a `Cargo.toml` that does not read counts as one. A `.rs` file belongs to the
+innermost package around it, and a file that lies in no package is not judged
+here.
+
 ### When the file cannot be read
 
 Some mistakes stop phase 0 before any finding is made. It then prints one
@@ -442,9 +500,11 @@ The same tool that runs phase 0 in the workflow runs on a checkout. From
 `tools/nebensound/` in a checkout of this repository:
 
 ```sh
-cargo run --quiet -- -C <repository> check           # the whole report
-cargo run --quiet -- -C <repository> explain <path>  # what holds for one path, and why
-cargo run --quiet -- -C <repository> plan            # what a run would start
+cargo run --quiet -- -C <repository> check                 # the whole report
+cargo run --quiet -- -C <repository> explain <path>        # what holds for one path, and why
+cargo run --quiet -- -C <repository> plan                  # what a run would start
+cargo run --quiet -- -C <repository> files <check> <unit>  # what one building block checks
+cargo run --quiet -- -C <repository> excluded-packages     # the Rust packages taken out as a whole
 ```
 
 [The tool's README](../tools/nebensound/README.md) describes every call.

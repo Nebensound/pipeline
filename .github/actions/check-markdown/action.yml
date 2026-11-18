@@ -5,9 +5,13 @@ description: >-
   links into the repository lead somewhere.
 
 # One input, and it is not a setting: where the unit is. It comes from the plan
-# of phase 0. The files are what Git tracks below that path, so a file nobody
-# committed is not judged and a committed one is not missed. Every step runs at
-# the repository root, where the calling job checked the repository out.
+# of phase 0. The files are the ones `nebensound files` names for the check and
+# the unit: what Git tracks below that path with an extension the register
+# gives the check, less what an `[[exclude]]` entry of the declaration takes
+# out. A file nobody committed is not judged, a committed one is not missed,
+# and no ignore mechanism of a tool takes one out. The calling job checks the
+# repository out and puts the tool on the PATH first (the action `tool`); every
+# step runs at the repository root.
 
 inputs:
   working-directory:
@@ -28,27 +32,53 @@ runs:
       run: |
         set -euo pipefail
         list="$RUNNER_TEMP/check-markdown-files"
-        # The unit's path is taken literally: as a plain pathspec, a path
-        # holding `[`, `*`, `?` or a leading `:` would select other files than
-        # its own. The extension is then matched here, not by Git.
-        if [ "$UNIT" = "." ]; then scope=(); else scope=(":(top,literal)${UNIT%/}"); fi
-        : > "$list"
-        while IFS= read -r -d '' file; do
-          case "$file" in
-            *.md | *.markdown) printf '%s\0' "$file" >> "$list" ;;
-          esac
-        done < <(git ls-files -z -- "${scope[@]}")
+        # The tool writes a refusal where the list would go: into the log
+        # with it, or the step fails without saying why.
+        if ! nebensound files -z -- markdown "$UNIT" > "$list"; then
+          cat "$list" >&2
+          exit 1
+        fi
         count="$(tr -cd '\0' < "$list" | wc -c)"
         # One path per line for the link check, which reads no other form. A
         # file name holding a line break is not something it could be given.
-        # It reads every line as a glob, so the characters of one are put in
-        # brackets: `[docs]/a.md` would otherwise match nothing and pass.
-        # A line beginning with `#` is a comment to it, hence the `./`.
-        tr '\0' '\n' < "$list" | sed -e 's/[][*?{}]/[&]/g' -e 's|^|./|' > "$list-lines"
+        # Each line is the path from the repository root, such as `docs/a.md`:
+        # lychee matches `exclude_path` against the string it is handed, and
+        # phase 0 judges that setting against exactly this one. A line holding
+        # a glob character is expanded, which yields the path from the root as
+        # well. So nothing is put in front of a path; where lychee would
+        # misread a line, one character of it is put in brackets instead,
+        # which makes the line a glob naming just that file:
+        # - every glob character, since `[docs]/a.md` would otherwise match
+        #   nothing and pass;
+        # - a `#` at the start, which makes the line a comment;
+        # - white space at either end, which lychee trims off;
+        # - the first letter of a first segment holding a `:`, which lychee
+        #   would read as an address, such as `mailto:a.md`.
+        tr '\0' '\n' < "$list" | sed \
+          -e 's/[][*?{}]/[&]/g' \
+          -e 's/^[#[:space:]]/[&]/' \
+          -e 's/[[:space:]]$/[&]/' \
+          -e 's|^\([A-Za-z]\)\([^/]*:\)|[\1]\2|' \
+          > "$list-lines"
+        # The configuration of the link check is named, never looked for.
+        # Without one named, lychee takes the first it finds at the root:
+        # `lychee.toml`, else a lychee table in `Cargo.toml`, `pyproject.toml`
+        # or `package.json`, and an `exclude_path` in one of those three would
+        # take files out unseen by phase 0. So it is handed a copy of
+        # `lychee.toml`, or an empty file where there is none, which it reads
+        # as a configuration that sets nothing. A linked `lychee.toml` phase 0
+        # refuses already.
+        config="$RUNNER_TEMP/check-markdown-lychee.toml"
+        if [ -f lychee.toml ] && [ ! -L lychee.toml ]; then
+          cp lychee.toml "$config"
+        else
+          : > "$config"
+        fi
         {
           echo "count=$count"
           echo "list=$list"
           echo "lines=$list-lines"
+          echo "lychee-config=$config"
         } >> "$GITHUB_OUTPUT"
         if [ "$count" -eq 0 ]; then
           echo "No Markdown file below '$UNIT'; there is nothing to check."
@@ -78,11 +108,15 @@ runs:
     # single run reports every finding at once.
 
     # Prettier reads the repository's own configuration, so a repository
-    # decides how it formats. It also reads the repository's .prettierignore,
-    # which can take files out of the check without a reason. That is
-    # temporary: until the plan carries the `[[exclude]]` entries of the
-    # declaration, it is the only way to exclude a file. After #10, an ignore
-    # file is only a derived copy of the declaration, checked by phase 0.
+    # decides how it formats. It reads no ignore file: by default it would
+    # read `.prettierignore` and `.gitignore` and silently pass what they
+    # name, so it is handed an empty one instead, and it leaves out no
+    # node_modules either. Its configuration could still pass a whole file
+    # unchecked, through `requirePragma` (a file without `@format`),
+    # `checkIgnorePragma` (a file with `@noformat`) or a range (`rangeStart`,
+    # `rangeEnd`) that leaves the file out, `overrides` included; the flags set
+    # all of them aside, since the command line wins over the configuration.
+    # What is not to be checked is not in the list.
     - name: Every Markdown file is formatted
       if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
       shell: bash
@@ -91,7 +125,12 @@ runs:
       run: |
         set -euo pipefail
         status=0
-        xargs -0 "$RUNNER_TEMP/check-markdown-tools/node_modules/.bin/prettier" --check -- < "$LIST" \
+        : > "$RUNNER_TEMP/check-markdown-nothing-ignored"
+        xargs -0 "$RUNNER_TEMP/check-markdown-tools/node_modules/.bin/prettier" --check \
+          --with-node-modules --ignore-path "$RUNNER_TEMP/check-markdown-nothing-ignored" \
+          --no-require-pragma --no-check-ignore-pragma \
+          --range-start=0 --range-end=Infinity \
+          -- < "$LIST" \
           > "$RUNNER_TEMP/check-markdown-prettier" 2>&1 || status=$?
         # Prettier names an unformatted file as `[warn] <file>` and one it
         # cannot parse as `[error] <file>: <message>`; each becomes an
@@ -114,10 +153,16 @@ runs:
         exit "$status"
 
     # A repository's own Markdownlint configuration at its root wins; without
-    # one, the configuration beside this file holds. Like an ignore file, a
-    # configuration of the repository can switch a rule off without a reason,
-    # and its `ignores` can take files out; that is as temporary as above
-    # (#10). `--no-globs` keeps the check to the files named here.
+    # one, the configuration beside this file holds. Its rules hold as written,
+    # but nothing in it takes a file out. markdownlint-cli2 would skip a named
+    # file in three ways: through `ignores` in any options file, and through a
+    # negated entry of `globs` or through `gitignore` in the options file of
+    # the folder it starts from. So it is called through its own `main`: every
+    # file is handed over literally (`:` in front), which `gitignore` does not
+    # reach; it starts from an empty folder, so the repository's options file
+    # counts as that of the repository's folder, whose `globs` play no part;
+    # and `ignores` is overridden with an empty list for every folder. What
+    # remains is the repository's rules, read as markdownlint-cli2 reads them.
     - name: Every Markdown file passes Markdownlint
       if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
       shell: bash
@@ -136,18 +181,43 @@ runs:
           fi
         done
         echo "Configuration: $config"
-        # Every path goes in with `./` in front: Markdownlint reads a leading
-        # `#` as "leave this file out" and a leading `--` as an option. The
-        # prefix is taken off again where a finding is printed.
+        # The folder it starts from. It names every file relative to that
+        # folder, so that prefix is taken off again where a finding is printed.
+        base="$(mktemp -d "$RUNNER_TEMP/check-markdown-base.XXXXXX")"
+        prefix="$(realpath --relative-to="$base" "$PWD")/"
+        fallback=""
+        if [ "$config" = "$GITHUB_ACTION_PATH/default.markdownlint-cli2.jsonc" ]; then
+          fallback="$config"
+        fi
         status=0
-        sed --null-data -e 's|^|./|' "$LIST" \
-          | xargs -0 "$RUNNER_TEMP/check-markdown-tools/node_modules/.bin/markdownlint-cli2" \
-            --config "$config" --no-globs \
-          > "$RUNNER_TEMP/check-markdown-lint" 2>&1 || status=$?
+        TOOLS="$RUNNER_TEMP/check-markdown-tools" BASE="$base" FALLBACK="$fallback" \
+          node --input-type=module --eval '
+            import { readFileSync } from "node:fs";
+            import { join, resolve } from "node:path";
+            import { pathToFileURL } from "node:url";
+
+            const { TOOLS, BASE, LIST, FALLBACK } = process.env;
+            const cli = join(TOOLS, "node_modules", "markdownlint-cli2", "markdownlint-cli2.mjs");
+            const { main } = await import(pathToFileURL(cli).href);
+            const argv = readFileSync(LIST, "utf8")
+              .split("\0")
+              .filter((file) => file !== "")
+              .map((file) => `:${resolve(file)}`);
+            if (FALLBACK) {
+              argv.push("--config", FALLBACK);
+            }
+            process.exitCode = await main({
+              directory: BASE,
+              argv,
+              logMessage: (message) => console.log(message),
+              logError: (message) => console.error(message),
+              optionsOverride: { ignores: [] },
+            });
+          ' > "$RUNNER_TEMP/check-markdown-lint" 2>&1 || status=$?
         # A finding reads `<file>:<line>[:<column>] error <rule> <message>`;
         # each becomes an annotation on its line and stays in the log as it is.
         while IFS= read -r line; do
-          line="${line#./}"
+          line="${line#"$prefix"}"
           echo "$line"
           if [[ "$line" =~ ^(.+):([0-9]+)(:([0-9]+))?\ error\ (.+)$ ]]; then
             position="file=${BASH_REMATCH[1]},line=${BASH_REMATCH[2]}"
@@ -161,16 +231,26 @@ runs:
     # is not in it. `--offline` sends no request, so a pull request does not
     # turn red because someone else's server is down; links to the outside are
     # not checked in a pull request at all. A file without a link is not a
-    # finding. lychee is pinned here and not left to the default of the action;
-    # it reads a `lychee.toml` at the repository root, which is as temporary
-    # as the ignore files above (#10). The report goes outside the checkout.
+    # finding. lychee is pinned here and not left to the default of the action.
+    # It runs at the repository root and reads the repository's `lychee.toml`
+    # (named with `--config`, see above) and `.lycheeignore` there: which
+    # addresses it leaves out, which status codes it accepts, how long it
+    # waits stay the repository's configuration. A lychee table in
+    # `Cargo.toml`, `pyproject.toml` or `package.json` is not read. An
+    # `exclude_path` in `lychee.toml` would take files out; phase 0 matches
+    # it against the same path from the root that each line hands over, and
+    # fails on every file it takes out that no `[[exclude]]` entry does, so
+    # none of them is in the list. `--hidden` and `--no-ignore` keep it from
+    # skipping a file in a hidden folder or one a `.gitignore` names. The
+    # report goes outside the checkout.
     - name: Every link into the repository leads somewhere
       if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
       uses: lycheeverse/lychee-action@v2
       with:
         lycheeVersion: v0.24.2
         args: >-
-          --offline --include-fragments --no-progress
+          --offline --include-fragments --no-progress --hidden --no-ignore
+          --config ${{ steps.files.outputs.lychee-config }}
           --root-dir ${{ github.workspace }}
           --files-from ${{ steps.files.outputs.lines }}
         output: ${{ runner.temp }}/check-markdown-links.md

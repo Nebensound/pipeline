@@ -26,18 +26,20 @@ channel would be a second version that can fall behind.
 ## Calls
 
 ```text
-nebensound [-C <directory>] [check | tree | explain <path> | plan | schema | register | ui]
+nebensound [-C <directory>] [check | tree | explain <path> | plan | files [-z] <check> <unit> | excluded-packages | schema | register | ui]
 ```
 
-| Call             | What it does                                                                                                                                                                                                                                                                                     |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `check`          | Runs phase 0 and prints everything: the resolved configuration, the tree, the findings and a summary line with the counts. The default, and what the composite action under `.github/actions/phase0` calls.                                                                                      |
-| `tree`           | The annotated tree and nothing else.                                                                                                                                                                                                                                                             |
-| `explain <path>` | What holds for one path and why: which units contain it, how each of them is released, which checks are in force, how its coverage stands.                                                                                                                                                       |
-| `plan`           | Which unit runs which check and builds what, as one line of JSON for a matrix to read.                                                                                                                                                                                                           |
-| `schema`         | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. `check-toml` assigns the copy committed beside it; [its README](../../.github/actions/check-toml/schemas/README.md#nebensound-declarationjson) says how to write that copy again. |
-| `register`       | The register as Markdown, exactly as [`docs/register.md`](../../docs/register.md) holds it, which a test compares with this output. Reads no repository.                                                                                                                                         |
-| `ui`             | The same result to walk through. Only in a build with the `ui` feature.                                                                                                                                                                                                                          |
+| Call                | What it does                                                                                                                                                                                                                                                                                     |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `check`             | Runs phase 0 and prints everything: the resolved configuration, the tree, the findings and a summary line with the counts. The default, and what the composite action under `.github/actions/phase0` calls.                                                                                      |
+| `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                             |
+| `explain <path>`    | What holds for one path and why: which units contain it, how each of them is released, which checks are in force, how its coverage stands.                                                                                                                                                       |
+| `plan`              | Which unit runs which check and builds what, as one line of JSON for a matrix to read.                                                                                                                                                                                                           |
+| `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                         |
+| `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                       |
+| `schema`            | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. `check-toml` assigns the copy committed beside it; [its README](../../.github/actions/check-toml/schemas/README.md#nebensound-declarationjson) says how to write that copy again. |
+| `register`          | The register as Markdown, exactly as [`docs/register.md`](../../docs/register.md) holds it, which a test compares with this output. Reads no repository.                                                                                                                                         |
+| `ui`                | The same result to walk through. Only in a build with the `ui` feature.                                                                                                                                                                                                                          |
 
 Exit code: `0` when there is nothing to report; `1` when the repository has a
 problem or cannot be read; `2` when the call itself was wrong. A **warning stops
@@ -99,6 +101,54 @@ would cover their files a second time.
 
 A repository with errors gets no plan, only a sentence and exit code `1`: a plan
 read off a broken declaration would start the wrong things.
+
+## The files of a check
+
+`files <check> <unit>` names the files a building block checks: below the
+unit's path, every file the register gives that check, less what an
+`[[exclude]]` entry takes out. Each block takes its list from this call and
+checks exactly those files, so `.nebensound/repo.toml` is the only place where
+a file is taken out of a check.
+
+The pair has to be one the plan starts: `files rust .` in a repository whose
+Rust code is a component of its own is refused, with exit code `1`, rather than
+answered with a list nobody checks. So is a check the register does not know,
+and so is a repository with errors, for the same reason it gets no plan.
+
+Phase 0 also holds the tools' own ways of leaving a file out against the
+declaration — `.prettierignore`, `include` and `exclude` in `taplo.toml`,
+`ignores` of markdownlint-cli2, `ignore` of yamllint, `exclude_path` of lychee,
+`ignore` of rustfmt — and fails on every file one of them takes out that no
+`[[exclude]]` entry does (`unexcused-ignore`). The building blocks read none of
+them except lychee's `exclude_path`, which phase 0 matches against the path
+from the root, the string `check-markdown` hands lychee, and rustfmt's
+`ignore`, which takes effect on a nightly toolchain; run by hand, the tools
+read them all.
+
+## Excluded packages
+
+Rust code is excluded by the package, never by the file: an `[[exclude]]` entry
+that takes a `.rs` file out of a package without taking out the folder that
+holds its `Cargo.toml` fails phase 0 (`partial-package-exclusion`), at the
+entry's line and column in `.nebensound/repo.toml`. A package is a folder with a
+`Cargo.toml` that has a `[package]` table, and a `.rs` file belongs to the
+innermost one around it.
+
+`excluded-packages` lists the packages taken out as a whole:
+
+```json
+[
+  {
+    "path": "vendor/parser",
+    "reason": "a vendored copy, kept as upstream wrote it"
+  }
+]
+```
+
+Printed as one line, in path order. It names every such package of the
+repository, inside a Rust unit or not, so that a path dependency outside the
+workspace is listed as well. A repository with errors gets no list, only a
+sentence and exit code `1`, for the same reason it gets no plan.
 
 ## Where the file list comes from
 

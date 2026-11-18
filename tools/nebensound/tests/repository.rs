@@ -92,7 +92,29 @@ fn a_declaration_that_points_somewhere_else_is_refused() {
         .declaration()
         .expect_err("a link is not a declaration");
 
-    assert!(error.to_string().contains("not a regular file"), "{error}");
+    assert!(
+        error.to_string().contains("behind a link, or is one"),
+        "{error}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_declaration_in_a_linked_folder_is_refused() {
+    // A link before the file aims the read just as far out of the checkout
+    // as one at the file itself.
+    let outside = directory(&[("repo.toml", QUIET)]);
+    let dir = directory(&[("README.md", "# x\n")]);
+    std::os::unix::fs::symlink(outside.path(), dir.path().join(".nebensound")).expect("a link");
+
+    let error = Repository::at(dir.path())
+        .declaration()
+        .expect_err("a linked folder holds no declaration of this repository");
+
+    assert!(
+        error.to_string().contains("behind a link, or is one"),
+        "{error}"
+    );
 }
 
 #[test]

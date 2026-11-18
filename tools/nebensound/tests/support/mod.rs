@@ -44,7 +44,8 @@ fn write_all(root: &Path, files: &[(&str, &str)]) {
     }
 }
 
-fn git(root: &Path, args: &[&str]) {
+/// Runs git in the fixture, for what [`repository`] does not set up.
+pub fn git(root: &Path, args: &[&str]) {
     let output = Command::new("git")
         .arg("-C")
         .arg(root)

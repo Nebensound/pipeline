@@ -24,13 +24,17 @@ the tool `nebensound` on it and hands the result on:
 
 1. The tool is built from the same commit of this repository as the workflow,
    and kept in the cache under a fingerprint of its sources, so two runs of the
-   same tool share one build.
+   same tool share one build, and every unit job of the run takes it from there
+   ([`.github/actions/tool`](../.github/actions/tool)).
 2. `nebensound check` reads `.nebensound/repo.toml`, resolves it against the
    register and checks it against what Git tracks. It prints the resolved
    configuration, the annotated tree, the findings and a summary line.
    [The reference of the declaration](declaration.md) describes every field and
    every finding.
-3. When phase 0 found no error, `nebensound plan` prints the plan: every unit,
+3. When phase 0 found no error, every Rust package `[[exclude]]` takes out as a
+   whole (`nebensound excluded-packages`) is named in the summary of the run
+   with its reason, as a notice.
+4. Then `nebensound plan` prints the plan: every unit,
    with the checks started for it and the build it names. The units that start
    at least one check go on to the Check phase.
 
@@ -45,7 +49,8 @@ Every unit that starts a check gets a job of its own, named
 `nebensound / Check repository` for the repository and
 `nebensound / Check component <name>` for a component. A check runs once, at the
 outermost unit it is in force for, so a unit whose checks all run further out
-gets no job. The steps of a unit's job:
+gets no job. The job first takes the tool from the cache Declare filled, and
+builds it only when the cache misses. Then its steps:
 
 1. **Not written yet.** It fails, by name, for every check of the unit that has
    no building block yet, so that a pull request says what is missing instead of
@@ -53,8 +58,10 @@ gets no job. The steps of a unit's job:
    The building blocks written today are listed in
    [the README](../README.md#building-blocks).
 2. **One step per check** of the unit, each the building block
-   `check-<name>` over the unit's path. Every step runs even when one before it
-   failed, so one run shows every finding of the unit.
+   `check-<name>` over exactly the files `nebensound files <check> <unit>`
+   names: the unit's files that the check covers, less what `[[exclude]]` takes
+   out. Every step runs even when one before it failed, so one run shows every
+   finding of the unit.
 3. **`xtask check --all`**, in the job of the repository only, and only when
    `xtask/Cargo.toml` exists. It runs `cargo xtask check --all` from the
    repository root with the toolchain the xtask pins (the `rust-toolchain.toml`
