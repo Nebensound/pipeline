@@ -1,0 +1,96 @@
+name: phase0
+description: >-
+  Reads the declaration of the calling repository, resolves it and checks it
+  against what the repository holds: phase 0 of the pipeline.
+
+# No inputs. What a repository is stands in its .nebensound/repo.toml, and this
+# action reads it there.
+#
+# The calling job checks the repository out first: the tool asks Git what the
+# repository holds, so there has to be one.
+#
+# The tool comes from the same commit as this file. GitHub fetches the whole
+# repository when it resolves an action, so the source lies three levels up and
+# needs no credentials — the reason phase 0 is a composite action at all.
+
+outputs:
+  plan:
+    description: >-
+      Which unit runs which check, as one line of JSON (`nebensound plan`).
+      Empty when phase 0 found errors: then nothing is to be started.
+    value: ${{ steps.plan.outputs.plan }}
+
+runs:
+  using: composite
+  steps:
+    # The key is the content of the tool, not a version: the tool carries none,
+    # and two commits that leave it untouched share one build.
+    - name: Identify the tool
+      id: tool
+      shell: bash
+      run: |
+        set -euo pipefail
+        source_dir="$(cd "$GITHUB_ACTION_PATH/../../../tools/nebensound" && pwd)"
+        fingerprint="$(
+          cd "$source_dir"
+          find . -type f -not -path './target/*' -print0 \
+            | LC_ALL=C sort -z \
+            | xargs -0 sha256sum \
+            | sha256sum \
+            | cut -d ' ' -f 1
+        )"
+        {
+          echo "source=$source_dir"
+          echo "home=$RUNNER_TEMP/nebensound"
+          echo "key=nebensound-$RUNNER_OS-$RUNNER_ARCH-$fingerprint"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Look for a build of exactly this tool
+      id: cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.tool.outputs.home }}
+        key: ${{ steps.tool.outputs.key }}
+
+    # Without features: the interface is one, and a log needs no terminal
+    # library. The toolchain is the one the tool pins, taken from its own
+    # rust-toolchain.toml rather than repeated here.
+    - name: Build the tool
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: ${{ steps.tool.outputs.source }}
+      env:
+        TOOL_HOME: ${{ steps.tool.outputs.home }}
+      run: |
+        set -euo pipefail
+        rustup toolchain install
+        cargo build --release --locked
+        mkdir -p "$TOOL_HOME"
+        cp target/release/nebensound "$TOOL_HOME/nebensound"
+
+    - name: Keep the build for the next run
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ steps.tool.outputs.home }}
+        key: ${{ steps.tool.outputs.key }}
+
+    - name: Run phase 0
+      shell: bash
+      env:
+        TOOL_HOME: ${{ steps.tool.outputs.home }}
+      run: |
+        set -euo pipefail
+        "$TOOL_HOME/nebensound" -C "$GITHUB_WORKSPACE" check
+
+    # Only reached when phase 0 passed: a declaration with errors gets no plan.
+    - name: Hand on the plan
+      id: plan
+      shell: bash
+      env:
+        TOOL_HOME: ${{ steps.tool.outputs.home }}
+      run: |
+        set -euo pipefail
+        plan="$("$TOOL_HOME/nebensound" -C "$GITHUB_WORKSPACE" plan)"
+        echo "$plan"
+        echo "plan=$plan" >> "$GITHUB_OUTPUT"

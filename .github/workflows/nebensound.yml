@@ -1,0 +1,143 @@
+name: nebensound
+
+# The one workflow a repository calls. No inputs: what the repository is stands
+# in its .nebensound/repo.toml.
+#
+# Phase 0 (Declare) and the checks (Check) so far. Version, Build and Publish
+# arrive one by one, each when it does something: a job that only exists to be
+# green reports success for work nobody did.
+
+on:
+  workflow_call:
+
+# Here and not at the caller, so that it reads the same in every repository.
+concurrency:
+  group: nebensound-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  declare:
+    name: Declare
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      units: ${{ steps.units.outputs.units }}
+
+    steps:
+      - name: Check out the calling repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # `$/` is this repository at the commit that is running. The caller pins
+      # this workflow to an exact version; everything below it comes from that
+      # same commit, and no second version stands in here to fall behind.
+      - name: Run phase 0
+        id: phase0
+        uses: $/.github/actions/phase0
+
+      # A matrix cannot leave out an entry, and a unit that runs no check
+      # would get a job with nothing in it. So only the units with a check go
+      # on.
+      - name: Name the units that run a check
+        id: units
+        env:
+          PLAN: ${{ steps.phase0.outputs.plan }}
+        run: |
+          set -euo pipefail
+          units="$(jq --compact-output '[.units[] | select(.checks | length > 0)]' <<< "$PLAN")"
+          jq . <<< "$units"
+          echo "units=$units" >> "$GITHUB_OUTPUT"
+
+  # One job per unit, as the plan of phase 0 names them, and in it one step per
+  # check the unit runs. `uses:` takes no expression, so every building block
+  # is named here and switched by the check it implements:
+  #
+  #   - name: <check>
+  #     if: ${{ !cancelled() && contains(matrix.checks, '<check>') }}
+  #     uses: $/.github/actions/check-<check>
+  #     with:
+  #       working-directory: ${{ matrix.path }}
+  #
+  # Every step runs after a failing one, so that one run shows every finding of
+  # the unit. No building block is written yet; each one adds its step below
+  # and its name to the list in "Not written yet".
+  units:
+    name: >-
+      ${{ matrix.kind == 'repository' && 'Check repository'
+      || format('Check component {0}', matrix.name) }}
+    needs: declare
+    if: needs.declare.outputs.units != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.declare.outputs.units) }}
+
+    steps:
+      - name: Check out the calling repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # A check the register knows and nobody has written yet. It fails by
+      # name, so that a pull request says what is missing instead of passing
+      # without anyone having looked. It stands first, so that it is the first
+      # thing read; the checks that are written still run.
+      - name: Not written yet
+        env:
+          CHECKS: ${{ toJSON(matrix.checks) }}
+          WRITTEN: "[]"
+          UNIT_PATH: ${{ matrix.path }}
+        run: |
+          set -euo pipefail
+          missing="$(jq --raw-output --null-input \
+            --argjson checks "$CHECKS" --argjson written "$WRITTEN" \
+            '($checks - $written)[]')"
+          if [ -z "$missing" ]; then
+            echo "Every check of '$UNIT_PATH' has a building block."
+            exit 0
+          fi
+          while IFS= read -r check; do
+            echo "::error::The check '$check' has no building block yet, so '$UNIT_PATH' is not checked for it. It is to be written under .github/actions/check-$check."
+          done <<< "$missing"
+          exit 1
+
+  # The one name a ruleset can require. A matrix gives one context per unit,
+  # and those names change with the repository; this job gathers them.
+  check:
+    name: Check
+    needs:
+      - declare
+      - units
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Gather the checks
+        env:
+          DECLARE: ${{ needs.declare.result }}
+          CHECKS: ${{ needs.units.result }}
+        run: |
+          set -euo pipefail
+          if [ "$DECLARE" != "success" ]; then
+            echo "::error::Phase 0 did not pass ($DECLARE), so nothing was checked."
+            exit 1
+          fi
+          case "$CHECKS" in
+            success)
+              echo "Every check the plan started passed."
+              ;;
+            skipped)
+              echo "The plan starts no check here; there was nothing to do."
+              ;;
+            *)
+              echo "::error::At least one check did not pass ($CHECKS)."
+              exit 1
+              ;;
+          esac

@@ -36,9 +36,11 @@ whatever writes it.
 While the repository is on `0.0.x`, a pull request may be merged into `main`
 once all four hold:
 
-1. The gate is green. Until the gate exists (it arrives with the issue that
-   adds the central workflow), the local check results stated in the pull
-   request stand in for it: nothing fails, and every check that could not be
+1. The gate is green. Until every check of the base set has a building block,
+   the gate cannot be green, and the rule reads instead: the only failures are
+   the named `Not written yet` steps and the closing `Check` that sums them up.
+   For the checks without a building block, the local check results stated in
+   the pull request stand in: nothing fails, and every check that could not be
    run is named with its reason.
 2. It was reviewed in a separate session that did not write it, with the
    findings as inline comments. Author and reviewer may act through the same
