@@ -34,11 +34,21 @@ whatever writes it.
 ## Merging
 
 While the repository is on `0.0.x`, a pull request may be merged into `main`
-once
+once all four hold:
 
-- the gate is green,
-- a reviewer other than the author has reviewed it,
-- every review thread is resolved, and
-- it makes no decision its issue does not make.
+1. The gate is green. Until the gate exists (it arrives with the issue that
+   adds the central workflow), the local check results stated in the pull
+   request stand in for it: nothing fails, and every check that could not be
+   run is named with its reason.
+2. It was reviewed in a separate session that did not write it, with the
+   findings as inline comments. Author and reviewer may act through the same
+   GitHub account; what counts is that the reviewer starts without the
+   author's context.
+3. Every review thread is resolved.
+4. It makes no decision its issue does not make. A decision is a choice that
+   changes behaviour, an interface, a rule or the scope. Wording and details
+   inside the issue's scope are not decisions: the pull request lists them and
+   the review covers them. A pull request that needs a decision waits until
+   its issue is amended.
 
 Merging into `release` is reserved for the maintainers.
