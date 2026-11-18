@@ -12,10 +12,18 @@ repository.workspace   = true
 include = ["src/**", "tests/**", "register.toml", "defaults.toml", "Cargo.toml"]
 
 [dependencies]
+schemars            = { workspace = true, optional = true }
 serde.workspace     = true
 thiserror.workspace = true
 toml.workspace      = true
 toml_edit.workspace = true
+
+# The JSON Schema of `.nebensound/repo.toml`, derived from the types that read
+# it. Off by default: a consumer that only reads declarations compiles no
+# schema generator. The tool switches it on for `nebensound schema`.
+[features]
+default     = []
+json-schema = ["dep:schemars"]
 
 [lints]
 workspace = true

@@ -25,7 +25,9 @@ repository.workspace   = true
 publish = false
 
 [dependencies]
-nebensound-declaration = { path = "crates/nebensound-declaration" }
+nebensound-declaration = { path = "crates/nebensound-declaration", features = [
+  "json-schema",
+] }
 
 clap.workspace       = true
 ratatui              = { workspace = true, optional = true }
@@ -38,6 +40,7 @@ thiserror.workspace  = true
 nebensound-declaration = { path = "crates/nebensound-declaration" }
 
 portable-pty.workspace = true
+regex.workspace        = true
 tempfile.workspace     = true
 
 # The interface is opt-in. The composite action builds without it, so a run of
@@ -73,6 +76,8 @@ repository   = "https://github.com/Nebensound/pipeline"
 clap         = { version = "4", features = ["derive"] }
 portable-pty = "0.9"
 ratatui      = "0.30"
+regex        = "1"
+schemars     = { version = "1", default-features = false, features = ["derive", "std"] }
 serde        = { version = "1", features = ["derive"] }
 serde_json   = "1"
 tempfile     = "3"

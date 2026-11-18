@@ -10,14 +10,15 @@ The JSON Schemas `check-toml` validates against, kept here for two reasons:
   pins, so a change to a schema changes the version of the action, and
   never reaches a repository behind its back.
 
-| File                       | For                                                    |
-| -------------------------- | ------------------------------------------------------ |
-| `cargo.json`               | `Cargo.toml`                                           |
-| `cargo-lints-cargo.json`   | the `cargo` lints, referenced by `cargo.json`          |
-| `cargo-lints-clippy.json`  | the `clippy` lints, referenced by `cargo.json`         |
-| `cargo-lints-rust.json`    | the `rust` lints, referenced by `cargo.json`           |
-| `cargo-lints-rustdoc.json` | the `rustdoc` lints, referenced by `cargo.json`        |
-| `quikrun.json`             | a `package.metadata` table, referenced by `cargo.json` |
+| File                          | For                                                    |
+| ----------------------------- | ------------------------------------------------------ |
+| `cargo.json`                  | `Cargo.toml`                                           |
+| `cargo-lints-cargo.json`      | the `cargo` lints, referenced by `cargo.json`          |
+| `cargo-lints-clippy.json`     | the `clippy` lints, referenced by `cargo.json`         |
+| `cargo-lints-rust.json`       | the `rust` lints, referenced by `cargo.json`           |
+| `cargo-lints-rustdoc.json`    | the `rustdoc` lints, referenced by `cargo.json`        |
+| `quikrun.json`                | a `package.metadata` table, referenced by `cargo.json` |
+| `nebensound-declaration.json` | `.nebensound/repo.toml`; not from SchemaStore, below   |
 
 ## Source
 
@@ -49,3 +50,27 @@ Take the files again from a newer SchemaStore commit, together with its
 `LICENSE` and `NOTICE`, apply the same two changes, and update the commit and
 date above, in one pull request. A schema
 that references a further one brings that one along.
+
+## `nebensound-declaration.json`
+
+Not taken from anywhere: `nebensound schema` derives it from the types phase 0
+reads `.nebensound/repo.toml` with. A test in `tools/nebensound` fails when it
+differs from what the types describe, so a change to the declaration format
+carries its schema in the same commit. To write it again, run in
+`tools/nebensound`:
+
+```sh
+cargo run --quiet -- schema > ../../.github/actions/check-toml/schemas/nebensound-declaration.json
+```
+
+and format it with Prettier, as `check-json` requires.
+
+The schema is looser than phase 0, never stricter: where a rule cannot be said
+in a schema, phase 0 rejects the file and the schema lets it through. Phase 0
+stays the judge; the schema lets an editor show the fields, the allowed values
+and a mistake while the file is written.
+
+`check-toml` always validates `.nebensound/repo.toml` against the copy here,
+the one of the pipeline version that reads the file. The public address of the
+copy on `main`, and the `#:schema` line that points an editor at it, stand in
+the [README of the repository](../../../../README.md#check-toml).

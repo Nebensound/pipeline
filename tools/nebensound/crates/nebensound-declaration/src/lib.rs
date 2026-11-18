@@ -17,6 +17,8 @@ pub mod path;
 pub mod pattern;
 pub mod register;
 pub mod resolve;
+#[cfg(feature = "json-schema")]
+pub mod schema;
 pub mod tree;
 pub mod validate;
 

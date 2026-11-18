@@ -65,6 +65,9 @@ pub enum Command {
     },
     /// Print which unit runs which check, as JSON for a matrix.
     Plan,
+    // It describes the format, not a repository, so it reads none.
+    /// Print the JSON Schema of `.nebensound/repo.toml`, for editors and Taplo.
+    Schema,
     /// Open the interface. Only in a build with the `ui` feature.
     #[cfg(feature = "ui")]
     Ui,
@@ -139,16 +142,30 @@ where
             return if error.use_stderr() { MISUSE } else { OK };
         }
     };
+    dispatch(&cli, register, defaults, output, out)
+}
+
+/// Everything after the arguments were read.
+///
+/// Not generic, unlike its caller: it is compiled once, so every test binary
+/// runs the same copy of it, and a call that only one of them makes still
+/// counts as run.
+fn dispatch(cli: &Cli, register: &str, defaults: &str, output: Output, out: &mut dyn Write) -> u8 {
     // Whether a call makes sense does not depend on what it would have been
     // called on, so the path is checked before the repository is read at all.
-    let job = match job(&cli) {
-        Ok(job) => job,
+    let job = match call(cli) {
+        Ok(Call::Schema) => {
+            let schema = nebensound_declaration::schema::json_schema();
+            say(out, &format!("{:#}\n", schema.as_value()));
+            return OK;
+        }
+        Ok(Call::Repository(job)) => job,
         Err(failure) => {
             say(out, &format!("{failure}\n"));
             return MISUSE;
         }
     };
-    match execute(&cli, &job, register, defaults, output, out) {
+    match execute(cli, &job, register, defaults, output, out) {
         Ok(code) => code,
         Err(failure) => {
             say(out, &format!("{failure}\n"));
@@ -164,6 +181,15 @@ fn say(out: &mut dyn Write, text: &str) {
 }
 
 /// One call, with everything about it already checked.
+enum Call {
+    /// Print the schema of the declaration. It is the same for every
+    /// repository, so none is read for it.
+    Schema,
+    /// Something about the repository.
+    Repository(Job),
+}
+
+/// A call about the repository.
 enum Job {
     /// Run phase 0 and print the whole result.
     Check,
@@ -179,8 +205,9 @@ enum Job {
 }
 
 /// What the call asks for, refusing a path that is not one.
-fn job(cli: &Cli) -> Result<Job, Failure> {
-    Ok(match &cli.command {
+fn call(cli: &Cli) -> Result<Call, Failure> {
+    Ok(Call::Repository(match &cli.command {
+        Some(Command::Schema) => return Ok(Call::Schema),
         None | Some(Command::Check) => Job::Check,
         Some(Command::Tree) => Job::Tree,
         Some(Command::Plan) => Job::Plan,
@@ -192,7 +219,7 @@ fn job(cli: &Cli) -> Result<Job, Failure> {
                 source,
             })?)
         }
-    })
+    }))
 }
 
 fn execute(
