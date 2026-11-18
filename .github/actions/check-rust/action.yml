@@ -108,8 +108,10 @@ runs:
     #
     # The toolchain is a nightly pinned by date. On a nightly toolchain
     # cargo-llvm-cov sets the cfg `coverage_nightly`, and only there does
-    # `#[coverage(off)]` exist, so a workspace marks a function it justifies
-    # leaving out with `#[cfg_attr(coverage_nightly, coverage(off))]` and builds
+    # `#[coverage(off)]` exist. So a workspace marks a function it justifies
+    # leaving out with `#[cfg_attr(coverage_nightly, coverage(off))]`, enables
+    # the attribute at the crate root with
+    # `#![cfg_attr(coverage_nightly, feature(coverage_attribute))]`, and builds
     # unchanged on its own toolchain. Every other step runs on that one.
     #
     # The tool is installed from source with its lockfile.
