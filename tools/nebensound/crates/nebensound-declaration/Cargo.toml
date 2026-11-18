@@ -1,0 +1,21 @@
+[package]
+name        = "nebensound-declaration"
+description = "Reads, resolves and checks the .nebensound/repo.toml that every Nebensound repository carries."
+
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+# register.toml and defaults.toml are compiled into the library, and the package
+# smoke test builds from the unpacked package — so both have to travel along.
+include = ["src/**", "tests/**", "register.toml", "defaults.toml", "Cargo.toml"]
+
+[dependencies]
+serde.workspace     = true
+thiserror.workspace = true
+toml.workspace      = true
+toml_edit.workspace = true
+
+[lints]
+workspace = true

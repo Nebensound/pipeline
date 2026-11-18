@@ -1,0 +1,267 @@
+# The vocabulary: which version writers, checks, builds, targets and presets
+# exist, and what a check covers. Definitions, not statements about a
+# repository — what every repository declares anyway stands beside this in
+# defaults.toml.
+#
+# Compiled in so that no repository holds a version that can fall behind.
+# Adopting a change means raising the crate.
+
+# The version writers: each receives a unit's canonical .nebensound version as a
+# derived copy. How the copy is written is the knowledge of the building block
+# version-<name>, not of this file; an entry makes the name one a pipeline may
+# select, and says in words what it writes.
+
+[version.cargo]
+copy = "the package version in the unit's Cargo.toml, written through Cargo"
+
+[version.asciidoc]
+copy = "the :revnumber: attribute in the unit's AsciiDoc source document"
+
+[check.markdown]
+extensions = [".md", ".markdown"]
+
+[check.yaml]
+extensions = [".yml", ".yaml"]
+
+[check.json]
+extensions = [".json", ".jsonc", ".geojson"]
+
+# Cargo.lock is TOML with a different extension, and every repository has to
+# commit its lockfiles — so the base set has to cover it.
+[check.toml]
+extensions = [".toml", ".lock"]
+
+[check.rust]
+extensions = [".rs"]
+
+[check.python]
+extensions = [".py", ".pyi"]
+
+[check.cpp]
+extensions = [".c", ".h", ".cpp", ".hpp", ".cc", ".hh", ".cxx", ".ino"]
+
+[check.javascript]
+extensions = [".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"]
+
+[check.php]
+extensions = [".php"]
+
+[check.r]
+extensions = [".r"]
+
+[check.shell]
+extensions = [".sh", ".bash"]
+
+[check.sql]
+extensions = [".sql"]
+
+[check.qml]
+extensions = [".qml"]
+
+[check.html]
+extensions = [".html", ".htm"]
+
+[check.css]
+extensions = [".css", ".scss"]
+
+[check.asciidoc]
+extensions = [".adoc", ".asciidoc"]
+
+[check.typst]
+extensions = [".typ"]
+
+# The one check that cannot work from extensions: a Dockerfile has none.
+[check.dockerfile]
+extensions = [".dockerfile"]
+filenames  = ["Dockerfile", "Containerfile"]
+
+[build.cargo-package]
+produces = "crate"
+
+[build.cargo-release]
+produces = "executable"
+
+[build.docker]
+produces = "container"
+
+[build.platformio]
+produces = "firmware"
+
+[build.esphome]
+produces = "firmware"
+
+[build.asciidoctor]
+produces = "site"
+
+[build.typst]
+produces = "document"
+
+# The organization's private crate registry. The register names no host: which
+# registry that is reaches the pipeline through organization-level settings,
+# not through this repository or a calling repository.
+[target.private-registry]
+accepts = ["crate"]
+
+# Publishing here cannot be taken back, so it is the one target that also
+# demands the language match.
+[target."crates.io"]
+accepts        = ["crate"]
+requires-check = "rust"
+
+[target.release-assets]
+accepts = ["executable", "firmware", "document"]
+
+[target.ghcr]
+accepts = ["container"]
+
+[target.pages]
+accepts = ["site"]
+
+[preset.none]
+check   = []
+publish = false
+
+# The workspace side, when it needs a pipeline of its own: it runs the check and
+# watches the lockfile, and has no product to build or publish. A workspace that
+# is the product itself takes the product preset instead.
+[preset.rust-workspace]
+check      = ["rust"]
+publish    = false
+dependabot = ["cargo"]
+
+# A workspace whose packages carry versions of their own has three boundaries:
+# the workspace is checked, the package is published, and Dependabot works where
+# resolution happens — so at the workspace again.
+
+# The package side: one independently released library package inside a
+# workspace. The name refers to the Cargo package and its release boundary.
+#
+# It carries a **version of its own**, and that is the reason for the split. A
+# version is a promise to the consumer; were it shared with its siblings, every
+# release would claim a change that did not happen — and every consuming
+# repository would get a Dependabot pull request for it. Whoever waves three
+# empty bumps through waves the fourth through as well.
+#
+# No check: the workspace runs it, and it is enough that *one* containing unit
+# runs it. No dependabot: resolution happens at the root.
+[preset.rust-library-package]
+version    = ["cargo"]
+check      = []
+build      = "cargo-package"
+publish    = ["private-registry"]
+dependabot = []
+
+[preset.rust-library-public-package]
+version    = ["cargo"]
+check      = []
+build      = "cargo-package"
+publish    = ["crates.io"]
+dependabot = []
+
+# The default for a library: the organization's private registry, and nothing
+# else.
+[preset.rust-library]
+version    = ["cargo"]
+check      = ["rust"]
+build      = "cargo-package"
+publish    = ["private-registry"]
+dependabot = ["cargo"]
+
+# The same library, published where it cannot be taken back. crates.io keeps a
+# yanked version readable forever, so this is a separate preset rather than an
+# extra target on the one above: publishing publicly is a decision someone
+# makes by name, not a list that grew by one entry.
+#
+# It does not also publish to the private registry. A crate that is on
+# crates.io is resolvable from there for everyone, and a second copy would only
+# raise the question which of the two is the real one.
+[preset.rust-library-public]
+version    = ["cargo"]
+check      = ["rust"]
+build      = "cargo-package"
+publish    = ["crates.io"]
+dependabot = ["cargo"]
+
+[preset.rust-binary]
+version    = ["cargo"]
+check      = ["rust"]
+build      = "cargo-release"
+publish    = ["release-assets"]
+dependabot = ["cargo"]
+
+# A service checks its Rust sources and its Dockerfiles. The docker build
+# produces the deployable container; the release binary the rust check builds is
+# no second artifact.
+[preset.rust-service]
+version    = ["cargo"]
+check      = ["rust", "dockerfile"]
+build      = "docker"
+publish    = ["ghcr"]
+dependabot = ["cargo", "docker"]
+
+[preset.python-service]
+check      = ["python", "dockerfile"]
+build      = "docker"
+publish    = ["ghcr"]
+dependabot = ["uv", "docker"]
+
+[preset.platformio-firmware]
+check      = ["cpp"]
+build      = "platformio"
+publish    = ["release-assets"]
+dependabot = []
+
+[preset.esphome-firmware]
+check      = ["yaml"]
+build      = "esphome"
+publish    = ["release-assets"]
+dependabot = []
+
+[preset.asciidoc-site]
+version    = ["asciidoc"]
+check      = ["asciidoc"]
+build      = "asciidoctor"
+publish    = ["pages"]
+dependabot = []
+
+[preset.typst-document]
+check      = ["typst"]
+build      = "typst"
+publish    = ["release-assets"]
+dependabot = []
+
+# The package ecosystems Dependabot can watch. `manifests` names the files one
+# is recognized by in the tree — that is what phase 0 measures a present
+# manifest against to see whether it is watched.
+#
+# Where a language has several package managers, each one stands here for
+# itself; which one holds is said by the pipeline. The presets name the one the
+# organization has chosen.
+
+# Cargo.lock, not Cargo.toml: Dependabot works on the directory where
+# resolution happens. In a workspace that is the root, and a member has nothing
+# of its own — counting its Cargo.toml as a manifest would mean taking every
+# package for an ecosystem of its own.
+[ecosystem.cargo]
+package-ecosystem = "cargo"
+manifests         = ["Cargo.lock"]
+
+[ecosystem.uv]
+package-ecosystem = "uv"
+manifests         = ["uv.lock"]
+
+[ecosystem.pip]
+package-ecosystem = "pip"
+manifests         = ["requirements.txt"]
+
+[ecosystem.npm]
+package-ecosystem = "npm"
+manifests         = ["package-lock.json"]
+
+[ecosystem.docker]
+package-ecosystem = "docker"
+manifests         = ["Dockerfile", "Containerfile"]
+
+[ecosystem.github-actions]
+package-ecosystem = "github-actions"
+manifests         = []

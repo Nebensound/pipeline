@@ -4,3 +4,12 @@
 
 [repo]
 pipeline = "none"
+
+# The Cargo workspace of the tool that reads a declaration. It is a unit of its
+# own because Cargo resolves here: the rust check runs here and Dependabot
+# watches the lockfile here. Nothing in it is built or published yet, so it
+# carries no version.
+[component.nebensound]
+path       = "tools/nebensound"
+pipeline   = "rust-workspace"
+versioning = "none"
