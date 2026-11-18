@@ -34,13 +34,12 @@ const MISUSE: u8 = 2;
 
 const USAGE: &str = "\
 Usage: cargo xtask check --all
-       cargo xtask check <block>...
 
-check   Holds the building blocks, the register and nebensound.yml to each
-        other, and runs every building block (--all) or the ones named against
-        its test cases in tests/pass/ and tests/fail/. The cases run the
-        blocks' own steps, which are written for the Linux runners of GitHub
-        Actions, so they run on Linux only.
+check --all   Holds the building blocks, the register and nebensound.yml to
+              each other, and runs every building block against its test cases
+              in tests/pass/ and tests/fail/. The cases run the blocks' own
+              steps, which are written for the Linux runners of GitHub Actions,
+              so they run on Linux only.
 ";
 
 /// Why something could not be done, as one sentence.
@@ -143,22 +142,18 @@ pub fn runner_arch(arch: &str) -> String {
     .to_owned()
 }
 
-/// Which blocks to run.
-enum Selection {
-    All,
-    Named(Vec<String>),
+/// What a call asks for.
+enum Call {
+    Help,
+    Check,
 }
 
-fn parse(args: &[String]) -> Result<Option<Selection>, String> {
+fn parse(args: &[String]) -> Result<Call, String> {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     match args.as_slice() {
-        ["help" | "--help" | "-h"] => Ok(None),
-        ["check", "--all"] => Ok(Some(Selection::All)),
-        ["check"] => Err("`check` needs --all or the names of blocks".to_owned()),
-        ["check", names @ ..] if names.iter().all(|name| !name.starts_with('-')) => Ok(Some(
-            Selection::Named(names.iter().map(|name| (*name).to_owned()).collect()),
-        )),
-        ["check", ..] => Err("`check` takes either --all or the names of blocks".to_owned()),
+        ["help" | "--help" | "-h"] => Ok(Call::Help),
+        ["check", "--all"] => Ok(Call::Check),
+        ["check", ..] => Err("`check` takes --all and nothing else".to_owned()),
         [] => Err("no task named".to_owned()),
         [task, ..] => Err(format!("there is no task `{task}`")),
     }
@@ -168,11 +163,11 @@ fn parse(args: &[String]) -> Result<Option<Selection>, String> {
 /// 1 when a check found something, 2 when the call itself was wrong.
 pub fn run(args: &[String], setup: &Setup, out: &mut dyn Write) -> u8 {
     match parse(args) {
-        Ok(None) => {
+        Ok(Call::Help) => {
             say(out, USAGE);
             OK
         }
-        Ok(Some(selection)) => check(&selection, setup, out),
+        Ok(Call::Check) => check(setup, out),
         Err(problem) => {
             say(out, &format!("{problem}\n\n{USAGE}"));
             MISUSE
@@ -180,7 +175,7 @@ pub fn run(args: &[String], setup: &Setup, out: &mut dyn Write) -> u8 {
     }
 }
 
-fn check(selection: &Selection, setup: &Setup, out: &mut dyn Write) -> u8 {
+fn check(setup: &Setup, out: &mut dyn Write) -> u8 {
     say(
         out,
         "Holding the building blocks, the register and nebensound.yml to each other\n",
@@ -198,22 +193,6 @@ fn check(selection: &Selection, setup: &Setup, out: &mut dyn Write) -> u8 {
     if layout.problems.is_empty() {
         say(out, "They agree.\n");
     }
-    let blocks = match selection {
-        Selection::All => layout.blocks.clone(),
-        Selection::Named(names) => {
-            if let Some(unknown) = names.iter().find(|name| !layout.blocks.contains(name)) {
-                say(
-                    out,
-                    &format!(
-                        "there is no building block `{unknown}`; there are: {}\n",
-                        layout.blocks.join(", ")
-                    ),
-                );
-                return MISUSE;
-            }
-            names.clone()
-        }
-    };
     if setup.os != "linux" {
         say(
             out,
@@ -226,7 +205,7 @@ fn check(selection: &Selection, setup: &Setup, out: &mut dyn Write) -> u8 {
         );
         return FOUND;
     }
-    let failures = match cases(&blocks, setup, out) {
+    let failures = match cases(&layout.blocks, setup, out) {
         Ok(failures) => failures,
         Err(error) => {
             say(out, &format!("::error::{error}\n"));

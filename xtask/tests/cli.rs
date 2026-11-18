@@ -79,9 +79,8 @@ runs:
         if [ -f broken ]; then echo garbage >> "$GITHUB_OUTPUT"; fi
 "#;
 
-/// A repository with two blocks: `check-demo`, whose cases hold, and
-/// `check-more`, with one case of each kind that does not hold and one that
-/// cannot be run.
+/// A repository with two blocks, `check-demo` and `check-more`, whose cases
+/// hold.
 fn repository(scene: &Scene) -> PathBuf {
     let root = scene.path().join("root");
     write(
@@ -102,12 +101,11 @@ fn repository(scene: &Scene) -> PathBuf {
                 "::error file=bad::wrong\n",
             ),
             (".github/actions/check-more/action.yml", BLOCK),
-            (".github/actions/check-more/tests/pass/bad/bad", ""),
-            (".github/actions/check-more/tests/pass/broken/broken", ""),
-            (".github/actions/check-more/tests/fail/good/file", ""),
+            (".github/actions/check-more/tests/pass/good/file", ""),
+            (".github/actions/check-more/tests/fail/bad/bad", ""),
             (
-                ".github/actions/check-more/tests/fail/good/expected-finding",
-                "anything\n",
+                ".github/actions/check-more/tests/fail/bad/expected-finding",
+                "::error file=bad::wrong\n",
             ),
         ],
     );
@@ -125,10 +123,14 @@ fn help_is_no_failure_and_a_wrong_call_is_one() {
     }
     for (args, message) in [
         (&[][..], "no task named"),
-        (&["check"], "needs --all or the names of blocks"),
+        (&["check"], "`check` takes --all and nothing else"),
+        (
+            &["check", "check-demo"],
+            "`check` takes --all and nothing else",
+        ),
         (
             &["check", "--all", "check-demo"],
-            "either --all or the names of blocks",
+            "`check` takes --all and nothing else",
         ),
         (&["build"], "there is no task `build`"),
     ] {
@@ -148,7 +150,7 @@ fn every_case_runs_and_every_problem_is_named() {
     let root = repository(&scene);
     let setup = setup(&root, scene.path(), "linux");
 
-    let (code, out) = call(&["check", "check-demo"], &setup);
+    let (code, out) = call(&["check", "--all"], &setup);
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("They agree.\n"), "{out}");
     assert!(
@@ -168,6 +170,18 @@ fn every_case_runs_and_every_problem_is_named() {
         "{out}"
     );
 
+    // One case of each kind that does not hold, and one that cannot be run.
+    let more = root.join(".github/actions/check-more/tests");
+    fs::remove_dir_all(&more).unwrap();
+    write(
+        &more,
+        &[
+            ("pass/bad/bad", ""),
+            ("pass/broken/broken", ""),
+            ("fail/good/file", ""),
+            ("fail/good/expected-finding", "anything\n"),
+        ],
+    );
     let (code, out) = call(&["check", "--all"], &setup);
     assert_eq!(code, 1, "{out}");
     for line in [
@@ -178,23 +192,6 @@ fn every_case_runs_and_every_problem_is_named() {
     ] {
         assert!(out.contains(line), "{line}\n{out}");
     }
-}
-
-#[test]
-fn an_unknown_block_is_a_wrong_call() {
-    let scene = Scene::new();
-    let root = repository(&scene);
-    let (code, out) = call(
-        &["check", "check-nothing"],
-        &setup(&root, scene.path(), "linux"),
-    );
-    assert_eq!(code, 2, "{out}");
-    assert!(
-        out.contains(
-            "there is no building block `check-nothing`; there are: check-demo, check-more"
-        ),
-        "{out}"
-    );
 }
 
 #[test]
@@ -220,10 +217,7 @@ fn problems_of_the_layout_and_of_the_run_are_counted_together() {
         &root,
         &[(".github/actions/check-demo/tests/fail/stray", "")],
     );
-    let (code, out) = call(
-        &["check", "check-demo"],
-        &setup(&root, scene.path(), "linux"),
-    );
+    let (code, out) = call(&["check", "--all"], &setup(&root, scene.path(), "linux"));
     assert_eq!(code, 1, "{out}");
     assert!(
         out.contains("::error::") && out.contains("stray is no case"),
@@ -251,10 +245,7 @@ fn a_run_without_its_tool_or_its_room_stops() {
     );
 
     fs::remove_file(root.join(".github/actions/tool/action.yml")).unwrap();
-    let (code, out) = call(
-        &["check", "check-demo"],
-        &setup(&root, scene.path(), "linux"),
-    );
+    let (code, out) = call(&["check", "--all"], &setup(&root, scene.path(), "linux"));
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("`tool` has no action.yml"), "{out}");
     assert!(out.contains("::error::cannot read"), "{out}");

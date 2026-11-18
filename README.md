@@ -322,8 +322,7 @@ Git repository, runs [`.github/actions/phase0`](.github/actions/phase0) on it,
 and runs the block once for every unit the plan starts the block's check for,
 just as a unit job does. A passing case needs the block to succeed everywhere. A
 failing case needs it to fail and to print every finding the case names, so a
-block that fails for another reason does not count. `cargo xtask check <block>…`
-runs the cases of the blocks named.
+block that fails for another reason does not count.
 
 The xtask keeps no copy of what a block does. It reads every step from the
 block's `action.yml` and runs it the way the runner of GitHub Actions does: it
