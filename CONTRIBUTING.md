@@ -13,8 +13,6 @@ Thank you for helping. Every change follows the rules in
 3. Open one pull request per issue, against `main`. Its description names the
    decisions the issue leaves open, and it closes the issue with
    `Closes #<number>`.
-4. Keep the pull request focused on its issue. Unrelated changes belong in their
-   own issue and pull request.
 
 ## Commit messages
 
@@ -24,6 +22,6 @@ example `feat: add check-toml` or `fix: report a missing declaration`.
 
 ## Merging
 
-Pull requests are squash-merged. The pull request title becomes the commit
-message on `main`, so it has to be a valid Conventional Commit line. When a pull
-request may be merged is set out in [`AGENTS.md`](AGENTS.md).
+Pull requests are squash-merged. The pull request title becomes the first line
+of the commit on `main`, so it has to be a valid Conventional Commit header.
+When a pull request may be merged is set out in [`AGENTS.md`](AGENTS.md).

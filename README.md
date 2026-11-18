@@ -6,8 +6,7 @@ publishes what that declaration says.
 
 ## What it is
 
-- **One reusable workflow.** A repository calls it from a single caller file and
-  receives the same mandatory checks as every other repository.
+- **One reusable workflow**, which a repository calls.
 - **Its building blocks.** Each block performs one step and is named after its
   entry in the register, with the category in front: `check-<name>`,
   `build-<name>`, `publish-<target>`.
