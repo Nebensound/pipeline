@@ -23,7 +23,7 @@ impl Output {
     /// Where this process writes.
     #[must_use]
     pub fn current() -> Self {
-        Self::of( io::stdout().is_terminal() )
+        Self::of(io::stdout().is_terminal())
     }
 
     /// From the answer to "is a terminal attached?".
