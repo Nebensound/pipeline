@@ -96,6 +96,25 @@ Every step runs even when one before it failed, so one run shows every finding.
   request: it should not turn red because someone else's server does not
   answer.
 
+### `check-rust`
+
+[`.github/actions/check-rust`](.github/actions/check-rust) checks one Cargo
+workspace, the unit's path. The toolchain is the one the workspace pins in its
+`rust-toolchain.toml`; the oldest supported version is the `rust-version` its
+packages claim. Neither is an input, so no repository can tell the check to look
+away:
+
+- Formatted the way `cargo fmt` writes it.
+- Clippy without a warning, with all features and with no default features.
+- Tests pass with all features and with no default features.
+- Documentation builds without a warning.
+- A release build succeeds.
+- The workspace builds with the oldest `rust-version` any package claims.
+- Regions, lines and functions are 100% covered (`cargo-llvm-cov`, on a pinned
+  nightly toolchain, where `#[coverage(off)]` takes effect).
+- Every published package builds and passes its tests from its own packaged
+  contents, outside the source tree.
+
 ### `check-toml`
 
 [`.github/actions/check-toml`](.github/actions/check-toml) checks every `.toml`
