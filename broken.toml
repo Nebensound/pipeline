@@ -1,0 +1,3 @@
+[proof]
+key = "a deliberately broken file"
+key = "the same key twice"
