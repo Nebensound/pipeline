@@ -8,7 +8,7 @@
 
 use nebensound_declaration::Declaration;
 use nebensound_declaration::model::Publish;
-use nebensound_declaration::names::{CheckName, PresetName, TargetName};
+use nebensound_declaration::names::{CheckName, EcosystemName, PresetName, TargetName};
 use nebensound_declaration::path::RelativePath;
 use nebensound_declaration::register::{Register, RegisterError};
 use nebensound_declaration::{Central, Ruling};
@@ -242,6 +242,117 @@ fn every_check_on_offer_is_here() {
         assert!(
             register.check.contains_key(&check),
             "the register offers the {name} check"
+        );
+    }
+}
+
+/// One row of the coverage table: check, extensions, whole file names.
+type Coverage = (
+    &'static str,
+    &'static [&'static str],
+    &'static [&'static str],
+);
+
+/// The coverage table, check for check. A file type that drops out of a check
+/// drops out silently: nothing else fails, the file is simply nobody's any
+/// more. So every extension and every file name stands here a second time, and
+/// the register has to agree with it entry for entry.
+const COVERAGE_TABLE: &[Coverage] = &[
+    ("asciidoc", &[".adoc", ".asciidoc"], &[]),
+    (
+        "cpp",
+        &[".c", ".h", ".cpp", ".hpp", ".cc", ".hh", ".cxx", ".ino"],
+        &[],
+    ),
+    ("css", &[".css", ".scss"], &[]),
+    (
+        "dockerfile",
+        &[".dockerfile"],
+        &["Dockerfile", "Containerfile"],
+    ),
+    ("html", &[".html", ".htm"], &[]),
+    (
+        "javascript",
+        &[".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"],
+        &[],
+    ),
+    ("json", &[".json", ".jsonc", ".geojson"], &[]),
+    ("markdown", &[".md", ".markdown"], &[]),
+    ("php", &[".php"], &[]),
+    ("python", &[".py", ".pyi"], &[]),
+    ("qml", &[".qml"], &[]),
+    ("r", &[".r"], &[]),
+    ("rust", &[".rs"], &[]),
+    ("shell", &[".sh", ".bash"], &[]),
+    ("sql", &[".sql"], &[]),
+    ("toml", &[".toml", ".lock"], &[]),
+    ("typst", &[".typ"], &[]),
+    ("yaml", &[".yml", ".yaml"], &[]),
+];
+
+/// The manifest table, ecosystem for ecosystem: the file names each one is
+/// recognized by in the tree.
+const MANIFEST_TABLE: &[(&str, &[&str])] = &[
+    ("cargo", &["Cargo.lock"]),
+    ("docker", &["Dockerfile", "Containerfile"]),
+    ("github-actions", &[]),
+    ("npm", &["package-lock.json"]),
+    ("pip", &["requirements.txt"]),
+    ("uv", &["uv.lock"]),
+];
+
+/// A list compared as a set that still counts: sorted, duplicates kept. The
+/// order in which the register writes a list says nothing; a second copy of
+/// an entry does.
+fn counted<T: ToString>(list: &[T]) -> Vec<String> {
+    let mut shown = shown(list);
+    shown.sort();
+    shown
+}
+
+#[test]
+fn every_check_covers_exactly_its_row_in_the_coverage_table() {
+    let register = builtin();
+
+    // Every check has a row and every row a check. A check without a row
+    // covers what nobody pinned; a row without a check pins nothing.
+    assert_eq!(
+        counted(&register.check.keys().collect::<Vec<_>>()),
+        counted(&COVERAGE_TABLE.iter().map(|row| row.0).collect::<Vec<_>>()),
+        "the checks on offer"
+    );
+
+    for &(name, extensions, filenames) in COVERAGE_TABLE {
+        let check = &register.check[&CheckName::new(name).expect("a name")];
+        assert_eq!(
+            counted(&check.extensions),
+            counted(extensions),
+            "{name}: extensions"
+        );
+        assert_eq!(
+            counted(&check.filenames),
+            counted(filenames),
+            "{name}: file names"
+        );
+    }
+}
+
+#[test]
+fn every_ecosystem_is_recognized_by_exactly_its_row_in_the_manifest_table() {
+    let register = builtin();
+
+    assert_eq!(
+        counted(&register.ecosystem.keys().collect::<Vec<_>>()),
+        counted(&MANIFEST_TABLE.iter().map(|row| row.0).collect::<Vec<_>>()),
+        "the ecosystems on offer"
+    );
+
+    for &(name, manifests) in MANIFEST_TABLE {
+        let ecosystem = &register.ecosystem[&EcosystemName::new(name).expect("a name")];
+        assert_eq!(
+            counted(&ecosystem.manifests),
+            counted(manifests),
+            "{name}: manifests"
         );
     }
 }
