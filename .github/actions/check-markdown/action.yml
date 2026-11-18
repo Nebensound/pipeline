@@ -154,6 +154,81 @@ runs:
         done < "$RUNNER_TEMP/check-markdown-prettier"
         exit "$status"
 
+    # A repository's own Markdownlint configuration at its root wins; without
+    # one, the configuration beside this file holds. Its rules hold as written,
+    # but nothing in it takes a file out. markdownlint-cli2 would skip a named
+    # file in three ways: through `ignores` in any options file, and through a
+    # negated entry of `globs` or through `gitignore` in the options file of
+    # the folder it starts from. So it is called through its own `main`: every
+    # file is handed over literally (`:` in front), which `gitignore` does not
+    # reach; it starts from an empty folder, so the repository's options file
+    # counts as that of the repository's folder, whose `globs` play no part;
+    # and `ignores` is overridden with an empty list for every folder. What
+    # remains is the repository's rules, read as markdownlint-cli2 reads them.
+    - name: Every Markdown file passes Markdownlint
+      if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+      shell: bash
+      env:
+        LIST: ${{ steps.files.outputs.list }}
+      run: |
+        set -euo pipefail
+        config="$GITHUB_ACTION_PATH/default.markdownlint-cli2.jsonc"
+        for own in \
+          .markdownlint-cli2.jsonc .markdownlint-cli2.yaml .markdownlint-cli2.cjs \
+          .markdownlint-cli2.mjs .markdownlint.jsonc .markdownlint.json \
+          .markdownlint.yaml .markdownlint.yml .markdownlint.cjs .markdownlint.mjs; do
+          if [ -f "$own" ]; then
+            config="$own"
+            break
+          fi
+        done
+        echo "Configuration: $config"
+        # The folder it starts from. It names every file relative to that
+        # folder, so that prefix is taken off again where a finding is printed.
+        base="$(mktemp -d "$RUNNER_TEMP/check-markdown-base.XXXXXX")"
+        prefix="$(realpath --relative-to="$base" "$PWD")/"
+        fallback=""
+        if [ "$config" = "$GITHUB_ACTION_PATH/default.markdownlint-cli2.jsonc" ]; then
+          fallback="$config"
+        fi
+        status=0
+        TOOLS="$RUNNER_TEMP/check-markdown-tools" BASE="$base" FALLBACK="$fallback" \
+          node --input-type=module --eval '
+            import { readFileSync } from "node:fs";
+            import { join, resolve } from "node:path";
+            import { pathToFileURL } from "node:url";
+
+            const { TOOLS, BASE, LIST, FALLBACK } = process.env;
+            const cli = join(TOOLS, "node_modules", "markdownlint-cli2", "markdownlint-cli2.mjs");
+            const { main } = await import(pathToFileURL(cli).href);
+            const argv = readFileSync(LIST, "utf8")
+              .split("\0")
+              .filter((file) => file !== "")
+              .map((file) => `:${resolve(file)}`);
+            if (FALLBACK) {
+              argv.push("--config", FALLBACK);
+            }
+            process.exitCode = await main({
+              directory: BASE,
+              argv,
+              logMessage: (message) => console.log(message),
+              logError: (message) => console.error(message),
+              optionsOverride: { ignores: [] },
+            });
+          ' > "$RUNNER_TEMP/check-markdown-lint" 2>&1 || status=$?
+        # A finding reads `<file>:<line>[:<column>] error <rule> <message>`;
+        # each becomes an annotation on its line and stays in the log as it is.
+        while IFS= read -r line; do
+          line="${line#"$prefix"}"
+          echo "$line"
+          if [[ "$line" =~ ^(.+):([0-9]+)(:([0-9]+))?\ error\ (.+)$ ]]; then
+            position="file=${BASH_REMATCH[1]},line=${BASH_REMATCH[2]}"
+            if [ -n "${BASH_REMATCH[4]}" ]; then position="$position,col=${BASH_REMATCH[4]}"; fi
+            echo "::error $position::${BASH_REMATCH[5]}"
+          fi
+        done < "$RUNNER_TEMP/check-markdown-lint"
+        exit "$status"
+
     # Links into the repository only: a file that is not there, a heading that
     # is not in it. `--offline` sends no request, so a pull request does not
     # turn red because someone else's server is down; links to the outside are
