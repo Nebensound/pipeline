@@ -1,6 +1,0 @@
-# Temporary: an xtask for the acceptance run of the xtask step.
-[package]
-name    = "xtask"
-version = "0.0.0"
-edition = "2024"
-publish = false
