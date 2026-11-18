@@ -1,0 +1,195 @@
+name: check-toml
+description: >-
+  The TOML check over one unit: every `.toml` and `.lock` file the unit holds
+  passes `taplo lint`, against a schema where one is assigned, and every
+  `.toml` file is formatted the way Taplo writes it.
+
+# One input, and it is not a setting: where the unit is. It comes from the plan
+# of phase 0. The files are what Git tracks below that path, so a file nobody
+# committed is not judged and a committed one is not missed. Every step runs at
+# the repository root, where the calling job checked the repository out and
+# where Taplo finds the repository's own `taplo.toml`.
+#
+# That `taplo.toml` decides how the repository formats `.toml` files. Its
+# `exclude` takes nothing out of this check; see the last step.
+
+inputs:
+  working-directory:
+    description: The directory of the unit, as the plan names it.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Find the TOML files
+      id: files
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        list="$RUNNER_TEMP/check-toml-files"
+        # The extensions the register gives `toml`: `.toml`, and `.lock` for
+        # Cargo.lock and the other lockfiles written in TOML.
+        #
+        # The unit's path is taken literally: as a plain pathspec, a path
+        # holding `[`, `*`, `?` or a leading `:` would select other files than
+        # its own. The extension is then matched here, not by Git.
+        if [ "$UNIT" = "." ]; then scope=(); else scope=(":(top,literal)${UNIT%/}"); fi
+        : > "$list"
+        while IFS= read -r -d '' file; do
+          case "$file" in
+            *.toml | *.lock) printf '%s\0' "$file" >> "$list" ;;
+          esac
+        done < <(git ls-files -z -- "${scope[@]}")
+        count="$(tr -cd '\0' < "$list" | wc -c)"
+        echo "count=$count" >> "$GITHUB_OUTPUT"
+        echo "list=$list" >> "$GITHUB_OUTPUT"
+        if [ "$count" -eq 0 ]; then
+          echo "No TOML file below '$UNIT'; there is nothing to check."
+        else
+          echo "$count TOML file(s) to check:"
+          tr '\0' '\n' < "$list"
+        fi
+
+    # The release binary, pinned by version and by its SHA-256. Taplo publishes
+    # no checksums, so these are the digests of the 0.10.0 assets as fetched
+    # once; a changed asset fails here instead of running.
+    - name: Install Taplo
+      if: steps.files.outputs.count != '0'
+      shell: bash
+      run: |
+        set -euo pipefail
+        case "$(uname -m)" in
+          x86_64)
+            asset=taplo-linux-x86_64.gz
+            digest=8fe196b894ccf9072f98d4e1013a180306e17d244830b03986ee5e8eabeb6156 ;;
+          aarch64)
+            asset=taplo-linux-aarch64.gz
+            digest=033681d01eec8376c3fd38fa3703c79316f5e14bb013d859943b60a07bccdcc3 ;;
+          *)
+            echo "::error::check-toml has no Taplo binary for $(uname -m)."
+            exit 1 ;;
+        esac
+        dir="$RUNNER_TEMP/check-toml-tools"
+        mkdir -p "$dir"
+        curl --fail --silent --show-error --location --retry 3 \
+          --output "$dir/$asset" \
+          "https://github.com/tamasfe/taplo/releases/download/0.10.0/$asset"
+        echo "$digest  $dir/$asset" | sha256sum --check --quiet
+        gunzip --force "$dir/$asset"
+        mv "$dir/${asset%.gz}" "$dir/taplo"
+        chmod +x "$dir/taplo"
+        "$dir/taplo" --version
+
+    # Every file is checked on its own, so that one run reports every
+    # unformatted and every invalid file, and a finding becomes an annotation
+    # on its file carrying Taplo's own diagnostic. The full output stands in
+    # the log.
+    #
+    # Taplo reads every file from standard input. Given a path, Taplo 0.10.0
+    # silently skips a file outside its default `include` of `**/*.toml` —
+    # every `.lock` file — and one the repository's taplo.toml excludes, and
+    # reports success for both. So a repository's `exclude` takes nothing out
+    # of this check. That stays: once the plan carries the `[[exclude]]`
+    # entries of the declaration (#10), they are the only way to take a file
+    # out.
+    #
+    # Formatting: `.toml` files are formatted the way Taplo writes them, with
+    # the repository's taplo.toml, and `--stdin-filepath` keeps its per-path
+    # rules working. A `.lock` file is not: the tool that writes it — Cargo,
+    # uv — decides its layout, and no Cargo.lock matches Taplo's.
+    #
+    # Lint: every file parses and holds no conflicting keys. It runs without
+    # the repository's configuration, so that no `[schema] enabled = false`
+    # there can switch off the validation below. Schemas are assigned here, by
+    # file name, not through Taplo's default catalogs, which Taplo 0.10.0
+    # cannot read. A file that names its own schema with a `#:schema`
+    # directive keeps that, as the assignment here would outrank it. Taplo
+    # honours the directive only in the comments before the first key or
+    # table, so only those are searched; a directive further down would leave
+    # the file without any schema. As the file comes from standard input, only
+    # an absolute URL works there: a relative one cannot be resolved and fails
+    # the check.
+    #
+    # The assigned schemas lie beside this action, in `schemas/`, pinned to a
+    # commit of SchemaStore (see the README there). Validating against them
+    # makes no request to SchemaStore: a pull request does not turn red
+    # because someone else's server does not answer. (Taplo itself is still
+    # downloaded in the install step above.) Their references to each other
+    # are relative; each copy gets its own `file://` location as `$id` here,
+    # so that they resolve to the files beside it.
+    - name: Every TOML file is formatted and passes taplo lint
+      if: steps.files.outputs.count != '0'
+      shell: bash
+      env:
+        LIST: ${{ steps.files.outputs.list }}
+      run: |
+        set -euo pipefail
+        taplo="$RUNNER_TEMP/check-toml-tools/taplo"
+        out="$RUNNER_TEMP/check-toml-out"
+        mkdir -p "$RUNNER_TEMP/check-toml-cache"
+
+        schemas="$RUNNER_TEMP/check-toml-schemas"
+        mkdir -p "$schemas"
+        for source in "$GITHUB_ACTION_PATH"/schemas/*.json; do
+          name="${source##*/}"
+          jq --arg id "file://$schemas/$name" '{"$id": $id} + .' "$source" > "$schemas/$name"
+        done
+
+        # The first line of every `error:` block, and every ERROR or WARN log
+        # line, escaped so that GitHub keeps the message whole; the first
+        # location becomes the annotation's line and column. Backtraces and
+        # the like stay in the log.
+        annotate() {
+          local detail name position
+          cat "$out"
+          # The file name is a property of the workflow command: escaped, so
+          # that a `,` or `:` in it does not cut the name short.
+          name="${1//'%'/'%25'}"
+          name="${name//':'/'%3A'}"
+          name="${name//','/'%2C'}"
+          position="$(
+            grep -m 1 -E '┌─ .*:[0-9]+:[0-9]+$' "$out" \
+              | sed -E 's/.*:([0-9]+):([0-9]+)$/,line=\1,col=\2/' || true
+          )"
+          detail="$(
+            grep -E '^(error|warning)(\[[^]]*\])?:|^ *(ERROR|WARN) ' "$out" \
+              | sed -E 's/^ *//' | head -n 12 || true
+          )"
+          detail="${detail//'%'/'%25'}"
+          detail="${detail//$'\r'/'%0D'}"
+          detail="${detail//$'\n'/'%0A'}"
+          if [ -n "$detail" ]; then
+            echo "::error file=$name$position::$2%0A$detail"
+          else
+            echo "::error file=$name$position::$2"
+          fi
+        }
+
+        failed=0
+        while IFS= read -r -d '' file; do
+          case "$file" in
+            *.lock) ;;
+            *)
+              if ! "$taplo" format --check --colors never --stdin-filepath "$file" - \
+                < "$file" > "$out" 2>&1; then
+                annotate "$file" "does not parse, or is not formatted the way Taplo writes it; 'taplo format' fixes the latter"
+                failed=1
+              fi ;;
+          esac
+          schema=()
+          if ! awk '/^[[:space:]]*#:schema[[:space:]]/ { found = 1; exit }
+              /^[[:space:]]*(#|$)/ { next } { exit } END { exit !found }' "$file"; then
+            case "${file##*/}" in
+              Cargo.toml) schema=(--schema "file://$schemas/cargo.json") ;;
+            esac
+          fi
+          if ! "$taplo" lint --no-auto-config "${schema[@]}" \
+            --cache-path "$RUNNER_TEMP/check-toml-cache" --colors never - \
+            < "$file" > "$out" 2>&1; then
+            annotate "$file" "fails taplo lint"
+            failed=1
+          fi
+        done < "$LIST"
+        exit "$failed"
