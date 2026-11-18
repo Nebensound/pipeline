@@ -8,10 +8,11 @@ Thank you for helping. Every change follows the rules in
 1. Start from an issue. Look for an existing one first; if there is none, open
    one that says what should change and why. Report a vulnerability privately
    instead, as described in [`SECURITY.md`](SECURITY.md).
-2. Create a short-lived branch from `main`.
-3. Open one pull request per issue, against `main`. Its description says what
-   changed, how it was checked, and which decisions the issue left open, and it
-   closes the issue with `Closes #<number>`.
+2. Create a branch from `main`, in a fork if you cannot push to this
+   repository.
+3. Open one pull request per issue, against `main`. Its description names the
+   decisions the issue leaves open, and it closes the issue with
+   `Closes #<number>`.
 4. Keep the pull request focused on its issue. Unrelated changes belong in their
    own issue and pull request.
 
@@ -19,7 +20,7 @@ Thank you for helping. Every change follows the rules in
 
 Commit messages and pull request titles follow
 [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), for
-example `feat: add check-toml` or `fix(phase0): report a missing declaration`.
+example `feat: add check-toml` or `fix: report a missing declaration`.
 
 ## Merging
 

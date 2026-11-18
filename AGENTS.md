@@ -17,8 +17,8 @@ whatever writes it.
 
 ## Workflows and actions
 
-- Every workflow and job sets minimal, explicit permissions, never wider than
-  the caller granted.
+- Workflows and jobs set minimal, explicit permissions, never wider than the
+  caller granted.
 - Third-party actions are pinned to a major version or to a full commit SHA.
 - No workflow uses `pull_request_target`.
 - The repository keeps no process of its own. It is checked by the pipeline it

@@ -17,20 +17,13 @@ publishes what that declaration says.
 
 ## Status
 
-This is a prototype. Releases are on `0.0.x`, and any release may change how a
-repository declares itself or calls the pipeline. The code arrives piece by
-piece; the open issues and milestones show what comes next.
+This is a prototype. Releases are on `0.0.x`. The code arrives piece by piece;
+the open issues and milestones show what comes next.
 
 ## Calling the pipeline
 
 To be written. This section will hold the complete caller file, pinned to an
-exact version.
-
-## Contributing
-
-Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to propose a change and
-[`AGENTS.md`](AGENTS.md) for the rules every change follows. Report
-vulnerabilities as described in [`SECURITY.md`](SECURITY.md).
+exact version or, until the first release, to a full commit SHA.
 
 ## Licence
 

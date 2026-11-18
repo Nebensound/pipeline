@@ -7,7 +7,8 @@ discussions.
 
 Report them privately through GitHub's private vulnerability reporting: open
 the repository's **Security** tab and choose **Report a vulnerability**. The
-report stays visible only to you and the maintainers until a fix is published.
+report stays visible only to you and the maintainers until they publish an
+advisory for it.
 
 Include what is affected, how to reproduce it, and what an attacker could do
 with it.
