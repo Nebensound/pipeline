@@ -1,15 +1,63 @@
-# The workspace of the tool `nebensound`: what reads, resolves and checks a
-# repository's `.nebensound/repo.toml`. It stands here and not at the root
-# because the repository's product is the workflow and its building blocks;
-# this is what they run.
+# The tool `nebensound`: what reads, resolves and checks a repository's
+# `.nebensound/repo.toml`. It stands here and not at the root because the
+# repository's product is the workflow and its building blocks; this is what
+# they run.
 #
+# The tool is the root of the workspace, not one of several packages inside it.
 # Below crates/ lies what carries a version of its own and could be published
 # separately: today the library that understands the declaration. The packages
-# share one lockfile, so everything builds against exactly the versions the
+# share one lockfile, so the tool builds against exactly the versions the
 # library was checked against, and one set of lints, so it does not stand as a
 # copy in every manifest.
 #
 # No manifest carries a `version`: versions come from tags.
+[package]
+name        = "nebensound"
+description = "Reads a repository, runs phase 0 on it and shows the result."
+
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+# Not a package. Whoever needs the tool gets it through the composite action; a
+# second distribution channel would be a second version that can fall behind.
+publish = false
+
+[dependencies]
+nebensound-declaration = { path = "crates/nebensound-declaration" }
+
+clap.workspace       = true
+ratatui              = { workspace = true, optional = true }
+serde_json.workspace = true
+thiserror.workspace  = true
+
+[dev-dependencies]
+# The library once more, so the tests can build an analysis without a disk; the
+# tool itself does not pass it on.
+nebensound-declaration = { path = "crates/nebensound-declaration" }
+
+portable-pty.workspace = true
+tempfile.workspace     = true
+
+# The interface is opt-in. The composite action builds without it, so a run of
+# phase 0 compiles no terminal library; `--features ui` adds the `ui` call for
+# walking the tree by hand.
+[features]
+default = []
+ui      = ["dep:ratatui"]
+
+# What only exists with the interface is only built with it.
+[[test]]
+name              = "ui"
+required-features = ["ui"]
+
+[[test]]
+name              = "pty"
+required-features = ["ui"]
+
+[lints]
+workspace = true
 
 [workspace]
 members  = ["crates/*"]
@@ -22,10 +70,15 @@ license      = "EUPL-1.2"
 repository   = "https://github.com/Nebensound/pipeline"
 
 [workspace.dependencies]
-serde     = { version = "1", features = ["derive"] }
-thiserror = "2"
-toml      = "1"
-toml_edit = "0.25"
+clap         = { version = "4", features = ["derive"] }
+portable-pty = "0.9"
+ratatui      = "0.30"
+serde        = { version = "1", features = ["derive"] }
+serde_json   = "1"
+tempfile     = "3"
+thiserror    = "2"
+toml         = "1"
+toml_edit    = "0.25"
 
 [workspace.lints.rust]
 missing_docs    = "deny"

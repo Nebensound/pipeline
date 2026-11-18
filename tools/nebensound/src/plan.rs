@@ -1,0 +1,154 @@
+//! The plan: which unit runs which check and what it builds, for a matrix to
+//! read.
+//!
+//! Phase 0 decides what holds for a file. A workflow needs the same answer
+//! turned around — what to start, and where — and it needs it as data: a matrix
+//! is built from JSON, not from a report meant for a reader.
+//!
+//! Every check runs **once, at the outermost unit it is in force for**. The
+//! base set is in force everywhere and so runs at the repository. A check a
+//! unit declares covers everything below that unit, so a unit inside it that
+//! names the same check again gets no second run over the same files.
+//!
+//! A build is the other way round: it belongs to **one** unit and is never
+//! shared. Its artifact is released under that unit's version, so only a unit
+//! that carries a version of its own builds. A unit that generates children
+//! leaves the building to them, also when it carries a version beside theirs
+//! (`self-and-child-*`): its build would cover the same files a second time.
+
+use nebensound_declaration::finding::UnitName;
+use nebensound_declaration::names::{BuildName, CheckName};
+use nebensound_declaration::path::RelativePath;
+use nebensound_declaration::resolve::Unit;
+use nebensound_declaration::{Analysis, Central};
+use serde_json::{Value, json};
+
+/// One unit with the checks that are started for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Planned {
+    /// Which unit this is.
+    pub name: UnitName,
+    /// Where it lives.
+    pub path: RelativePath,
+    /// The checks started here, in name order. Empty when every check in force
+    /// for this unit already runs at a unit containing it.
+    pub checks: Vec<CheckName>,
+    /// The build started here, if the unit builds anything, carries the
+    /// version its artifact is released under and generates no children.
+    pub build: Option<BuildName>,
+}
+
+/// What a run starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Plan {
+    /// Every unit, repository first, in the order phase 0 resolved them.
+    pub units: Vec<Planned>,
+}
+
+/// Builds the plan from an analysis.
+#[must_use]
+pub fn plan(analysis: &Analysis, central: &Central) -> Plan {
+    let units = &analysis.units;
+    let planned = units
+        .iter()
+        .enumerate()
+        .map(|(index, unit)| {
+            let mut checks: Vec<CheckName> = unit.pipeline.checks.clone();
+            if unit.name == UnitName::Repository {
+                checks.extend(central.base_checks().iter().cloned());
+            }
+            checks.retain(|check| {
+                !units
+                    .iter()
+                    .enumerate()
+                    .any(|(other, outer)| runs_first(other, outer, index, unit, check, central))
+            });
+            checks.sort();
+            checks.dedup();
+            let builds = unit.carries_version && !unit.versioning.generates_children();
+            let build = unit.pipeline.build.clone().filter(|_| builds);
+            Planned {
+                name: unit.name.clone(),
+                path: unit.path.clone(),
+                checks,
+                build,
+            }
+        })
+        .collect();
+    Plan { units: planned }
+}
+
+/// Whether `outer` already runs this check over everything `unit` holds.
+///
+/// Two units at the same path contain each other; the one resolved first keeps
+/// the check, so that it runs once and not never.
+fn runs_first(
+    other: usize,
+    outer: &Unit,
+    index: usize,
+    unit: &Unit,
+    check: &CheckName,
+    central: &Central,
+) -> bool {
+    if other == index || !outer.path.contains(&unit.path) {
+        return false;
+    }
+    let same_place = outer.path == unit.path;
+    if same_place && other > index {
+        return false;
+    }
+    outer.pipeline.checks.contains(check)
+        || (outer.name == UnitName::Repository && central.base_checks().contains(check))
+}
+
+impl Plan {
+    /// The plan as one line of JSON.
+    ///
+    /// `units` is the plan as it stands, with `build` null for a unit that
+    /// builds nothing. `checks` is the checks of it flat, one
+    /// entry per check that is started, because a matrix takes a list and
+    /// cannot unfold a list inside one.
+    ///
+    /// One line, so that it can be handed on as a step output as it is. Keys
+    /// stand in alphabetical order; nothing that reads JSON depends on it.
+    #[must_use]
+    pub fn to_json(&self) -> String {
+        let units: Vec<Value> = self
+            .units
+            .iter()
+            .map(|unit| {
+                let mut entry = identity(unit);
+                entry["checks"] = unit.checks.iter().map(CheckName::as_str).collect();
+                entry["build"] = json!(unit.build.as_ref().map(BuildName::as_str));
+                entry
+            })
+            .collect();
+        let checks: Vec<Value> = self
+            .units
+            .iter()
+            .flat_map(|unit| {
+                unit.checks.iter().map(move |check| {
+                    let mut entry = identity(unit);
+                    entry["check"] = json!(check.as_str());
+                    entry
+                })
+            })
+            .collect();
+        // Writing a value cannot fail: every key is a string, and nothing here
+        // has a serializer of its own that could refuse.
+        json!({ "units": units, "checks": checks }).to_string()
+    }
+}
+
+/// The fields that say which unit an entry is about.
+///
+/// The repository has no name — its tag carries no prefix either — so the kind
+/// stands beside it rather than a reserved word a component could also be
+/// called.
+fn identity(unit: &Planned) -> Value {
+    let (kind, name) = match &unit.name {
+        UnitName::Repository => ("repository", Value::Null),
+        UnitName::Component(name) => ("component", json!(name.as_str())),
+    };
+    json!({ "kind": kind, "name": name, "path": unit.path.to_string() })
+}
