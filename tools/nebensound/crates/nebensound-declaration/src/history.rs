@@ -13,7 +13,8 @@
 //!   that `HEAD` contains; `0.0.0` without one. In one stage a released commit
 //!   lies on the first-parent line of `HEAD`. In two stages it is a commit
 //!   promoted into `release`, or a commit of that line older than the first
-//!   promotion, so that the releases from before a switch keep counting.
+//!   promotion, so that the releases from before a switch keep counting. A
+//!   pre-release counts, in either mode, only on a commit of that line.
 //! - A commit **touches** a unit when it changes a file below the unit's path
 //!   or the declaration itself. The repository is touched by every commit.
 //!   Only the first-parent line of `HEAD` counts, and a merge commit touches
@@ -154,15 +155,23 @@ impl History {
     }
 
     /// The commits promoted into `release`, the newest first: the second
-    /// parent of each merge commit on its first-parent line. Nothing but such
+    /// parent of each merge commit on its first-parent line, where that parent
+    /// is a commit of `main`, the first-parent line of `HEAD`. Nothing but such
     /// merges enters the branch, so these are the commits of `main` that
     /// became full releases.
-    fn promotions(&self) -> Vec<&str> {
+    ///
+    /// The first-parent line of `release` does not end where the branch was
+    /// started: below that commit it goes on through `main`'s own history.
+    /// A merge there brought a side branch into `main`, whose tip is no commit
+    /// of `main`'s first-parent line, and promoted nothing.
+    fn promotions(&self, main: &BTreeSet<&str>) -> Vec<&str> {
         let mut promoted = Vec::new();
         let mut next = self.release.as_deref();
         while let Some(commit) = next {
             let parents = self.parents.get(commit).map_or(&[][..], Vec::as_slice);
-            if let [_, second, ..] = parents {
+            if let [_, second, ..] = parents
+                && main.contains(second.as_str())
+            {
                 promoted.push(second.as_str());
             }
             next = parents.first().map(String::as_str);
@@ -287,16 +296,17 @@ pub fn versions(units: &[Unit], history: &History) -> Versions {
     }
 
     let head = history.line.first();
-    let promotions = history.promotions();
+    let on_line: BTreeSet<&str> = history
+        .line
+        .iter()
+        .map(|commit| commit.id.as_str())
+        .collect();
+    let promotions = history.promotions(&on_line);
     let context = Context {
         history,
         head,
         in_head: head.map_or_else(BTreeSet::new, |head| history.contained_in(&head.id)),
-        on_line: history
-            .line
-            .iter()
-            .map(|commit| commit.id.as_str())
-            .collect(),
+        on_line,
         promoted: promotions.iter().copied().collect(),
         before_promotion: promotions.last().map(|first| history.contained_in(first)),
         declarations: history
@@ -340,8 +350,9 @@ pub fn versions(units: &[Unit], history: &History) -> Versions {
 /// `tool-v1` the component `tool`'s.
 ///
 /// A tag that does not count is the warning `unexpected-tag`: one that is no
-/// version, one on something other than a commit, and a full release on a
-/// commit that was not released ([`Context::released`]). A tag on a commit
+/// version, one on something other than a commit, a full release on a commit
+/// that was not released ([`Context::released`]), and a pre-release on a
+/// commit off the first-parent line of `HEAD`. A tag on a commit
 /// `HEAD` does not contain is passed over without one: it lies in history this
 /// commit does not have, such as a newer release, and whether it counts is not
 /// this commit's to judge.
@@ -393,7 +404,18 @@ fn count_tags<'h>(
             continue;
         }
         let release = unit.release.release;
-        if !version.is_pre() {
+        if version.is_pre() {
+            // In either mode a pre-release is given to a commit of the
+            // first-parent line of main, and only there.
+            if !context.on_line.contains(commit) {
+                findings.push(unexpected(
+                    "is a pre-release on a commit off the first-parent line of HEAD, and only \
+                     a commit of that line is ever given a pre-release"
+                        .to_owned(),
+                ));
+                continue;
+            }
+        } else {
             // Without the branch release nothing can be told of a unit
             // released in two stages; the unit reports that itself.
             if release == Release::TwoStage && context.history.release.is_none() {

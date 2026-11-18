@@ -328,14 +328,19 @@ fn the_declaration_touches_every_unit_and_a_merge_touches_none() {
 }
 
 #[test]
-fn a_full_release_on_a_merged_side_branch_is_ignored_in_one_stage() {
+fn a_release_on_a_merged_side_branch_is_ignored() {
     let git = units();
     git.promote();
+    git.tag("app-v0.0.1", &git.head());
     git.run(&["checkout", "--quiet", "-b", "side"]);
     git.write(&[("app/a.md", "# App\n\nOn the side.\n")]);
     let side = git.commit("feat: on a side branch");
     // In one stage only a commit of the first-parent line is released.
     git.tag("app-v3.0.0", &side);
+    // In either mode only a commit of that line is given a pre-release; in
+    // one stage it would otherwise stop the unit as one never promoted.
+    git.tag("app-v0.0.9-pre.1", &side);
+    git.tag("lib-v0.0.9-pre.1", &side);
     git.run(&["checkout", "--quiet", "main"]);
     git.write(&[("README.md", "# Units\n\nOn main.\n")]);
     git.commit("docs: on main meanwhile");
@@ -352,15 +357,35 @@ fn a_full_release_on_a_merged_side_branch_is_ignored_in_one_stage() {
     git.commit("fix: after the merge");
     let analysis = analysed(&git);
     let unexpected = found(&analysis, Rule::UnexpectedTag);
-    assert_eq!(unexpected.len(), 1, "{unexpected:?}");
-    assert!(
-        unexpected[0].starts_with("warning[unexpected-tag] component app")
-            && unexpected[0].contains("\"app-v3.0.0\"")
-            && unexpected[0].contains("first-parent line"),
-        "{unexpected:?}"
-    );
-    assert_eq!(base(&analysis, "app-v"), "0.0.0");
-    // The first commit and the one after the merge touched it.
+    assert_eq!(unexpected.len(), 3, "{unexpected:#?}");
+    for (tag, unit, why) in [
+        (
+            "app-v3.0.0",
+            "component app",
+            "full release on a commit off",
+        ),
+        (
+            "app-v0.0.9-pre.1",
+            "component app",
+            "pre-release on a commit off",
+        ),
+        (
+            "lib-v0.0.9-pre.1",
+            "component lib",
+            "pre-release on a commit off",
+        ),
+    ] {
+        assert!(
+            unexpected.iter().any(|finding| finding
+                .starts_with(&format!("warning[unexpected-tag] {unit}"))
+                && finding.contains(&format!("\"{tag}\""))
+                && finding.contains(why)),
+            "{tag}: {unexpected:#?}"
+        );
+    }
+    assert!(!analysis.failed(), "{:?}", analysis.findings());
+    assert_eq!(base(&analysis, "app-v"), "0.0.1");
+    // The commit after the merge is the one since the base that touched it.
     assert_eq!(versions(&analysis)["app-v"].as_deref(), Some("0.0.2"));
 }
 
@@ -404,6 +429,69 @@ fn a_full_release_counts_in_two_stages_only_where_it_was_released() {
     // The release from before the switch and the promoted one still count.
     assert_eq!(base(&analysis, "lib-v"), "2.0.1");
     assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("2.0.2"));
+}
+
+#[test]
+fn the_merges_of_main_below_the_start_of_release_promoted_nothing() {
+    let git = Git::new();
+    git.write(&[
+        (
+            ".nebensound/repo.toml",
+            &UNITS.replace("release  = \"two-stage\"\n", ""),
+        ),
+        ("README.md", "# Units\n"),
+        ("app/a.md", "# App\n"),
+        ("lib/b.md", "# Lib\n"),
+    ]);
+    git.commit("chore: start");
+    assert_eq!(release(&git, "lib-v"), "0.0.1");
+
+    // A side branch merged into main with a merge commit, long before the
+    // branch release exists.
+    git.run(&["checkout", "--quiet", "-b", "side"]);
+    git.write(&[("lib/b.md", "# Lib\n\nOn the side.\n")]);
+    let side = git.commit("fix: side work");
+    git.run(&["checkout", "--quiet", "main"]);
+    git.run(&[
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "--message",
+        "Merge side",
+        "side",
+    ]);
+    git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
+    git.commit("fix: one");
+    assert_eq!(release(&git, "lib-v"), "0.0.2");
+    git.write(&[("lib/b.md", "# Lib\n\nTwo.\n")]);
+    git.commit("fix: two");
+    assert_eq!(release(&git, "lib-v"), "0.0.3");
+
+    // The switch to two stages, and the branch release started on main as it
+    // stands: its first-parent line goes on below that commit through the
+    // merge above.
+    git.write(&[(".nebensound/repo.toml", UNITS)]);
+    git.commit("feat: release lib in two stages");
+    git.run(&["branch", "release"]);
+    git.write(&[("lib/b.md", "# Lib\n\nThree.\n")]);
+    git.commit("fix: three");
+    git.promote();
+    // A full release pushed by hand on the tip of the side branch.
+    git.tag("lib-v7.0.0", &side);
+
+    let analysis = analysed(&git);
+    let unexpected = found(&analysis, Rule::UnexpectedTag);
+    assert_eq!(unexpected.len(), 1, "{unexpected:?}");
+    assert!(
+        unexpected[0].starts_with("warning[unexpected-tag] component lib")
+            && unexpected[0].contains("\"lib-v7.0.0\"")
+            && unexpected[0].contains("never promoted"),
+        "{unexpected:?}"
+    );
+    // The releases from before the switch count, and the promoted commit
+    // goes on from the newest of them.
+    assert_eq!(base(&analysis, "lib-v"), "0.0.3");
+    assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.4"));
 }
 
 #[test]

@@ -330,14 +330,19 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
   access can push any tag, so only tags on released commits count:
   - in one stage, a commit on the first-parent line of `HEAD`;
   - in two stages, a commit promoted into `release` (the second parent of a
-    merge commit on the first-parent line of `origin/release`), or a commit on
-    the first-parent line of `HEAD` older than the first promotion, so that the
+    merge commit on the first-parent line of `origin/release`, when it is a
+    commit of the first-parent line of `HEAD`), or a commit on the
+    first-parent line of `HEAD` older than the first promotion, so that the
     releases from before a switch to two stages keep counting. While nothing
     is promoted yet, every commit of that line is older than the first
-    promotion.
+    promotion. Below the commit `release` was started on, the first-parent
+    line of `origin/release` goes on through the history of `main`; a merge
+    there brought a side branch into `main` and promoted nothing.
 
   Any other full release with the unit's prefix on a commit `HEAD` contains is
-  the warning `unexpected-tag` and does not count.
+  the warning `unexpected-tag` and does not count. A pre-release is given to a
+  commit of the first-parent line of `HEAD` in either mode, so one on any other
+  commit `HEAD` contains is the warning `unexpected-tag` as well.
 
 - **A commit touches a unit** when it changes a file below the unit's path, or
   `.nebensound/repo.toml`. The repository is touched by every commit. Only the
@@ -385,8 +390,16 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
 
 The version is a function of the history, not of the moment: every commit on
 `main` raises on its own, so two runs on `main` at the same time come to
-different numbers without waiting for each other, and a commit comes to the same
-version whether the tags of the commits before it are set yet or not.
+different numbers without waiting for each other. In one stage a commit comes
+to the same version whether the tags of the commits before it are set yet or
+not.
+
+In two stages that does not hold yet for one window: a commit has been promoted
+into `release`, and its full release is not tagged yet. A commit that lands on
+`main` meanwhile still counts from the release before, the promoted commit's
+changes included. Once the tag is set, the next commit counts from it and can
+come to the version the commit before it already got. Whether phase 0 closes
+this window or the release stages do is not decided yet.
 
 ### What the history must hold
 
@@ -535,12 +548,16 @@ ecosystem from its `dependabot` list. An ecosystem of the base set is exempt.
 
 Warning. A tag carries a unit's prefix and is no release of that unit, so it
 does not count: it does not read `<prefix>X.Y.Z` or `<prefix>X.Y.Z-pre.N`, it
-points at something other than a commit, or it is a full release on a commit
-that was not released. In one stage only a commit on the first-parent line of
-`HEAD` is released, so a full release on a merged side branch does not count.
-In two stages only a promoted commit is released, or a commit of that line
-older than the first promotion, so a full release on any other commit of `main`
-does not count, even once a later promotion makes `origin/release` contain it.
+points at something other than a commit, it is a full release on a commit
+that was not released, or it is a pre-release off the first-parent line of
+`HEAD`. In one stage only a commit on the first-parent line of `HEAD` is
+released, so a full release on a merged side branch does not count. In two
+stages only a promoted commit is released, or a commit of that line older than
+the first promotion, so a full release on any other commit of `main` does not
+count, even once a later promotion makes `origin/release` contain it. A
+pre-release is given only to a commit of the first-parent line of `HEAD`, in
+either mode, so one on a merged side branch does not count either, and does not
+stop a switch to one stage.
 A person with write access can push any tag; only the releases the pipeline
 makes count. Delete the tag, or rename it so that it carries no unit's prefix.
 
