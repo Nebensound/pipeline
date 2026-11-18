@@ -395,9 +395,12 @@ impl Analysis {
     /// The same analysis with the version of every unit resolved from a
     /// history. What resolving turns up joins the findings that hang at no
     /// path: it is about a unit or the repository, never about one file.
+    ///
+    /// The register resolves the declaration each commit of the history held,
+    /// since a unit's path and release mode at that commit count.
     #[must_use]
-    pub fn with_history(mut self, history: &History) -> Self {
-        let resolved = crate::history::versions(&self.units, history);
+    pub fn with_history(mut self, history: &History, central: &Central) -> Self {
+        let resolved = crate::history::versions(&self.units, history, central.register());
         self.versions = resolved.units;
         self.loose.extend(resolved.findings);
         self

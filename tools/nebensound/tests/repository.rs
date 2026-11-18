@@ -184,6 +184,7 @@ fn a_git_that_does_not_answer_about_the_history_is_reported() {
         "for-each-ref",
         "rev-list",
         "log",
+        "ls-tree",
         "cat-file",
     ] {
         let error = Repository::at(git.path())

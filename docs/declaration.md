@@ -282,7 +282,7 @@ zero. Any other suffix, such as `-rc.1`, stops phase 0, as described under
 [When the file cannot be read](#when-the-file-cannot-be-read), and `check-toml`
 marks it at its line and column. A pre-release only means something for a unit
 released in two stages; in one stage it is the error `pre-release-minimum`
-until a full release has reached its three numbers. How the value takes effect
+until the unit's versions have reached its three numbers. How the value takes effect
 is described under [How a version is resolved](#how-a-version-is-resolved).
 
 A repository that moves to the pipeline with releases made elsewhere sets
@@ -332,35 +332,38 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
   first-parent line of the commit of `main` it merges. Phase 0 tells such a
   merge by its parents: the first one lies on the first-parent line of
   `origin/release`, the second one on that of `origin/main`.
+- **Each commit's own declaration** says where a unit lived and how it was
+  released at that commit. A unit is recognised across commits by its name.
+  Its path and its mode at a commit are those of the declaration that commit
+  holds, resolved as phase 0 resolves the one at hand: a mode left out comes
+  from the unit's publish targets, and a generated unit's path from the tree
+  the commit held. Where a commit's declaration does not name the unit, or
+  cannot be read, its path and its mode at the commit at hand are used. A unit
+  that moves, or a generated unit whose folder or file is renamed, therefore
+  keeps counting the commits from before, and a switch between one stage and
+  two keeps the releases of each period.
 - **The base** is the unit's highest full release on a released commit that
   `HEAD` contains. Without such a tag the base is `0.0.0`. A person with write
-  access can push any tag, so only tags on released commits count:
-  - in one stage, a commit on the line of `main`;
-  - in two stages, a commit promoted into `release` (the second parent of a
-    merge commit on the first-parent line of `origin/release`, when it is a
-    commit of the line of `main`), or a commit on the line of `main` older
-    than the first promotion, so that the releases from before a switch to
-    two stages keep counting. While nothing is promoted yet, every commit of
-    that line is older than the first promotion. Below the commit `release`
-    was started on, the first-parent line of `origin/release` goes on through
-    the history of `main`; a merge there brought a side branch into `main`
-    and promoted nothing. A full release from a later period in one stage is
-    newer than the first promotion and does not count once the unit is back
-    in two stages; whether it should is not decided yet.
+  access can push any tag, so only tags on released commits count. Which
+  commit is released depends on how the unit was released at the commit the
+  tag is on:
+  - in one stage there, a commit on the line of `main`;
+  - in two stages there, a commit promoted into `release`: the second parent
+    of a merge commit on the first-parent line of `origin/release`, when it is
+    a commit of the line of `main`. Below the commit `release` was started on,
+    the first-parent line of `origin/release` goes on through the history of
+    `main`; a merge there brought a side branch into `main` and promoted
+    nothing.
 
   Any other full release with the unit's prefix on a commit `HEAD` contains is
   the warning `unexpected-tag` and does not count. A pre-release is given to a
   commit of the line of `main` in either mode, so one on any other commit
   `HEAD` contains is the warning `unexpected-tag` as well.
 
-- **A commit touches a unit** when it changes a file below the unit's path, or
-  `.nebensound/repo.toml`. The repository is touched by every commit. Only the
-  line of `main` counts, and a merge commit touches nothing. A moved or removed
-  file touches the unit it left as well. Every commit is measured against the
-  unit's path as the commit at hand declares it. When the unit's path changes,
-  the commits that touched it under its old path no longer count; whether each
-  commit should be measured against the path its own declaration names is not
-  decided yet.
+- **A commit touches a unit** when it changes a file below the unit's path as
+  that commit declares it, or `.nebensound/repo.toml`. The repository is
+  touched by every commit. Only the line of `main` counts, and a merge commit
+  touches nothing. A moved or removed file touches the unit it left as well.
 - **The change of a commit** follows from its message as a
   [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/). A
   message that is not a Conventional Commit counts as a patch. What a change
@@ -394,8 +397,11 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
     `1.0.0-pre.3` given out, a commit that sets `1.0.0-pre.10` is
     `1.0.0-pre.10`, and the next one `1.0.0-pre.11`.
   - In one stage, which gives out no pre-release, a pre-release value is
-    ignored once the base has reached its `X.Y.Z`. Before that it is the error
-    `pre-release-minimum`.
+    ignored once the version the commits before the commit at hand come to has
+    reached its `X.Y.Z`, whichever of their tags are set. Before that it is
+    the error `pre-release-minimum`. A commit at which it was the error still
+    counts for the commits after it, raised by its own change and not lifted,
+    so writing `X.Y.Z` afterwards gives `X.Y.Z`.
 - A commit that carries its unit's base is that release, also when it is read
   again.
 - A commit that does not touch the unit has no version, except the promoted
@@ -405,34 +411,28 @@ The version is a function of the history, not of the moment: every commit on
 `main` raises on its own, so two runs on `main` at the same time come to
 different numbers without waiting for each other. In one stage a commit comes
 to the same version whether the tags of the commits before it are set yet or
-not, with two exceptions:
+not.
 
-- A unit whose path has changed since the base. A commit that touched it under
-  the old path counts only through its own tag, as the base. Until that tag is
-  set, the commit at hand can come to the version the commit before it got.
-- A pre-release value of `minimum-version`. Whether the base has reached its
-  `X.Y.Z` depends on which tags are set, so with the tags of the commits before
-  it not set yet the commit at hand can be the error `pre-release-minimum`
-  where with them set it has a version.
-
-In two stages that does not hold yet for one window: a commit has been promoted
-into `release`, and its full release is not tagged yet. A commit that lands on
-`main` meanwhile still counts from the release before, the promoted commit's
-changes included. Once the tag is set, the next commit counts from it and can
-come to the version the commit before it already got. Whether phase 0 closes
-this window or the release stages do is not decided yet.
+In two stages the base moves only with the tag of a promoted commit. Between
+the merge into `release` and that tag, a commit that lands on `main` would
+still count from the release before. The release stages close this window:
+they share one queue and resolve a version only when a run has its turn, after
+the run before has set its tag. A release stage at a merge into `release`
+resolves on the commit it promotes.
 
 ### What the history must hold
 
 Phase 0 reads the whole history and every tag. A shallow clone is the error
 `shallow-clone`, and a unit released in two stages needs the branch
-`origin/release` (`missing-release-branch`). A merge into `release` is told
-apart only with `origin/main` as well; without it, the line of `main` is the
-first-parent line of `HEAD`. The job `nebensound / Declare` checks the
-repository out with its whole history and every branch and tag. A release tag on a commit `HEAD` does not
-contain is passed over without a finding: it lies in history this commit does
-not have, such as a newer release, and whether it counts is not this commit's
-to judge.
+`origin/release` (`missing-release-branch`). Without the branch, a full release
+from a period in which a unit was released in two stages is
+`unexpected-tag`, since no commit of that period can be shown to be promoted.
+A merge into `release` is told apart only with `origin/main` as well; without
+it, the line of `main` is the first-parent line of `HEAD`. The job
+`nebensound / Declare` checks the repository out with its whole history and
+every branch and tag. A release tag on a commit `HEAD` does not contain is
+passed over without a finding: it lies in history this commit does not have,
+such as a newer release, and whether it counts is not this commit's to judge.
 
 ## Findings
 
@@ -572,15 +572,15 @@ ecosystem from its `dependabot` list. An ecosystem of the base set is exempt.
 Warning. A tag carries a unit's prefix and is no release of that unit, so it
 does not count: it does not read `<prefix>X.Y.Z` or `<prefix>X.Y.Z-pre.N`, it
 points at something other than a commit, it is a full release on a commit
-that was not released, or it is a pre-release off the line of `main`. In one
-stage only a commit on the line of `main` is released, so a full release on a
-merged side branch does not count. In two
-stages only a promoted commit is released, or a commit of that line older than
-the first promotion, so a full release on any other commit of `main` does not
-count, even once a later promotion makes `origin/release` contain it. A
-pre-release is given only to a commit of the line of `main`, in either mode, so
-one on a merged side branch does not count either, and does not
-stop a switch to one stage.
+that was not released, or it is a pre-release off the line of `main`. Whether
+a commit was released depends on how the unit was released at that commit, as
+its declaration says. In one stage only a commit on the line of `main` is
+released, so a full release on a merged side branch does not count. In two
+stages only a promoted commit is released, so a full release on any other
+commit of `main` does not count, even once a later promotion makes
+`origin/release` contain it. A pre-release is given only to a commit of the
+line of `main`, in either mode, so one on a merged side branch does not count
+either, and does not stop a switch to one stage.
 A person with write access can push any tag; only the releases the pipeline
 makes count. Delete the tag, or rename it so that it carries no unit's prefix.
 
@@ -623,14 +623,17 @@ backwards.
 ### `pointless-release-branch`
 
 Warning. The branch `origin/release` exists, and no unit that carries a version
-is released in two stages, so nothing is ever promoted there. Delete the
-branch, or release a unit in two stages.
+is released in two stages, at the commit at hand or at any commit of the line
+of `main` before it, so nothing is or was ever promoted there. Delete the
+branch, or release a unit in two stages. Once a unit was released in two
+stages, the branch holds the commits that tell its full releases from then,
+and it is kept.
 
 ### `pre-release-minimum`
 
 Error. A unit is released in one stage, and the `minimum-version` in force for
-it is a pre-release `X.Y.Z-pre.N` whose `X.Y.Z` its last full release has not
-reached. One stage gives out no pre-release, so no commit could ever meet the
+it is a pre-release `X.Y.Z-pre.N` whose `X.Y.Z` the version of the commits
+before the commit at hand has not reached. One stage gives out no pre-release, so no commit could ever meet the
 floor. The finding names the line and column in `.nebensound/repo.toml` where
 the value is written, or where the unit's table starts when the value was taken
 away: taking it away is lowering it, which has no effect. Write `X.Y.Z`, or

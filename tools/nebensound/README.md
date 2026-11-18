@@ -139,9 +139,12 @@ judge things the repository does not have.
 
 The versions come from Git as well: the line of `main` (the first-parent line
 of `HEAD`, or at a merge into `release` that of the commit of `main` it
-merges), the tags and the branches `origin/release` and `origin/main`. A repository without a commit has no version
-yet; a shallow clone is an error, because the history it lacks could hold the
-last release. Every option the person's Git configuration could change, such as
+merges), the declaration and the files each commit of that line held, the tags
+and the branches `origin/release` and `origin/main`. Where a unit lived and how
+it was released is read at each commit from its own declaration, so a unit
+that moves or switches between one stage and two keeps its earlier releases. A
+repository without a commit has no version yet; a shallow clone is an error,
+because the history it lacks could hold the last release. Every option the person's Git configuration could change, such as
 rename detection, is given on the command line, so the answer does not depend
 on who runs it.
 

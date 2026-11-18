@@ -239,7 +239,7 @@ impl Repository {
         let declaration = self.declaration()?;
         let tree = self.tree()?;
         let history = self.history()?;
-        Ok(analyse(&declaration, central, &tree).with_history(&history))
+        Ok(analyse(&declaration, central, &tree).with_history(&history, central))
     }
 
     /// What Git says about the commit at hand and the releases around it.
@@ -315,6 +315,18 @@ impl Repository {
         }
         listing.extend(self.log(&[merged.unwrap_or(head.as_str())])?);
         let line = line(&listing);
+        let files = String::from_utf8_lossy(&self.git_output(&[
+            "ls-tree",
+            "-r",
+            "-z",
+            "--name-only",
+            "--full-tree",
+            head.as_str(),
+        ])?)
+        .split('\0')
+        .filter(|file| !file.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
         let mut declarations = BTreeMap::new();
         for object in line
             .iter()
@@ -335,6 +347,7 @@ impl Repository {
             release,
             tags,
             declarations,
+            files,
         })
     }
 
@@ -488,17 +501,27 @@ fn line(listing: &[u8]) -> Vec<Commit> {
             break;
         };
         let mut paths = Vec::new();
+        let mut added = Vec::new();
+        let mut removed = Vec::new();
         let mut declaration = None;
         while let Some(change) = fields.next_if(|field| !field.is_empty()) {
             let path = fields.next().unwrap_or_default();
+            let words: Vec<&str> = change.split(' ').collect();
             if path == DECLARATION {
                 // The fourth word is the object after the change; a removed
                 // file has none, written as zeros.
-                let object = change.split(' ').nth(3).unwrap_or_default();
+                let object = words.get(3).copied().unwrap_or_default();
                 declaration = Some(
                     Some(object.to_owned())
                         .filter(|object| object.bytes().any(|byte| byte != b'0')),
                 );
+            }
+            // The fifth word is the letter: renames are off, so a file comes
+            // or goes only as `A` or `D`.
+            match words.get(4).copied() {
+                Some("A") => added.push(path.to_owned()),
+                Some("D") => removed.push(path.to_owned()),
+                _ => {}
             }
             paths.push(path.to_owned());
         }
@@ -508,6 +531,8 @@ fn line(listing: &[u8]) -> Vec<Commit> {
             parents: parents.split_whitespace().map(ToOwned::to_owned).collect(),
             message: message.to_owned(),
             paths,
+            added,
+            removed,
             declaration: None,
         });
     }
