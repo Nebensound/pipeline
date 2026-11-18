@@ -116,6 +116,24 @@ SHA-256:
   so the check makes no request to SchemaStore. A file whose leading comments
   hold its own `#:schema` directive with an absolute URL keeps that schema. A
   schema that cannot be read fails the check instead of being skipped.
+- `.nebensound/repo.toml` is always checked against the schema of the
+  declaration that lies beside the action, the one of the same pipeline
+  version as phase 0, directive or not. `nebensound schema` derives it from
+  the types phase 0 reads the file with, so an unknown key fails with its line
+  and column. The schema is looser than phase 0, never stricter.
+
+The schema of the declaration on `main` has a public address, for editors:
+
+```text
+https://raw.githubusercontent.com/Nebensound/pipeline/main/.github/actions/check-toml/schemas/nebensound-declaration.json
+```
+
+An editor that reads Taplo's directive finds it through this line before the
+first key or table of `.nebensound/repo.toml`:
+
+```toml
+#:schema https://raw.githubusercontent.com/Nebensound/pipeline/main/.github/actions/check-toml/schemas/nebensound-declaration.json
+```
 
 ### `check-yaml`
 
