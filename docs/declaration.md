@@ -337,7 +337,10 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
   releases nothing.
 - **`minimum-version`** lifts a raised version where it is lower, as the
   declaration of the raised commit names it. In one stage it lifts each step,
-  so the commits after the lift go on from it.
+  so the commits after the lift go on from it. In two stages it lifts the target
+  by the highest floor named since the base, by a touching commit or the commit
+  at hand. The target never goes down within a cycle, so a lowered floor takes
+  effect from the next promotion on.
 - A commit that carries its unit's base is that release, also when it is read
   again.
 - A commit that does not touch the unit has no version, except the promoted

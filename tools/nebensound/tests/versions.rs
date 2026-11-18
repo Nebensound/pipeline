@@ -679,9 +679,22 @@ fn touched(git: &Git) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// The declaration of [`units`] with the floors of `app` and `lib` written in.
+fn floored([app, lib]: &[String; 2]) -> String {
+    UNITS
+        .replace(
+            "path     = \"app\"\n",
+            &format!("path     = \"app\"\n{app}"),
+        )
+        .replace(
+            "path     = \"lib\"\n",
+            &format!("path     = \"lib\"\n{lib}"),
+        )
+}
+
 /// One walk through a history: commits that touch the units at random, with
-/// every kind of message, a floor raised now and then, promotions, and tags
-/// that some runs set late. No version may be given to two commits, and read
+/// every kind of message, a floor of either stage raised now and then,
+/// promotions, and tags that some runs set late. No version may be given to two commits, and read
 /// again at the end every commit still comes to the version it got.
 ///
 /// Returns how often it promoted, moved the floor and set a tag late, so that
@@ -694,6 +707,8 @@ fn walk(seed: u64, steps: usize) -> [usize; 3] {
     let mut got: BTreeMap<(String, String), String> = BTreeMap::new();
     let mut holder: BTreeMap<(String, String), String> = BTreeMap::new();
     let mut late = Vec::new();
+    // The floors of `app` and `lib` as the declaration names them now.
+    let mut floors = [String::new(), String::new()];
 
     let mut record = |git: &Git,
                       versions: BTreeMap<String, String>,
@@ -733,19 +748,14 @@ fn walk(seed: u64, steps: usize) -> [usize; 3] {
             continue;
         }
         if choice == 1 {
-            // Raised, lowered or taken away again.
+            // Raised, lowered or taken away again, on either stage.
             happened[1] += 1;
-            let floor = match random.below(4) {
+            let unit = usize::try_from(random.below(2)).expect("small");
+            floors[unit] = match random.below(4) {
                 0 => String::new(),
                 major => format!("minimum-version = \"{major}.0.0\"\n"),
             };
-            git.write(&[(
-                ".nebensound/repo.toml",
-                &UNITS.replace(
-                    "path     = \"app\"\n",
-                    &format!("path     = \"app\"\n{floor}"),
-                ),
-            )]);
+            git.write(&[(".nebensound/repo.toml", &floored(&floors))]);
         } else {
             for (bit, path) in [(1, "app/a.md"), (2, "lib/b.md"), (4, "README.md")] {
                 if random.below(8) & bit != 0 {
@@ -829,4 +839,55 @@ fn a_lowered_floor_and_a_late_tag_give_no_version_twice() {
 
     git.tag("v3.0.0", &lifted);
     assert_eq!(version(&git, "v").as_deref(), Some("4.0.0"));
+}
+
+#[test]
+fn a_lowered_floor_in_two_stages_gives_no_version_twice() {
+    let git = units();
+    git.write(&[("lib/b.md", "# Lib\n\nFirst.\n")]);
+    git.commit("feat: the first library");
+    // The first full release, set by a person on a promoted commit.
+    let first = git.promote();
+    git.tag("lib-v1.0.0", &first);
+
+    let mut given = vec!["lib-v1.0.0".to_owned()];
+    let mut step = |git: &Git, expected: &str| {
+        let tag = format!("lib-v{}", release(git, "lib-v"));
+        assert_eq!(tag, format!("lib-v{expected}"));
+        assert!(!given.contains(&tag), "{tag} for two commits");
+        given.push(tag);
+    };
+
+    git.write(&[("lib/b.md", "# Lib\n\nFixed.\n")]);
+    git.commit("fix: in the library");
+    step(&git, "1.0.1-pre.1");
+    git.write(&[(
+        ".nebensound/repo.toml",
+        &UNITS.replace(
+            "release  = \"two-stage\"\n",
+            "release  = \"two-stage\"\nminimum-version = \"3.0.0\"\n",
+        ),
+    )]);
+    git.commit("chore: aim the library at 3.0.0");
+    step(&git, "3.0.0-pre.2");
+    // The floor goes again before the promotion: the target stays where the
+    // cycle took it, and the promotion releases it.
+    git.write(&[(".nebensound/repo.toml", UNITS)]);
+    git.commit("revert: drop the library's floor again");
+    step(&git, "3.0.0-pre.3");
+    git.promote();
+    step(&git, "3.0.0");
+
+    // The cycles after it go on from there.
+    git.write(&[("lib/b.md", "# Lib\n\nBroken.\n")]);
+    git.commit("feat!: break the library");
+    step(&git, "4.0.0-pre.1");
+    git.promote();
+    step(&git, "4.0.0");
+    git.write(&[("lib/b.md", "# Lib\n\nBroken again.\n")]);
+    git.commit("feat!: break the library again");
+    step(&git, "5.0.0-pre.1");
+    git.write(&[("lib/b.md", "# Lib\n\nFixed again.\n")]);
+    git.commit("fix: in the library again");
+    step(&git, "5.0.0-pre.2");
 }

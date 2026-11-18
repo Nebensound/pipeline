@@ -26,7 +26,10 @@
 //!   declaration of the commit that is raised names it. In one stage it lifts
 //!   each step, so that the commits after the lift go on from it rather than
 //!   all landing on the floor, and a commit comes to the same version whether
-//!   the tags of the commits before it are set yet or not.
+//!   the tags of the commits before it are set yet or not. In two stages it
+//!   lifts the target by the highest floor that a touching commit since the
+//!   base or the commit at hand names, so the target never goes down within a
+//!   cycle and a lowered floor takes effect from the next promotion on.
 //!
 //! Reading Git is left to the caller, which hands in a [`History`]. Nothing
 //! here runs a process, so every rule is checked on a history built by hand as
@@ -493,7 +496,8 @@ impl Step<'_> {
         let mut version = self.base;
         for commit in touching {
             let change = change(commit, warned, findings);
-            version = self.raise(version, change, commit, findings)?;
+            let floor = self.context.floor(commit, self.unit);
+            version = self.raise(version, change, floor, findings)?;
         }
         Some(TagVersion::stable(version))
     }
@@ -524,7 +528,15 @@ impl Step<'_> {
             .iter()
             .map(|commit| change(commit, warned, findings))
             .fold(Change::Patch, Change::max);
-        let target = self.raise(self.base, highest, head, findings)?;
+        // The highest floor since the base: a floor lowered within the cycle
+        // must not take the target below a pre-release already given out.
+        let floor = touching
+            .iter()
+            .copied()
+            .chain([head])
+            .filter_map(|commit| self.context.floor(commit, self.unit))
+            .max();
+        let target = self.raise(self.base, highest, floor, findings)?;
         Some(if promoted {
             TagVersion::stable(target)
         } else {
@@ -533,13 +545,13 @@ impl Step<'_> {
         })
     }
 
-    /// A version raised once and lifted to the floor the commit names, or the
+    /// A version raised once and lifted to the floor where it is lower, or the
     /// finding that it cannot be raised.
     fn raise(
         &self,
         version: Version,
         change: Change,
-        commit: &Commit,
+        floor: Option<Version>,
         findings: &mut Vec<Finding>,
     ) -> Option<Version> {
         let Some(raised) = version.raised(change) else {
@@ -555,7 +567,6 @@ impl Step<'_> {
             );
             return None;
         };
-        let floor = self.context.floor(commit, self.unit);
         Some(floor.map_or(raised, |floor| raised.max(floor)))
     }
 }
