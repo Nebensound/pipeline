@@ -36,3 +36,9 @@ impl Output {
         }
     }
 }
+
+/// Called by nothing and not left out: coverage falls below 100 %.
+#[must_use]
+pub fn uncovered() -> u8 {
+    1
+}
