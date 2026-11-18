@@ -117,11 +117,13 @@ and so is a repository with errors, for the same reason it gets no plan.
 
 Phase 0 also holds the tools' own ways of leaving a file out against the
 declaration — `.prettierignore`, `include` and `exclude` in `taplo.toml`,
-`ignores` of markdownlint-cli2, `ignore` of yamllint, `exclude_path` of lychee
-— and fails on every file one of them takes out that no `[[exclude]]` entry
-does (`unexcused-ignore`). The building blocks read none of them except
-lychee's `exclude_path`, which phase 0 matches against the path from the root,
-the string `check-markdown` hands lychee; run by hand, the tools read them all.
+`ignores` of markdownlint-cli2, `ignore` of yamllint, `exclude_path` of lychee,
+`ignore` of rustfmt — and fails on every file one of them takes out that no
+`[[exclude]]` entry does (`unexcused-ignore`). The building blocks read none of
+them except lychee's `exclude_path`, which phase 0 matches against the path
+from the root, the string `check-markdown` hands lychee, and rustfmt's
+`ignore`, which takes effect on a nightly toolchain; run by hand, the tools
+read them all.
 
 ## Excluded packages
 

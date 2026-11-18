@@ -97,8 +97,9 @@ which is limited in size.
   the action's own configuration and no lint rule; a repository's Biome
   configuration is not read.
 - All three are formatted the way Prettier writes them, with the repository's
-  Prettier configuration, without its ignore files, and with `requirePragma`
-  and `checkIgnorePragma` set aside, which would pass a whole file unchecked.
+  Prettier configuration, without its ignore files, and with `requirePragma`,
+  `checkIgnorePragma`, `rangeStart` and `rangeEnd` set aside, which would pass
+  a whole file unchecked.
 
 Every step runs even when one before it failed, so one run shows every finding.
 
@@ -149,7 +150,7 @@ Rust code is excluded by the package, never by the file. Phase 0 fails on an
 the folder that holds its `Cargo.toml` (`partial-package-exclusion`), and names
 the language's own means instead: `#[rustfmt::skip]`, `#[coverage(off)]` with a
 justification, `#[allow(...)]`. A package excluded as a whole, code of others
-such as a submodule or a vendored copy, is out of every step: not formatted, not
+such as a vendored copy, is out of every step: not formatted, not
 linted, not tested, not documented, not counted for coverage, and its
 `rust-version` and `publish` play no part. It is only compiled where another
 package depends on it, and rustc still prints its own warnings for it then,
@@ -230,9 +231,12 @@ No block lets a tool's own way of leaving files out take a file out: an ignore
 file needs no reason and can turn a check green that checked nothing.
 `.gitignore` takes nothing out either. The blocks read none of these settings,
 except lychee's `exclude_path`, which comes along with the `lychee.toml`
-`check-markdown` reads. Settings in a tool's configuration that pass a whole
-file unchecked are set aside on the command line: Prettier's `requirePragma`
-and `checkIgnorePragma`. Run by hand, the tools read all of them, so phase 0
+`check-markdown` reads, and rustfmt's `ignore`, which comes along with the
+repository's rustfmt configuration and takes effect on a nightly toolchain.
+Settings in a tool's configuration that pass a whole file unchecked are set
+aside on the command line: Prettier's `requirePragma`, `checkIgnorePragma`,
+`rangeStart` and `rangeEnd`, and rustfmt's `disable_all_formatting`. Run by
+hand, the tools read all of them, so phase 0
 holds them against the declaration and fails on every file one of them takes
 out that no `[[exclude]]` entry takes out (`unexcused-ignore`). For lychee,
 that also keeps `exclude_path` from taking a file out in the block: phase 0
@@ -246,13 +250,17 @@ block hands lychee. A setting that takes out less is fine. Phase 0 reads:
 | markdownlint-cli2 | `ignores` in `.markdownlint-cli2.jsonc` or `.markdownlint-cli2.yaml`, in every folder       |
 | yamllint          | `ignore` and `ignore-from-file` in `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at root |
 | lychee            | `exclude_path` in `lychee.toml` at the root                                                 |
+| rustfmt           | `ignore` in `.rustfmt.toml` or `rustfmt.toml`, in every folder                              |
 
 Only the files the tool reads in a block count: a `.prettierignore` that takes
 out a Rust file takes out nothing Prettier would have looked at. Taplo's
 `include` counts only against `.toml` files, the ones Taplo reads without it; a
 `.lock` file is taken out of Taplo only by `exclude`. Where yamllint's file sets
 neither `ignore` nor `ignore-from-file`, phase 0 reads them in the file its
-`extends` names, as yamllint does. A setting phase 0 cannot read fails as well
+`extends` names, as yamllint does. rustfmt's `ignore` is read in every folder,
+relative to that folder, since which configuration rustfmt applies to a file
+depends on where it runs; a `.rs` file it takes out cannot be excused by an
+`[[exclude]]` entry of its own, only by one that takes out its whole package. A setting phase 0 cannot read fails as well
 (`unreadable-ignore-file`). A JavaScript options file of markdownlint-cli2
 (`.markdownlint-cli2.cjs` or `.mjs`) is not judged, since phase 0 cannot read it
 without running it; the block sets its `ignores` aside all the same. A setting

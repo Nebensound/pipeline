@@ -481,7 +481,7 @@ fn a_setting_is_not_read_through_a_linked_folder() {
 }
 
 #[test]
-fn settings_below_the_root_are_not_read_except_markdownlint() {
+fn settings_below_the_root_are_not_read_except_markdownlint_and_rustfmt() {
     let found = found(
         QUIET,
         &with(&[
@@ -495,6 +495,104 @@ fn settings_below_the_root_are_not_read_except_markdownlint() {
     assert!(found.is_empty(), "{found:?}");
 }
 
+/// A repository with Rust code: a package at the root and one below it.
+fn rust(extra: &[(&'static str, &'static str)]) -> Vec<(&'static str, &'static str)> {
+    let mut files = with(&[
+        ("src/lib.rs", "pub mod gen;\n"),
+        ("src/gen/mod.rs", "pub fn f() {}\n"),
+        ("crates/a/Cargo.toml", "[package]\n"),
+        ("crates/a/src/lib.rs", "pub fn g() {}\n"),
+    ]);
+    files.extend_from_slice(extra);
+    files
+}
+
+#[test]
+fn rustfmt_takes_out_what_its_ignore_names_below_its_folder() {
+    let found = found(
+        QUIET,
+        &rust(&[
+            (".rustfmt.toml", "edition = \"2024\"\nignore = [\"gen\"]\n"),
+            ("crates/a/rustfmt.toml", "ignore = [\"/src/lib.rs\"]\n"),
+        ]),
+    );
+
+    // `gen` matches the folder anywhere below the root; `/src/lib.rs` is
+    // anchored at the folder of its own file, so it takes out crates/a's
+    // src/lib.rs and not the one at the root.
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore crates/a/src/lib.rs",
+            "unexcused-ignore src/gen/mod.rs",
+        ]
+    );
+    let message = &found[1].message;
+    assert!(
+        message.contains(".rustfmt.toml takes this file out of rustfmt through the line `gen`"),
+        "{message}"
+    );
+    assert!(message.contains("#[rustfmt::skip]"), "{message}");
+    assert!(message.contains("its whole package"), "{message}");
+}
+
+#[test]
+fn rustfmt_ignore_counts_only_against_rust_files() {
+    let found = found(QUIET, &rust(&[("rustfmt.toml", "ignore = [\"*\"]\n")]));
+
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore crates/a/src/lib.rs",
+            "unexcused-ignore src/gen/mod.rs",
+            "unexcused-ignore src/lib.rs",
+        ]
+    );
+}
+
+#[test]
+fn rustfmt_may_ignore_a_package_that_is_excluded_as_a_whole() {
+    let declaration =
+        format!("{QUIET}\n[[exclude]]\npath = \"crates/a\"\nreason = \"code of others\"\n");
+    let found = found(
+        &declaration,
+        &rust(&[("crates/a/rustfmt.toml", "ignore = [\"*\"]\n")]),
+    );
+
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn rustfmt_reads_the_hidden_file_before_the_plain_one() {
+    let found = found(
+        QUIET,
+        &rust(&[
+            (".rustfmt.toml", "edition = \"2024\"\n"),
+            ("rustfmt.toml", "ignore = [\"*\"]\n"),
+        ]),
+    );
+
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn a_rustfmt_configuration_that_does_not_read_is_reported() {
+    for source in [
+        "ignore = [\n",
+        "ignore = \"src\"\n",
+        "ignore = [\"a[z-a]\"]\n",
+    ] {
+        let found = found(QUIET, &rust(&[("crates/a/rustfmt.toml", source)]));
+
+        assert_eq!(
+            summary(&found),
+            ["unreadable-ignore-file crates/a/rustfmt.toml"],
+            "{source}"
+        );
+        assert!(found[0].message.contains("rustfmt"), "{}", found[0].message);
+    }
+}
+
 #[test]
 fn every_tool_names_the_checks_it_reads() {
     assert_eq!(Tool::Prettier.checks(), ["json", "markdown", "yaml"]);
@@ -503,4 +601,6 @@ fn every_tool_names_the_checks_it_reads() {
     assert_eq!(Tool::Yamllint.checks(), ["yaml"]);
     assert_eq!(Tool::Lychee.checks(), ["markdown"]);
     assert_eq!(Tool::Lychee.name(), "lychee");
+    assert_eq!(Tool::Rustfmt.checks(), ["rust"]);
+    assert_eq!(Tool::Rustfmt.name(), "rustfmt");
 }

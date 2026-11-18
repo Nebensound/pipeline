@@ -149,7 +149,12 @@ runs:
     # its absolute path, and each one fails the step. On standard error it
     # warns without failing (an option the toolchain does not support, say)
     # and reports what keeps it from formatting; a line there that is not a
-    # warning fails the step.
+    # warning fails the step. rustfmt reads the repository's own configuration,
+    # so a repository decides how it formats, but `disable_all_formatting`
+    # there would pass every file it reaches unchecked: the flag sets it aside,
+    # since the command line wins over the configuration. Its `ignore`, which
+    # takes single files out on a nightly toolchain, cannot be set aside on the
+    # command line; phase 0 fails on every file it takes out.
     - name: Formatting
       if: steps.packages.outputs.checked != '0' || steps.packages.outputs.others != '0'
       shell: bash
@@ -166,13 +171,15 @@ runs:
         check() {
           local failure=0 edition
           if [ "${#selected[@]}" -gt 0 ]; then
-            cargo fmt "${selected[@]}" -- --check "$@" || failure=$?
+            cargo fmt "${selected[@]}" -- --check --config disable_all_formatting=false "$@" \
+              || failure=$?
           fi
           for edition in "${editions[@]}"; do
             jq -j --arg edition "$edition" \
               '.others[].targets[] | select(.edition == $edition) | "\(.path)\u0000"' \
               "$PACKAGES" \
-              | xargs -0 rustfmt --edition "$edition" --check "$@" || failure=$?
+              | xargs -0 rustfmt --edition "$edition" --check \
+                --config disable_all_formatting=false "$@" || failure=$?
           done
           return "$failure"
         }

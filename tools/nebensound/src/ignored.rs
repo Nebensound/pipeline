@@ -24,6 +24,11 @@
 //!   or, where it sets neither, in the configuration its `extends` names.
 //! - lychee: `exclude_path` in `lychee.toml` at the root, matched against the
 //!   path from the root, the very string `check-markdown` hands lychee.
+//! - rustfmt: `ignore` in `.rustfmt.toml` or `rustfmt.toml`, in every folder,
+//!   relative to that folder, the hidden one first. Which of them rustfmt
+//!   applies to a file depends on where it runs and on the target it formats,
+//!   so every one is read. rustfmt honours `ignore` only on a nightly
+//!   toolchain, which a workspace may pin.
 //!
 //! Only a file the tool reads in a building block counts: Prettier's ignore
 //! file taking out a Rust file takes out nothing Prettier would have looked at.
@@ -54,6 +59,8 @@ pub enum Tool {
     Yamllint,
     /// The link checker of `check-markdown`.
     Lychee,
+    /// The formatter of `check-rust`.
+    Rustfmt,
 }
 
 impl Tool {
@@ -66,6 +73,7 @@ impl Tool {
             Self::Markdownlint => "markdownlint-cli2",
             Self::Yamllint => "yamllint",
             Self::Lychee => "lychee",
+            Self::Rustfmt => "rustfmt",
         }
     }
 
@@ -77,6 +85,7 @@ impl Tool {
             Self::Taplo => &["toml"],
             Self::Markdownlint | Self::Lychee => &["markdown"],
             Self::Yamllint => &["yaml"],
+            Self::Rustfmt => &["rust"],
         }
     }
 }
@@ -98,8 +107,11 @@ struct Include {
 
 /// What a setting takes out.
 enum Matcher {
-    /// Lines in the syntax of `.gitignore`, relative to the repository root.
-    Gitignore(Gitignore),
+    /// Lines in the syntax of `.gitignore`, relative to a folder.
+    Gitignore {
+        base: RelativePath,
+        lines: Gitignore,
+    },
     /// Globs relative to a folder. A file below it is out when it matches one
     /// of `exclude`, or, where there is an `include`, when the tool reads it by
     /// default and it matches none of `include`.
@@ -117,8 +129,12 @@ impl Matcher {
     /// Why the file is out, or [`None`] when it is not.
     fn out(&self, file: &RelativePath) -> Option<String> {
         match self {
-            Self::Gitignore(lines) => {
-                match lines.matched_path_or_any_parents(file.to_string(), false) {
+            Self::Gitignore { base, lines } => {
+                if !base.contains(file) {
+                    return None;
+                }
+                let below = file.segments()[base.segments().len()..].join("/");
+                match lines.matched_path_or_any_parents(below, false) {
                     Match::Ignore(glob) => Some(format!("through the line `{}`", glob.original())),
                     Match::None | Match::Whitelist(_) => None,
                 }
@@ -163,12 +179,22 @@ fn text(error: impl Display) -> String {
     error.to_string()
 }
 
-fn gitignore<'a>(lines: impl IntoIterator<Item = &'a str>) -> Result<Matcher, String> {
+/// `base`: the folder the lines are relative to.
+fn gitignore<'a>(
+    lines: impl IntoIterator<Item = &'a str>,
+    base: &RelativePath,
+) -> Result<Matcher, String> {
     let mut builder = GitignoreBuilder::new("");
     for line in lines {
         builder.add_line(None, line).map_err(text)?;
     }
-    builder.build().map(Matcher::Gitignore).map_err(text)
+    builder
+        .build()
+        .map(|lines| Matcher::Gitignore {
+            base: base.clone(),
+            lines,
+        })
+        .map_err(text)
 }
 
 /// `separator`: whether `*` stops at a `/`, as in markdownlint-cli2, or not,
@@ -212,6 +238,21 @@ fn taplo(source: &str) -> Result<Option<Matcher>, String> {
             .transpose()?,
         exclude: globs(config.exclude.unwrap_or_default(), false)?,
     }))
+}
+
+#[derive(Deserialize)]
+struct Rustfmt {
+    ignore: Option<Vec<String>>,
+}
+
+/// rustfmt reads `ignore` as lines of `.gitignore`, relative to the folder of
+/// its configuration file.
+fn rustfmt(source: &str, base: &RelativePath) -> Result<Option<Matcher>, String> {
+    let config: Rustfmt = toml::from_str(source).map_err(text)?;
+    config
+        .ignore
+        .map(|lines| gitignore(lines.iter().map(String::as_str), base))
+        .transpose()
 }
 
 #[derive(Deserialize)]
@@ -293,7 +334,12 @@ fn text_or_list(value: &Yaml, key: &str) -> Result<Option<Vec<String>>, String> 
 fn yamllint(file: &RelativePath, source: &str, read: &Read<'_>) -> Result<Option<Matcher>, String> {
     let lines = yamllint_ignore(file, source, read, &mut Vec::new())?;
     lines
-        .map(|lines| gitignore(lines.iter().flat_map(|text| text.lines())))
+        .map(|lines| {
+            gitignore(
+                lines.iter().flat_map(|text| text.lines()),
+                &RelativePath::root(),
+            )
+        })
         .transpose()
 }
 
@@ -387,6 +433,13 @@ fn places<'a>(files: &[&'a RelativePath]) -> Vec<(&'a RelativePath, Tool)> {
         if jsonc || yaml {
             found.push((*file, Tool::Markdownlint));
         }
+        // rustfmt as well, the hidden file before the plain one.
+        let hidden = file.file_name() == Some(".rustfmt.toml");
+        let plain = file.file_name() == Some("rustfmt.toml")
+            && !files.contains(&&folder(file).join(".rustfmt.toml"));
+        if hidden || plain {
+            found.push((*file, Tool::Rustfmt));
+        }
     }
     found
 }
@@ -406,7 +459,8 @@ fn read_setting(
 ) -> Result<Option<Matcher>, String> {
     let source = read(file)?;
     match tool {
-        Tool::Prettier => gitignore(source.lines()).map(Some),
+        Tool::Prettier => gitignore(source.lines(), &RelativePath::root()).map(Some),
+        Tool::Rustfmt => rustfmt(&source, &folder(file)),
         Tool::Taplo => taplo(&source),
         Tool::Yamllint => yamllint(file, &source, read),
         Tool::Lychee => lychee(&source),
@@ -414,6 +468,21 @@ fn read_setting(
             markdownlint_jsonc(&source, &folder(file))
         }
         Tool::Markdownlint => markdownlint_yaml(&source, &folder(file)),
+    }
+}
+
+/// What takes a file out instead of the tool's own setting.
+fn remedy(tool: Tool) -> &'static str {
+    match tool {
+        // A single file with code cannot be excluded, only its whole package.
+        Tool::Rustfmt => {
+            "mark its code #[rustfmt::skip], exclude its whole package (the folder \
+             with its Cargo.toml) with an [[exclude]] entry and a reason in \
+             .nebensound/repo.toml"
+        }
+        Tool::Prettier | Tool::Taplo | Tool::Markdownlint | Tool::Yamllint | Tool::Lychee => {
+            "give it an [[exclude]] entry with a reason in .nebensound/repo.toml"
+        }
     }
 }
 
@@ -462,11 +531,11 @@ pub fn findings(analysis: &Analysis, read: &Read<'_>) -> Vec<Finding> {
                         Rule::UnexcusedIgnore,
                         format!(
                             "{file} takes this file out of {} {why}, and no [[exclude]] entry \
-                             does. The pipeline checks it all the same: give it an \
-                             [[exclude]] entry with a reason in .nebensound/repo.toml, or let \
+                             does. The pipeline checks it all the same: {remedy}, or let \
                              {file} keep it in",
                             setting.tool.name(),
                             file = setting.file,
+                            remedy = remedy(setting.tool),
                         ),
                     )
                     .at(node.path.clone()),
