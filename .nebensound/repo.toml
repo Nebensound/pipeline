@@ -13,9 +13,3 @@ pipeline = "none"
 path       = "tools/nebensound"
 pipeline   = "rust-workspace"
 versioning = "none"
-
-# Deliberately broken to show that Declare fails; reverted in the next commit.
-[component.ghost]
-path       = "does/not/exist"
-pipeline   = "rust-workspace"
-versioning = "none"
