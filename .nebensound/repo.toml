@@ -15,15 +15,3 @@ pipeline = "none"
 path       = "tools/nebensound"
 pipeline   = "rust-workspace"
 versioning = "none"
-
-[[exclude]]
-path   = "evidence"
-reason = "temporary evidence for #10: files every block would fail"
-
-[[exclude]]
-path   = "tools/nebensound/src/probe.rs"
-reason = "temporary evidence for #10: neither formatted nor covered"
-
-[[exclude]]
-path   = ".prettierignore"
-reason = "temporary evidence for #10: an ignore file, which no tool formats"

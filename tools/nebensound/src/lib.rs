@@ -14,7 +14,6 @@ pub mod files;
 pub mod ignored;
 pub mod output;
 pub mod plan;
-pub mod probe;
 pub mod report;
 pub mod repository;
 #[cfg(feature = "ui")]
