@@ -83,6 +83,19 @@ and a committed one is not missed. Each finding is an annotation on its file.
 
 Every step runs even when one before it failed, so one run shows every finding.
 
+### `check-markdown`
+
+[`.github/actions/check-markdown`](.github/actions/check-markdown) checks every `.md` and `.markdown` file of the unit:
+
+- Formatted the way Prettier writes it.
+- No Markdownlint finding. Where the repository brings no Markdownlint
+  configuration, the one beside the action applies (`MD013` off, since Prettier
+  does not wrap prose).
+- Every link into the repository leads to a file and a heading that exist
+  (lychee, `--offline`). Links to the outside are not checked in a pull
+  request: it should not turn red because someone else's server does not
+  answer.
+
 ### `check-toml`
 
 [`.github/actions/check-toml`](.github/actions/check-toml) checks every `.toml`
@@ -104,10 +117,26 @@ SHA-256:
   hold its own `#:schema` directive with an absolute URL keeps that schema. A
   schema that cannot be read fails the check instead of being skipped.
 
+### `check-yaml`
+
+[`.github/actions/check-yaml`](.github/actions/check-yaml) checks every `.yml` and `.yaml` file of the unit:
+
+- Formatted the way Prettier writes it.
+- No yamllint finding. Where the repository brings no yamllint configuration,
+  the one beside the action applies: the defaults, less what contradicts
+  Prettier or GitHub Actions.
+- Every workflow directly under `.github/workflows` passes actionlint, with
+  ShellCheck reading every `run:` script. actionlint 1.7.12 does not know `$/`
+  yet and reports every such call as invalid; the block drops exactly these
+  two messages, and only for a `uses:` that begins with `$/`.
+- `.github/dependabot.yml` matches the Dependabot schema (`check-jsonschema`,
+  pinned, with the schema it brings along). An unknown key fails the check
+  with the file and the key named, instead of surfacing only after the merge.
+
 ### Exclusions, for now
 
 For now, the blocks honour the exclusions a repository gives its tools, such as
-`.prettierignore`; `.gitignore` takes nothing out. That is temporary: such an
+`.prettierignore`, its own Markdownlint or yamllint configuration, `lychee.toml`; `.gitignore` takes nothing out. That is temporary: such an
 exclusion needs no reason and can turn a check green that checked nothing. Once
 the plan carries the `[[exclude]]` entries of the declaration, `repo.toml` is
 the only place where a file is taken out of a check
