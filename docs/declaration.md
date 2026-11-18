@@ -155,7 +155,7 @@ set.
 | Field        | Type                             | Default | Effect                                                                                                                                                                                      |
 | ------------ | -------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `repo`       | `true`                           | absent  | Takes the pipeline `[repo.component]` offers. Only in the form `{ repo = true }`, alone.                                                                                                    |
-| `version`    | array of version writer names    | `[]`    | The version writers that receive the unit's version as a derived copy. Phase 0 demands that the unit carries a version. No version is written yet.                                          |
+| `version`    | array of version writer names    | `[]`    | The version writers that receive the unit's version as a derived copy. Phase 0 demands that the unit, or the children it generates, carries a version. No version is written yet.           |
 | `check`      | array of check names             | `[]`    | Checks beyond the base set. Each is in force for every file of the unit and runs in the Check phase.                                                                                        |
 | `build`      | build name                       | none    | The build that produces the unit's artifact. The plan names it for a unit that carries a version of its own and generates no children. The Build phase is not built yet.                    |
 | `publish`    | `false` or array of target names | `false` | Where the artifact goes: `false` for nowhere, said out loud, or a list of targets. `publish = true` is an error, since it names no target. Nothing is published yet.                        |
@@ -229,9 +229,11 @@ itself is included.
   value is the error `repository-without-version`, and the repository is
   treated as `self`.
 - A generated unit is named after its folder or file: the last segment without
-  its extension, in lowercase, every character other than a letter or digit
-  turned into `-`, and `-` trimmed from both ends. `Handbook v2.typ` becomes
-  `handbook-v2`.
+  its extension, in lowercase, every character other than an ASCII letter or
+  digit turned into `-`, and `-` trimmed from both ends. `Handbook v2.typ`
+  becomes `handbook-v2`, and `Übersicht.typ` becomes `bersicht`. A name with no
+  ASCII letter or digit left, such as `日本.typ`, is the error
+  `ungeneratable-name`.
 - A generated unit has nowhere to say anything of its own. It takes the
   pipeline and `allow-unused` of the unit that generated it, and carries a
   version of its own.
@@ -360,9 +362,10 @@ nothing.
 
 ### `version-writer-without-version`
 
-Error. A unit selects a version writer and carries no version of its own, so
-there is nothing to copy. Give it a `versioning` value that includes `self`, or
-remove the version writer.
+Error. A unit selects a version writer, carries no version of its own and
+generates no children that carry one, so there is nothing to copy. Give it a
+`versioning` value that includes `self`, or let it generate children, or remove
+the version writer.
 
 ### `unwatched-manifest`
 

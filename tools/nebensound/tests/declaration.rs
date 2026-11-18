@@ -266,16 +266,45 @@ fn the_schema_is_read_where_a_reader_finds_it() {
 }
 
 /// The codes `Rule::code` gives, read off its source.
+///
+/// Each arm is read from its `Self::` to the string after it, so an arm that
+/// rustfmt wraps onto two lines is read like one on a single line.
 fn codes() -> BTreeSet<String> {
     let source = read(FINDINGS);
     let (_, body) = source
         .split_once("pub fn code(self)")
         .expect("Rule::code in finding.rs");
     let (body, _) = body.split_once("\n    }\n").expect("the end of Rule::code");
-    body.lines()
-        .filter_map(|line| line.split_once("=> \"").map(|(_, rest)| rest))
-        .map(|rest| rest.trim_end_matches("\",").to_owned())
+    body.split("Self::")
+        .skip(1)
+        .map(|arm| {
+            let (_, rest) = arm.split_once('"').expect("a code in each arm");
+            let (code, _) = rest.split_once('"').expect("the end of the code");
+            code.to_owned()
+        })
         .collect()
+}
+
+/// How many variants `enum Rule` declares, read off its source.
+fn variants() -> usize {
+    let source = read(FINDINGS);
+    let (_, body) = source
+        .split_once("pub enum Rule {")
+        .expect("enum Rule in finding.rs");
+    let (body, _) = body.split_once("\n}\n").expect("the end of enum Rule");
+    body.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with("#["))
+        .count()
+}
+
+#[test]
+fn every_variant_of_rule_has_a_code_read() {
+    assert_eq!(
+        codes().len(),
+        variants(),
+        "the codes read off Rule::code are as many as the variants of Rule, each once"
+    );
 }
 
 #[test]

@@ -50,8 +50,8 @@ gets no job. The steps of a unit's job:
 1. **Not written yet.** It fails, by name, for every check of the unit that has
    no building block yet, so that a pull request says what is missing instead of
    passing without anyone having looked. The checks that are written still run.
-   The building blocks written today are `json`, `markdown`, `rust`, `toml` and
-   `yaml`; [the README](../README.md#building-blocks) describes each.
+   The building blocks written today are listed in
+   [the README](../README.md#building-blocks).
 2. **One step per check** of the unit, each the building block
    `check-<name>` over the unit's path. Every step runs even when one before it
    failed, so one run shows every finding of the unit.
