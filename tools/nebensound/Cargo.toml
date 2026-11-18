@@ -30,8 +30,6 @@ nebensound-declaration = { path = "crates/nebensound-declaration", features = [
 ] }
 
 clap.workspace         = true
-evidence-outside       = { path = "../../evidence/outside" }
-evidence-vendored      = { path = "crates/evidence-vendored" }
 globset.workspace      = true
 ignore.workspace       = true
 jsonc-parser.workspace = true

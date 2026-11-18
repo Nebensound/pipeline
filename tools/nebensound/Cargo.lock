@@ -496,14 +496,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "evidence-outside"
-version = "0.1.0"
-
-[[package]]
-name = "evidence-vendored"
-version = "0.1.0"
-
-[[package]]
 name = "fancy-regex"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -896,8 +888,6 @@ name = "nebensound"
 version = "0.0.0"
 dependencies = [
  "clap",
- "evidence-outside",
- "evidence-vendored",
  "globset",
  "ignore",
  "jsonc-parser",
