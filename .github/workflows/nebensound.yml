@@ -167,11 +167,10 @@ jobs:
             echo "::error file=xtask/Cargo.toml::The xtask pins no toolchain: neither xtask/ nor the repository root holds a rust-toolchain.toml."
             exit 1
           fi
-          toolchain="$(
-            cd xtask
-            rustup toolchain install >&2
-            rustup show active-toolchain | cut -d ' ' -f 1
-          )"
+          # A top-level command, so that set -e stops the step at a failing
+          # install; inside $(...) bash would not.
+          (cd xtask && rustup toolchain install)
+          toolchain="$(cd xtask && rustup show active-toolchain | cut -d ' ' -f 1)"
           echo "Running the xtask with $toolchain, pinned in $pin."
           export RUSTUP_TOOLCHAIN="$toolchain"
           cargo xtask check --all
