@@ -34,7 +34,12 @@ runs:
         list="$RUNNER_TEMP/check-toml-files"
         # The extensions the register gives `toml`: `.toml`, and `.lock` for
         # Cargo.lock and the other lockfiles written in TOML.
-        nebensound files -z -- toml "$UNIT" > "$list"
+        # The tool writes a refusal where the list would go: into the log
+        # with it, or the step fails without saying why.
+        if ! nebensound files -z -- toml "$UNIT" > "$list"; then
+          cat "$list" >&2
+          exit 1
+        fi
         count="$(tr -cd '\0' < "$list" | wc -c)"
         echo "count=$count" >> "$GITHUB_OUTPUT"
         echo "list=$list" >> "$GITHUB_OUTPUT"

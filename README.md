@@ -120,14 +120,13 @@ away:
 - The workspace builds with the oldest `rust-version` any package claims.
 - Regions, lines and functions are 100% covered (`cargo-llvm-cov`, on a pinned
   nightly toolchain, where `#[coverage(off)]` takes effect).
+- Every published package builds and passes its tests from its own packaged
+  contents, outside the source tree.
 
 A `.rs` file that `[[exclude]]` takes out is neither held to the formatting nor
 counted for coverage. Clippy, the tests, the documentation and the builds work
 on the crates as Cargo compiles them; a crate cannot be compiled without one of
 its files, so an excluded file a crate compiles is compiled with it.
-
-- Every published package builds and passes its tests from its own packaged
-  contents, outside the source tree.
 
 ### `check-toml`
 
@@ -209,8 +208,13 @@ setting that takes out less is fine. Phase 0 reads:
 | lychee            | `exclude_path` in `lychee.toml` at the root                                                 |
 
 Only the files the tool reads in a block count: a `.prettierignore` that takes
-out a Rust file takes out nothing Prettier would have looked at. A setting
-phase 0 cannot read fails as well (`unreadable-ignore-file`).
+out a Rust file takes out nothing Prettier would have looked at. Taplo's
+`include` counts only against `.toml` files, the ones Taplo reads without it; a
+`.lock` file is taken out of Taplo only by `exclude`. A setting phase 0 cannot
+read fails as well (`unreadable-ignore-file`). A JavaScript options file of
+markdownlint-cli2 (`.markdownlint-cli2.cjs` or `.mjs`) is not judged, since
+phase 0 cannot read it without running it; the block sets its `ignores` aside
+all the same.
 
 ## A repository's own checks
 

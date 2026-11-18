@@ -32,7 +32,12 @@ runs:
       run: |
         set -euo pipefail
         list="$RUNNER_TEMP/check-markdown-files"
-        nebensound files -z -- markdown "$UNIT" > "$list"
+        # The tool writes a refusal where the list would go: into the log
+        # with it, or the step fails without saying why.
+        if ! nebensound files -z -- markdown "$UNIT" > "$list"; then
+          cat "$list" >&2
+          exit 1
+        fi
         count="$(tr -cd '\0' < "$list" | wc -c)"
         # One path per line for the link check, which reads no other form. A
         # file name holding a line break is not something it could be given.

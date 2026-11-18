@@ -34,7 +34,12 @@ runs:
         set -euo pipefail
         list="$RUNNER_TEMP/check-yaml-files"
         workflows="$RUNNER_TEMP/check-yaml-workflows"
-        nebensound files -z -- yaml "$UNIT" > "$list"
+        # The tool writes a refusal where the list would go: into the log
+        # with it, or the step fails without saying why.
+        if ! nebensound files -z -- yaml "$UNIT" > "$list"; then
+          cat "$list" >&2
+          exit 1
+        fi
         count="$(tr -cd '\0' < "$list" | wc -c)"
         # GitHub runs a workflow from one place only: directly under
         # .github/workflows at the repository root. Only those are workflows.

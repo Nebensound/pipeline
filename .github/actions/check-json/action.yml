@@ -31,7 +31,12 @@ runs:
       run: |
         set -euo pipefail
         list="$RUNNER_TEMP/check-json-files"
-        nebensound files -z -- json "$UNIT" > "$list"
+        # The tool writes a refusal where the list would go: into the log
+        # with it, or the step fails without saying why.
+        if ! nebensound files -z -- json "$UNIT" > "$list"; then
+          cat "$list" >&2
+          exit 1
+        fi
         count="$(tr -cd '\0' < "$list" | wc -c)"
         echo "count=$count" >> "$GITHUB_OUTPUT"
         echo "list=$list" >> "$GITHUB_OUTPUT"

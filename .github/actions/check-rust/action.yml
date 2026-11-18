@@ -31,9 +31,6 @@ inputs:
 runs:
   using: composite
   steps:
-    # A workspace that pulls in a database engine fills a hosted runner before
-    # its tests are done. What is removed here is software this check never
-    # calls.
     # At the repository root, where the paths the tool names start.
     - name: Find the Rust files
       id: files
@@ -44,7 +41,12 @@ runs:
         set -euo pipefail
         list="$RUNNER_TEMP/check-rust-files"
         excluded="$RUNNER_TEMP/check-rust-excluded"
-        nebensound files -z -- rust "$UNIT" > "$list"
+        # The tool writes a refusal where the list would go: into the log
+        # with it, or the step fails without saying why.
+        if ! nebensound files -z -- rust "$UNIT" > "$list"; then
+          cat "$list" >&2
+          exit 1
+        fi
         # What `[[exclude]]` takes out: every `.rs` file Git tracks below the
         # unit that the list does not name. The unit's path is taken
         # literally: as a plain pathspec, a path holding `[`, `*`, `?` or a
@@ -70,6 +72,9 @@ runs:
           tr '\0' '\n' < "$excluded"
         fi
 
+    # A workspace that pulls in a database engine fills a hosted runner before
+    # its tests are done. What is removed here is software this check never
+    # calls.
     - name: Make room on the runner
       shell: bash
       run: |
