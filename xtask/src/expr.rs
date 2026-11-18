@@ -7,6 +7,13 @@
 //! `==`, `!=`, `&&`, `||`, parentheses and the four status functions. Anything
 //! else is refused by name instead of being guessed, so a block that starts to
 //! use more of the language fails here until the xtask learns it.
+//!
+//! The parser is written here rather than taken from a crate such as
+//! `github-actions-expressions`. That crate reads the whole language, so the
+//! xtask would still have to walk its tree to refuse every part it cannot
+//! evaluate, and the evaluation is the xtask's own either way. What is left to
+//! share is a tokenizer and a parser for this small subset, which is less than
+//! the work of keeping a dependency current.
 
 use std::cmp::Ordering;
 

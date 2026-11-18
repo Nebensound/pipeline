@@ -316,6 +316,10 @@ not part of the case's repository.
   written;
 - every block has a passing and a failing case.
 
+For now the xtask knows only how a check is called and tested, so a block of
+another category is reported until the xtask learns that kind. The first
+`version-`, `build-` or `publish-` block teaches it, together with its cases.
+
 Then it runs every block against its cases. It builds the tool through
 [`.github/actions/tool`](.github/actions/tool), copies each case into a fresh
 Git repository, runs [`.github/actions/phase0`](.github/actions/phase0) on it,
