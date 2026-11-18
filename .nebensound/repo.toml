@@ -5,7 +5,7 @@
 # tree. "none" applies no preset: nothing here is built or published.
 
 [repo]
-pipelien = "none"
+pipeline = "none"
 
 # The Cargo workspace of the tool that reads a declaration. It is a unit of its
 # own because Cargo resolves here: the rust check runs here and Dependabot
