@@ -37,7 +37,9 @@ impl Output {
     }
 }
 
-/// Called by nothing and not left out: coverage falls below 100 %.
+/// Called by nothing, and left out of coverage on purpose: it proves that a
+/// function marked `coverage(off)` does not lower the measured coverage.
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[must_use]
 pub fn uncovered() -> u8 {
     1

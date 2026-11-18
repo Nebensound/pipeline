@@ -83,7 +83,7 @@ toml_edit    = "0.25"
 [workspace.lints.rust]
 missing_docs    = "deny"
 unsafe_code     = "forbid"
-unexpected_cfgs = "deny"
+unexpected_cfgs = { level = "deny", check-cfg = ["cfg(coverage_nightly)"] }
 
 [workspace.lints.clippy]
 all         = { level = "deny", priority = -1 }
