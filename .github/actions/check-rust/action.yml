@@ -111,7 +111,12 @@ runs:
     # `#[coverage(off)]` exist. So a workspace marks a function it justifies
     # leaving out with `#[cfg_attr(coverage_nightly, coverage(off))]`, enables
     # the attribute at the crate root with
-    # `#![cfg_attr(coverage_nightly, feature(coverage_attribute))]`, and builds
+    # `#![cfg_attr(coverage_nightly, feature(coverage_attribute))]`, declares
+    # the cfg in its manifest with
+    # `unexpected_cfgs = { level = "...", check-cfg = ["cfg(coverage_nightly)"] }`
+    # under `[workspace.lints.rust]` or `[lints.rust]` (otherwise rustc reports
+    # every such `cfg_attr` as `unexpected_cfgs`, which Clippy and rustdoc,
+    # both run with `-D warnings` here, turn into an error), and builds
     # unchanged on its own toolchain. Every other step runs on that one.
     #
     # The tool is installed from source with its lockfile.
