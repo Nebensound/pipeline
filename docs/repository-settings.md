@@ -5,17 +5,22 @@ a release that can be changed would change what every caller runs. These are
 the settings of `Nebensound/pipeline` that protect it. Each entry gives the
 setting, why it is set, and the `gh api` call that reads it back.
 
-Organization rulesets, the repository custom property, environments and their
-secrets are not repository settings in this sense and are described elsewhere.
+Organization rulesets, the repository custom property and organization secrets
+are not repository settings and are not described here. They get their own
+documents with the issues that introduce them.
 
 ## Immutable releases
 
-Enabled. A published release and its tag can no longer be changed or deleted,
-so a pinned version always resolves to the same code.
+Enabled. Once a release is published, its assets cannot be added to, replaced
+or deleted, and its tag cannot be moved or deleted while the release exists.
+A pinned version therefore keeps resolving to the same code. The limits: the
+title and notes of a release can still be edited, a release can still be
+deleted (its tag name can then never be used again), and a tag pushed without
+a release is not covered by this setting.
 
 ```sh
 gh api repos/Nebensound/pipeline/immutable-releases
-# expected: {"enabled":true,...}
+# expected: {"enabled":true,"enforced_by_owner":false}
 ```
 
 ## Secret scanning and push protection
@@ -24,7 +29,10 @@ Both enabled. A secret committed to this public repository is detected, and a
 push that contains a supported secret is blocked before it lands.
 
 ```sh
-gh api repos/Nebensound/pipeline --jq '.security_and_analysis | {secret_scanning: .secret_scanning.status, push_protection: .secret_scanning_push_protection.status}'
+gh api repos/Nebensound/pipeline \
+  --jq '.security_and_analysis
+        | {secret_scanning: .secret_scanning.status,
+           push_protection: .secret_scanning_push_protection.status}'
 # expected: {"push_protection":"enabled","secret_scanning":"enabled"}
 ```
 
@@ -39,12 +47,21 @@ gh api repos/Nebensound/pipeline/private-vulnerability-reporting
 
 ## Merge methods
 
-Squash and merge commit are allowed, rebase is off. A squash commit takes the
-pull request's title and description, which keeps the history in Conventional
-Commit form. Head branches are deleted after merge so no stale branch lingers.
+- Squash is allowed and is how a pull request enters `main`. The squash commit
+  takes the pull request's title and description, so the commit on `main` is a
+  Conventional Commit without anyone retyping it.
+- Merge commits are allowed in the settings because a later branch behind
+  `main` takes its changes as merge commits. On `main` a ruleset allows squash
+  only.
+- Rebase is off: it would put a pull request's individual commits on `main`,
+  and those are not required to be Conventional Commits.
+- Head branches are deleted after merge so that no stale branch lingers.
 
 ```sh
-gh api repos/Nebensound/pipeline --jq '{allow_squash_merge, allow_merge_commit, allow_rebase_merge, squash_merge_commit_title, squash_merge_commit_message, delete_branch_on_merge}'
+gh api repos/Nebensound/pipeline \
+  --jq '{allow_squash_merge, allow_merge_commit, allow_rebase_merge,
+         squash_merge_commit_title, squash_merge_commit_message,
+         delete_branch_on_merge}'
 # expected: allow_squash_merge true, allow_merge_commit true,
 #           allow_rebase_merge false, squash_merge_commit_title "PR_TITLE",
 #           squash_merge_commit_message "PR_BODY", delete_branch_on_merge true
@@ -52,12 +69,15 @@ gh api repos/Nebensound/pipeline --jq '{allow_squash_merge, allow_merge_commit, 
 
 ## Workflow runs from forks
 
-Workflow runs from forks by outside contributors require approval, every
-time. A fork's pull request cannot run workflows, and so cannot spend minutes
-or probe the runner, before a maintainer has looked at it.
+A workflow run started from a fork by someone who is not a member or
+collaborator of the repository needs a maintainer's approval, every time and
+not only for a first contribution. Such a pull request cannot run workflows,
+and so cannot spend minutes or probe the runner, before a maintainer has
+looked at it.
 
 ```sh
-gh api repos/Nebensound/pipeline/actions/permissions/fork-pr-contributor-approval
+gh api \
+  repos/Nebensound/pipeline/actions/permissions/fork-pr-contributor-approval
 # expected: {"approval_policy":"all_external_contributors"}
 ```
 
