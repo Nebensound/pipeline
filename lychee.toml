@@ -1,0 +1,2 @@
+# Evidence for #10: an exclude_path that only matches an absolute path.
+exclude_path = ["/evidence/"]
