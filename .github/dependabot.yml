@@ -1,5 +1,4 @@
 version: 2
-unknown-key: true
 updates:
   - package-ecosystem: github-actions
     directory: /
