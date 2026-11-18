@@ -1,0 +1,572 @@
+//! Running actions the way the runner of GitHub Actions runs them.
+//!
+//! Every script here is plain bash that also runs on bash 3.2.
+
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+
+mod support;
+
+use std::collections::BTreeMap;
+use std::ffi::OsString;
+use std::fs;
+use std::os::unix::fs::PermissionsExt as _;
+use std::path::Path;
+
+use support::{Scene, composite, git};
+use xtask::runner::{self, Job, Place};
+
+fn ok(result: (Result<runner::Outcome, xtask::Error>, String)) -> (runner::Outcome, String) {
+    let (outcome, out) = result;
+    (
+        outcome.unwrap_or_else(|error| panic!("{error}\n{out}")),
+        out,
+    )
+}
+
+fn error(result: (Result<runner::Outcome, xtask::Error>, String)) -> String {
+    let (outcome, out) = result;
+    match outcome {
+        Ok(outcome) => panic!("it ran: {outcome:?}\n{out}"),
+        Err(error) => error.to_string(),
+    }
+}
+
+/// An executable script.
+fn executable(path: &Path, script: &str) {
+    support::write(
+        path.parent().unwrap(),
+        &[(path.file_name().unwrap().to_str().unwrap(), script)],
+    );
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[test]
+fn outputs_flow_from_step_to_step_and_out_of_the_action() {
+    let scene = Scene::new();
+    let (outcome, out) = ok(scene.run(
+        r#"
+outputs:
+  result:
+    value: ${{ steps.second.outputs.echoed }}
+runs:
+  using: composite
+  steps:
+    - id: first
+      shell: bash
+      run: |
+        echo "value=one" >> "$GITHUB_OUTPUT"
+        printf 'lines<<END\na\nb\nEND\n' >> "$GITHUB_OUTPUT"
+        echo "::error file=x::not an annotation here"
+    - id: second
+      shell: bash
+      env:
+        VALUE: ${{ steps.first.outputs.value }}
+        LINES: ${{ steps.FIRST.outputs.LINES }}
+      run: |
+        echo "echoed=$VALUE/$LINES" | tr '\n' ' ' >> "$GITHUB_OUTPUT"
+        echo >> "$GITHUB_OUTPUT"
+"#,
+        &[],
+    ));
+    assert!(outcome.success, "{out}");
+    assert_eq!(
+        outcome.outputs.get("result").map(String::as_str),
+        Some("one/a b ")
+    );
+    assert!(
+        outcome
+            .log
+            .contains(&"::error file=x::not an annotation here".to_owned())
+    );
+    assert!(
+        out.contains("    | ::error file=x::not an annotation here"),
+        "{out}"
+    );
+}
+
+#[test]
+fn after_a_failure_only_steps_that_ask_for_status_run() {
+    let scene = Scene::new();
+    let (outcome, out) = ok(scene.run(
+        r"
+outputs:
+  first:
+    value: ${{ steps.failing.outcome }}
+  skipped:
+    value: ${{ steps.skipped.conclusion }}
+runs:
+  using: composite
+  steps:
+    - id: failing
+      name: Failing
+      shell: bash
+      run: exit 3
+    - id: skipped
+      name: Skipped
+      shell: bash
+      run: echo never
+    - name: Not cancelled
+      if: ${{ !cancelled() && steps.failing.outcome == 'failure' }}
+      shell: bash
+      run: echo still running
+    - name: On failure
+      if: failure()
+      shell: bash
+      run: echo after the failure
+",
+        &[],
+    ));
+    assert!(!outcome.success, "{out}");
+    assert_eq!(outcome.log, ["still running", "after the failure"]);
+    assert_eq!(
+        outcome.outputs.get("first").map(String::as_str),
+        Some("failure")
+    );
+    assert_eq!(
+        outcome.outputs.get("skipped").map(String::as_str),
+        Some("skipped")
+    );
+    assert!(out.contains("  x Failing: failed"), "{out}");
+    assert!(out.contains("  - Skipped: skipped"), "{out}");
+}
+
+#[test]
+fn the_environment_and_the_path_last_for_the_job() {
+    let scene = Scene::new();
+    let bin = scene.path().join("bin");
+    executable(&bin.join("hello"), "#!/bin/sh\necho hello from the path\n");
+    let host = scene.host();
+    let mut job = Job::default();
+    let first = scene.action(
+        "first",
+        &composite(&format!(
+            "echo \"FOO=bar\" >> \"$GITHUB_ENV\"\nprintf 'MULTI<<EOF\\na\\nb\\nEOF\\n' >> \"$GITHUB_ENV\"\necho '{}' >> \"$GITHUB_PATH\"\necho >> \"$GITHUB_PATH\"",
+            bin.display()
+        )),
+    );
+    let (outcome, out) = ok(scene.run_on(&host, &mut job, &first, &[], &[]));
+    assert!(outcome.success, "{out}");
+    assert_eq!(job.path, [bin.display().to_string()]);
+
+    let second = scene.action("second", &composite("hello\necho \"$FOO\" \"$MULTI\""));
+    let (outcome, out) = ok(scene.run_on(&host, &mut job, &second, &[], &[]));
+    assert!(outcome.success, "{out}");
+    assert_eq!(outcome.log, ["hello from the path", "bar a", "b"]);
+}
+
+#[test]
+fn a_step_sees_what_the_runner_hands_it() {
+    let scene = Scene::new();
+    let mut host = scene.host();
+    host.env.push(("CARGO_PKG_NAME".into(), "xtask".into()));
+    host.env.push(("RUSTUP_TOOLCHAIN".into(), "1.0.0".into()));
+    host.env = runner::environment(host.env);
+    let dir = scene.action(
+        "main",
+        &composite(
+            "echo \"$CI $GITHUB_ACTIONS $RUNNER_OS $RUNNER_ARCH\"\n\
+             [ \"$(cd \"$GITHUB_WORKSPACE\" && pwd -P)\" = \"$(pwd -P)\" ] && echo workspace\n\
+             [ -d \"$RUNNER_TEMP\" ] && echo temp\n\
+             [ -f \"$GITHUB_ACTION_PATH/action.yml\" ] && echo action\n\
+             echo \"[${CARGO_PKG_NAME:-}] [${RUSTUP_TOOLCHAIN:-}]\"\n\
+             echo \"${{ github.workspace }}\" | grep -q workspace && echo github.workspace\n\
+             echo \"${{ github.action_path }}\" | grep -q main && echo github.action_path\n\
+             echo \"${{ runner.temp }}\" | grep -q temp && echo runner.temp\n\
+             echo \"[${{ runner.os }}] [${{ runner.arch }}] [${{ github.token }}] [${{ github.server_url }}] [${{ job.check_run_id }}] [${{ github.unknown }}]\"",
+        ),
+    );
+    let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[], &[]));
+    assert!(outcome.success, "{out}");
+    assert_eq!(
+        outcome.log,
+        [
+            "true true Linux X64",
+            "workspace",
+            "temp",
+            "action",
+            "[] []",
+            "github.workspace",
+            "github.action_path",
+            "runner.temp",
+            "[Linux] [X64] [] [file:///nowhere] [] []",
+        ]
+    );
+}
+
+#[test]
+fn inputs_come_from_the_caller_else_from_their_default() {
+    let scene = Scene::new();
+    let (outcome, out) = ok(scene.run(
+        r#"
+inputs:
+  given: {}
+  defaulted:
+    default: ${{ runner.os }}-default
+  bare: {}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo "${{ inputs.given }} ${{ inputs.DEFAULTED }} [${{ inputs.bare }}]"
+"#,
+        &[("Given", "from the caller")],
+    ));
+    assert!(outcome.success, "{out}");
+    assert_eq!(outcome.log, ["from the caller Linux-default []"]);
+}
+
+#[test]
+fn a_step_runs_in_its_working_directory() {
+    let scene = Scene::new();
+    fs::create_dir_all(scene.workspace().join("sub/dir")).unwrap();
+    let (outcome, out) = ok(scene.run(
+        "inputs:\n  where: {}\nruns:\n  using: composite\n  steps:\n    - shell: bash\n      working-directory: ${{ inputs.where }}/dir\n      run: basename \"$PWD\"\n",
+        &[("where", "sub")],
+    ));
+    assert!(outcome.success, "{out}");
+    assert_eq!(outcome.log, ["dir"]);
+}
+
+#[test]
+fn a_named_step_can_be_left_out_and_has_to_exist() {
+    let scene = Scene::new();
+    let dir = scene.action(
+        "main",
+        "runs:\n  using: composite\n  steps:\n    - name: Dangerous\n      shell: bash\n      run: exit 1\n    - shell: bash\n      run: echo after\n",
+    );
+    let host = scene.host();
+    let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[], &["Dangerous"]));
+    assert!(outcome.success, "{out}");
+    assert_eq!(outcome.log, ["after"]);
+    assert!(
+        out.contains("  - Dangerous: left out by the xtask"),
+        "{out}"
+    );
+
+    let message = error(scene.run_on(&host, &mut Job::default(), &dir, &[], &["Renamed"]));
+    assert!(message.contains("no such step any more"), "{message}");
+}
+
+#[test]
+fn what_the_runner_would_not_run_is_refused() {
+    let scene = Scene::new();
+    for (yaml, inputs, message) in [
+        ("runs:\n  using: node24\n", &[][..], "runs on `node24`"),
+        (
+            "runs:\n  using: composite\n  steps:\n    - run: echo\n",
+            &[],
+            "of the runner's choice",
+        ),
+        (
+            "runs:\n  using: composite\n  steps:\n    - run: echo\n      shell: sh\n",
+            &[],
+            "runs on the shell sh",
+        ),
+        (
+            "runs:\n  using: composite\n  steps: []\n",
+            &[("unknown", "x")],
+            "has no input `unknown`",
+        ),
+        (
+            "inputs:\n  a:\n    default: ${{ x.y }}\nruns:\n  using: composite\n  steps: []\n",
+            &[],
+            "`x.y`",
+        ),
+        (
+            "runs:\n  using: composite\n  steps:\n    - run: echo\n      shell: bash\n      if: x.y\n",
+            &[],
+            "`x.y`",
+        ),
+        (
+            "runs:\n  using: composite\n  steps:\n    - run: echo\n      shell: bash\n      env:\n        A: ${{ x.y }}\n",
+            &[],
+            "`x.y`",
+        ),
+        (
+            "runs:\n  using: composite\n  steps:\n    - run: echo\n      shell: bash\n      working-directory: ${{ x.y }}\n",
+            &[],
+            "`x.y`",
+        ),
+        (
+            "runs:\n  using: composite\n  steps:\n    - run: echo ${{ x.y }}\n      shell: bash\n",
+            &[],
+            "`x.y`",
+        ),
+        (
+            "runs:\n  using: composite\n  steps:\n    - run: echo ${{ steps.a }}\n      shell: bash\n",
+            &[],
+            "names no value",
+        ),
+        (
+            "runs:\n  using: composite\n  steps:\n    - uses: a/b@c\n      with:\n        a: ${{ x.y }}\n",
+            &[],
+            "`x.y`",
+        ),
+        (
+            "outputs:\n  a:\n    value: ${{ x.y }}\nruns:\n  using: composite\n  steps: []\n",
+            &[],
+            "`x.y`",
+        ),
+        (
+            "runs:\n  using: composite\n  steps:\n    - shell: bash\n      run: echo garbage >> \"$GITHUB_OUTPUT\"\n",
+            &[],
+            "GITHUB_OUTPUT",
+        ),
+        (
+            "runs:\n  using: composite\n  steps:\n    - shell: bash\n      run: echo garbage >> \"$GITHUB_ENV\"\n",
+            &[],
+            "GITHUB_ENV",
+        ),
+    ] {
+        let found = error(scene.run(yaml, inputs));
+        assert!(found.contains(message), "{yaml}\n{found}");
+    }
+}
+
+#[test]
+fn an_action_the_xtask_cannot_fetch_is_refused() {
+    let scene = Scene::new();
+    for (action, message) in [
+        ("./local", "is not one the xtask fetches"),
+        ("$/.github/actions/x", "is not one the xtask fetches"),
+        ("docker://alpine@3", "is not one the xtask fetches"),
+        ("owner/repo", "is not one the xtask fetches"),
+        ("owner@v1", "names no repository"),
+        ("owner/missing@v1", "failed"),
+    ] {
+        let yaml = format!("runs:\n  using: composite\n  steps:\n    - uses: {action}\n");
+        let found = error(scene.run(&yaml, &[]));
+        assert!(found.contains(message), "{action}\n{found}");
+    }
+    let message = error(scene.run_on(
+        &scene.host(),
+        &mut Job::default(),
+        &scene.path().join("nothing"),
+        &[],
+        &[],
+    ));
+    assert!(message.contains("cannot read"), "{message}");
+}
+
+#[test]
+fn a_step_that_cannot_be_prepared_or_started_is_an_error() {
+    let scene = Scene::new();
+    let dir = scene.action("main", &composite("echo"));
+    let file = scene.path().join("a file");
+    fs::write(&file, "").unwrap();
+    let workspace = scene.workspace();
+    let mut out = Vec::new();
+    let prepared = scene.host().run(
+        &mut Job::default(),
+        &dir,
+        &BTreeMap::new(),
+        Place {
+            workspace: &workspace,
+            temp: &file,
+        },
+        &[],
+        &mut out,
+    );
+    assert!(
+        prepared
+            .unwrap_err()
+            .to_string()
+            .contains("cannot prepare a step"),
+        "a temporary directory that is a file"
+    );
+
+    let mut host = scene.host();
+    host.bash = OsString::from("/nonexistent/bash");
+    let message = error(scene.run_on(&host, &mut Job::default(), &dir, &[], &[]));
+    assert!(
+        message.contains("cannot start /nonexistent/bash"),
+        "{message}"
+    );
+}
+
+#[test]
+fn file_commands_are_read_as_github_writes_them() {
+    let read = |text: &str| runner::file_commands(text, "GITHUB_OUTPUT");
+    assert_eq!(
+        read("a=1\n\nb<<X\nline=one\nline<<two\nX\nc=x<<y\nd<<E=F\nv\nE=F\n").unwrap(),
+        [
+            ("a".to_owned(), "1".to_owned()),
+            ("b".to_owned(), "line=one\nline<<two".to_owned()),
+            ("c".to_owned(), "x<<y".to_owned()),
+            ("d".to_owned(), "v".to_owned()),
+        ]
+    );
+    assert!(
+        read("b<<X\nnever closed\n")
+            .unwrap_err()
+            .to_string()
+            .contains("never closes")
+    );
+    assert!(
+        read("no separator\n")
+            .unwrap_err()
+            .to_string()
+            .contains("neither")
+    );
+}
+
+#[test]
+fn the_environment_leaves_out_what_would_steer_cargo() {
+    let vars: Vec<(OsString, OsString)> = [
+        "PATH",
+        "HOME",
+        "CARGO_HOME",
+        "CARGO",
+        "CARGO_MANIFEST_DIR",
+        "CARGO_PKG_VERSION",
+        "CARGO_BIN_EXE_xtask",
+        "CARGO_TARGET_DIR",
+        "RUSTUP_TOOLCHAIN",
+    ]
+    .iter()
+    .map(|name| (OsString::from(name), OsString::from("x")))
+    .collect();
+    let kept: Vec<String> = runner::environment(vars)
+        .into_iter()
+        .map(|(name, _)| name.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(kept, ["PATH", "HOME", "CARGO_HOME"]);
+}
+
+#[test]
+fn a_cache_is_left_out() {
+    let scene = Scene::new();
+    let (outcome, out) = ok(scene.run(
+        "runs:\n  using: composite\n  steps:\n    - id: cache\n      uses: actions/cache/restore@v6\n    - if: steps.cache.outputs.cache-hit != 'true'\n      shell: bash\n      run: echo built\n    - uses: Swatinem/rust-cache@v2\n      with:\n        workspaces: x\n",
+        &[],
+    ));
+    assert!(outcome.success, "{out}");
+    assert_eq!(outcome.log.len(), 3, "{out}");
+    assert!(
+        outcome.log[0].contains("actions/cache/restore@v6 is left out here"),
+        "{out}"
+    );
+    assert_eq!(outcome.log[1], "built");
+}
+
+/// A host whose PATH holds only `bin`.
+fn host_with_path(scene: &Scene, bin: &Path) -> runner::Host {
+    let mut host = scene.host();
+    host.env.retain(|(name, _)| name != "PATH");
+    host.env.push((
+        "PATH".into(),
+        format!("{}:/usr/bin:/bin", bin.display()).into(),
+    ));
+    host
+}
+
+#[test]
+fn a_setup_step_stands_in_with_the_tool_on_the_path_in_its_version() {
+    let scene = Scene::new();
+    let bin = scene.path().join("bin");
+    executable(&bin.join("node"), "#!/bin/sh\necho v24.11.1\n");
+    executable(
+        &bin.join("go"),
+        "#!/bin/sh\necho go version go1.26.3 linux/amd64\n",
+    );
+    let host = host_with_path(&scene, &bin);
+    let setup = |node: &str, go: &str| {
+        let dir = scene.action(
+            "main",
+            &format!(
+                "runs:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v7\n      with:\n        node-version: {node}\n    - if: always()\n      uses: actions/setup-go@v7\n      with:\n        go-version: \"{go}\"\n"
+            ),
+        );
+        ok(scene.run_on(&host, &mut Job::default(), &dir, &[], &[]))
+    };
+
+    let (outcome, out) = setup("24", "1.26");
+    assert!(outcome.success, "{out}");
+    assert!(
+        outcome.log[0].contains("`node` from the PATH: v24.11.1"),
+        "{out}"
+    );
+
+    let (outcome, out) = setup("22", "1.2");
+    assert!(!outcome.success, "{out}");
+    assert!(
+        outcome.log[0].contains("would put node 22 on the PATH"),
+        "{out}"
+    );
+    assert!(outcome.log[0].contains("\"v24.11.1\""), "{out}");
+    assert!(
+        outcome.log[1].contains("would put go 1.2 on the PATH"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_setup_step_without_its_tool_fails() {
+    let scene = Scene::new();
+    let empty = scene.path().join("empty");
+    fs::create_dir_all(&empty).unwrap();
+    let mut host = scene.host();
+    host.env.retain(|(name, _)| name != "PATH");
+    host.env.push(("PATH".into(), empty.clone().into()));
+    let dir = scene.action(
+        "main",
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v7\n      with:\n        node-version: 24\n",
+    );
+    let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[], &[]));
+    assert!(!outcome.success, "{out}");
+    assert!(outcome.log[0].contains("that is \"none\""), "{out}");
+}
+
+/// A repository `owner/<name>` below `origin`, with `files` committed and
+/// tagged `v1`.
+fn remote(origin: &Path, name: &str, files: &[(&str, &str)]) {
+    let dir = origin.join("owner").join(name);
+    support::write(&dir, files);
+    git(&dir, &["init", "--quiet"]);
+    git(&dir, &["add", "--all"]);
+    git(&dir, &["commit", "--quiet", "--message", "An action"]);
+    git(&dir, &["tag", "v1"]);
+}
+
+#[test]
+fn a_composite_action_a_step_calls_is_fetched_and_run() {
+    let scene = Scene::new();
+    let origin = scene.path().join("origin");
+    remote(
+        &origin,
+        "composite",
+        &[
+            (
+                "action.yml",
+                "inputs:\n  greeting:\n    default: hello\noutputs:\n  said:\n    value: ${{ steps.say.outputs.said }}\nruns:\n  using: composite\n  steps:\n    - id: say\n      shell: bash\n      run: |\n        echo \"${{ inputs.greeting }} from $(basename \"${{ github.action_path }}\")\"\n        echo \"said=${{ inputs.greeting }}\" >> \"$GITHUB_OUTPUT\"\n",
+            ),
+            (
+                "sub/action.yml",
+                "runs:\n  using: composite\n  steps:\n    - shell: bash\n      run: echo from the sub-action\n",
+            ),
+            (
+                "node/action.yml",
+                "runs:\n  using: node24\n  main: index.js\n",
+            ),
+        ],
+    );
+    let host = support::host(
+        &scene.path().join("store"),
+        &format!("file://{}", origin.display()),
+    );
+    let dir = scene.action(
+        "main",
+        "outputs:\n  said:\n    value: ${{ steps.call.outputs.said }}\nruns:\n  using: composite\n  steps:\n    - id: call\n      uses: owner/composite@v1\n      with:\n        Greeting: hi\n    - uses: owner/composite/sub@v1\n",
+    );
+    let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[], &[]));
+    assert!(outcome.success, "{out}");
+    assert_eq!(outcome.log, ["hi from v1", "from the sub-action"]);
+    assert_eq!(outcome.outputs.get("said").map(String::as_str), Some("hi"));
+
+    let node = scene.action(
+        "node",
+        "runs:\n  using: composite\n  steps:\n    - uses: owner/composite/node@v1\n",
+    );
+    let message = error(scene.run_on(&host, &mut Job::default(), &node, &[], &[]));
+    assert!(message.contains("runs on `node24`"), "{message}");
+}

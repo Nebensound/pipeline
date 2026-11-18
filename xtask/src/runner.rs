@@ -152,8 +152,9 @@ pub struct Outcome {
     pub log: Vec<String>,
 }
 
-/// The environment of this process, less [`LEFT_OUT`] and
-/// [`LEFT_OUT_PREFIXES`].
+/// The environment of this process, less the variables `cargo run` sets for
+/// the xtask and `RUSTUP_TOOLCHAIN`: handed on, they would make Cargo inside a
+/// step build with the xtask's toolchain and into its target directory.
 #[must_use]
 pub fn environment(vars: Vec<(OsString, OsString)>) -> Vec<(OsString, OsString)> {
     vars.into_iter()
@@ -587,6 +588,10 @@ fn inputs(
     context: &Context<'_>,
     dir: &Path,
 ) -> Result<BTreeMap<String, String>, Error> {
+    let given: BTreeMap<String, &String> = given
+        .iter()
+        .map(|(name, value)| (name.to_ascii_lowercase(), value))
+        .collect();
     if let Some(unknown) = given.keys().find(|name| {
         !action
             .inputs
@@ -604,7 +609,7 @@ fn inputs(
         .map(|input| {
             let name = input.name.to_ascii_lowercase();
             let value = match (given.get(&name), &input.default) {
-                (Some(value), _) => value.clone(),
+                (Some(value), _) => (*value).clone(),
                 (None, Some(default)) => expr::interpolate(default, context)?,
                 (None, None) => String::new(),
             };
