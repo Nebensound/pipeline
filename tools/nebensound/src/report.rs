@@ -244,7 +244,7 @@ pub fn findings(analysis: &Analysis) -> String {
     lines.join("\n")
 }
 
-/// One line that counts.
+/// The summary line with the counts.
 #[must_use]
 pub fn summary(analysis: &Analysis) -> String {
     let files = analysis.tree.files().len();

@@ -4,7 +4,7 @@ The tool that reads a `.nebensound/repo.toml`, resolves it and checks it against
 what the repository holds — **phase 0**. The same binary in development and in
 CI: two ways would be two answers to one question.
 
-## How it lies
+## Layout
 
 ```text
 tools/nebensound/            the tool — Cargo.toml, src/, tests/
@@ -29,13 +29,13 @@ channel would be a second version that can fall behind.
 nebensound [-C <directory>] [check | tree | explain <path> | plan | ui]
 ```
 
-| Call             | What it does                                                                                                                                                                                      |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `check`          | Runs phase 0 and prints everything: the resolved configuration, the tree, the findings and one line that counts. The default, and what the composite action under `.github/actions/phase0` calls. |
-| `tree`           | The annotated tree and nothing else.                                                                                                                                                              |
-| `explain <path>` | What holds for one path and why: which units contain it, which checks are in force, how its coverage stands.                                                                                      |
-| `plan`           | Which unit runs which check and builds what, as one line of JSON for a matrix to read.                                                                                                            |
-| `ui`             | The same result to walk through. Only in a build with the `ui` feature.                                                                                                                           |
+| Call             | What it does                                                                                                                                                                                                |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `check`          | Runs phase 0 and prints everything: the resolved configuration, the tree, the findings and a summary line with the counts. The default, and what the composite action under `.github/actions/phase0` calls. |
+| `tree`           | The annotated tree and nothing else.                                                                                                                                                                        |
+| `explain <path>` | What holds for one path and why: which units contain it, which checks are in force, how its coverage stands.                                                                                                |
+| `plan`           | Which unit runs which check and builds what, as one line of JSON for a matrix to read.                                                                                                                      |
+| `ui`             | The same result to walk through. Only in a build with the `ui` feature.                                                                                                                                     |
 
 Exit code: `0` when there is nothing to report; `1` when the repository has a
 problem or cannot be read; `2` when the call itself was wrong. A **warning stops
