@@ -29,12 +29,15 @@ SchemaStore is licensed under the Apache License 2.0; its `LICENSE` and
 below are modifications in the sense of section 4 of that licence, and this
 file states them.
 
-Two changes, made with `jq`, then formatted by Prettier:
+Three changes, the first two made with `jq` for every file, the third by hand
+for `cargo.json`, then formatted by Prettier:
 
 - `$id` is removed. `check-toml` sets it at run time to the file's location on
   the runner.
 - Every `$ref` to `https://www.schemastore.org/<name>.json` becomes `<name>.json`,
   so that it resolves to the file beside it.
+- `cargo.json` only, see [Deviation](#deviation-in-cargojson): `lints` no longer
+  is an `anyOf`.
 
 ```sh
 jq --indent 2 'del(."$id") | walk(if type == "object" and has("$ref")
@@ -44,10 +47,33 @@ jq --indent 2 'del(."$id") | walk(if type == "object" and has("$ref")
   "$source" > "<name>.json"
 ```
 
+## Deviation in `cargo.json`
+
+Upstream defines `lints` as `anyOf` of the lint tables (`Lints`) and an object
+`{ workspace = true }`. Taplo 0.10.0 judges the first alternative wrongly when
+it sits inside an `anyOf`: any `[lints.rust]`, `[lints.clippy]`,
+`[lints.rustdoc]` or `[lints.cargo]` table is rejected as "not valid under any
+of the schemas listed in the 'anyOf' keyword", whatever it holds, and so is
+the `unexpected_cfgs` entry with `check-cfg` that `check-rust` asks for. That
+happens with the upstream files fetched from SchemaStore as well, and the
+schemas already know the `check-cfg` key (`DetailedLint`), so it is not a
+missing key. A single alternative in an `anyOf` fails the same way, the
+alternative itself passes when referenced directly.
+
+So the vendored `lints` is a plain `$ref` to `Lints`, and `Lints` gains the
+property `workspace` (a boolean) in place of the second alternative. What this
+loosens: `workspace = true` next to other tool tables is no longer rejected
+here. What stays: a table of a tool holds lints, a lint is a level or a
+detailed lint, `workspace` must be a boolean, and a value of another type
+(for example a misspelled `workspac = true`, which is no table) still fails.
+
+Drop this deviation when a Taplo release reads the `anyOf` correctly and the
+vendored copy is taken again from SchemaStore.
+
 ## Updating
 
 Take the files again from a newer SchemaStore commit, together with its
-`LICENSE` and `NOTICE`, apply the same two changes, and update the commit and
+`LICENSE` and `NOTICE`, apply the same changes (and check the deviation above), and update the commit and
 date above, in one pull request. A schema
 that references a further one brings that one along.
 

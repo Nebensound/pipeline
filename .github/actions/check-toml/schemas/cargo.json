@@ -451,6 +451,10 @@
         "cargo": {
           "$ref": "cargo-lints-cargo.json",
           "description": "Lint settings for [Cargo](https://doc.rust-lang.org/cargo/). See Cargo's [individual lints](https://doc.rust-lang.org/cargo/reference/lints.html) documentation."
+        },
+        "workspace": {
+          "type": "boolean",
+          "description": "Inherit lints from the workspace manifest."
         }
       },
       "additionalProperties": {
@@ -2356,28 +2360,12 @@
     },
     "lints": {
       "description": "Override the default level of lints from different tools by assigning them to a new level in a table.",
-      "anyOf": [
-        {
-          "$ref": "#/definitions/Lints"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "workspace": {
-              "type": "boolean",
-              "description": "Inherit lints from the workspace manifest."
-            }
-          },
-          "required": ["workspace"],
-          "additionalProperties": false,
-          "x-tombi-table-keys-order": "version-sort"
-        }
-      ],
       "x-taplo": {
         "links": {
           "key": "https://doc.rust-lang.org/stable/cargo/reference/manifest.html#the-lints-section"
         }
-      }
+      },
+      "$ref": "#/definitions/Lints"
     },
     "patch": {
       "description": "The `[patch]` section of `Cargo.toml` can be used to override dependencies\nwith other copies. The syntax is similar to the\n[`[dependencies]`](https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html) section.\n\n",
