@@ -4,9 +4,13 @@ description: >-
   the unit holds parses and is formatted the way Prettier writes it.
 
 # One input, and it is not a setting: where the unit is. It comes from the plan
-# of phase 0. The files are what Git tracks below that path, so a file nobody
-# committed is not judged and a committed one is not missed. Every step runs at
-# the repository root, where the calling job checked the repository out.
+# of phase 0. The files are the ones `nebensound files` names for the check and
+# the unit: what Git tracks below that path with an extension the register
+# gives the check, less what an `[[exclude]]` entry of the declaration takes
+# out. A file nobody committed is not judged, a committed one is not missed,
+# and no ignore mechanism of a tool takes one out. The calling job checks the
+# repository out and puts the tool on the PATH first (the action `tool`); every
+# step runs at the repository root.
 
 inputs:
   working-directory:
@@ -27,16 +31,7 @@ runs:
       run: |
         set -euo pipefail
         list="$RUNNER_TEMP/check-json-files"
-        # The unit's path is taken literally: as a plain pathspec, a path
-        # holding `[`, `*`, `?` or a leading `:` would select other files than
-        # its own. The extension is then matched here, not by Git.
-        if [ "$UNIT" = "." ]; then scope=(); else scope=(":(top,literal)${UNIT%/}"); fi
-        : > "$list"
-        while IFS= read -r -d '' file; do
-          case "$file" in
-            *.json | *.jsonc | *.geojson) printf '%s\0' "$file" >> "$list" ;;
-          esac
-        done < <(git ls-files -z -- "${scope[@]}")
+        nebensound files -z -- json "$UNIT" > "$list"
         count="$(tr -cd '\0' < "$list" | wc -c)"
         echo "count=$count" >> "$GITHUB_OUTPUT"
         echo "list=$list" >> "$GITHUB_OUTPUT"
@@ -146,13 +141,10 @@ runs:
         exit "$status"
 
     # Prettier reads the repository's own configuration, so a repository
-    # decides how it formats. It also reads the repository's .prettierignore,
-    # which can take files out of the check without a reason. That is
-    # temporary: until the plan carries the `[[exclude]]` entries of the
-    # declaration, it is the only way to exclude a file. Once it does (#10), no
-    # block reads a tool's ignore file any more. `.gitignore` takes nothing
-    # out: Prettier would read it too by default, and so pass a committed file
-    # that an ignored directory holds.
+    # decides how it formats. It reads no ignore file: by default it would
+    # read `.prettierignore` and `.gitignore` and silently pass what they
+    # name, so it is handed an empty one instead, and it leaves out no
+    # node_modules either. What is not to be checked is not in the list.
     - name: Every JSON file is formatted
       if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
       shell: bash
@@ -163,8 +155,10 @@ runs:
         status=0
         # Without colours: on GitHub Actions Prettier colours `warn` and
         # `error`, and the lines below would no longer match.
+        : > "$RUNNER_TEMP/check-json-nothing-ignored"
         xargs -0 "$RUNNER_TEMP/check-json-tools/node_modules/.bin/prettier" \
-          --check --no-color --ignore-path .prettierignore < "$LIST" \
+          --check --no-color --with-node-modules \
+          --ignore-path "$RUNNER_TEMP/check-json-nothing-ignored" -- < "$LIST" \
           > "$RUNNER_TEMP/check-json-prettier" 2>&1 || status=$?
         # Prettier names an unformatted file as `[warn] <file>` and one it
         # cannot parse as `[error] <file>: <message>`; each becomes an

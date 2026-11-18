@@ -13,6 +13,15 @@ description: >-
 #
 # One step runs elsewhere: coverage is measured on a nightly toolchain pinned
 # below, because only there does `#[coverage(off)]` take effect.
+#
+# The files are the ones `nebensound files` names for the check and the unit:
+# the `.rs` files Git tracks below the workspace, less what an `[[exclude]]`
+# entry of the declaration takes out. A file taken out is not held to the
+# formatting and not counted for coverage. Clippy, the tests, the
+# documentation and the builds work on the crates as Cargo compiles them, and a
+# crate cannot be compiled without one of its files: an excluded file a crate
+# compiles is compiled with it. The calling job puts the tool on the PATH first
+# (the action `tool`).
 
 inputs:
   working-directory:
@@ -25,6 +34,42 @@ runs:
     # A workspace that pulls in a database engine fills a hosted runner before
     # its tests are done. What is removed here is software this check never
     # calls.
+    # At the repository root, where the paths the tool names start.
+    - name: Find the Rust files
+      id: files
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        list="$RUNNER_TEMP/check-rust-files"
+        excluded="$RUNNER_TEMP/check-rust-excluded"
+        nebensound files -z -- rust "$UNIT" > "$list"
+        # What `[[exclude]]` takes out: every `.rs` file Git tracks below the
+        # unit that the list does not name. The unit's path is taken
+        # literally: as a plain pathspec, a path holding `[`, `*`, `?` or a
+        # leading `:` would select other files than its own.
+        if [ "$UNIT" = "." ]; then scope=(); else scope=(":(top,literal)${UNIT%/}"); fi
+        tracked="$RUNNER_TEMP/check-rust-tracked"
+        : > "$tracked"
+        while IFS= read -r -d '' file; do
+          case "$file" in
+            *.rs) printf '%s\0' "$file" >> "$tracked" ;;
+          esac
+        done < <(git ls-files -z -- "${scope[@]}")
+        LC_ALL=C comm -z -23 <(LC_ALL=C sort -z "$tracked") <(LC_ALL=C sort -z "$list") \
+          > "$excluded"
+        {
+          echo "list=$list"
+          echo "excluded=$excluded"
+        } >> "$GITHUB_OUTPUT"
+        echo "$(tr -cd '\0' < "$list" | wc -c) Rust file(s) to check:"
+        tr '\0' '\n' < "$list"
+        if [ -s "$excluded" ]; then
+          echo "Taken out by [[exclude]], neither held to the formatting nor counted for coverage:"
+          tr '\0' '\n' < "$excluded"
+        fi
+
     - name: Make room on the runner
       shell: bash
       run: |
@@ -46,10 +91,51 @@ runs:
       with:
         workspaces: ${{ inputs.working-directory }}
 
+    # rustfmt names every file that differs, by its absolute path, and prints
+    # anything else only when it cannot read a file. A file `[[exclude]]` takes
+    # out may differ; every other line fails the step.
     - name: Formatting
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      run: cargo fmt --all -- --check
+      env:
+        LIST: ${{ steps.files.outputs.list }}
+        EXCLUDED: ${{ steps.files.outputs.excluded }}
+      run: |
+        set -euo pipefail
+        status=0
+        cargo fmt --all -- --check --files-with-diff > "$RUNNER_TEMP/check-rust-fmt" 2>&1 \
+          || status=$?
+        if [ "$status" -eq 0 ]; then
+          echo "Every file is formatted the way cargo fmt writes it."
+          exit 0
+        fi
+        # A file name is a property of the workflow command: escaped, so that
+        # a `,` or `:` in it does not cut the name short.
+        property() {
+          local value="$1"
+          value="${value//'%'/'%25'}"
+          value="${value//':'/'%3A'}"
+          value="${value//','/'%2C'}"
+          printf '%s' "$value"
+        }
+        failed=0
+        while IFS= read -r line; do
+          file="${line#"$GITHUB_WORKSPACE"/}"
+          if [ "$file" != "$line" ] && grep -qzxF -- "$file" "$EXCLUDED"; then
+            echo "$file is not formatted, and [[exclude]] takes it out."
+          elif [ "$file" != "$line" ] && grep -qzxF -- "$file" "$LIST"; then
+            echo "::error file=$(property "$file")::not formatted the way cargo fmt writes it"
+            failed=1
+          else
+            echo "$line"
+            failed=1
+          fi
+        done < "$RUNNER_TEMP/check-rust-fmt"
+        if [ "$failed" -ne 0 ]; then
+          # The differences themselves, for the log.
+          cargo fmt --all -- --check || true
+        fi
+        exit "$failed"
 
     - name: Clippy, all features
       shell: bash
@@ -133,13 +219,27 @@ runs:
         cargo install cargo-llvm-cov --locked --version 0.9.0
         echo "toolchain=$TOOLCHAIN" >> "$GITHUB_OUTPUT"
 
+    # A file `[[exclude]]` takes out is not counted. llvm-cov names every file
+    # by its absolute path, so each one is matched as exactly that.
     - name: Regions, lines and functions are fully covered
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         TOOLCHAIN: ${{ steps.coverage-tools.outputs.toolchain }}
+        EXCLUDED: ${{ steps.files.outputs.excluded }}
       run: |
-        cargo "+$TOOLCHAIN" llvm-cov --locked --workspace --all-features \
+        set -euo pipefail
+        ignore=()
+        if [ -s "$EXCLUDED" ]; then
+          pattern=""
+          while IFS= read -r -d '' file; do
+            escaped="$(printf '%s' "$GITHUB_WORKSPACE/$file" | sed -e 's/[][\.*^$+?(){}|]/\\&/g')"
+            pattern="${pattern:+$pattern|}$escaped"
+          done < "$EXCLUDED"
+          echo "Not counted: ^($pattern)\$"
+          ignore=(--ignore-filename-regex "^($pattern)\$")
+        fi
+        cargo "+$TOOLCHAIN" llvm-cov --locked --workspace --all-features "${ignore[@]}" \
           --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
 
     # Only what is published. A package with publish = false has no package

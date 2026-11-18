@@ -6,9 +6,13 @@ description: >-
   configuration among them matches the Dependabot schema.
 
 # One input, and it is not a setting: where the unit is. It comes from the plan
-# of phase 0. The files are what Git tracks below that path, so a file nobody
-# committed is not judged and a committed one is not missed. Every step runs at
-# the repository root, where the calling job checked the repository out.
+# of phase 0. The files are the ones `nebensound files` names for the check and
+# the unit: what Git tracks below that path with an extension the register
+# gives the check, less what an `[[exclude]]` entry of the declaration takes
+# out. A file nobody committed is not judged, a committed one is not missed,
+# and no ignore mechanism of a tool takes one out. The calling job checks the
+# repository out and puts the tool on the PATH first (the action `tool`); every
+# step runs at the repository root.
 
 inputs:
   working-directory:
@@ -30,16 +34,7 @@ runs:
         set -euo pipefail
         list="$RUNNER_TEMP/check-yaml-files"
         workflows="$RUNNER_TEMP/check-yaml-workflows"
-        # The unit's path is taken literally: as a plain pathspec, a path
-        # holding `[`, `*`, `?` or a leading `:` would select other files than
-        # its own. The extension is then matched here, not by Git.
-        if [ "$UNIT" = "." ]; then scope=(); else scope=(":(top,literal)${UNIT%/}"); fi
-        : > "$list"
-        while IFS= read -r -d '' file; do
-          case "$file" in
-            *.yml | *.yaml) printf '%s\0' "$file" >> "$list" ;;
-          esac
-        done < <(git ls-files -z -- "${scope[@]}")
+        nebensound files -z -- yaml "$UNIT" > "$list"
         count="$(tr -cd '\0' < "$list" | wc -c)"
         # GitHub runs a workflow from one place only: directly under
         # .github/workflows at the repository root. Only those are workflows.
@@ -132,11 +127,10 @@ runs:
     # single run reports every finding at once.
 
     # Prettier reads the repository's own configuration, so a repository
-    # decides how it formats. It also reads the repository's .prettierignore,
-    # which can take files out of the check without a reason. That is
-    # temporary: until the plan carries the `[[exclude]]` entries of the
-    # declaration, it is the only way to exclude a file. After #10, an ignore
-    # file is only a derived copy of the declaration, checked by phase 0.
+    # decides how it formats. It reads no ignore file: by default it would
+    # read `.prettierignore` and `.gitignore` and silently pass what they
+    # name, so it is handed an empty one instead, and it leaves out no
+    # node_modules either. What is not to be checked is not in the list.
     - name: Every YAML file is formatted
       if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
       shell: bash
@@ -145,7 +139,10 @@ runs:
       run: |
         set -euo pipefail
         status=0
-        xargs -0 "$RUNNER_TEMP/check-yaml-tools/node_modules/.bin/prettier" --check -- < "$LIST" \
+        : > "$RUNNER_TEMP/check-yaml-nothing-ignored"
+        xargs -0 "$RUNNER_TEMP/check-yaml-tools/node_modules/.bin/prettier" --check \
+          --with-node-modules --ignore-path "$RUNNER_TEMP/check-yaml-nothing-ignored" \
+          -- < "$LIST" \
           > "$RUNNER_TEMP/check-yaml-prettier" 2>&1 || status=$?
         # Prettier names an unformatted file as `[warn] <file>` and one it
         # cannot parse as `[error] <file>: <message>`; each becomes an
@@ -168,9 +165,10 @@ runs:
         exit "$status"
 
     # A repository's own yamllint configuration at its root wins; without one,
-    # the configuration beside this file holds. Like an ignore file, a
-    # configuration of the repository can switch a rule off or take files out
-    # without a reason; that is as temporary as above (#10).
+    # the configuration beside this file holds. Its rules hold as written, but
+    # its `ignore` and `ignore-from-file` take nothing out: yamllint would skip
+    # what they name even when the file is named to it, so its own linter runs
+    # here with them set aside, file by file, the way its command line does.
     - name: Every YAML file passes yamllint
       if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
       shell: bash
@@ -186,9 +184,34 @@ runs:
           fi
         done
         echo "Configuration: $config"
-        # The `github` format writes every finding as an annotation on its line.
-        PYTHONPATH="$RUNNER_TEMP/check-yaml-tools/python" \
-          xargs -0 python3 -m yamllint --format github --config-file "$config" -- < "$LIST"
+        # Every finding is written as an annotation on its line. A warning
+        # fails nothing, an error fails the step, as on the command line.
+        CONFIG="$config" PYTHONPATH="$RUNNER_TEMP/check-yaml-tools/python" python3 -c '
+        import locale
+        import os
+        import sys
+
+        from yamllint import cli, linter
+        from yamllint.config import YamlLintConfig, YamlLintConfigError
+
+        config = os.environ["CONFIG"]
+        try:
+            conf = YamlLintConfig(file=config)
+        except YamlLintConfigError as error:
+            sys.exit(f"{config}: {error}")
+        # Both `ignore` and `ignore-from-file` end up here.
+        conf.ignore = None
+        if conf.locale is not None:
+            locale.setlocale(locale.LC_ALL, conf.locale)
+        with open(os.environ["LIST"], "rb") as listing:
+            files = [entry.decode() for entry in listing.read().split(b"\0") if entry]
+        worst = 0
+        for path in files:
+            with open(path, "rb") as content:
+                problems = linter.run(content, conf, path)
+            worst = max(worst, cli.show_problems(problems, path, "github", False))
+        sys.exit(1 if worst == linter.PROBLEM_LEVELS["error"] else 0)
+        '
 
     # The domain validator for GitHub Actions. With ShellCheck on the
     # runner it also reads every `run:` script.

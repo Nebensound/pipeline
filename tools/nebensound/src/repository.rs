@@ -16,6 +16,8 @@ use nebensound_declaration::register::{BUILTIN_DEFAULTS, BUILTIN_REGISTER};
 use nebensound_declaration::{Analysis, Central, Declaration, ReadError, Tree, analyse};
 use thiserror::Error;
 
+use crate::ignored;
+
 /// Where the declaration of a repository lies.
 pub const DECLARATION: &str = ".nebensound/repo.toml";
 
@@ -197,7 +199,7 @@ impl Repository {
     /// when it cannot be read, and [`Error::Malformed`] when it does not match
     /// the shape.
     pub fn declaration(&self) -> Result<Declaration, Error> {
-        let source = match self.read_declaration() {
+        let source = match self.read(DECLARATION) {
             Ok(source) => source,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 return Err(Error::Missing {
@@ -217,17 +219,18 @@ impl Repository {
         })
     }
 
-    /// The declaration as it stands in the repository, and only that.
+    /// A file as it stands in the repository, and only that: the declaration,
+    /// or a tool's setting that phase 0 holds against it.
     ///
     /// `symlink_metadata` asks about the entry itself rather than what it may
-    /// point at. A pull request could otherwise aim the declaration outside the
+    /// point at. A pull request could otherwise aim the file outside the
     /// checkout, or at a device that never ends.
-    fn read_declaration(&self) -> io::Result<String> {
-        let path = self.root.join(DECLARATION);
+    fn read(&self, relative: &str) -> io::Result<String> {
+        let path = self.root.join(relative);
         if !fs::symlink_metadata(&path)?.is_file() {
             return Err(io::Error::other(
-                "it is not a regular file. A declaration is read as it stands in the repository; \
-                 a link or a device could point out of it, or never end",
+                "it is not a regular file. It is read as it stands in the repository; a link or \
+                 a device could point out of it, or never end",
             ));
         }
         fs::read_to_string(&path)
@@ -239,10 +242,19 @@ impl Repository {
     ///
     /// Returns what reading failed at. What is wrong with the declaration is
     /// not an error here but a finding in the [`Analysis`].
+    ///
+    /// Beside what the library finds, it holds the tools' own settings against
+    /// the declaration ([`crate::ignored`]): reading them is input, which the
+    /// library has none of.
     pub fn analyse(&self, central: &Central) -> Result<Analysis, Error> {
         let declaration = self.declaration()?;
         let tree = self.tree()?;
-        Ok(analyse(&declaration, central, &tree))
+        let mut analysis = analyse(&declaration, central, &tree);
+        let read = |path: &RelativePath| self.read(&path.to_string()).map_err(|e| e.to_string());
+        let found = ignored::findings(&analysis, &read);
+        let loose = analysis.tree.attach(found);
+        analysis.loose.extend(loose);
+        Ok(analysis)
     }
 
     fn git_failed(&self, message: &str) -> Error {

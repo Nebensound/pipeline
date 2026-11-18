@@ -26,7 +26,7 @@ channel would be a second version that can fall behind.
 ## Calls
 
 ```text
-nebensound [-C <directory>] [check | tree | explain <path> | plan | schema | ui]
+nebensound [-C <directory>] [check | tree | explain <path> | plan | files [-z] <check> <unit> | schema | ui]
 ```
 
 | Call             | What it does                                                                                                                                                                                                                                                                                     |
@@ -35,6 +35,7 @@ nebensound [-C <directory>] [check | tree | explain <path> | plan | schema | ui]
 | `tree`           | The annotated tree and nothing else.                                                                                                                                                                                                                                                             |
 | `explain <path>` | What holds for one path and why: which units contain it, which checks are in force, how its coverage stands.                                                                                                                                                                                     |
 | `plan`           | Which unit runs which check and builds what, as one line of JSON for a matrix to read.                                                                                                                                                                                                           |
+| `files`          | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                         |
 | `schema`         | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. `check-toml` assigns the copy committed beside it; [its README](../../.github/actions/check-toml/schemas/README.md#nebensound-declarationjson) says how to write that copy again. |
 | `ui`             | The same result to walk through. Only in a build with the `ui` feature.                                                                                                                                                                                                                          |
 
@@ -98,6 +99,26 @@ would cover their files a second time.
 
 A repository with errors gets no plan, only a sentence and exit code `1`: a plan
 read off a broken declaration would start the wrong things.
+
+## The files of a check
+
+`files <check> <unit>` names the files a building block checks: below the
+unit's path, every file the register gives that check, less what an
+`[[exclude]]` entry takes out. Each block takes its list from this call and
+checks exactly those files, so `.nebensound/repo.toml` is the only place where
+a file is taken out of a check.
+
+The pair has to be one the plan starts: `files rust .` in a repository whose
+Rust code is a component of its own is refused, with exit code `1`, rather than
+answered with a list nobody checks. So is a check the register does not know,
+and so is a repository with errors, for the same reason it gets no plan.
+
+Phase 0 also holds the tools' own ways of leaving a file out against the
+declaration — `.prettierignore`, `include` and `exclude` in `taplo.toml`,
+`ignores` of markdownlint-cli2, `ignore` of yamllint, `exclude_path` of lychee
+— and fails on every file one of them takes out that no `[[exclude]]` entry
+does (`unexcused-ignore`). The building blocks read none of them; run by hand,
+the tools still do.
 
 ## Where the file list comes from
 

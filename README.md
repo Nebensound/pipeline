@@ -63,9 +63,16 @@ is running, so a change to the pipeline is checked by the pipeline it changes.
 
 ## Building blocks
 
-Every block checks one unit: the files Git tracks below the unit's path whose
-extension the register gives that check. A file nobody committed is not judged,
-and a committed one is not missed. Each finding is an annotation on its file.
+Every block checks one unit, and exactly the files `nebensound files <check>
+<unit path>` names: the files Git tracks below the unit's path whose extension
+the register gives that check, less what an `[[exclude]]` entry of the
+declaration takes out. A file nobody committed is not judged, and a committed
+one is not missed. Each finding is an annotation on its file.
+
+The unit job gets the tool the same way `Declare` does, from the cache phase 0
+fills ([`.github/actions/tool`](.github/actions/tool)); it builds the tool
+only when the cache misses. The list does not travel through a job output,
+which is limited in size.
 
 ### `check-json`
 
@@ -79,7 +86,7 @@ and a committed one is not missed. Each finding is an annotation on its file.
   the action's own configuration and no lint rule; a repository's Biome
   configuration is not read.
 - All three are formatted the way Prettier writes them, with the repository's
-  Prettier configuration.
+  Prettier configuration and without its ignore files.
 
 Every step runs even when one before it failed, so one run shows every finding.
 
@@ -90,11 +97,12 @@ Every step runs even when one before it failed, so one run shows every finding.
 - Formatted the way Prettier writes it.
 - No Markdownlint finding. Where the repository brings no Markdownlint
   configuration, the one beside the action applies (`MD013` off, since Prettier
-  does not wrap prose).
+  does not wrap prose). Its rules hold; its `ignores`, a negated `globs` entry
+  and `gitignore` take nothing out.
 - Every link into the repository leads to a file and a heading that exist
   (lychee, `--offline`). Links to the outside are not checked in a pull
   request: it should not turn red because someone else's server does not
-  answer.
+  answer. lychee reads no `lychee.toml` or `.lycheeignore` of the repository.
 
 ### `check-rust`
 
@@ -112,6 +120,12 @@ away:
 - The workspace builds with the oldest `rust-version` any package claims.
 - Regions, lines and functions are 100% covered (`cargo-llvm-cov`, on a pinned
   nightly toolchain, where `#[coverage(off)]` takes effect).
+
+A `.rs` file that `[[exclude]]` takes out is neither held to the formatting nor
+counted for coverage. Clippy, the tests, the documentation and the builds work
+on the crates as Cargo compiles them; a crate cannot be compiled without one of
+its files, so an excluded file a crate compiles is compiled with it.
+
 - Every published package builds and passes its tests from its own packaged
   contents, outside the source tree.
 
@@ -122,8 +136,8 @@ and `.lock` file of the unit with Taplo 0.10.0, the release binary pinned by
 SHA-256:
 
 - Taplo reads each file from standard input. Given a path, it silently skips
-  every `.lock` file and every file the repository's `taplo.toml` excludes, and
-  reports success.
+  every `.lock` file and every file the `include` or `exclude` of the
+  repository's `taplo.toml` leaves out, and reports success.
 - `.toml` files are formatted the way Taplo writes them, with the repository's
   `taplo.toml`. Lockfiles are not format-checked: the tool that writes them
   (Cargo, uv) decides their layout.
@@ -163,7 +177,8 @@ first key or table of `.nebensound/repo.toml`:
 - Formatted the way Prettier writes it.
 - No yamllint finding. Where the repository brings no yamllint configuration,
   the one beside the action applies: the defaults, less what contradicts
-  Prettier or GitHub Actions.
+  Prettier or GitHub Actions. Its rules hold; its `ignore` and
+  `ignore-from-file` take nothing out.
 - Every workflow directly under `.github/workflows` passes actionlint, with
   ShellCheck reading every `run:` script. actionlint 1.7.12 does not know `$/`
   yet and reports every such call as invalid; the block drops exactly these
@@ -172,15 +187,30 @@ first key or table of `.nebensound/repo.toml`:
   pinned, with the schema it brings along). An unknown key fails the check
   with the file and the key named, instead of surfacing only after the merge.
 
-### Exclusions, for now
+### Exclusions
 
-For now, the blocks honour the exclusions a repository gives its tools, such as
-`.prettierignore`, its own Markdownlint or yamllint configuration, `lychee.toml`; `.gitignore` takes nothing out. That is temporary: such an
-exclusion needs no reason and can turn a check green that checked nothing. Once
-the plan carries the `[[exclude]]` entries of the declaration, `repo.toml` is
-the only place where a file is taken out of a check
-([#10](https://github.com/Nebensound/pipeline/issues/10)). `exclude` in
-`taplo.toml` already takes nothing out of `check-toml`.
+`.nebensound/repo.toml` is the only place where a repository takes a file out
+of a check, with an `[[exclude]]` entry and its reason. `nebensound tree` shows
+such a file as excluded, with the reason.
+
+No block reads a tool's own way of leaving files out: an ignore file needs no
+reason and can turn a check green that checked nothing. `.gitignore` takes
+nothing out either. Run by hand, though, the tools still read these settings,
+so phase 0 holds them against the declaration and fails on every file one of
+them takes out that no `[[exclude]]` entry takes out (`unexcused-ignore`). A
+setting that takes out less is fine. Phase 0 reads:
+
+| Tool              | Setting                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------- |
+| Prettier          | `.prettierignore` at the root                                                               |
+| Taplo             | `include` and `exclude` in `.taplo.toml` or `taplo.toml` at the root                        |
+| markdownlint-cli2 | `ignores` in `.markdownlint-cli2.jsonc` or `.markdownlint-cli2.yaml`, in every folder       |
+| yamllint          | `ignore` and `ignore-from-file` in `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at root |
+| lychee            | `exclude_path` in `lychee.toml` at the root                                                 |
+
+Only the files the tool reads in a block count: a `.prettierignore` that takes
+out a Rust file takes out nothing Prettier would have looked at. A setting
+phase 0 cannot read fails as well (`unreadable-ignore-file`).
 
 ## A repository's own checks
 

@@ -86,6 +86,10 @@ pub enum Rule {
     UnwatchedManifest,
     /// A watched ecosystem whose manifest does not exist.
     PointlessWatch,
+    /// A file a tool's own setting takes out, and no exclusion does.
+    UnexcusedIgnore,
+    /// A tool's setting that takes files out, and that phase 0 cannot read.
+    UnreadableIgnoreFile,
 }
 
 impl Rule {
@@ -112,6 +116,8 @@ impl Rule {
             Self::VersionWriterWithoutVersion => "version-writer-without-version",
             Self::UnwatchedManifest => "unwatched-manifest",
             Self::PointlessWatch => "pointless-watch",
+            Self::UnexcusedIgnore => "unexcused-ignore",
+            Self::UnreadableIgnoreFile => "unreadable-ignore-file",
         }
     }
 }
