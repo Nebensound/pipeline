@@ -100,10 +100,10 @@ which is limited in size.
 - `composer.lock` and `flake.lock` are strict JSON like `.json`, judged by `jq`,
   but not format-checked: the tool that writes them decides their layout
   (Composer indents with four spaces).
-- The three extensions are formatted the way Prettier writes them, with the repository's
-  Prettier configuration, without its ignore files, and with `requirePragma`,
-  `checkIgnorePragma`, `rangeStart` and `rangeEnd` set aside, which would pass
-  a whole file unchecked.
+- The three extensions are formatted the way Prettier writes them, with the
+  repository's Prettier configuration, without its ignore files, and with
+  `requirePragma`, `checkIgnorePragma`, `rangeStart` and `rangeEnd` set aside,
+  which would pass a whole file unchecked.
 
 Every step runs even when one before it failed, so one run shows every finding.
 
@@ -260,13 +260,13 @@ block hands lychee. A setting that takes out less is fine. Phase 0 reads:
 Only the files the tool reads in a block count: a `.prettierignore` that takes
 out a Rust file takes out nothing Prettier would have looked at. Taplo's
 `include` counts only against `.toml` files, the ones Taplo reads without it; a
-`Cargo.lock` or `uv.lock` is taken out of Taplo only by `exclude`. Where yamllint's file sets
-neither `ignore` nor `ignore-from-file`, phase 0 reads them in the file its
-`extends` names, as yamllint does. rustfmt's `ignore` is read in every folder,
-relative to that folder, since which configuration rustfmt applies to a file
-depends on where it runs; a `.rs` file it takes out cannot be excused by an
-`[[exclude]]` entry of its own, only by one that takes out its whole package. A setting phase 0 cannot read fails as well
-(`unreadable-ignore-file`). A JavaScript options file of markdownlint-cli2
+`Cargo.lock` or `uv.lock` is taken out of Taplo only by `exclude`. Where
+yamllint's file sets neither `ignore` nor `ignore-from-file`, phase 0 reads them
+in the file its `extends` names, as yamllint does. rustfmt's `ignore` is read in
+every folder, relative to that folder, since which configuration rustfmt applies
+to a file depends on where it runs; a `.rs` file it takes out cannot be excused
+by an `[[exclude]]` entry of its own, only by one that takes out its whole
+package. A setting phase 0 cannot read fails as well (`unreadable-ignore-file`). A JavaScript options file of markdownlint-cli2
 (`.markdownlint-cli2.cjs` or `.mjs`) is not judged, since phase 0 cannot read it
 without running it; the block sets its `ignores` aside all the same. A setting
 that switches a rule off for some files, such as yamllint's per-rule `ignore`
