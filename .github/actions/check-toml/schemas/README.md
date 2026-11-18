@@ -60,12 +60,18 @@ schemas already know the `check-cfg` key (`DetailedLint`), so it is not a
 missing key. A single alternative in an `anyOf` fails the same way, the
 alternative itself passes when referenced directly.
 
-So the vendored `lints` is a plain `$ref` to `Lints`, and `Lints` gains the
-property `workspace` (a boolean) in place of the second alternative. What this
-loosens: `workspace = true` next to other tool tables is no longer rejected
-here. What stays: a table of a tool holds lints, a lint is a level or a
-detailed lint, `workspace` must be a boolean, and a value of another type
-(for example a misspelled `workspac = true`, which is no table) still fails.
+So the vendored package `lints` is a plain `$ref` to `PackageLints`, a copy
+of `Lints` that gains the property `workspace` (a boolean) in place of the
+second alternative. `Lints` itself stays as upstream has it, so
+`[workspace.lints]`, which shares it, is not loosened. What this loosens:
+`workspace = true` next to other tool tables of a package's `[lints]` is no
+longer rejected here. What stays: a table of a tool holds lints, a lint is a
+level or a detailed lint, `workspace` must be a boolean, and a value of another
+type (for example a misspelled `workspac = true`, which is no table) still
+fails. `tests/cargo-lints/Cargo.toml` is a manifest that must keep passing: it
+carries the `check-cfg` entry, `[lints] workspace = true` and a
+`workspace = true` beside `[lints.rust]`, so a new copy of the files that
+brings the `anyOf` back turns the check red here.
 
 Drop this deviation when a Taplo release reads the `anyOf` correctly and the
 vendored copy is taken again from SchemaStore.
@@ -73,8 +79,8 @@ vendored copy is taken again from SchemaStore.
 ## Updating
 
 Take the files again from a newer SchemaStore commit, together with its
-`LICENSE` and `NOTICE`, apply the same changes (and check the deviation above), and update the commit and
-date above, in one pull request. A schema
+`LICENSE` and `NOTICE`, apply the same changes (and check the deviation
+above), and update the commit and date above, in one pull request. A schema
 that references a further one brings that one along.
 
 ## `nebensound-declaration.json`
