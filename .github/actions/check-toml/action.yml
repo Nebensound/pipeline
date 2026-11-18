@@ -10,8 +10,8 @@ description: >-
 # the register gives the check, less what an `[[exclude]]` entry of the
 # declaration takes out. A file nobody committed is not judged, a committed
 # one is not missed, and no ignore mechanism of a tool takes one out. The
-# calling job checks the repository out and puts the tool on the PATH first (the action `tool`); every
-# step runs at the repository root.
+# calling job checks the repository out and puts the tool on the PATH first
+# (the action `tool`); every step runs at the repository root.
 # That is where Taplo finds the repository's own `taplo.toml`, which decides
 # how the repository formats `.toml` files. Its `include` and `exclude` take
 # nothing out of this check; see the last step.

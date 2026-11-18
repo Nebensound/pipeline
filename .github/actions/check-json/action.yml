@@ -1,8 +1,8 @@
 name: check-json
 description: >-
-  The JSON check over one unit: every `.json`, `.jsonc` and `.geojson` file,
-  and every `composer.lock` and `flake.lock`, the unit holds parses and is formatted the way
-  Prettier writes it.
+  The JSON check over one unit: every `.json`, `.jsonc` and `.geojson` file
+  the unit holds parses and is formatted the way Prettier writes it; every
+  `composer.lock` and `flake.lock` parses.
 
 # One input, and it is not a setting: where the unit is. It comes from the plan
 # of phase 0. The files are the ones `nebensound files` names for the check and
@@ -72,7 +72,7 @@ runs:
 
     # Strict JSON: no comments, no trailing commas. Prettier would accept both
     # and so cannot be the judge of validity.
-    - name: Every .json and .geojson file parses
+    - name: Every .json, .geojson and lock file parses
       if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
       shell: bash
       env:

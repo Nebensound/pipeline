@@ -88,7 +88,8 @@ which is limited in size.
 ### `check-json`
 
 [`.github/actions/check-json`](.github/actions/check-json) checks every
-`.json`, `.jsonc` and `.geojson` file of the unit:
+`.json`, `.jsonc` and `.geojson` file of the unit, and every `composer.lock` and
+`flake.lock`:
 
 - `.json` and `.geojson` are strict JSON, exactly one value per file, judged by
   `jq`.
@@ -96,7 +97,10 @@ which is limited in size.
   plus comments, trailing commas allowed. Biome judges it as a parser only, with
   the action's own configuration and no lint rule; a repository's Biome
   configuration is not read.
-- All three are formatted the way Prettier writes them, with the repository's
+- `composer.lock` and `flake.lock` are strict JSON like `.json`, judged by `jq`,
+  but not format-checked: the tool that writes them decides their layout
+  (Composer indents with four spaces).
+- The three extensions are formatted the way Prettier writes them, with the repository's
   Prettier configuration, without its ignore files, and with `requirePragma`,
   `checkIgnorePragma`, `rangeStart` and `rangeEnd` set aside, which would pass
   a whole file unchecked.
@@ -165,12 +169,13 @@ keeps in with an `[[include]]` is checked in every step, coverage included.
 ### `check-toml`
 
 [`.github/actions/check-toml`](.github/actions/check-toml) checks every `.toml`
-and `.lock` file of the unit with Taplo 0.10.0, the release binary pinned by
-SHA-256:
+file of the unit, and `Cargo.lock` and `uv.lock`, with Taplo 0.10.0, the
+release binary pinned by SHA-256:
 
 - Taplo reads each file from standard input. Given a path, it silently skips
-  every `.lock` file and every file the `include` or `exclude` of the
-  repository's `taplo.toml` leaves out, and reports success.
+  every `.lock` file (the lockfiles are fed through standard input all the
+  same) and every file the `include` or `exclude` of the repository's
+  `taplo.toml` leaves out, and reports success.
 - `.toml` files are formatted the way Taplo writes them, with the repository's
   `taplo.toml`. Lockfiles are not format-checked: the tool that writes them
   (Cargo, uv) decides their layout.
@@ -255,7 +260,7 @@ block hands lychee. A setting that takes out less is fine. Phase 0 reads:
 Only the files the tool reads in a block count: a `.prettierignore` that takes
 out a Rust file takes out nothing Prettier would have looked at. Taplo's
 `include` counts only against `.toml` files, the ones Taplo reads without it; a
-`.lock` file is taken out of Taplo only by `exclude`. Where yamllint's file sets
+`Cargo.lock` or `uv.lock` is taken out of Taplo only by `exclude`. Where yamllint's file sets
 neither `ignore` nor `ignore-from-file`, phase 0 reads them in the file its
 `extends` names, as yamllint does. rustfmt's `ignore` is read in every folder,
 relative to that folder, since which configuration rustfmt applies to a file
