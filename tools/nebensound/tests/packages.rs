@@ -238,6 +238,32 @@ fn a_package_inside_a_package_is_a_package_of_its_own() {
 }
 
 #[test]
+fn a_package_inside_an_excluded_one_that_is_pulled_back_in_stays_in() {
+    // `check-rust` leaves out exactly the folders this list names, so the
+    // package inside, kept in by the declaration, must not be among them.
+    let extra = [
+        (
+            "tool/vendored/inner/Cargo.toml",
+            "[package]\nname = \"inner\"\n",
+        ),
+        ("tool/vendored/inner/src/lib.rs", "//! inner\n"),
+    ];
+    let declaration = format!(
+        "{}\n[[include]]\npath = \"tool/vendored/inner\"\nreason = \"we maintain it ourselves\"\n",
+        declaring(&exclude("tool/vendored"))
+    );
+
+    assert!(found(&declaration, &extra).is_empty());
+    assert_eq!(
+        out(&declaration, &extra),
+        [Excluded {
+            folder: path("tool/vendored"),
+            reason: reason(),
+        }]
+    );
+}
+
+#[test]
 fn a_rust_file_in_no_package_is_no_concern_here() {
     // `tool/Cargo.toml` describes a workspace and no package, so a file beside
     // it belongs to none: Cargo compiles nothing of it.

@@ -86,10 +86,14 @@ runs:
 
     # Cargo's local packages, the workspace members and the path dependencies
     # wherever they lie, held against the packages `[[exclude]]` takes out. A
-    # package is out when its folder lies in an excluded one. What stays is
-    # every member not out; what is out is left out of every step below by
-    # name (`--exclude`, members only) and by folder (coverage). With all
-    # features, so that an optional path dependency is seen as well.
+    # package is out when the tool names its folder: the tool judges each
+    # package by its own manifest and code, so a package inside an excluded
+    # one that the declaration keeps in (`[[include]]`) is not named and stays
+    # in. What stays is every member not out; what is out is left out of every
+    # step below by name (`--exclude`, members only) and by its files
+    # (coverage). Each package carries the folders of the packages inside it,
+    # which coverage keeps counting. With all features, so that an optional
+    # path dependency is seen as well.
     - name: Find the packages
       id: packages
       shell: bash
@@ -103,14 +107,15 @@ runs:
           | jq --arg root "$(realpath "$GITHUB_WORKSPACE")" --slurpfile out "$EXCLUDED" '
               .workspace_members as $members
               | [ .packages[] | select(.source == null)
-                  | .id as $id
-                  | (.manifest_path | ltrimstr($root + "/")
-                      | if . == "Cargo.toml" then "." else rtrimstr("/Cargo.toml") end) as $dir
-                  | { name, dir: $dir, member: any($members[]; . == $id),
-                      reason: (first($out[0][]
-                        | select(.path as $out
-                            | $out == "." or $out == $dir or ($dir | startswith($out + "/")))
-                        | .reason) // null) } ]
+                  | { id, name,
+                      dir: (.manifest_path | ltrimstr($root + "/")
+                        | if . == "Cargo.toml" then "." else rtrimstr("/Cargo.toml") end) } ]
+              | . as $local
+              | [ $local[] | .dir as $dir
+                  | { name, dir: $dir, member: (.id as $id | any($members[]; . == $id)),
+                      nested: [ $local[].dir
+                        | select(. != $dir and ($dir == "." or startswith($dir + "/"))) ],
+                      reason: (first($out[0][] | select(.path == $dir) | .reason) // null) } ]
               | { checked: [ .[] | select(.member and .reason == null) | .name ],
                   excluded: [ .[] | select(.reason != null) ] }' > "$packages"
         echo "json=$packages" >> "$GITHUB_OUTPUT"
@@ -314,7 +319,11 @@ runs:
 
     # An excluded package is not counted, a member or a path dependency:
     # llvm-cov names every file by its absolute path, so each folder is
-    # matched as exactly that, from the start.
+    # matched as exactly that, from the start. Where another package lies
+    # inside the excluded one, its folder would take that package's files
+    # along, so the excluded package's own `.rs` files are matched one by one
+    # instead, the ones Git tracks in its folder and in none of the packages
+    # inside it.
     - name: Regions, lines and functions are fully covered
       if: steps.packages.outputs.checked != '0'
       shell: bash
@@ -326,13 +335,26 @@ runs:
         set -euo pipefail
         mapfile -t without < <(jq -r '.excluded[] | select(.member) | "--exclude=\(.name)"' "$PACKAGES")
         root="$(realpath "$GITHUB_WORKSPACE")"
-        pattern="$(jq -r --arg root "$root" '
-          [.excluded[] | (if .dir == "." then $root else "\($root)/\(.dir)" end)
-            | gsub("(?<c>[\\[\\]\\\\.*^$+?(){}|])"; "\\\(.c)")] | join("|")' "$PACKAGES")"
+        git -C "$root" ls-files -z -- '*.rs' > "$RUNNER_TEMP/check-rust-tracked"
+        pattern="$(jq -r --arg root "$root" --rawfile tracked "$RUNNER_TEMP/check-rust-tracked" '
+          def literal: gsub("(?<c>[\\[\\]\\\\.*^$+?(){}|])"; "\\\(.c)");
+          def below($dir): $dir == "." or startswith($dir + "/");
+          ($tracked | split("\u0000") | map(select(. != ""))) as $files
+          | [ .excluded[]
+              | if (.nested | length) == 0 then
+                  (if .dir == "." then $root else "\($root)/\(.dir)" end | literal) + "/"
+                else
+                  . as $package
+                  | $files[]
+                  | select(below($package.dir)
+                      and (. as $file | all($package.nested[]; . as $dir | $file | below($dir) | not)))
+                  | ("\($root)/\(.)" | literal) + "$"
+                end ]
+          | join("|")' "$PACKAGES")"
         ignore=()
         if [ -n "$pattern" ]; then
-          echo "Not counted: ^($pattern)/"
-          ignore=(--ignore-filename-regex "^($pattern)/")
+          echo "Not counted: ^($pattern)"
+          ignore=(--ignore-filename-regex "^($pattern)")
         fi
         cargo "+$TOOLCHAIN" llvm-cov --locked --workspace "${without[@]}" --all-features \
           "${ignore[@]}" --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100

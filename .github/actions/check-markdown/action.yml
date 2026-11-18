@@ -41,13 +41,25 @@ runs:
         count="$(tr -cd '\0' < "$list" | wc -c)"
         # One path per line for the link check, which reads no other form. A
         # file name holding a line break is not something it could be given.
-        # It reads every line as a glob, so the characters of one are put in
-        # brackets: `[docs]/a.md` would otherwise match nothing and pass. Every
-        # path is made absolute, which keeps a line from beginning with `#`, a
-        # comment to it.
-        # The repository root, as a glob and then as replacement text for sed.
-        root="$(printf '%s' "$PWD" | sed -e 's/[][*?{}]/[&]/g' -e 's/[|&\]/\\&/g')"
-        tr '\0' '\n' < "$list" | sed -e 's/[][*?{}]/[&]/g' -e "s|^|$root/|" > "$list-lines"
+        # Each line is the path from the repository root, such as `docs/a.md`:
+        # lychee matches `exclude_path` against the string it is handed, and
+        # phase 0 judges that setting against exactly this one. A line holding
+        # a glob character is expanded, which yields the path from the root as
+        # well. So nothing is put in front of a path; where lychee would
+        # misread a line, one character of it is put in brackets instead,
+        # which makes the line a glob naming just that file:
+        # - every glob character, since `[docs]/a.md` would otherwise match
+        #   nothing and pass;
+        # - a `#` at the start, which makes the line a comment;
+        # - white space at either end, which lychee trims off;
+        # - the first letter of a first segment holding a `:`, which lychee
+        #   would read as an address, such as `mailto:a.md`.
+        tr '\0' '\n' < "$list" | sed \
+          -e 's/[][*?{}]/[&]/g' \
+          -e 's/^[#[:space:]]/[&]/' \
+          -e 's/[[:space:]]$/[&]/' \
+          -e 's|^\([A-Za-z]\)\([^/]*:\)|[\1]\2|' \
+          > "$list-lines"
         {
           echo "count=$count"
           echo "list=$list"
@@ -201,9 +213,10 @@ runs:
     # It runs at the repository root and reads the repository's `lychee.toml`
     # and `.lycheeignore` there: which addresses it leaves out, which status
     # codes it accepts, how long it waits stay the repository's configuration.
-    # An `exclude_path` in `lychee.toml` would take files out; phase 0 fails on
-    # every file it takes out that no `[[exclude]]` entry does, so none of them
-    # is in the list. `--hidden` and `--no-ignore` keep it from skipping a file
+    # An `exclude_path` in `lychee.toml` would take files out; phase 0 matches
+    # it against the same path from the root that each line hands over, and
+    # fails on every file it takes out that no `[[exclude]]` entry does, so
+    # none of them is in the list. `--hidden` and `--no-ignore` keep it from skipping a file
     # in a hidden folder or one a `.gitignore` names. The report goes outside
     # the checkout.
     - name: Every link into the repository leads somewhere

@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use nebensound::ignored::{Tool, findings};
 use nebensound_declaration::finding::{Finding, Rule};
 use nebensound_declaration::path::RelativePath;
-use support::{QUIET, analysis};
+use support::{QUIET, analysis, call, directory, git, repository};
 
 /// The findings for a repository holding these files, read from memory.
 fn found(declaration: &str, files: &[(&str, &str)]) -> Vec<Finding> {
@@ -430,6 +430,54 @@ fn a_lychee_configuration_that_does_not_read_is_reported() {
             "{source}"
         );
     }
+}
+
+#[test]
+fn lychee_matches_the_path_from_the_root_as_the_block_hands_it_over() {
+    // The block hands lychee `docs/a.md`, and lychee matches `exclude_path`
+    // against that string: a pattern that needs a leading `/`, a `./` or the
+    // checkout's own folder takes nothing out.
+    let kept = found(
+        QUIET,
+        &with(&[(
+            "lychee.toml",
+            "exclude_path = [\"/docs/\", \"^\\\\./\", \"^/\", \"^/home/\"]\n",
+        )]),
+    );
+    assert!(kept.is_empty(), "{kept:?}");
+
+    let taken = found(
+        QUIET,
+        &with(&[("lychee.toml", "exclude_path = [\"(^|/)a\\\\.md$\"]\n")]),
+    );
+    assert_eq!(summary(&taken), ["unexcused-ignore docs/a.md"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_setting_is_not_read_through_a_linked_folder() {
+    // `ignore-from-file` names a path the pull request chooses. Through a
+    // linked folder it would reach a file outside the checkout, and its text
+    // would end up in the log.
+    let outside = directory(&[("file", "TOKEN=abc{def\n")]);
+    let dir = repository(&[
+        (".nebensound/repo.toml", QUIET),
+        (".yamllint.yaml", "ignore-from-file: lnk/file\n"),
+        ("a.yml", "a: 1\n"),
+    ]);
+    std::os::unix::fs::symlink(outside.path(), dir.path().join("lnk")).expect("a link");
+    git(dir.path(), &["add", "--all"]);
+    let root = dir.path().to_str().unwrap();
+
+    let (text, code) = call(&["nebensound", "-C", root, "check"]);
+
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains("error[unreadable-ignore-file] at .yamllint.yaml: "),
+        "{text}"
+    );
+    assert!(text.contains("behind a link, or is one"), "{text}");
+    assert!(!text.contains("TOKEN"), "{text}");
 }
 
 #[test]

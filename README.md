@@ -151,7 +151,9 @@ which fail nothing. That holds for a workspace member and for a path dependency
 outside the workspace alike: Clippy runs with `--no-deps`, since it would
 otherwise lint a member it compiles as a dependency of another one, and it never
 lints a path dependency that is no member. Every excluded package is named in
-the summary of the run with its reason, as a notice.
+the summary of the run with its reason, as a notice. Each package is judged on
+its own: one that lies inside an excluded package and that the declaration
+keeps in with an `[[include]]` is checked in every step, coverage included.
 
 ### `check-toml`
 
@@ -218,12 +220,16 @@ of a check, with an `[[exclude]]` entry and its reason. `nebensound tree` shows
 such a file as excluded, with the reason. Rust code is excluded only as a whole
 package (see [`check-rust`](#check-rust)).
 
-No block reads a tool's own way of leaving files out: an ignore file needs no
-reason and can turn a check green that checked nothing. `.gitignore` takes
-nothing out either. Run by hand, though, the tools still read these settings,
-so phase 0 holds them against the declaration and fails on every file one of
-them takes out that no `[[exclude]]` entry takes out (`unexcused-ignore`). A
-setting that takes out less is fine. Phase 0 reads:
+No block lets a tool's own way of leaving files out take a file out: an ignore
+file needs no reason and can turn a check green that checked nothing.
+`.gitignore` takes nothing out either. The blocks read none of these settings,
+except lychee's `exclude_path`, which comes along with the `lychee.toml`
+`check-markdown` reads. Run by hand, the tools read all of them, so phase 0
+holds them against the declaration and fails on every file one of them takes
+out that no `[[exclude]]` entry takes out (`unexcused-ignore`). For lychee,
+that also keeps `exclude_path` from taking a file out in the block: phase 0
+matches it against the path from the root, such as `docs/a.md`, the string the
+block hands lychee. A setting that takes out less is fine. Phase 0 reads:
 
 | Tool              | Setting                                                                                     |
 | ----------------- | ------------------------------------------------------------------------------------------- |

@@ -232,15 +232,29 @@ impl Repository {
     /// A file as it stands in the repository, and only that: the declaration,
     /// or a tool's setting that phase 0 holds against it.
     ///
-    /// `symlink_metadata` asks about the entry itself rather than what it may
-    /// point at. A pull request could otherwise aim the file outside the
-    /// checkout, or at a device that never ends.
+    /// `symlink_metadata` asks about each entry on the way itself rather than
+    /// what it may point at, every folder as well as the file. The pull
+    /// request chooses the paths of a setting (`ignore-from-file`, `extends`),
+    /// and a link, of the file or of a folder before it, could otherwise aim
+    /// the read outside the checkout, or at a device that never ends.
     fn read(&self, relative: &str) -> io::Result<String> {
-        let path = self.root.join(relative);
-        if !fs::symlink_metadata(&path)?.is_file() {
+        let mut path = self.root.clone();
+        let mut regular = false;
+        for segment in relative.split('/') {
+            path.push(segment);
+            let entry = fs::symlink_metadata(&path)?;
+            if entry.is_symlink() {
+                return Err(io::Error::other(
+                    "it lies behind a link, or is one. It is read as it stands in the \
+                     repository; a link could point out of it",
+                ));
+            }
+            regular = entry.is_file();
+        }
+        if !regular {
             return Err(io::Error::other(
-                "it is not a regular file. It is read as it stands in the repository; a link or \
-                 a device could point out of it, or never end",
+                "it is not a regular file. It is read as it stands in the repository; a \
+                 device could never end",
             ));
         }
         fs::read_to_string(&path)
