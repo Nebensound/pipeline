@@ -1,17 +1,18 @@
 //! Versions: as a declaration writes them, as a tag carries them, and how a
 //! commit raises one.
 //!
-//! A declaration names a version where a person takes a step by hand, such as
-//! the floor below which a unit's version never falls: only the three numbers,
-//! `X.Y.Z` ([`Version`]). A pre-release suffix is something the pipeline
-//! appends, never something a person writes there; a tag carries it
-//! ([`TagVersion`]).
+//! A version is three numbers, `X.Y.Z` ([`Version`]). A tag carries one, and
+//! a pre-release appends `-pre.N` to it ([`TagVersion`]). A declaration names
+//! a version where a person takes a step by hand, the floor below which a
+//! unit's version never falls, and writes it the way a tag carries it.
 //!
 //! What a commit asks of a version follows from its message, read as a
 //! Conventional Commit ([`change_of`]): a breaking change raises the major
-//! version, `feat` the minor one, everything else the patch. Below `0.1.0`
-//! every change is a patch ([`Version::raised`]): nothing is promised yet, and
-//! the step to `0.1.0` is a person's, taken with `minimum-version`.
+//! version, `feat` the minor one, everything else the patch. Below `1.0.0`
+//! less is promised, and less is raised ([`Version::raised`]): below `0.1.0`
+//! every change is a patch, and from there a breaking change raises the minor
+//! version. The steps to `0.1.0` and to `1.0.0` are a person's, taken with
+//! `minimum-version`.
 
 use std::fmt;
 
@@ -36,6 +37,27 @@ pub enum VersionError {
     TooLarge {
         /// The rejected string.
         value: String,
+    },
+    /// The string is no version as a tag carries it.
+    #[error(
+        "a version reads X.Y.Z or X.Y.Z-pre.N: three numbers separated by dots without a \
+         leading zero or a prefix, and for a pre-release `-pre.` and a number from 1 without a \
+         leading zero; {value:?} is not"
+    )]
+    TagShape {
+        /// The rejected string.
+        value: String,
+    },
+    /// The string names a pre-release other than `pre.N`.
+    #[error(
+        "{value:?} names the pre-release {identifier:?}, and the only pre-release a version \
+         names is pre.N, as in X.Y.Z-pre.3"
+    )]
+    PreRelease {
+        /// The rejected string.
+        value: String,
+        /// What stands after the `-`.
+        identifier: String,
     },
 }
 
@@ -101,9 +123,11 @@ impl Version {
 
     /// This version raised once, by this change.
     ///
-    /// Below `0.1.0` every change is a patch. From there on a breaking change
-    /// raises the major version and `feat` the minor one, and that includes
-    /// `0.y.z`: a breaking change there leads to `1.0.0`.
+    /// Below `0.1.0` every change is a patch. From `0.1.0` to below `1.0.0` a
+    /// breaking change raises the minor version (`0.3.2` to `0.4.0`), and
+    /// everything else, `feat` included, the patch. From `1.0.0` on a breaking
+    /// change raises the major version and `feat` the minor one. No change
+    /// leads to `1.0.0`: that step is a person's, taken with `minimum-version`.
     ///
     /// [`None`] when the field to raise already holds the largest number a
     /// version can carry: there is no version after it, and wrapping round to
@@ -112,6 +136,11 @@ impl Version {
     pub fn raised(self, change: Change) -> Option<Self> {
         let change = if self < Self::new(0, 1, 0) {
             Change::Patch
+        } else if self.major == 0 {
+            match change {
+                Change::Major => Change::Minor,
+                Change::Minor | Change::Patch => Change::Patch,
+            }
         } else {
             change
         };
@@ -126,13 +155,6 @@ impl Version {
 impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
-    }
-}
-
-impl<'de> Deserialize<'de> for Version {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let raw = String::deserialize(deserializer)?;
-        Self::parse(&raw).map_err(de::Error::custom)
     }
 }
 
@@ -172,23 +194,67 @@ impl TagVersion {
         self.pre.is_some()
     }
 
-    /// Reads `X.Y.Z` or `X.Y.Z-pre.N`, strictly.
+    /// Reads `X.Y.Z` or `X.Y.Z-pre.N`, strictly, and says why not.
     ///
     /// The three numbers as [`Version::parse`] reads them, and `N` digits only,
     /// at least 1 and without a leading zero. Anything else, such as `-rc.1`,
-    /// `-pre1` or a build suffix, is [`None`]: a tag that holds it is no
-    /// release the pipeline made.
-    #[must_use]
-    pub fn parse(value: &str) -> Option<Self> {
-        let Some((numbers, n)) = value.split_once("-pre.") else {
-            return Version::parse(value).ok().map(Self::stable);
+    /// `-pre1` or a build suffix, is refused: a tag that holds it is no release
+    /// the pipeline made, and a floor that names it names a version the
+    /// pipeline never gives out.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VersionError::PreRelease`] for a pre-release other than
+    /// `pre.N`, [`VersionError::TooLarge`] for a number beyond `u64`, and
+    /// [`VersionError::TagShape`] for anything else.
+    pub fn read(value: &str) -> Result<Self, VersionError> {
+        let shape = || VersionError::TagShape {
+            value: value.to_owned(),
         };
-        let version = Version::parse(numbers).ok()?;
+        let (numbers, suffix) = match value.split_once('-') {
+            Some((numbers, suffix)) => (numbers, Some(suffix)),
+            None => (value, None),
+        };
+        let version = Version::parse(numbers).map_err(|error| match error {
+            VersionError::TooLarge { .. } => VersionError::TooLarge {
+                value: value.to_owned(),
+            },
+            _ => shape(),
+        })?;
+        let Some(suffix) = suffix else {
+            return Ok(Self::stable(version));
+        };
+        if suffix.is_empty() {
+            return Err(shape());
+        }
+        let Some(n) = suffix.strip_prefix("pre.") else {
+            return Err(VersionError::PreRelease {
+                value: value.to_owned(),
+                identifier: suffix.to_owned(),
+            });
+        };
         let digits = !n.is_empty() && n.bytes().all(|byte| byte.is_ascii_digit());
         if !digits || n.starts_with('0') {
-            return None;
+            return Err(shape());
         }
-        n.parse().ok().map(|n| Self::pre(version, n))
+        let n = n.parse().map_err(|_| VersionError::TooLarge {
+            value: value.to_owned(),
+        })?;
+        Ok(Self::pre(version, n))
+    }
+
+    /// Reads `X.Y.Z` or `X.Y.Z-pre.N` as [`TagVersion::read`] does; [`None`]
+    /// for anything else.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        Self::read(value).ok()
+    }
+}
+
+impl<'de> Deserialize<'de> for TagVersion {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        Self::read(&raw).map_err(de::Error::custom)
     }
 }
 

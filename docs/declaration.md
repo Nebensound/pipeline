@@ -103,14 +103,14 @@ out, and its effect.
 
 ### `[repo]`
 
-| Field             | Type                    | Default                        | Effect                                                                                                                                                   |
-| ----------------- | ----------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pipeline`        | preset name or table    | nothing is declared            | What runs for the repository beyond the base set. See [Pipeline](#pipeline).                                                                             |
-| `versioning`      | string                  | `"self"`                       | Which units around the repository carry a version. Only the values that include `self` are open to the repository. See [Versioning](#versioning).        |
-| `release`         | string                  | decided by the publish targets | `"single-stage"` or `"two-stage"`: how the unit's version reaches a full release. See [Releases](#releases).                                             |
-| `minimum-version` | version `"X.Y.Z"`       | none                           | The version the unit gets is never lower than this. See [Releases](#releases).                                                                           |
-| `allow-unused`    | table of check → reason | none                           | Checks of this unit's own pipeline that may find no file without failing, each with the reason why it stays. Without an entry, such a check is an error. |
-| `component`       | table                   | none                           | The pipeline a component can ask for with `pipeline = { repo = true }`. See `[repo.component]` below.                                                    |
+| Field             | Type                                 | Default                        | Effect                                                                                                                                                   |
+| ----------------- | ------------------------------------ | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pipeline`        | preset name or table                 | nothing is declared            | What runs for the repository beyond the base set. See [Pipeline](#pipeline).                                                                             |
+| `versioning`      | string                               | `"self"`                       | Which units around the repository carry a version. Only the values that include `self` are open to the repository. See [Versioning](#versioning).        |
+| `release`         | string                               | decided by the publish targets | `"single-stage"` or `"two-stage"`: how the unit's version reaches a full release. See [Releases](#releases).                                             |
+| `minimum-version` | version `"X.Y.Z"` or `"X.Y.Z-pre.N"` | none                           | The version the unit gets is never lower than this. See [Releases](#releases).                                                                           |
+| `allow-unused`    | table of check → reason              | none                           | Checks of this unit's own pipeline that may find no file without failing, each with the reason why it stays. Without an entry, such a check is an error. |
+| `component`       | table                                | none                           | The pipeline a component can ask for with `pipeline = { repo = true }`. See `[repo.component]` below.                                                    |
 
 ### `[repo.component]`
 
@@ -130,14 +130,14 @@ or digit, and holds no `..`; it is meant to survive a Git tag, a file name, a
 shell argument and a URL without quoting. No two units may share a name,
 generated ones included.
 
-| Field             | Type                    | Default                        | Effect                                                                                                                                                   |
-| ----------------- | ----------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `path`            | path                    | required                       | Where the component lives: a folder, or a single file. It has to hold something Git tracks, otherwise `missing-path`.                                    |
-| `pipeline`        | preset name or table    | nothing is declared            | What runs for the component beyond the base set. See [Pipeline](#pipeline).                                                                              |
-| `versioning`      | string                  | `"self"`                       | Which units around the component carry a version. See [Versioning](#versioning).                                                                         |
-| `release`         | string                  | decided by the publish targets | `"single-stage"` or `"two-stage"`: how the unit's version reaches a full release. See [Releases](#releases).                                             |
-| `minimum-version` | version `"X.Y.Z"`       | none                           | The version the unit gets is never lower than this. See [Releases](#releases).                                                                           |
-| `allow-unused`    | table of check → reason | none                           | Checks of this unit's own pipeline that may find no file without failing, each with the reason why it stays. Without an entry, such a check is an error. |
+| Field             | Type                                 | Default                        | Effect                                                                                                                                                   |
+| ----------------- | ------------------------------------ | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `path`            | path                                 | required                       | Where the component lives: a folder, or a single file. It has to hold something Git tracks, otherwise `missing-path`.                                    |
+| `pipeline`        | preset name or table                 | nothing is declared            | What runs for the component beyond the base set. See [Pipeline](#pipeline).                                                                              |
+| `versioning`      | string                               | `"self"`                       | Which units around the component carry a version. See [Versioning](#versioning).                                                                         |
+| `release`         | string                               | decided by the publish targets | `"single-stage"` or `"two-stage"`: how the unit's version reaches a full release. See [Releases](#releases).                                             |
+| `minimum-version` | version `"X.Y.Z"` or `"X.Y.Z-pre.N"` | none                           | The version the unit gets is never lower than this. See [Releases](#releases).                                                                           |
+| `allow-unused`    | table of check → reason              | none                           | Checks of this unit's own pipeline that may find no file without failing, each with the reason why it stays. Without an entry, such a check is an error. |
 
 ### `pipeline`
 
@@ -274,11 +274,20 @@ tagged yet.
   release.
 
 `minimum-version` is a floor: the version a unit gets is never lower. It is how
-a person takes the step to `0.1.0` or `1.0.0`. It is three numbers, as
-`"0.1.0"`, without a leading zero, a prefix such as `v` or a suffix. Anything
-else stops phase 0, as described under
+a person takes the step to `0.1.0` or `1.0.0`; no commit message leads to
+`1.0.0`. It is written the way a tag carries a version: three numbers, as
+`"1.0.0"`, without a leading zero or a prefix such as `v`, or a pre-release of
+them, as `"1.0.0-pre.10"`, with `pre.` and a number from 1 without a leading
+zero. Any other suffix, such as `-rc.1`, stops phase 0, as described under
 [When the file cannot be read](#when-the-file-cannot-be-read), and `check-toml`
-marks it at its line and column.
+marks it at its line and column. A pre-release only means something for a unit
+released in two stages; in one stage it is the error `pre-release-minimum`
+until a full release has reached its three numbers. How the value takes effect
+is described under [How a version is resolved](#how-a-version-is-resolved).
+
+A repository that moves to the pipeline with releases made elsewhere sets
+`minimum-version` above the highest version it ever gave out, pre-releases
+included, so that no version is given out twice.
 
 A generated unit takes both from the unit that generated it. The report of phase
 0 and `nebensound explain` show for every unit how it is released and its
@@ -306,7 +315,7 @@ Git alone, and `nebensound plan` lists them under `versions` (see
 
 Everything before `X.Y.Z` is the unit's **prefix**: `v`, `<component>-v`, and so
 on. The repository has no name, so a unit it generates is named like a
-component. Tags are matched strictly: `X.Y.Z` as `minimum-version` takes it, and
+component. Tags are matched strictly: three numbers without a leading zero, and
 `N` a number from 1 without a leading zero. A tag belongs to the unit whose
 prefix it starts with and whose version reads after it; one that reads as no
 unit's release belongs to the unit with the longest prefix it starts with.
@@ -316,18 +325,37 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
 
 ### How a version is resolved
 
-- **The base** is the unit's highest full release on a commit that `HEAD`
-  contains. For a unit released in two stages that commit must also be
-  contained in `origin/release`. Without such a tag the base is `0.0.0`.
+- **The base** is the unit's highest full release on a released commit that
+  `HEAD` contains. Without such a tag the base is `0.0.0`. A person with write
+  access can push any tag, so only tags on released commits count:
+  - in one stage, a commit on the first-parent line of `HEAD`;
+  - in two stages, a commit promoted into `release` (the second parent of a
+    merge commit on the first-parent line of `origin/release`), or a commit on
+    the first-parent line of `HEAD` older than the first promotion, so that the
+    releases from before a switch to two stages keep counting. While nothing
+    is promoted yet, every commit of that line is older than the first
+    promotion.
+
+  Any other full release with the unit's prefix on a commit `HEAD` contains is
+  the warning `unexpected-tag` and does not count.
+
 - **A commit touches a unit** when it changes a file below the unit's path, or
   `.nebensound/repo.toml`. The repository is touched by every commit. Only the
   first-parent line of `HEAD` counts, and a merge commit touches nothing. A
   moved or removed file touches the unit it left as well.
 - **The change of a commit** follows from its message as a
-  [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/): a
-  breaking change (`!` after the type, or a `BREAKING CHANGE:` footer) is major,
-  `feat` is minor, everything else is patch. Below `0.1.0` every change is a
-  patch. A message that is not a Conventional Commit counts as a patch.
+  [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/). A
+  message that is not a Conventional Commit counts as a patch. What a change
+  raises depends on the version it raises:
+
+  | Version                  | Breaking change (`!` after the type, or a `BREAKING CHANGE:` footer) | `feat` | Everything else |
+  | ------------------------ | -------------------------------------------------------------------- | ------ | --------------- |
+  | below `0.1.0`            | patch                                                                | patch  | patch           |
+  | `0.1.0` to below `1.0.0` | minor (`0.3.2` to `0.4.0`)                                           | patch  | patch           |
+  | `1.0.0` and above        | major                                                                | minor  | patch           |
+
+  No change leads to `1.0.0`; that step is taken with `minimum-version`.
+
 - **One stage**: a commit that touches the unit is the base raised once per
   touching commit since the base, each by its own change.
 - **Two stages**: the target is the base raised once by the highest change among
@@ -335,12 +363,21 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
   `N` being its position among them, counted from 1. The commit a merge into
   `release` promotes is `<target>`; promoted with nothing since the base, it
   releases nothing.
-- **`minimum-version`** lifts a raised version where it is lower, as the
-  declaration of the raised commit names it. In one stage it lifts each step,
-  so the commits after the lift go on from it. In two stages it lifts the target
-  by the highest floor named since the base, by a touching commit or the commit
-  at hand. The target never goes down within a cycle, so a lowered floor takes
-  effect from the next promotion on.
+- **`minimum-version`**: the value in force is the highest one that a touching
+  commit since the base names, the commit at hand included. Lowering the value
+  has no effect, and once a full release has reached it, it does nothing; there
+  is no warning for either.
+  - In one stage it lifts the step at which it comes into force, so the commits
+    after it go on from it rather than all landing on it.
+  - In two stages it lifts the target to its `X.Y.Z`. A pre-release value
+    `X.Y.Z-pre.N` also sets the number when the target is `X.Y.Z`: the commit
+    at which it comes into force is at least `-pre.N`, and every commit after
+    it gets the number of the one before plus one. With `1.0.0-pre.1` to
+    `1.0.0-pre.3` given out, a commit that sets `1.0.0-pre.10` is
+    `1.0.0-pre.10`, and the next one `1.0.0-pre.11`.
+  - In one stage, which gives out no pre-release, a pre-release value is
+    ignored once the base has reached its `X.Y.Z`. Before that it is the error
+    `pre-release-minimum`.
 - A commit that carries its unit's base is that release, also when it is read
   again.
 - A commit that does not touch the unit has no version, except the promoted
@@ -498,10 +535,14 @@ ecosystem from its `dependabot` list. An ecosystem of the base set is exempt.
 
 Warning. A tag carries a unit's prefix and is no release of that unit, so it
 does not count: it does not read `<prefix>X.Y.Z` or `<prefix>X.Y.Z-pre.N`, it
-points at something other than a commit, or it is a full release of a unit
-released in two stages on a commit `origin/release` does not contain. A person
-with write access can push any tag; only the releases the pipeline makes
-count. Delete the tag, or rename it so that it carries no unit's prefix.
+points at something other than a commit, or it is a full release on a commit
+that was not released. In one stage only a commit on the first-parent line of
+`HEAD` is released, so a full release on a merged side branch does not count.
+In two stages only a promoted commit is released, or a commit of that line
+older than the first promotion, so a full release on any other commit of `main`
+does not count, even once a later promotion makes `origin/release` contain it.
+A person with write access can push any tag; only the releases the pipeline
+makes count. Delete the tag, or rename it so that it carries no unit's prefix.
 
 ### `unconventional-commit`
 
@@ -545,6 +586,16 @@ Warning. The branch `origin/release` exists, and no unit that carries a version
 is released in two stages, so nothing is ever promoted there. Delete the
 branch, or release a unit in two stages.
 
+### `pre-release-minimum`
+
+Error. A unit is released in one stage, and the `minimum-version` in force for
+it is a pre-release `X.Y.Z-pre.N` whose `X.Y.Z` its last full release has not
+reached. One stage gives out no pre-release, so no commit could ever meet the
+floor. The finding names the line and column in `.nebensound/repo.toml` where
+the value is written, or where the unit's table starts when the value was taken
+away: taking it away is lowering it, which has no effect. Write `X.Y.Z`, or
+release the unit in two stages.
+
 ### When the file cannot be read
 
 Some mistakes stop phase 0 before any finding is made. It then prints one
@@ -555,7 +606,7 @@ sentence that names the file and the mistake, and fails:
 - a key is unknown, a required one is missing, or a value has the wrong type;
 - a name, path or pattern breaks the rules above, or a reason is blank;
 - `release` is neither `"single-stage"` nor `"two-stage"`, or
-  `minimum-version` is not a version `X.Y.Z`;
+  `minimum-version` is neither `X.Y.Z` nor `X.Y.Z-pre.N`;
 - an `[[exclude]]` entry names a pattern, or the same path stands twice under
   `[[exclude]]`;
 - a pipeline combines `repo = true` with other keys, or says `repo = false`, or

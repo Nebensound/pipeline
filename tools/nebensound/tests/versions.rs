@@ -89,10 +89,23 @@ pipeline = "none"
 release  = "two-stage"
 "#;
 
+/// The declaration of [`units`] with a floor written on `lib`.
+fn lib_floored(floor: &str) -> String {
+    UNITS.replace(
+        "release  = \"two-stage\"\n",
+        &format!("release  = \"two-stage\"\nminimum-version = \"{floor}\"\n"),
+    )
+}
+
 fn units() -> Git {
+    units_declared(UNITS)
+}
+
+/// The units of [`units`], declared as given.
+fn units_declared(declaration: &str) -> Git {
     let git = Git::new();
     git.write(&[
-        (".nebensound/repo.toml", UNITS),
+        (".nebensound/repo.toml", declaration),
         ("README.md", "# Units\n"),
         ("app/a.md", "# App\n"),
         ("lib/b.md", "# Lib\n"),
@@ -126,10 +139,12 @@ fn one_unit_goes_through_several_single_stage_releases() {
     git.commit("feat: take the step to 0.1.0");
     assert_eq!(release(&git, "v"), "0.1.0");
 
+    // From 0.1.0 to below 1.0.0 a feature is a patch, and a breaking change
+    // raises the minor version.
     git.write(&[("README.md", "# One\n\nMore and more.\n")]);
     git.commit("feat: something new");
     let feature = git.head();
-    assert_eq!(release(&git, "v"), "0.2.0");
+    assert_eq!(release(&git, "v"), "0.1.1");
 
     // The run of this commit is late with its tag: the next one comes to the
     // number it would have had all the same, raised by each commit since the
@@ -137,23 +152,39 @@ fn one_unit_goes_through_several_single_stage_releases() {
     git.write(&[("README.md", "# One\n\nFixed.\n")]);
     git.commit("fix: a correction");
     let late = git.head();
-    assert_eq!(version(&git, "v").as_deref(), Some("0.2.1"));
+    assert_eq!(version(&git, "v").as_deref(), Some("0.1.2"));
 
     git.write(&[("README.md", "# One\n\nBroken.\n")]);
     git.commit("refactor!: a breaking change");
     let analysis = analysed(&git);
-    assert_eq!(versions(&analysis)["v"].as_deref(), Some("1.0.0"));
-    assert_eq!(base(&analysis, "v"), "0.2.0");
+    assert_eq!(versions(&analysis)["v"].as_deref(), Some("0.2.0"));
+    assert_eq!(base(&analysis, "v"), "0.1.1");
 
-    git.tag("v0.2.1", &late);
+    git.tag("v0.1.2", &late);
     let analysis = analysed(&git);
-    assert_eq!(versions(&analysis)["v"].as_deref(), Some("1.0.0"));
-    assert_eq!(base(&analysis, "v"), "0.2.1");
+    assert_eq!(versions(&analysis)["v"].as_deref(), Some("0.2.0"));
+    assert_eq!(base(&analysis, "v"), "0.1.2");
+    git.tag("v0.2.0", &git.head());
+
+    // No change leads to 1.0.0; minimum-version takes the step, and from
+    // there each change raises its own field.
+    git.write(&[(
+        ".nebensound/repo.toml",
+        "[repo]\npipeline = \"none\"\nminimum-version = \"1.0.0\"\n",
+    )]);
+    git.commit("feat!: take the step to 1.0.0");
+    assert_eq!(release(&git, "v"), "1.0.0");
+    git.write(&[("README.md", "# One\n\nNew.\n")]);
+    git.commit("feat: something new after 1.0.0");
+    assert_eq!(release(&git, "v"), "1.1.0");
+    git.write(&[("README.md", "# One\n\nBroken again.\n")]);
+    git.commit("fix!: a breaking correction");
+    assert_eq!(release(&git, "v"), "2.0.0");
 
     // A commit that carries its release is that release, also on a second
     // run.
     git.run(&["checkout", "--quiet", "--detach", &feature]);
-    assert_eq!(version(&git, "v").as_deref(), Some("0.2.0"));
+    assert_eq!(version(&git, "v").as_deref(), Some("0.1.1"));
 }
 
 #[test]
@@ -297,12 +328,13 @@ fn the_declaration_touches_every_unit_and_a_merge_touches_none() {
 }
 
 #[test]
-fn a_base_off_the_first_parent_line_counts_from_where_it_lies() {
+fn a_full_release_on_a_merged_side_branch_is_ignored_in_one_stage() {
     let git = units();
     git.promote();
     git.run(&["checkout", "--quiet", "-b", "side"]);
     git.write(&[("app/a.md", "# App\n\nOn the side.\n")]);
     let side = git.commit("feat: on a side branch");
+    // In one stage only a commit of the first-parent line is released.
     git.tag("app-v3.0.0", &side);
     git.run(&["checkout", "--quiet", "main"]);
     git.write(&[("README.md", "# Units\n\nOn main.\n")]);
@@ -319,8 +351,59 @@ fn a_base_off_the_first_parent_line_counts_from_where_it_lies() {
     git.write(&[("app/a.md", "# App\n\nAfter the merge.\n")]);
     git.commit("fix: after the merge");
     let analysis = analysed(&git);
-    assert_eq!(base(&analysis, "app-v"), "3.0.0");
-    assert_eq!(versions(&analysis)["app-v"].as_deref(), Some("3.0.1"));
+    let unexpected = found(&analysis, Rule::UnexpectedTag);
+    assert_eq!(unexpected.len(), 1, "{unexpected:?}");
+    assert!(
+        unexpected[0].starts_with("warning[unexpected-tag] component app")
+            && unexpected[0].contains("\"app-v3.0.0\"")
+            && unexpected[0].contains("first-parent line"),
+        "{unexpected:?}"
+    );
+    assert_eq!(base(&analysis, "app-v"), "0.0.0");
+    // The first commit and the one after the merge touched it.
+    assert_eq!(versions(&analysis)["app-v"].as_deref(), Some("0.0.2"));
+}
+
+#[test]
+fn a_full_release_counts_in_two_stages_only_where_it_was_released() {
+    let git = units();
+    git.write(&[("lib/b.md", "# Lib\n\nBefore the switch.\n")]);
+    let before = git.commit("fix: from when the library was released in one stage");
+    git.tag("lib-v2.0.0", &before);
+
+    // Nothing is promoted yet, so every commit of main is older than the
+    // first promotion, and its full release counts.
+    git.write(&[("lib/b.md", "# Lib\n\nThe first cycle.\n")]);
+    git.commit("fix: the first cycle");
+    let analysis = analysed(&git);
+    assert_eq!(base(&analysis, "lib-v"), "2.0.0");
+    assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("2.0.1-pre.1"));
+    git.promote();
+    assert_eq!(release(&git, "lib-v"), "2.0.1");
+
+    // A full release pushed by hand on a commit of main after the first
+    // promotion, and never promoted itself.
+    git.write(&[("lib/b.md", "# Lib\n\nThe second cycle.\n")]);
+    let stray = git.commit("fix: the second cycle");
+    git.tag("lib-v5.0.0", &stray);
+    git.write(&[("lib/b.md", "# Lib\n\nStill the second cycle.\n")]);
+    git.commit("fix: still the second cycle");
+    // The promotion makes origin/release contain it; that does not make it
+    // a release.
+    git.promote();
+
+    let analysis = analysed(&git);
+    let unexpected = found(&analysis, Rule::UnexpectedTag);
+    assert_eq!(unexpected.len(), 1, "{unexpected:?}");
+    assert!(
+        unexpected[0].starts_with("warning[unexpected-tag] component lib")
+            && unexpected[0].contains("\"lib-v5.0.0\"")
+            && unexpected[0].contains("never promoted"),
+        "{unexpected:?}"
+    );
+    // The release from before the switch and the promoted one still count.
+    assert_eq!(base(&analysis, "lib-v"), "2.0.1");
+    assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("2.0.2"));
 }
 
 #[test]
@@ -435,7 +518,10 @@ fn a_hand_pushed_tag_is_ignored_with_a_warning() {
     let elsewhere = git.commit("chore: on a branch nobody released");
     git.run(&["checkout", "--quiet", "main"]);
     git.write(&[("README.md", "# Units\n\nMore.\n")]);
-    let more = git.commit("docs: more");
+    git.commit("docs: more");
+    git.promote();
+    git.write(&[("README.md", "# Units\n\nEven more.\n")]);
+    let more = git.commit("docs: even more");
 
     // An annotated tag counts as well as a lightweight one.
     git.run(&[
@@ -446,7 +532,8 @@ fn a_hand_pushed_tag_is_ignored_with_a_warning() {
         "v0.0.1",
         &first,
     ]);
-    // A full release of a two-stage unit on a commit that was never promoted.
+    // A full release of a two-stage unit on a commit that was never promoted,
+    // after the first promotion.
     git.tag("lib-v5.0.0", &more);
     // Not a version the pipeline makes.
     git.tag("v1.0", &first);
@@ -481,7 +568,7 @@ fn a_hand_pushed_tag_is_ignored_with_a_warning() {
     assert!(!analysis.failed(), "{:?}", analysis.findings());
     assert_eq!(base(&analysis, "v"), "0.0.1");
     assert_eq!(base(&analysis, "lib-v"), "0.0.0");
-    assert_eq!(versions(&analysis)["v"].as_deref(), Some("0.0.2"));
+    assert_eq!(versions(&analysis)["v"].as_deref(), Some("0.0.3"));
 }
 
 #[test]
@@ -693,15 +780,18 @@ fn floored([app, lib]: &[String; 2]) -> String {
 }
 
 /// One walk through a history: commits that touch the units at random, with
-/// every kind of message, a floor of either stage raised now and then,
-/// promotions, and tags that some runs set late. No version may be given to two commits, and read
-/// again at the end every commit still comes to the version it got.
+/// every kind of message, a floor of either stage raised, lowered or taken
+/// away now and then, pre-release floors on the unit released in two stages,
+/// promotions, and tags that some runs set late. No version may be given to
+/// two commits, and read again at the end every commit still comes to the
+/// version it got.
 ///
-/// Returns how often it promoted, moved the floor and set a tag late, so that
-/// the test can show that every one of them happened.
-fn walk(seed: u64, steps: usize) -> [usize; 3] {
+/// Returns how often it promoted, moved a floor, set a tag late and wrote a
+/// pre-release floor, so that the test can show that every one of them
+/// happened.
+fn walk(seed: u64, steps: usize) -> [usize; 4] {
     let mut random = Walk(seed);
-    let mut happened = [0; 3];
+    let mut happened = [0; 4];
     let git = units();
     // What each commit got, by unit, and which commit holds each version.
     let mut got: BTreeMap<(String, String), String> = BTreeMap::new();
@@ -747,14 +837,22 @@ fn walk(seed: u64, steps: usize) -> [usize; 3] {
             record(&git, touched(&git), &mut late, false);
             continue;
         }
-        if choice == 1 {
-            // Raised, lowered or taken away again, on either stage.
+        if choice <= 2 {
+            // Raised, lowered or taken away again, on either stage, and on
+            // `lib` also as a pre-release, which sets the number of the next
+            // pre-release when it names the target.
             happened[1] += 1;
             let unit = usize::try_from(random.below(2)).expect("small");
+            let pre = unit == 1 && random.below(3) != 0;
             floors[unit] = match random.below(4) {
                 0 => String::new(),
+                major if pre => format!(
+                    "minimum-version = \"{major}.0.0-pre.{}\"\n",
+                    random.below(12) + 1
+                ),
                 major => format!("minimum-version = \"{major}.0.0\"\n"),
             };
+            happened[3] += usize::from(pre);
             git.write(&[(".nebensound/repo.toml", &floored(&floors))]);
         } else {
             for (bit, path) in [(1, "app/a.md"), (2, "lib/b.md"), (4, "README.md")] {
@@ -805,9 +903,9 @@ fn walk(seed: u64, steps: usize) -> [usize; 3] {
 
 #[test]
 fn two_different_commits_never_resolve_to_the_same_version_of_a_unit() {
-    let mut seen = [0; 3];
-    for seed in [0x9e37_79b9, 0x85eb_ca6b, 0xc2b2_ae35] {
-        for (total, count) in seen.iter_mut().zip(walk(seed, 20)) {
+    let mut seen = [0; 4];
+    for seed in [0x9e37_79b9, 0x85eb_ca6b, 0xc2b2_ae35, 0x27d4_eb2f] {
+        for (total, count) in seen.iter_mut().zip(walk(seed, 24)) {
             *total += count;
         }
     }
@@ -828,8 +926,8 @@ fn a_lowered_floor_and_a_late_tag_give_no_version_twice() {
     let lifted = git.commit("feat: aim at 3.0.0");
     assert_eq!(version(&git, "v").as_deref(), Some("3.0.0"));
 
-    // Its tag is late, and the floor is taken away meanwhile: the lifted
-    // commit still counts with the floor its own declaration named.
+    // Its tag is late, and the floor is taken away meanwhile. Lowering it has
+    // no effect: since the base, 3.0.0 is still the highest floor named.
     git.write(&[(".nebensound/repo.toml", QUIET)]);
     git.commit("fix: drop the floor");
     assert_eq!(release(&git, "v"), "3.0.1");
@@ -890,4 +988,154 @@ fn a_lowered_floor_in_two_stages_gives_no_version_twice() {
     git.write(&[("lib/b.md", "# Lib\n\nFixed again.\n")]);
     git.commit("fix: in the library again");
     step(&git, "5.0.0-pre.2");
+}
+
+#[test]
+fn a_pre_release_floor_sets_the_number_of_the_pre_release() {
+    let git = units_declared(&lib_floored("1.0.0-pre.1"));
+    assert_eq!(release(&git, "lib-v"), "1.0.0-pre.1");
+    for step in [2, 3] {
+        git.write(&[("lib/b.md", &format!("# Lib\n\nStep {step}.\n"))]);
+        git.commit("fix: in the library");
+        assert_eq!(release(&git, "lib-v"), format!("1.0.0-pre.{step}"));
+    }
+
+    // The commit that sets 1.0.0-pre.10 is that pre-release, and the next
+    // one goes on from it.
+    git.write(&[(".nebensound/repo.toml", &lib_floored("1.0.0-pre.10"))]);
+    git.commit("chore: go on from the tenth pre-release");
+    assert_eq!(release(&git, "lib-v"), "1.0.0-pre.10");
+    git.write(&[("lib/b.md", "# Lib\n\nAfter the floor.\n")]);
+    git.commit("fix: after the floor");
+    assert_eq!(release(&git, "lib-v"), "1.0.0-pre.11");
+
+    // A lowered floor has no effect.
+    git.write(&[(".nebensound/repo.toml", &lib_floored("1.0.0-pre.5"))]);
+    git.commit("chore: lower the floor");
+    assert_eq!(release(&git, "lib-v"), "1.0.0-pre.12");
+    git.promote();
+    assert_eq!(release(&git, "lib-v"), "1.0.0");
+
+    // Once a full release has reached it, the floor does nothing.
+    git.write(&[("lib/b.md", "# Lib\n\nThe next cycle.\n")]);
+    git.commit("fix: the next cycle");
+    assert_eq!(release(&git, "lib-v"), "1.0.1-pre.1");
+
+    // A floor of the target the commits raise to sets the number. Once a
+    // floor lifts the target past it, the position among the commits counts
+    // again.
+    git.write(&[(".nebensound/repo.toml", &lib_floored("2.0.0-pre.3"))]);
+    git.commit("feat!: aim at the third pre-release of 2.0.0");
+    assert_eq!(release(&git, "lib-v"), "2.0.0-pre.3");
+    git.write(&[("lib/b.md", "# Lib\n\nOn the way to 2.0.0.\n")]);
+    git.commit("fix: on the way");
+    assert_eq!(release(&git, "lib-v"), "2.0.0-pre.4");
+    git.write(&[(".nebensound/repo.toml", &lib_floored("3.0.0-pre.2"))]);
+    git.commit("chore: aim at 3.0.0");
+    assert_eq!(release(&git, "lib-v"), "3.0.0-pre.4");
+    git.promote();
+    assert_eq!(release(&git, "lib-v"), "3.0.0");
+}
+
+#[test]
+fn a_pre_release_number_at_its_largest_is_an_error() {
+    let max = u64::MAX;
+    let git = units_declared(&lib_floored(&format!("1.0.0-pre.{max}")));
+    assert_eq!(version(&git, "lib-v"), Some(format!("1.0.0-pre.{max}")));
+
+    git.write(&[("lib/b.md", "# Lib\n\nOne too many.\n")]);
+    git.commit("fix: one pre-release too many");
+    let analysis = analysed(&git);
+    let exhausted = found(&analysis, Rule::ExhaustedVersion);
+    assert_eq!(exhausted.len(), 1, "{:?}", analysis.findings());
+    assert!(
+        exhausted[0].starts_with("error[exhausted-version] component lib")
+            && exhausted[0].contains(&format!("1.0.0-pre.{max} cannot be raised")),
+        "{exhausted:?}"
+    );
+    assert_eq!(versions(&analysis)["lib-v"], None);
+}
+
+#[test]
+fn a_pre_release_floor_in_one_stage_is_an_error_until_the_base_reaches_it() {
+    let declaration = |repo: &str, app: &str| {
+        floored(&[app.to_owned(), String::new()]).replace(
+            "[repo]\npipeline = \"none\"\n",
+            &format!("[repo]\npipeline = \"none\"\n{repo}"),
+        )
+    };
+    let git = units_declared(&declaration(
+        "minimum-version = \"1.0.0-pre.3\"\n",
+        "minimum-version = \"2.0.0-pre.1\"\n",
+    ));
+
+    let analysis = analysed(&git);
+    let refused = found(&analysis, Rule::PreReleaseMinimum);
+    assert_eq!(refused.len(), 2, "{refused:#?}");
+    for (unit, place, written) in [
+        ("the repository", "line 3, column 19", "1.0.0"),
+        ("component app", "line 7, column 19", "2.0.0"),
+    ] {
+        assert!(
+            refused.iter().any(|finding| finding.starts_with(&format!(
+                "error[pre-release-minimum] {unit}: .nebensound/repo.toml, {place}: "
+            )) && finding
+                .contains(&format!("minimum-version = \"{written}\""))
+                && finding.contains("two stages")),
+            "{unit}: {refused:#?}"
+        );
+    }
+    assert!(analysis.failed());
+    assert_eq!(versions(&analysis)["v"], None);
+    assert_eq!(versions(&analysis)["app-v"], None);
+    // The unit released in two stages beside them is not held up.
+    assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.1-pre.1"));
+    let (text, code) = call(&["nebensound", "-C", git.root(), "check"]);
+    assert_eq!(code, 1, "{text}");
+    assert!(text.contains("line 7, column 19"), "{text}");
+
+    // Taking the floor away is lowering it, which has no effect; the error
+    // then points at the unit's table.
+    git.write(&[(
+        ".nebensound/repo.toml",
+        &declaration("minimum-version = \"1.0.0\"\n", ""),
+    )]);
+    git.commit("chore: write the repository's floor as a full release");
+    let analysis = analysed(&git);
+    let refused = found(&analysis, Rule::PreReleaseMinimum);
+    assert_eq!(refused.len(), 1, "{refused:#?}");
+    assert!(
+        refused[0].starts_with(
+            "error[pre-release-minimum] component app: .nebensound/repo.toml, line 5, column 1: "
+        ),
+        "{refused:#?}"
+    );
+    assert_eq!(versions(&analysis)["v"].as_deref(), Some("1.0.0"));
+    git.write(&[(
+        ".nebensound/repo.toml",
+        &declaration(
+            "minimum-version = \"1.0.0\"\n",
+            "minimum-version = \"2.0.0\"\n",
+        ),
+    )]);
+    git.commit("chore: write the app's floor as a full release");
+    assert_eq!(release(&git, "app-v"), "2.0.0");
+
+    // Once the base has reached its three numbers, a pre-release floor is
+    // ignored.
+    git.write(&[(
+        ".nebensound/repo.toml",
+        &declaration(
+            "minimum-version = \"1.0.0\"\n",
+            "minimum-version = \"2.0.0-pre.7\"\n",
+        ),
+    )]);
+    git.commit("chore: name a pre-release the app has passed");
+    let analysis = analysed(&git);
+    assert!(
+        found(&analysis, Rule::PreReleaseMinimum).is_empty(),
+        "{:?}",
+        analysis.findings()
+    );
+    assert_eq!(versions(&analysis)["app-v"].as_deref(), Some("2.0.1"));
 }

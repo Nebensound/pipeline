@@ -168,16 +168,40 @@ fn below_0_1_0_every_change_is_a_patch() {
 }
 
 #[test]
-fn from_0_1_0_on_each_change_raises_its_field() {
+fn from_0_1_0_to_below_1_0_0_a_breaking_change_raises_the_minor_version() {
+    for (base, raised) in [
+        (Version::new(0, 1, 0), Version::new(0, 2, 0)),
+        (Version::new(0, 3, 2), Version::new(0, 4, 0)),
+        (Version::new(0, 99, 7), Version::new(0, 100, 0)),
+    ] {
+        assert_eq!(base.raised(Change::Major), Some(raised), "{base}");
+    }
+    // Everything else is a patch, a feature included.
+    for change in [Change::Patch, Change::Minor] {
+        assert_eq!(
+            Version::new(0, 3, 2).raised(change),
+            Some(Version::new(0, 3, 3))
+        );
+    }
+    // No change leads to 1.0.0: that step is taken with minimum-version.
+    assert_eq!(
+        Version::new(0, u64::MAX, 0).raised(Change::Major),
+        None,
+        "a full minor field does not spill into 1.0.0"
+    );
+}
+
+#[test]
+fn from_1_0_0_on_each_change_raises_its_field() {
     let base = Version::new(1, 2, 3);
     assert_eq!(base.raised(Change::Patch), Some(Version::new(1, 2, 4)));
     assert_eq!(base.raised(Change::Minor), Some(Version::new(1, 3, 0)));
     assert_eq!(base.raised(Change::Major), Some(Version::new(2, 0, 0)));
 
-    let early = Version::new(0, 1, 0);
-    assert_eq!(early.raised(Change::Patch), Some(Version::new(0, 1, 1)));
-    assert_eq!(early.raised(Change::Minor), Some(Version::new(0, 2, 0)));
-    assert_eq!(early.raised(Change::Major), Some(Version::new(1, 0, 0)));
+    let first = Version::new(1, 0, 0);
+    assert_eq!(first.raised(Change::Patch), Some(Version::new(1, 0, 1)));
+    assert_eq!(first.raised(Change::Minor), Some(Version::new(1, 1, 0)));
+    assert_eq!(first.raised(Change::Major), Some(Version::new(2, 0, 0)));
 }
 
 #[test]
@@ -227,6 +251,56 @@ fn a_tag_version_reads_and_writes_strictly() {
     ] {
         assert_eq!(TagVersion::parse(text), None, "{text}");
     }
+}
+
+#[test]
+fn a_tag_version_says_why_it_does_not_read() {
+    let refused = |text: &str| TagVersion::read(text).expect_err(text);
+
+    for text in [
+        "",
+        "1.2",
+        "v1.2.3",
+        "1.2.3-",
+        "1.2.3-pre.",
+        "1.2.3-pre.0",
+        "1.2-pre.1",
+    ] {
+        let error = refused(text);
+        assert!(
+            matches!(error, VersionError::TagShape { .. }),
+            "{text}: {error:?}"
+        );
+        assert!(error.to_string().contains("X.Y.Z-pre.N"), "{error}");
+    }
+    for (text, identifier) in [
+        ("1.2.3-rc.1", "rc.1"),
+        ("1.2.3-pre1", "pre1"),
+        ("1.2.3-pre", "pre"),
+        ("1.0.0-alpha", "alpha"),
+    ] {
+        let error = refused(text);
+        assert_eq!(
+            error,
+            VersionError::PreRelease {
+                value: text.to_owned(),
+                identifier: identifier.to_owned(),
+            }
+        );
+        assert!(error.to_string().contains("pre.N"), "{error}");
+    }
+    for text in ["99999999999999999999.0.0", "1.0.0-pre.99999999999999999999"] {
+        assert_eq!(
+            refused(text),
+            VersionError::TooLarge {
+                value: text.to_owned()
+            }
+        );
+    }
+    assert_eq!(
+        TagVersion::read("1.0.0-pre.3"),
+        Ok(TagVersion::pre(Version::new(1, 0, 0), 3))
+    );
 }
 
 #[test]

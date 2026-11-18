@@ -566,6 +566,7 @@ fn every_rule_has_a_code_of_its_own() {
         Rule::UnreleasedBeforeSwitch,
         Rule::ExhaustedVersion,
         Rule::PointlessReleaseBranch,
+        Rule::PreReleaseMinimum,
     ];
     let mut codes: Vec<_> = rules.iter().map(|rule| rule.code()).collect();
     codes.sort_unstable();

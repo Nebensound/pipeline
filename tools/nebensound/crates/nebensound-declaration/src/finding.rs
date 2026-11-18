@@ -100,6 +100,8 @@ pub enum Rule {
     ExhaustedVersion,
     /// A branch `origin/release`, and no unit released in two stages.
     PointlessReleaseBranch,
+    /// A unit released in one stage whose minimum version is a pre-release.
+    PreReleaseMinimum,
 }
 
 impl Rule {
@@ -133,6 +135,7 @@ impl Rule {
             Self::UnreleasedBeforeSwitch => "unreleased-before-switch",
             Self::ExhaustedVersion => "exhausted-version",
             Self::PointlessReleaseBranch => "pointless-release-branch",
+            Self::PreReleaseMinimum => "pre-release-minimum",
         }
     }
 }

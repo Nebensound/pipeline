@@ -9,9 +9,11 @@
 //! raises on its own, so two runs on `main` at the same time come to different
 //! numbers without waiting for each other.
 //!
-//! - The **base** of a unit is its highest full release on a commit that
-//!   `HEAD` contains, for a unit released in two stages also on a commit that
-//!   `origin/release` contains; `0.0.0` without one.
+//! - The **base** of a unit is its highest full release on a released commit
+//!   that `HEAD` contains; `0.0.0` without one. In one stage a released commit
+//!   lies on the first-parent line of `HEAD`. In two stages it is a commit
+//!   promoted into `release`, or a commit of that line older than the first
+//!   promotion, so that the releases from before a switch keep counting.
 //! - A commit **touches** a unit when it changes a file below the unit's path
 //!   or the declaration itself. The repository is touched by every commit.
 //!   Only the first-parent line of `HEAD` counts, and a merge commit touches
@@ -22,20 +24,24 @@
 //!   among the touching commits since the base. A touching commit is
 //!   `<target>-pre.N`, `N` its position among them; the commit promoted into
 //!   `release` is `<target>`.
-//! - `minimum-version` lifts a raised version where it is lower, as the
-//!   declaration of the commit that is raised names it. In one stage it lifts
-//!   each step, so that the commits after the lift go on from it rather than
-//!   all landing on the floor, and a commit comes to the same version whether
-//!   the tags of the commits before it are set yet or not. In two stages it
-//!   lifts the target by the highest floor that a touching commit since the
-//!   base or the commit at hand names, so the target never goes down within a
-//!   cycle and a lowered floor takes effect from the next promotion on.
+//! - `minimum-version`: the value in force is the highest one that a touching
+//!   commit since the base names, the commit at hand included, so a lowered
+//!   value has no effect and one a full release has reached does nothing. In
+//!   one stage it lifts the step at which it comes into force, and the commits
+//!   after it go on from there rather than all landing on it. In two stages it
+//!   lifts the target to its `X.Y.Z`. A pre-release value `X.Y.Z-pre.N` also
+//!   sets the number when the target is `X.Y.Z`: the commit at which it comes
+//!   into force is at least `-pre.N`, and every commit after it one more than
+//!   the one before. In one stage, which gives out no pre-release, such a value
+//!   is ignored once the base has reached its `X.Y.Z` and is an error before.
 //!
 //! Reading Git is left to the caller, which hands in a [`History`]. Nothing
 //! here runs a process, so every rule is checked on a history built by hand as
 //! well as on a real repository.
 
 use std::collections::{BTreeMap, BTreeSet};
+
+use toml_edit::{Document, Item};
 
 use crate::finding::{Finding, Rule, UnitName};
 use crate::model::{Declaration, Release};
@@ -147,16 +153,17 @@ impl History {
         seen
     }
 
-    /// The commits promoted into `release`: the second parent of each merge
-    /// commit on its first-parent line. Nothing but such merges enters the
-    /// branch, so these are the commits of `main` that became full releases.
-    fn promoted(&self) -> BTreeSet<&str> {
-        let mut promoted = BTreeSet::new();
+    /// The commits promoted into `release`, the newest first: the second
+    /// parent of each merge commit on its first-parent line. Nothing but such
+    /// merges enters the branch, so these are the commits of `main` that
+    /// became full releases.
+    fn promotions(&self) -> Vec<&str> {
+        let mut promoted = Vec::new();
         let mut next = self.release.as_deref();
         while let Some(commit) = next {
             let parents = self.parents.get(commit).map_or(&[][..], Vec::as_slice);
             if let [_, second, ..] = parents {
-                promoted.insert(second.as_str());
+                promoted.push(second.as_str());
             }
             next = parents.first().map(String::as_str);
         }
@@ -198,10 +205,14 @@ struct Context<'h> {
     head: Option<&'h Commit>,
     /// What it contains.
     in_head: BTreeSet<&'h str>,
-    /// What `origin/release` contains, if the branch exists.
-    in_release: Option<BTreeSet<&'h str>>,
+    /// The commits of its first-parent line.
+    on_line: BTreeSet<&'h str>,
     /// The commits promoted into `release`.
     promoted: BTreeSet<&'h str>,
+    /// What the first commit promoted into `release` contains, the commits
+    /// older than the first promotion; [`None`] while nothing is promoted, when
+    /// every commit is older than it.
+    before_promotion: Option<BTreeSet<&'h str>>,
     /// The declarations the line holds, read; [`None`] for one that does not
     /// read, which names no floor.
     declarations: BTreeMap<&'h str, Option<Declaration>>,
@@ -209,24 +220,45 @@ struct Context<'h> {
 
 impl Context<'_> {
     /// The minimum version a commit's own declaration names for a unit.
-    fn floor(&self, commit: &Commit, unit: &Unit) -> Option<Version> {
+    fn floor(&self, commit: &Commit, unit: &Unit) -> Option<TagVersion> {
         let declaration = commit
             .declaration
             .as_deref()
             .and_then(|object| self.declarations.get(object))
             .and_then(Option::as_ref)?;
-        // A generated unit takes its parent's, as it does from the tree.
-        let owner = match &unit.origin {
-            Origin::Generated { by } => by,
-            Origin::Declared => &unit.name,
-        };
-        match owner {
+        match owner(unit) {
             UnitName::Repository => declaration.repo.minimum_version,
             UnitName::Component(name) => declaration
                 .component
                 .get(name)
                 .and_then(|component| component.minimum_version),
         }
+    }
+
+    /// Whether a full release on this commit is one, for a unit released in
+    /// this mode.
+    fn released(&self, commit: &str, release: Release) -> bool {
+        let on_line = self.on_line.contains(commit);
+        match release {
+            Release::SingleStage => on_line,
+            Release::TwoStage => {
+                self.promoted.contains(commit)
+                    || (on_line
+                        && self
+                            .before_promotion
+                            .as_ref()
+                            .is_none_or(|older| older.contains(commit)))
+            }
+        }
+    }
+}
+
+/// The unit whose declaration names a unit's floor: a generated unit takes its
+/// parent's, as it does from the tree.
+fn owner(unit: &Unit) -> &UnitName {
+    match &unit.origin {
+        Origin::Generated { by } => by,
+        Origin::Declared => &unit.name,
     }
 }
 
@@ -255,15 +287,18 @@ pub fn versions(units: &[Unit], history: &History) -> Versions {
     }
 
     let head = history.line.first();
+    let promotions = history.promotions();
     let context = Context {
         history,
         head,
         in_head: head.map_or_else(BTreeSet::new, |head| history.contained_in(&head.id)),
-        in_release: history
-            .release
-            .as_deref()
-            .map(|release| history.contained_in(release)),
-        promoted: history.promoted(),
+        on_line: history
+            .line
+            .iter()
+            .map(|commit| commit.id.as_str())
+            .collect(),
+        promoted: promotions.iter().copied().collect(),
+        before_promotion: promotions.last().map(|first| history.contained_in(first)),
         declarations: history
             .declarations
             .iter()
@@ -305,11 +340,11 @@ pub fn versions(units: &[Unit], history: &History) -> Versions {
 /// `tool-v1` the component `tool`'s.
 ///
 /// A tag that does not count is the warning `unexpected-tag`: one that is no
-/// version, one on something other than a commit, and a full release of a
-/// unit released in two stages on a commit `origin/release` does not contain.
-/// A tag on a commit `HEAD` does not contain is passed over without one: it
-/// lies in history this commit does not have, such as a newer release, and
-/// whether it counts is not this commit's to judge.
+/// version, one on something other than a commit, and a full release on a
+/// commit that was not released ([`Context::released`]). A tag on a commit
+/// `HEAD` does not contain is passed over without one: it lies in history this
+/// commit does not have, such as a newer release, and whether it counts is not
+/// this commit's to judge.
 fn count_tags<'h>(
     units: &[Unit],
     context: &Context<'h>,
@@ -357,20 +392,31 @@ fn count_tags<'h>(
         if !context.in_head.contains(commit) {
             continue;
         }
-        if !version.is_pre() && unit.release.release == Release::TwoStage {
-            match &context.in_release {
-                // Without the branch nothing can be told; the unit reports
-                // that itself.
-                None => continue,
-                Some(release) if !release.contains(commit) => {
-                    findings.push(unexpected(
-                        "is a full release on a commit origin/release does not contain; the \
-                         unit is released in two stages, where only a promoted commit is one"
-                            .to_owned(),
-                    ));
-                    continue;
-                }
-                Some(_) => {}
+        let release = unit.release.release;
+        if !version.is_pre() {
+            // Without the branch release nothing can be told of a unit
+            // released in two stages; the unit reports that itself.
+            if release == Release::TwoStage && context.history.release.is_none() {
+                continue;
+            }
+            if !context.released(commit, release) {
+                findings.push(unexpected(
+                    match release {
+                        Release::SingleStage => {
+                            "is a full release on a commit off the first-parent line of HEAD; \
+                             the unit is released in one stage, where only a commit of that \
+                             line is one"
+                        }
+                        Release::TwoStage => {
+                            "is a full release on a commit that was never promoted into \
+                             release; the unit is released in two stages, where only a \
+                             promoted commit is one, or a commit of main older than the first \
+                             promotion"
+                        }
+                    }
+                    .to_owned(),
+                ));
+                continue;
             }
         }
         counted[index].push(Counted { version, commit });
@@ -395,7 +441,7 @@ fn resolve_unit(
         version: None,
     };
     let two_stage = entry.release == Release::TwoStage;
-    if two_stage && context.in_release.is_none() {
+    if two_stage && context.history.release.is_none() {
         findings.push(
             Finding::error(
                 Rule::MissingReleaseBranch,
@@ -439,8 +485,8 @@ fn resolve_unit(
     let Some(head) = context.head else {
         return entry;
     };
-    // The touching commits since the base, oldest first. Since the base means
-    // not contained in it: the base need not lie on the line itself.
+    // The touching commits since the base, oldest first: those the commit that
+    // carries the base does not contain.
     let released = base.map(|base| context.history.contained_in(base.commit));
     let touching: Vec<&Commit> = context
         .history
@@ -479,8 +525,20 @@ struct Step<'a> {
 }
 
 impl Step<'_> {
-    /// One stage: the base raised once per touching commit, each lifted to the
-    /// floor where it is lower.
+    /// The value of `minimum-version` in force at each of these commits: the
+    /// highest one named by it or a commit before it.
+    fn floors(&self, commits: &[&Commit]) -> Vec<Option<TagVersion>> {
+        commits
+            .iter()
+            .scan(None, |in_force, commit| {
+                *in_force = (*in_force).max(self.context.floor(commit, self.unit));
+                Some(*in_force)
+            })
+            .collect()
+    }
+
+    /// One stage: the base raised once per touching commit, each step lifted
+    /// to the floor in force where it is lower.
     fn single_stage(
         &self,
         head: &Commit,
@@ -488,18 +546,57 @@ impl Step<'_> {
         warned: &mut BTreeSet<String>,
         findings: &mut Vec<Finding>,
     ) -> Option<TagVersion> {
+        let mut commits = touching.to_vec();
+        commits.push(head);
+        let floors = self.floors(&commits);
+        // One stage gives out no pre-release, so a floor that names one is
+        // something no commit can reach, until a full release has passed it.
+        if let Some(Some(floor)) = floors.last()
+            && floor.is_pre()
+            && floor.version > self.base
+        {
+            findings.push(self.pre_release_floor(*floor, head));
+            return None;
+        }
         if !head.touches(&self.unit.path) {
             return None;
         }
         // When the commit carries the base, nothing lies since it and the
         // version is the base as it was released.
         let mut version = self.base;
-        for commit in touching {
+        for (commit, floor) in touching.iter().zip(floors) {
             let change = change(commit, warned, findings);
-            let floor = self.context.floor(commit, self.unit);
-            version = self.raise(version, change, floor, findings)?;
+            let raised = self.raise(version, change, findings)?;
+            version = match floor {
+                Some(floor) if !floor.is_pre() => raised.max(floor.version),
+                _ => raised,
+            };
         }
         Some(TagVersion::stable(version))
+    }
+
+    /// The error for a unit released in one stage whose floor in force is a
+    /// pre-release, at the line and column of the declaration at hand where
+    /// the floor is written, or where the unit's table is when it is not.
+    fn pre_release_floor(&self, floor: TagVersion, head: &Commit) -> Finding {
+        let place = head
+            .declaration
+            .as_deref()
+            .and_then(|object| self.context.history.declarations.get(object))
+            .and_then(|text| locate(text, owner(self.unit)))
+            .map_or_else(String::new, |(line, column)| {
+                format!("{DECLARATION}, line {line}, column {column}: ")
+            });
+        Finding::error(
+            Rule::PreReleaseMinimum,
+            format!(
+                "{place}the minimum version in force is {floor}, a pre-release, and this unit is \
+                 released in one stage, which gives out no pre-release. Write \
+                 minimum-version = \"{}\", or release the unit in two stages",
+                floor.version
+            ),
+        )
+        .about(self.unit.name.clone())
     }
 
     /// Two stages: the base raised once by the highest change since it, as a
@@ -528,47 +625,100 @@ impl Step<'_> {
             .iter()
             .map(|commit| change(commit, warned, findings))
             .fold(Change::Patch, Change::max);
+        let mut commits = touching.to_vec();
+        commits.push(head);
+        let floors = self.floors(&commits);
         // The highest floor since the base: a floor lowered within the cycle
         // must not take the target below a pre-release already given out.
-        let floor = touching
-            .iter()
-            .copied()
-            .chain([head])
-            .filter_map(|commit| self.context.floor(commit, self.unit))
-            .max();
-        let target = self.raise(self.base, highest, floor, findings)?;
-        Some(if promoted {
-            TagVersion::stable(target)
-        } else {
-            // The commit at hand is the newest of the touching commits.
-            TagVersion::pre(target, u64::try_from(touching.len()).unwrap_or(u64::MAX))
-        })
+        let in_force = floors.last().copied().flatten();
+        let raised = self.raise(self.base, highest, findings)?;
+        let target = in_force.map_or(raised, |floor| raised.max(floor.version));
+        if promoted {
+            return Some(TagVersion::stable(target));
+        }
+        // The commit at hand is the newest of the touching commits. Each one
+        // is numbered one after the one before it, and a pre-release floor of
+        // the target sets the number of the commit it comes into force at.
+        let mut number: u64 = 0;
+        for floor in &floors[..touching.len()] {
+            let at_least = floor
+                .filter(|floor| floor.version == target)
+                .and_then(|floor| floor.pre)
+                .unwrap_or(0);
+            let Some(next) = number.checked_add(1) else {
+                findings.push(self.exhausted(
+                    &TagVersion::pre(target, number),
+                    "the number of a pre-release already is the largest one a version can carry",
+                ));
+                return None;
+            };
+            number = next.max(at_least);
+        }
+        Some(TagVersion::pre(target, number))
     }
 
-    /// A version raised once and lifted to the floor where it is lower, or the
-    /// finding that it cannot be raised.
+    /// A version raised once, or the finding that it cannot be raised.
     fn raise(
         &self,
         version: Version,
         change: Change,
-        floor: Option<Version>,
         findings: &mut Vec<Finding>,
     ) -> Option<Version> {
-        let Some(raised) = version.raised(change) else {
-            findings.push(
-                Finding::error(
-                    Rule::ExhaustedVersion,
-                    format!(
-                        "{version} cannot be raised any further: the field a {change:?} change \
-                         raises already holds the largest number a version can carry"
-                    ),
-                )
-                .about(self.unit.name.clone()),
-            );
-            return None;
-        };
-        Some(floor.map_or(raised, |floor| raised.max(floor)))
+        let raised = version.raised(change);
+        if raised.is_none() {
+            findings.push(self.exhausted(
+                &version,
+                &format!(
+                    "the field a {change:?} change raises already holds the largest number a \
+                     version can carry"
+                ),
+            ));
+        }
+        raised
     }
+
+    /// The error that a version cannot be raised any further.
+    fn exhausted(&self, version: &dyn std::fmt::Display, why: &str) -> Finding {
+        Finding::error(
+            Rule::ExhaustedVersion,
+            format!("{version} cannot be raised any further: {why}"),
+        )
+        .about(self.unit.name.clone())
+    }
+}
+
+/// Where a declaration writes the `minimum-version` of a unit, as a line and a
+/// column counted from 1, or where it writes the unit's table when it names
+/// none there. The column is that of the value, as a reading error gives it.
+fn locate(text: &str, unit: &UnitName) -> Option<(usize, usize)> {
+    // A step that finds nothing leaves the finding without a place; it does
+    // not stand in the way of the finding itself.
+    let document = Document::parse(text).ok();
+    let table = document.as_ref().and_then(|document| match unit {
+        UnitName::Repository => document.get("repo"),
+        UnitName::Component(name) => document
+            .get("component")
+            .and_then(|components| components.get(name.as_str())),
+    });
+    table
+        .and_then(|table| {
+            table
+                .get("minimum-version")
+                .and_then(Item::span)
+                .or_else(|| table.span())
+        })
+        .and_then(|span| text.get(..span.start))
+        .map(|before| {
+            let line = before.matches('\n').count() + 1;
+            let column = before
+                .rsplit('\n')
+                .next()
+                .unwrap_or_default()
+                .chars()
+                .count()
+                + 1;
+            (line, column)
+        })
 }
 
 /// What a commit asks of the version. A message that is not a Conventional

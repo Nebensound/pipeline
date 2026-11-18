@@ -15,7 +15,7 @@ use crate::names::{
 use crate::path::RelativePath;
 use crate::register::Register;
 use crate::tree::Tree;
-use crate::version::Version;
+use crate::version::TagVersion;
 
 /// Where a unit came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,7 +133,7 @@ pub enum MinimumVersionSource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedMinimumVersion {
     /// The floor.
-    pub version: Version,
+    pub version: TagVersion,
     /// Where it came from.
     pub source: MinimumVersionSource,
 }
@@ -339,7 +339,7 @@ fn release(
     }
 }
 
-fn minimum_version(written: Option<Version>) -> Option<ResolvedMinimumVersion> {
+fn minimum_version(written: Option<TagVersion>) -> Option<ResolvedMinimumVersion> {
     written.map(|version| ResolvedMinimumVersion {
         version,
         source: MinimumVersionSource::Written,
