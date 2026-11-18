@@ -3,21 +3,26 @@
 //! What a repository holds is decided by **Git**. A directory walk would also
 //! count what nobody versions — `target/`, `node_modules/`, yesterday's
 //! half-finished file — and phase 0 would judge things the repository does not
-//! have.
+//! have. Git also holds the history and the tags every version is read from.
 
+use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 use std::{fs, io};
 
 use nebensound_declaration::central::CentralError;
+use nebensound_declaration::history::{Commit, Tag};
 use nebensound_declaration::path::{PathError, RelativePath};
 use nebensound_declaration::register::{BUILTIN_DEFAULTS, BUILTIN_REGISTER};
-use nebensound_declaration::{Analysis, Central, Declaration, ReadError, Tree, analyse};
+use nebensound_declaration::{Analysis, Central, Declaration, History, ReadError, Tree, analyse};
 use thiserror::Error;
 
 /// Where the declaration of a repository lies.
-pub const DECLARATION: &str = ".nebensound/repo.toml";
+pub const DECLARATION: &str = nebensound_declaration::history::DECLARATION;
+
+/// Where the full releases of a unit released in two stages are promoted to.
+const RELEASE_BRANCH: &str = "refs/remotes/origin/release";
 
 /// Why a repository could not be read.
 #[derive(Debug, Error)]
@@ -148,19 +153,7 @@ impl Repository {
     pub fn tree(&self) -> Result<Tree, Error> {
         // -z: git quotes unusual names otherwise, and the quotes would be read
         // as part of the path.
-        let listing = Command::new(&self.git)
-            .arg("-C")
-            .arg(&self.root)
-            .args(["ls-files", "-z"])
-            .output();
-        let output = match listing {
-            Ok(output) if output.status.success() => output,
-            Ok(output) => {
-                return Err(self.git_failed(&String::from_utf8_lossy(&output.stderr)));
-            }
-            Err(error) => return Err(self.git_failed(&error.to_string())),
-        };
-        self.tree_of(&output.stdout)
+        self.tree_of(&self.git_output(&["ls-files", "-z"])?)
     }
 
     /// The same tree from a listing that is already at hand, entries separated
@@ -242,7 +235,126 @@ impl Repository {
     pub fn analyse(&self, central: &Central) -> Result<Analysis, Error> {
         let declaration = self.declaration()?;
         let tree = self.tree()?;
-        Ok(analyse(&declaration, central, &tree))
+        let history = self.history()?;
+        Ok(analyse(&declaration, central, &tree).with_history(&history))
+    }
+
+    /// What Git says about the commit at hand and the releases around it.
+    ///
+    /// A repository without a commit has an empty history, and a shallow
+    /// clone one that says only that it is shallow: what it holds of the
+    /// history would give versions that are wrong.
+    ///
+    /// Every option a setting of the person running it could change is given
+    /// on the command line, so that the answer does not depend on their
+    /// configuration: rename detection would hide the old path of a moved
+    /// file, and a root commit not shown as a creation would touch nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Git`] when git does not run or does not answer.
+    pub fn history(&self) -> Result<History, Error> {
+        let head = self.commit("HEAD")?;
+        if self.git_output(&["rev-parse", "--is-shallow-repository"])? == b"true\n" {
+            return Ok(History {
+                shallow: true,
+                ..History::default()
+            });
+        }
+        let release = self.commit(RELEASE_BRANCH)?;
+        let tags = tags(&self.git_output(&[
+            "for-each-ref",
+            "--format=%(refname)%00%(objecttype)%00%(objectname)%00%(*objecttype)%00%(*objectname)",
+            "refs/tags/",
+        ])?);
+        let Some(head) = head else {
+            return Ok(History {
+                release,
+                tags,
+                ..History::default()
+            });
+        };
+        let mut reachable = vec!["rev-list", "--parents", head.as_str()];
+        reachable.extend(release.as_deref());
+        let parents = parents(&self.git_output(&reachable)?);
+        let line = line(&self.git_output(&[
+            "-c",
+            "log.showRoot=true",
+            "log",
+            "--first-parent",
+            "--diff-merges=first-parent",
+            "-z",
+            "--raw",
+            "--no-abbrev",
+            "--no-renames",
+            "--no-relative",
+            "--ignore-submodules=none",
+            "--no-color",
+            "--no-notes",
+            "--no-show-signature",
+            "--format=%x00%H%x00%P%x00%B",
+            head.as_str(),
+        ])?);
+        let mut declarations = BTreeMap::new();
+        for object in line
+            .iter()
+            .filter_map(|commit| commit.declaration.as_deref())
+        {
+            if !declarations.contains_key(object) {
+                let text = self.git_output(&["cat-file", "blob", object])?;
+                declarations.insert(
+                    object.to_owned(),
+                    String::from_utf8_lossy(&text).into_owned(),
+                );
+            }
+        }
+        Ok(History {
+            shallow: false,
+            line,
+            parents,
+            release,
+            tags,
+            declarations,
+        })
+    }
+
+    /// The commit a reference names, or [`None`] when it names none.
+    fn commit(&self, reference: &str) -> Result<Option<String>, Error> {
+        let output = self.git(&[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{reference}^{{commit}}"),
+        ])?;
+        match output.status.code() {
+            Some(0) => Ok(Some(
+                String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+            )),
+            // `--verify --quiet` says "there is no such commit" this way, and
+            // only this way.
+            Some(1) => Ok(None),
+            _ => Err(self.git_failed(&String::from_utf8_lossy(&output.stderr))),
+        }
+    }
+
+    /// What git prints, when it succeeds.
+    fn git_output(&self, args: &[&str]) -> Result<Vec<u8>, Error> {
+        let output = self.git(args)?;
+        if output.status.success() {
+            Ok(output.stdout)
+        } else {
+            Err(self.git_failed(&String::from_utf8_lossy(&output.stderr)))
+        }
+    }
+
+    /// One call of git in the repository.
+    fn git(&self, args: &[&str]) -> Result<Output, Error> {
+        Command::new(&self.git)
+            .arg("-C")
+            .arg(&self.root)
+            .args(args)
+            .output()
+            .map_err(|error| self.git_failed(&error.to_string()))
     }
 
     fn git_failed(&self, message: &str) -> Error {
@@ -251,4 +363,99 @@ impl Repository {
             message: message.trim().to_owned(),
         }
     }
+}
+
+/// The tags from `for-each-ref`, one per line, its fields separated by a zero
+/// byte. A reference name holds no control character, so the lines cannot be
+/// confused.
+fn tags(listing: &[u8]) -> Vec<Tag> {
+    String::from_utf8_lossy(listing)
+        .lines()
+        .map(|line| {
+            let fields: Vec<&str> = line.split('\0').collect();
+            let field = |index: usize| fields.get(index).copied().unwrap_or_default();
+            // An annotated tag points at a tag object, which points on.
+            let commit = match (field(1), field(3)) {
+                ("commit", _) => Some(field(2).to_owned()),
+                ("tag", "commit") => Some(field(4).to_owned()),
+                _ => None,
+            };
+            let name = field(0);
+            Tag {
+                name: name.strip_prefix("refs/tags/").unwrap_or(name).to_owned(),
+                commit,
+            }
+        })
+        .collect()
+}
+
+/// The parents of every commit, from `rev-list --parents`: one commit per
+/// line, followed by its parents.
+fn parents(listing: &[u8]) -> BTreeMap<String, Vec<String>> {
+    String::from_utf8_lossy(listing)
+        .lines()
+        .map(|line| {
+            let mut ids = line.split(' ').map(ToOwned::to_owned);
+            (ids.next().unwrap_or_default(), ids.collect())
+        })
+        .collect()
+}
+
+/// The first-parent line from `log --raw`.
+///
+/// Every commit starts with an empty field, then its hash, its parents and its
+/// message. Then each file it changed follows in two fields: what changed —
+/// both modes, both objects and a letter — the first one behind a newline, and
+/// then the path. A path is never empty and a message holds no zero byte, so
+/// an empty field after the message can only start the next commit.
+///
+/// Which object holds the declaration at a commit follows from the line: the
+/// object a commit changes it to, otherwise what its first parent holds.
+fn line(listing: &[u8]) -> Vec<Commit> {
+    let text = String::from_utf8_lossy(listing);
+    let mut fields = text.split('\0').peekable();
+    let mut commits = Vec::new();
+    // Per commit, what it did to the declaration: set it to an object, or
+    // removed it.
+    let mut declared: Vec<Option<Option<String>>> = Vec::new();
+    while fields.next().is_some() {
+        let (Some(id), Some(parents), Some(message)) =
+            (fields.next(), fields.next(), fields.next())
+        else {
+            break;
+        };
+        let mut paths = Vec::new();
+        let mut declaration = None;
+        while let Some(change) = fields.next_if(|field| !field.is_empty()) {
+            let path = fields.next().unwrap_or_default();
+            if path == DECLARATION {
+                // The fourth word is the object after the change; a removed
+                // file has none, written as zeros.
+                let object = change.split(' ').nth(3).unwrap_or_default();
+                declaration = Some(
+                    Some(object.to_owned())
+                        .filter(|object| object.bytes().any(|byte| byte != b'0')),
+                );
+            }
+            paths.push(path.to_owned());
+        }
+        declared.push(declaration);
+        commits.push(Commit {
+            id: id.to_owned(),
+            parents: parents.split_whitespace().map(ToOwned::to_owned).collect(),
+            message: message.to_owned(),
+            paths,
+            declaration: None,
+        });
+    }
+    // Oldest first: the first commit of the line is a creation, so what it
+    // holds is what it adds.
+    let mut current = None;
+    for (commit, change) in commits.iter_mut().zip(declared).rev() {
+        if let Some(change) = change {
+            current = change;
+        }
+        commit.declaration.clone_from(&current);
+    }
+    commits
 }

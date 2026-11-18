@@ -244,11 +244,12 @@ itself is included.
 - A unit that generates children leaves the building to them, also when it
   carries a version beside theirs.
 
-Whether a unit carries a version decides today whether the plan names its
-build, and whether it may publish and select version writers. The report of
-phase 0 names the file that is to hold the version: `.nebensound/version` for
-the repository, `.nebensound/versions/<name>` for a component. Versions are not
-computed, written or tagged yet.
+Whether a unit carries a version decides whether phase 0 resolves one for it
+(see [Versions](#versions)), whether the plan names its build, and whether it
+may publish and select version writers. The report of phase 0 names the file
+that is to hold the version: `.nebensound/version` for the repository,
+`.nebensound/versions/<name>` for a component. Versions are not written or
+tagged yet.
 
 ## Releases
 
@@ -284,8 +285,78 @@ A generated unit takes both from the unit that generated it. The report of phase
 minimum version, each with where it came from: written on the unit, the default
 of its publish targets, or inherited from the unit that generated it.
 
-Neither field changes a run yet: versions are not computed, tagged or released
-so far.
+Both fields take effect where the version of a commit is resolved, as described
+under [Versions](#versions). Nothing is tagged or released yet.
+
+## Versions
+
+Tags are the truth, and no version is stored in the tree. Phase 0 resolves for
+every unit that carries a version which version the commit at hand has, from
+Git alone, and `nebensound plan` lists them under `versions` (see
+[the tool's README](../tools/nebensound/README.md#the-plan)).
+
+### Tag names
+
+| Unit                            | Full release                 | Pre-release                        |
+| ------------------------------- | ---------------------------- | ---------------------------------- |
+| The repository                  | `vX.Y.Z`                     | `vX.Y.Z-pre.N`                     |
+| A component                     | `<component>-vX.Y.Z`         | `<component>-vX.Y.Z-pre.N`         |
+| A unit a component generates    | `<component>-<entry>-vX.Y.Z` | `<component>-<entry>-vX.Y.Z-pre.N` |
+| A unit the repository generates | `<entry>-vX.Y.Z`             | `<entry>-vX.Y.Z-pre.N`             |
+
+Everything before `X.Y.Z` is the unit's **prefix**: `v`, `<component>-v`, and so
+on. The repository has no name, so a unit it generates is named like a
+component. Tags are matched strictly: `X.Y.Z` as `minimum-version` takes it, and
+`N` a number from 1 without a leading zero. A tag belongs to the unit whose
+prefix it starts with and whose version reads after it; one that reads as no
+unit's release belongs to the unit with the longest prefix it starts with.
+Because a generated unit's prefix carries its parent's name, it can meet another
+unit's prefix (a component `docs-guide` beside the entry `guide` of a component
+`docs`); phase 0 refuses that as `ungeneratable-name`.
+
+### How a version is resolved
+
+- **The base** is the unit's highest full release on a commit that `HEAD`
+  contains. For a unit released in two stages that commit must also be
+  contained in `origin/release`. Without such a tag the base is `0.0.0`.
+- **A commit touches a unit** when it changes a file below the unit's path, or
+  `.nebensound/repo.toml`. The repository is touched by every commit. Only the
+  first-parent line of `HEAD` counts, and a merge commit touches nothing. A
+  moved or removed file touches the unit it left as well.
+- **The change of a commit** follows from its message as a
+  [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/): a
+  breaking change (`!` after the type, or a `BREAKING CHANGE:` footer) is major,
+  `feat` is minor, everything else is patch. Below `0.1.0` every change is a
+  patch. A message that is not a Conventional Commit counts as a patch.
+- **One stage**: a commit that touches the unit is the base raised once per
+  touching commit since the base, each by its own change.
+- **Two stages**: the target is the base raised once by the highest change among
+  the touching commits since the base. A touching commit is `<target>-pre.N`,
+  `N` being its position among them, counted from 1. The commit a merge into
+  `release` promotes is `<target>`; promoted with nothing since the base, it
+  releases nothing.
+- **`minimum-version`** lifts a raised version where it is lower, as the
+  declaration of the raised commit names it. In one stage it lifts each step,
+  so the commits after the lift go on from it.
+- A commit that carries its unit's base is that release, also when it is read
+  again.
+- A commit that does not touch the unit has no version, except the promoted
+  commit of a unit released in two stages.
+
+The version is a function of the history, not of the moment: every commit on
+`main` raises on its own, so two runs on `main` at the same time come to
+different numbers without waiting for each other, and a commit comes to the same
+version whether the tags of the commits before it are set yet or not.
+
+### What the history must hold
+
+Phase 0 reads the whole history and every tag. A shallow clone is the error
+`shallow-clone`, and a unit released in two stages needs the branch
+`origin/release` (`missing-release-branch`). The job `nebensound / Declare`
+checks the repository out with both. A release tag on a commit `HEAD` does not
+contain is passed over without a finding: it lies in history this commit does
+not have, such as a newer release, and whether it counts is not this commit's
+to judge.
 
 ## Findings
 
@@ -419,6 +490,57 @@ file.
 
 Warning. A unit has an ecosystem watched and holds no manifest of it. Remove the
 ecosystem from its `dependabot` list. An ecosystem of the base set is exempt.
+
+### `unexpected-tag`
+
+Warning. A tag carries a unit's prefix and is no release of that unit, so it
+does not count: it does not read `<prefix>X.Y.Z` or `<prefix>X.Y.Z-pre.N`, it
+points at something other than a commit, or it is a full release of a unit
+released in two stages on a commit `origin/release` does not contain. A person
+with write access can push any tag; only the releases the pipeline makes
+count. Delete the tag, or rename it so that it carries no unit's prefix.
+
+### `unconventional-commit`
+
+Warning. A commit the version of a unit is raised by has a message that is not a
+Conventional Commit, `<type>[(<scope>)][!]: <description>`. It counts as a patch.
+The finding names the commit once, however many units it touches. History is
+not rewritten for it; the commits after it are what to write as Conventional
+Commits.
+
+### `shallow-clone`
+
+Error. The repository is a shallow clone, so the history that counts the
+commits since a release, and the tags of the releases, may not be there. Check
+the repository out with its whole history and its tags (`fetch-depth: 0` for
+`actions/checkout`), or run `git fetch --unshallow --tags`.
+
+### `missing-release-branch`
+
+Error. A unit is released in two stages, and there is no branch
+`origin/release`. Its full releases are the commits promoted there, so neither
+its base nor its next version can be told. Create the branch and fetch it, or
+release the unit in one stage.
+
+### `unreleased-before-switch`
+
+Error. A unit is released in one stage, and its newest tag is a pre-release:
+it was released in two stages, and its last pre-release never became a full
+release. Promote it into `release` before switching to one stage, so that the
+versions go on from a full release.
+
+### `exhausted-version`
+
+Error. A unit's version cannot be raised: the field a change raises already
+holds 18446744073709551615, the largest number a version can carry. There is
+no version after it, and wrapping round to zero would move the version
+backwards.
+
+### `pointless-release-branch`
+
+Warning. The branch `origin/release` exists, and no unit that carries a version
+is released in two stages, so nothing is ever promoted there. Delete the
+branch, or release a unit in two stages.
 
 ### When the file cannot be read
 

@@ -8,7 +8,7 @@ mod support;
 use std::fs;
 
 use nebensound::repository::{Repository, central, central_from};
-use support::{QUIET, directory, repository};
+use support::{Git, QUIET, directory, repository};
 
 #[test]
 fn the_built_in_central_data_reads() {
@@ -125,4 +125,79 @@ fn a_repository_knows_where_it_lies() {
     let dir = directory(&[]);
 
     assert_eq!(Repository::at(dir.path()).root(), dir.path());
+}
+
+#[test]
+fn without_a_git_program_there_is_no_history_either() {
+    let git = Git::new();
+    git.write(&[(".nebensound/repo.toml", QUIET)])
+        .commit("chore: start");
+
+    let error = Repository::at(git.path())
+        .with_git("git-that-is-not-installed-here")
+        .history()
+        .expect_err("there is no such program");
+
+    assert!(error.to_string().contains("git does not list"), "{error}");
+}
+
+/// A git that refuses every call naming `word` and passes every other one on.
+///
+/// Written by a shell rather than by this process: a file this process held
+/// open for writing could be inherited by a process another test starts at
+/// that moment, and running it would then fail as busy.
+#[cfg(unix)]
+fn refusing(dir: &std::path::Path, word: &str) -> std::path::PathBuf {
+    let path = dir.join(format!("git-refusing-{}", word.len()));
+    let script = format!(
+        "#!/bin/sh\nfor argument in \"$@\"; do\n  if [ \"$argument\" = '{word}' ]; then\n    \
+         echo 'refused {word}' >&2\n    exit 3\n  fi\ndone\nexec git \"$@\"\n"
+    );
+    let status = std::process::Command::new("sh")
+        .args([
+            "-c",
+            "printf '%s' \"$2\" > \"$1\" && chmod 755 \"$1\"",
+            "sh",
+        ])
+        .arg(&path)
+        .arg(script)
+        .status()
+        .expect("a shell");
+    assert!(status.success());
+    path
+}
+
+#[cfg(unix)]
+#[test]
+fn a_git_that_does_not_answer_about_the_history_is_reported() {
+    let git = Git::new();
+    git.write(&[(".nebensound/repo.toml", QUIET), ("README.md", "# x\n")]);
+    let first = git.commit("chore: start");
+    git.tag("v0.0.1", &first);
+    git.promote();
+    let tools = tempfile::tempdir().expect("a directory");
+
+    for word in [
+        "--is-shallow-repository",
+        "refs/remotes/origin/release^{commit}",
+        "for-each-ref",
+        "rev-list",
+        "log",
+        "cat-file",
+    ] {
+        let error = Repository::at(git.path())
+            .with_git(refusing(tools.path(), word))
+            .history()
+            .expect_err(word);
+        assert!(
+            error.to_string().contains(&format!("refused {word}")),
+            "{word}: {error}"
+        );
+    }
+
+    let error = Repository::at(git.path())
+        .with_git(refusing(tools.path(), "log"))
+        .analyse(&central().expect("what is compiled into the tool"))
+        .expect_err("the history is part of phase 0");
+    assert!(error.to_string().contains("refused log"), "{error}");
 }

@@ -15,12 +15,15 @@
 //! that carries a version of its own builds. A unit that generates children
 //! leaves the building to them, also when it carries a version beside theirs
 //! (`self-and-child-*`): its build would cover the same files a second time.
+//!
+//! Beside it stands the version of every unit that carries one, as the history
+//! resolves it for the commit at hand.
 
 use nebensound_declaration::finding::UnitName;
 use nebensound_declaration::names::{BuildName, CheckName};
 use nebensound_declaration::path::RelativePath;
 use nebensound_declaration::resolve::Unit;
-use nebensound_declaration::{Analysis, Central};
+use nebensound_declaration::{Analysis, Central, TagVersion, UnitVersion};
 use serde_json::{Value, json};
 
 /// One unit with the checks that are started for it.
@@ -43,6 +46,8 @@ pub struct Planned {
 pub struct Plan {
     /// Every unit, repository first, in the order phase 0 resolved them.
     pub units: Vec<Planned>,
+    /// The version of every unit that carries one, in the same order.
+    pub versions: Vec<UnitVersion>,
 }
 
 /// Builds the plan from an analysis.
@@ -75,7 +80,10 @@ pub fn plan(analysis: &Analysis, central: &Central) -> Plan {
             }
         })
         .collect();
-    Plan { units: planned }
+    Plan {
+        units: planned,
+        versions: analysis.versions.clone(),
+    }
 }
 
 /// Whether `outer` already runs this check over everything `unit` holds.
@@ -109,6 +117,11 @@ impl Plan {
     /// entry per check that is started, because a matrix takes a list and
     /// cannot unfold a list inside one.
     ///
+    /// `versions` is one entry per unit that carries a version: what its tags
+    /// start with, how it is released, its last full release as `base`, and
+    /// the `version` of the commit at hand, null when the commit does not
+    /// touch the unit.
+    ///
     /// One line, so that it can be handed on as a step output as it is. Keys
     /// stand in alphabetical order; nothing that reads JSON depends on it.
     #[must_use]
@@ -117,7 +130,7 @@ impl Plan {
             .units
             .iter()
             .map(|unit| {
-                let mut entry = identity(unit);
+                let mut entry = identity(&unit.name, &unit.path);
                 entry["checks"] = unit.checks.iter().map(CheckName::as_str).collect();
                 entry["build"] = json!(unit.build.as_ref().map(BuildName::as_str));
                 entry
@@ -128,15 +141,27 @@ impl Plan {
             .iter()
             .flat_map(|unit| {
                 unit.checks.iter().map(move |check| {
-                    let mut entry = identity(unit);
+                    let mut entry = identity(&unit.name, &unit.path);
                     entry["check"] = json!(check.as_str());
                     entry
                 })
             })
             .collect();
+        let versions: Vec<Value> = self
+            .versions
+            .iter()
+            .map(|unit| {
+                let mut entry = identity(&unit.name, &unit.path);
+                entry["prefix"] = json!(unit.prefix);
+                entry["release"] = json!(unit.release.as_str());
+                entry["base"] = json!(unit.base.to_string());
+                entry["version"] = json!(unit.version.as_ref().map(TagVersion::to_string));
+                entry
+            })
+            .collect();
         // Writing a value cannot fail: every key is a string, and nothing here
         // has a serializer of its own that could refuse.
-        json!({ "units": units, "checks": checks }).to_string()
+        json!({ "units": units, "checks": checks, "versions": versions }).to_string()
     }
 }
 
@@ -145,10 +170,10 @@ impl Plan {
 /// The repository has no name — its tag carries no prefix either — so the kind
 /// stands beside it rather than a reserved word a component could also be
 /// called.
-fn identity(unit: &Planned) -> Value {
-    let (kind, name) = match &unit.name {
+fn identity(name: &UnitName, path: &RelativePath) -> Value {
+    let (kind, name) = match name {
         UnitName::Repository => ("repository", Value::Null),
         UnitName::Component(name) => ("component", json!(name.as_str())),
     };
-    json!({ "kind": kind, "name": name, "path": unit.path.to_string() })
+    json!({ "kind": kind, "name": name, "path": path.to_string() })
 }

@@ -557,6 +557,15 @@ fn every_rule_has_a_code_of_its_own() {
         Rule::TargetDemandsCheck,
         Rule::PublishWithoutVersion,
         Rule::VersionWriterWithoutVersion,
+        Rule::UnwatchedManifest,
+        Rule::PointlessWatch,
+        Rule::UnexpectedTag,
+        Rule::UnconventionalCommit,
+        Rule::ShallowClone,
+        Rule::MissingReleaseBranch,
+        Rule::UnreleasedBeforeSwitch,
+        Rule::ExhaustedVersion,
+        Rule::PointlessReleaseBranch,
     ];
     let mut codes: Vec<_> = rules.iter().map(|rule| rule.code()).collect();
     codes.sort_unstable();
@@ -720,4 +729,59 @@ fn a_package_in_a_workspace_is_checked_by_the_workspace() {
         CRATE_FILES,
     );
     assert!(codes(&bare).contains(&"target-demands-check"));
+}
+
+#[test]
+fn every_kind_of_unit_has_a_tag_prefix_of_its_own() {
+    let analysis = run(
+        "[repo]\nversioning = \"self-and-child-folders\"\n\n[component.docs]\npath = \
+         \"guides/docs\"\nversioning = \"child-files\"\n",
+        &["guides/docs/intro.md", "guides/docs/setup.md", "tools/a.md"],
+    );
+    assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
+
+    let prefixes: Vec<(String, String)> = analysis
+        .units
+        .iter()
+        .map(|unit| (unit.path.to_string(), unit.tag_prefix()))
+        .collect();
+    let expected = [
+        (".", "v"),
+        ("guides/docs", "docs-v"),
+        ("guides", "guides-v"),
+        ("tools", "tools-v"),
+        ("guides/docs/intro.md", "docs-intro-v"),
+        ("guides/docs/setup.md", "docs-setup-v"),
+    ];
+    for (path, prefix) in expected {
+        assert!(
+            prefixes.contains(&(path.to_owned(), prefix.to_owned())),
+            "{path}: {prefixes:?}"
+        );
+    }
+}
+
+#[test]
+fn a_generated_unit_cannot_take_another_units_tag_prefix() {
+    // `docs-guide-v` would be the tags of both.
+    let analysis = run(
+        "[repo]\n\n[component.docs]\npath = \"docs\"\nversioning = \"child-files\"\n\n\
+         [component.docs-guide]\npath = \"guide.md\"\n",
+        &["docs/guide.md", "docs/intro.md", "guide.md"],
+    );
+
+    let refused = found(&analysis, Rule::UngeneratableName).expect("the prefix is taken");
+    assert_eq!(refused.severity, Severity::Error);
+    assert!(refused.message.contains("docs-guide-v"), "{refused}");
+    assert_eq!(
+        refused.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("docs/guide.md")
+    );
+    let names: Vec<String> = analysis
+        .units
+        .iter()
+        .map(|unit| unit.name.to_string())
+        .collect();
+    assert!(names.contains(&"component intro".to_owned()), "{names:?}");
+    assert!(!names.contains(&"component guide".to_owned()), "{names:?}");
 }
