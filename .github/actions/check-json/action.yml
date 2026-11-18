@@ -1,0 +1,187 @@
+name: check-json
+description: >-
+  The JSON check over one unit: every `.json`, `.jsonc` and `.geojson` file
+  the unit holds parses and is formatted the way Prettier writes it.
+
+# One input, and it is not a setting: where the unit is. It comes from the plan
+# of phase 0. The files are what Git tracks below that path, so a file nobody
+# committed is not judged and a committed one is not missed. Every step runs at
+# the repository root, where the calling job checked the repository out.
+
+inputs:
+  working-directory:
+    description: The directory of the unit, as the plan names it.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # Paths stay relative to the repository root, and every step runs there:
+    # that is where the repository keeps its Prettier configuration, and where
+    # an annotation has to point.
+    - name: Find the JSON files
+      id: files
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        list="$RUNNER_TEMP/check-json-files"
+        # The unit's path is taken literally: as a plain pathspec, a path
+        # holding `[`, `*`, `?` or a leading `:` would select other files than
+        # its own. The extension is then matched here, not by Git.
+        if [ "$UNIT" = "." ]; then scope=(); else scope=(":(top,literal)${UNIT%/}"); fi
+        : > "$list"
+        while IFS= read -r -d '' file; do
+          case "$file" in
+            *.json | *.jsonc | *.geojson) printf '%s\0' "$file" >> "$list" ;;
+          esac
+        done < <(git ls-files -z -- "${scope[@]}")
+        count="$(tr -cd '\0' < "$list" | wc -c)"
+        echo "count=$count" >> "$GITHUB_OUTPUT"
+        echo "list=$list" >> "$GITHUB_OUTPUT"
+        if [ "$count" -eq 0 ]; then
+          echo "No JSON file below '$UNIT'; there is nothing to check."
+        else
+          echo "$count JSON file(s) to check:"
+          tr '\0' '\n' < "$list"
+        fi
+
+    # Pinned, installed outside the checkout so that nothing of it ends up in
+    # the tree being checked.
+    - name: Set up Node.js
+      if: steps.files.outputs.count != '0'
+      uses: actions/setup-node@v7
+      with:
+        node-version: 24
+
+    # Biome ships its binary as an optional dependency, so its install scripts
+    # are not needed either.
+    - name: Install Prettier and Biome
+      id: tools
+      if: steps.files.outputs.count != '0'
+      shell: bash
+      run: |
+        set -euo pipefail
+        npm install --prefix "$RUNNER_TEMP/check-json-tools" --no-save --no-package-lock \
+          --ignore-scripts --no-fund --no-audit prettier@3.9.6 @biomejs/biome@2.5.15
+
+    # The three checks below each run even when one before them failed, so a
+    # single run reports every broken and every unformatted file at once.
+
+    # Strict JSON: no comments, no trailing commas. Prettier would accept both
+    # and so cannot be the judge of validity.
+    - name: Every .json and .geojson file parses
+      if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+      shell: bash
+      env:
+        LIST: ${{ steps.files.outputs.list }}
+      run: |
+        set -euo pipefail
+        # A file name is a property of the workflow command: escaped, so that
+        # a `,` or `:` in it does not cut the name short.
+        property() {
+          local value="$1"
+          value="${value//'%'/'%25'}"
+          value="${value//':'/'%3A'}"
+          value="${value//','/'%2C'}"
+          printf '%s' "$value"
+        }
+        failed=0
+        while IFS= read -r -d '' file; do
+          case "$file" in
+            *.jsonc) continue ;;
+          esac
+          # One document, exactly: `jq empty` would also pass an empty file
+          # and a file holding two values. Slurped, the file is the list of
+          # its values, and that list has to hold one.
+          status=0
+          jq --exit-status --slurp 'length == 1' "$file" \
+            > /dev/null 2> "$RUNNER_TEMP/check-json-error" || status=$?
+          if [ "$status" -eq 1 ]; then
+            echo "::error file=$(property "$file")::not valid JSON: the file holds $(jq --slurp 'length' "$file") values, a JSON document is exactly one"
+            failed=1
+          elif [ "$status" -ne 0 ]; then
+            echo "::error file=$(property "$file")::not valid JSON: $(cat "$RUNNER_TEMP/check-json-error")"
+            failed=1
+          fi
+        done < "$LIST"
+        exit "$failed"
+
+    # Strict JSONC as jsonc.org defines it: JSON plus `//` and `/* */`
+    # comments, and trailing commas, which the specification lets a parser
+    # accept and which Prettier writes into every multi-line `.jsonc` file.
+    # Prettier's own parser would also take unquoted keys, single quotes,
+    # hexadecimal numbers and NaN. Biome is used as a parser only: its
+    # configuration here switches off formatter, assists and every lint rule,
+    # and a repository's own Biome configuration is not read.
+    - name: Every .jsonc file parses
+      if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+      shell: bash
+      env:
+        LIST: ${{ steps.files.outputs.list }}
+      run: |
+        set -euo pipefail
+        files=()
+        while IFS= read -r -d '' file; do
+          case "$file" in
+            *.jsonc) files+=("$file") ;;
+          esac
+        done < "$LIST"
+        if [ "${#files[@]}" -eq 0 ]; then
+          echo "No .jsonc file to parse."
+          exit 0
+        fi
+        # Biome names files by absolute path; an annotation needs them
+        # relative to the repository root.
+        status=0
+        "$RUNNER_TEMP/check-json-tools/node_modules/.bin/biome" lint \
+          --config-path="$GITHUB_ACTION_PATH" --reporter=github -- "${files[@]}" \
+          > "$RUNNER_TEMP/check-json-biome" || status=$?
+        root="$PWD/"
+        while IFS= read -r line; do
+          echo "${line//"$root"/}"
+        done < "$RUNNER_TEMP/check-json-biome"
+        echo "${#files[@]} .jsonc file(s) parsed."
+        exit "$status"
+
+    # Prettier reads the repository's own configuration, so a repository
+    # decides how it formats. It also reads the repository's .prettierignore,
+    # which can take files out of the check without a reason. That is
+    # temporary: until the plan carries the `[[exclude]]` entries of the
+    # declaration, it is the only way to exclude a file. Once it does (#10), no
+    # block reads a tool's ignore file any more. `.gitignore` takes nothing
+    # out: Prettier would read it too by default, and so pass a committed file
+    # that an ignored directory holds.
+    - name: Every JSON file is formatted
+      if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+      shell: bash
+      env:
+        LIST: ${{ steps.files.outputs.list }}
+      run: |
+        set -euo pipefail
+        status=0
+        # Without colours: on GitHub Actions Prettier colours `warn` and
+        # `error`, and the lines below would no longer match.
+        xargs -0 "$RUNNER_TEMP/check-json-tools/node_modules/.bin/prettier" \
+          --check --no-color --ignore-path .prettierignore < "$LIST" \
+          > "$RUNNER_TEMP/check-json-prettier" 2>&1 || status=$?
+        # Prettier names an unformatted file as `[warn] <file>` and one it
+        # cannot parse as `[error] <file>: <message>`; each becomes an
+        # annotation on its file and stays in the log as it is.
+        property() {
+          local value="$1"
+          value="${value//'%'/'%25'}"
+          value="${value//':'/'%3A'}"
+          value="${value//','/'%2C'}"
+          printf '%s' "$value"
+        }
+        while IFS= read -r line; do
+          echo "$line"
+          if [[ "$line" =~ ^\[warn\]\ (.+)$ ]] && [ -f "${BASH_REMATCH[1]}" ]; then
+            echo "::error file=$(property "${BASH_REMATCH[1]}")::not formatted the way Prettier writes it"
+          elif [[ "$line" =~ ^\[error\]\ ([^:]+):\ (.+)$ ]] && [ -f "${BASH_REMATCH[1]}" ]; then
+            echo "::error file=$(property "${BASH_REMATCH[1]}")::Prettier cannot read it: ${BASH_REMATCH[2]}"
+          fi
+        done < "$RUNNER_TEMP/check-json-prettier"
+        exit "$status"
