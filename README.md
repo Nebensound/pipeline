@@ -97,7 +97,8 @@ which is limited in size.
   the action's own configuration and no lint rule; a repository's Biome
   configuration is not read.
 - All three are formatted the way Prettier writes them, with the repository's
-  Prettier configuration and without its ignore files.
+  Prettier configuration, without its ignore files, and with `requirePragma`
+  and `checkIgnorePragma` set aside, which would pass a whole file unchecked.
 
 Every step runs even when one before it failed, so one run shows every finding.
 
@@ -105,7 +106,7 @@ Every step runs even when one before it failed, so one run shows every finding.
 
 [`.github/actions/check-markdown`](.github/actions/check-markdown) checks every `.md` and `.markdown` file of the unit:
 
-- Formatted the way Prettier writes it.
+- Formatted the way Prettier writes it, run as in `check-json`.
 - No Markdownlint finding. Where the repository brings no Markdownlint
   configuration, the one beside the action applies (`MD013` off, since Prettier
   does not wrap prose). Its rules hold; its `ignores`, a negated `globs` entry
@@ -117,7 +118,10 @@ Every step runs even when one before it failed, so one run shows every finding.
   the root, so excluded addresses, accepted status codes and timeouts stay the
   repository's configuration. An `exclude_path` there is held against the
   declaration by phase 0, like every setting that takes files out (see
-  [Exclusions](#exclusions)).
+  [Exclusions](#exclusions)). The block names `lychee.toml` as the
+  configuration, so a lychee table in `Cargo.toml`, `pyproject.toml` or
+  `package.json`, which lychee would otherwise read where there is no
+  `lychee.toml`, is not read.
 
 ### `check-rust`
 
@@ -127,7 +131,9 @@ workspace, the unit's path. The toolchain is the one the workspace pins in its
 packages claim. Neither is an input, so no repository can tell the check to look
 away:
 
-- Formatted the way `cargo fmt` writes it.
+- Formatted the way `cargo fmt` writes it: every member, and every path
+  dependency that is no member, as `cargo fmt --all` reaches it. Such a
+  dependency is formatted only; the steps below never reached it.
 - Clippy without a warning, with all features and with no default features.
 - Tests pass with all features and with no default features.
 - Documentation builds without a warning.
@@ -200,7 +206,7 @@ first key or table of `.nebensound/repo.toml`:
 
 [`.github/actions/check-yaml`](.github/actions/check-yaml) checks every `.yml` and `.yaml` file of the unit:
 
-- Formatted the way Prettier writes it.
+- Formatted the way Prettier writes it, run as in `check-json`.
 - No yamllint finding. Where the repository brings no yamllint configuration,
   the one beside the action applies: the defaults, less what contradicts
   Prettier or GitHub Actions. Its rules hold; its `ignore` and
@@ -224,7 +230,9 @@ No block lets a tool's own way of leaving files out take a file out: an ignore
 file needs no reason and can turn a check green that checked nothing.
 `.gitignore` takes nothing out either. The blocks read none of these settings,
 except lychee's `exclude_path`, which comes along with the `lychee.toml`
-`check-markdown` reads. Run by hand, the tools read all of them, so phase 0
+`check-markdown` reads. Settings in a tool's configuration that pass a whole
+file unchecked are set aside on the command line: Prettier's `requirePragma`
+and `checkIgnorePragma`. Run by hand, the tools read all of them, so phase 0
 holds them against the declaration and fails on every file one of them takes
 out that no `[[exclude]]` entry takes out (`unexcused-ignore`). For lychee,
 that also keeps `exclude_path` from taking a file out in the block: phase 0

@@ -89,11 +89,12 @@ runs:
     # package is out when the tool names its folder: the tool judges each
     # package by its own manifest and code, so a package inside an excluded
     # one that the declaration keeps in (`[[include]]`) is not named and stays
-    # in. What stays is every member not out; what is out is left out of every
-    # step below by name (`--exclude`, members only) and by its files
-    # (coverage). Each package carries the folders of the packages inside it,
-    # which coverage keeps counting. With all features, so that an optional
-    # path dependency is seen as well.
+    # in. What stays is every member not out, and every other local package
+    # not out, which is formatted only, as `cargo fmt --all` did; what is out
+    # is left out of every step below by name (`--exclude`, members only) and
+    # by its files (coverage). Each package carries the folders of the
+    # packages inside it, which coverage keeps counting. With all features, so
+    # that an optional path dependency is seen as well.
     - name: Find the packages
       id: packages
       shell: bash
@@ -109,18 +110,28 @@ runs:
               | [ .packages[] | select(.source == null)
                   | { id, name,
                       dir: (.manifest_path | ltrimstr($root + "/")
-                        | if . == "Cargo.toml" then "." else rtrimstr("/Cargo.toml") end) } ]
+                        | if . == "Cargo.toml" then "." else rtrimstr("/Cargo.toml") end),
+                      targets: [ .targets[] | { path: .src_path, edition } ] } ]
               | . as $local
               | [ $local[] | .dir as $dir
                   | { name, dir: $dir, member: (.id as $id | any($members[]; . == $id)),
                       nested: [ $local[].dir
                         | select(. != $dir and ($dir == "." or startswith($dir + "/"))) ],
-                      reason: (first($out[0][] | select(.path == $dir) | .reason) // null) } ]
+                      reason: (first($out[0][] | select(.path == $dir) | .reason) // null),
+                      targets } ]
               | { checked: [ .[] | select(.member and .reason == null) | .name ],
-                  excluded: [ .[] | select(.reason != null) ] }' > "$packages"
-        echo "json=$packages" >> "$GITHUB_OUTPUT"
-        echo "checked=$(jq '.checked | length' "$packages")" >> "$GITHUB_OUTPUT"
+                  others: [ .[] | select((.member | not) and .reason == null)
+                    | { name, dir, targets } ],
+                  excluded: [ .[] | select(.reason != null) | del(.targets) ] }' > "$packages"
+        {
+          echo "json=$packages"
+          echo "checked=$(jq '.checked | length' "$packages")"
+          echo "others=$(jq '.others | length' "$packages")"
+        } >> "$GITHUB_OUTPUT"
         echo "Checked: $(jq -r '.checked | join(", ")' "$packages")"
+        jq -r '.others[]
+          | "Formatted only, a path dependency that is no member: \(.name) at \(.dir)"' \
+          "$packages"
         jq -r '.excluded[]
           | "Left out of every step, \(if .member then "a member" else "a path dependency" end): \(.name) at \(.dir): \(.reason)"' \
           "$packages"
@@ -128,14 +139,19 @@ runs:
           echo "Every member of the workspace is excluded, so there is nothing to check."
         fi
 
-    # Only the members that stay: `--all` would take in every path dependency
-    # as well, inside the workspace or not. rustfmt names every file that
-    # differs on standard output, by its absolute path, and each one fails the
-    # step. On standard error it warns without failing (an option the
-    # toolchain does not support, say) and reports what keeps it from
-    # formatting; a line there that is not a warning fails the step.
+    # Every local package that is not out, and nothing of one that is:
+    # `cargo fmt --all` would take in the excluded ones as well, and
+    # `--package` takes members only. So the members that stay go through
+    # `cargo fmt --package`, and every other package that stays, a path
+    # dependency that is no member, goes to rustfmt the way `cargo fmt --all`
+    # hands it over: the root file of each of its targets, with the target's
+    # edition. rustfmt names every file that differs on standard output, by
+    # its absolute path, and each one fails the step. On standard error it
+    # warns without failing (an option the toolchain does not support, say)
+    # and reports what keeps it from formatting; a line there that is not a
+    # warning fails the step.
     - name: Formatting
-      if: steps.packages.outputs.checked != '0'
+      if: steps.packages.outputs.checked != '0' || steps.packages.outputs.others != '0'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
@@ -144,8 +160,24 @@ runs:
       run: |
         set -euo pipefail
         mapfile -t selected < <(jq -r '.checked[] | "--package=\(.)"' "$PACKAGES")
+        mapfile -t editions < <(jq -r '[.others[].targets[].edition] | unique | .[]' "$PACKAGES")
+        # rustfmt in check mode over everything that stays, with these
+        # options; one call per edition for the packages that are no member.
+        check() {
+          local failure=0 edition
+          if [ "${#selected[@]}" -gt 0 ]; then
+            cargo fmt "${selected[@]}" -- --check "$@" || failure=$?
+          fi
+          for edition in "${editions[@]}"; do
+            jq -j --arg edition "$edition" \
+              '.others[].targets[] | select(.edition == $edition) | "\(.path)\u0000"' \
+              "$PACKAGES" \
+              | xargs -0 rustfmt --edition "$edition" --check "$@" || failure=$?
+          done
+          return "$failure"
+        }
         status=0
-        cargo fmt "${selected[@]}" -- --check --files-with-diff \
+        check --files-with-diff \
           > "$RUNNER_TEMP/check-rust-fmt" 2> "$RUNNER_TEMP/check-rust-fmt-err" \
           || status=$?
         cat "$RUNNER_TEMP/check-rust-fmt-err" >&2
@@ -168,7 +200,7 @@ runs:
         fi
         # A failure that names no file is one, whatever standard error says.
         if [ ! -s "$RUNNER_TEMP/check-rust-fmt" ]; then
-          echo "cargo fmt failed with exit code $status and named no file."
+          echo "Formatting failed with exit code $status and named no file."
           failed=1
         fi
         while IFS= read -r line; do
@@ -183,7 +215,7 @@ runs:
         done < "$RUNNER_TEMP/check-rust-fmt"
         if [ "$failed" -ne 0 ]; then
           # The differences themselves, for the log.
-          cargo fmt "${selected[@]}" -- --check || true
+          check || true
         fi
         exit "$failed"
 
