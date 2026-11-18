@@ -92,7 +92,9 @@ workflow here states its permissions explicitly, so none relies on the default.
 
 ```sh
 gh api repos/Nebensound/pipeline/actions/permissions/workflow
-# expected: {"default_workflow_permissions":"read","can_approve_pull_request_reviews":false}
+# expected: {"default_workflow_permissions":"read",
+#           "can_approve_pull_request_reviews":false}
+# (the API returns it on one line)
 ```
 
 ## Checklist for the organization owner
@@ -107,5 +109,6 @@ are listed here with the exact call (and the response, if refused).
 
   ```sh
   gh api -X PUT orgs/Nebensound/actions/permissions/workflow \
-    -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false
+    -f default_workflow_permissions=read \
+    -F can_approve_pull_request_reviews=false
   ```
