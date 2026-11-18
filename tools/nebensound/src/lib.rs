@@ -10,7 +10,10 @@
 
 #[cfg(feature = "ui")]
 pub mod draw;
+pub mod files;
+pub mod ignored;
 pub mod output;
+pub mod packages;
 pub mod plan;
 pub mod reference;
 pub mod report;
@@ -66,6 +69,20 @@ pub enum Command {
     },
     /// Print which unit runs which check, as JSON for a matrix.
     Plan,
+    /// Print the files a check covers in a unit, less what `[[exclude]]` takes
+    /// out: what its building block checks.
+    Files {
+        /// The check, as the register names it.
+        check: String,
+        /// The path of the unit, as the plan names it.
+        unit: String,
+        /// End every path with a zero byte instead of a line break.
+        #[arg(short = 'z')]
+        zero: bool,
+    },
+    /// Print the Rust packages `[[exclude]]` takes out as a whole, each with
+    /// its reason, as JSON: what `check-rust` leaves out of every step.
+    ExcludedPackages,
     // It describes the format, not a repository, so it reads none.
     /// Print the JSON Schema of `.nebensound/repo.toml`, for editors and Taplo.
     Schema,
@@ -217,6 +234,14 @@ enum Job {
     Explain(RelativePath),
     /// Print which unit runs which check.
     Plan,
+    /// Print the files a check covers in a unit.
+    Files {
+        check: String,
+        unit: RelativePath,
+        zero: bool,
+    },
+    /// Print the packages taken out as a whole.
+    ExcludedPackages,
     /// Open the interface.
     #[cfg(feature = "ui")]
     Ui,
@@ -230,15 +255,23 @@ fn call(cli: &Cli) -> Result<Call, Failure> {
         None | Some(Command::Check) => Job::Check,
         Some(Command::Tree) => Job::Tree,
         Some(Command::Plan) => Job::Plan,
+        Some(Command::ExcludedPackages) => Job::ExcludedPackages,
         #[cfg(feature = "ui")]
         Some(Command::Ui) => Job::Ui,
-        Some(Command::Explain { path }) => {
-            Job::Explain(RelativePath::new(path).map_err(|source| Failure::Path {
-                value: path.clone(),
-                source,
-            })?)
-        }
+        Some(Command::Explain { path }) => Job::Explain(path_of(path)?),
+        Some(Command::Files { check, unit, zero }) => Job::Files {
+            check: check.clone(),
+            unit: path_of(unit)?,
+            zero: *zero,
+        },
     }))
+}
+
+fn path_of(value: &str) -> Result<RelativePath, Failure> {
+    RelativePath::new(value).map_err(|source| Failure::Path {
+        value: value.to_owned(),
+        source,
+    })
 }
 
 fn execute(
@@ -257,7 +290,12 @@ fn execute(
 
     let repository = Repository::at(&cli.repository);
     let central = central_from(register, defaults)?;
-    let analysis = repository.analyse(&central)?;
+    let analysis = match job {
+        // Asked for by the building blocks in a unit job, whose checkout holds
+        // only the commit at hand: the history is read in Declare.
+        Job::Files { .. } | Job::ExcludedPackages => repository.analyse_files(&central),
+        _ => repository.analyse(&central),
+    }?;
 
     match job {
         Job::Check => {
@@ -293,6 +331,33 @@ fn execute(
         Job::Plan => say(
             out,
             &format!("{}\n", plan::plan(&analysis, &central).to_json()),
+        ),
+        // The same reason as for the plan: a list read off a declaration with
+        // errors would check the wrong files.
+        Job::Files { .. } if analysis.failed() => say(
+            out,
+            "there is no file list: phase 0 found errors, and `check` says which\n",
+        ),
+        Job::Files { check, unit, zero } => match files::files(&analysis, &central, check, unit) {
+            Ok(list) => say(out, &files::render(&list, *zero)),
+            Err(refusal) => {
+                say(out, &format!("{refusal}\n"));
+                return Ok(FOUND);
+            }
+        },
+        // The same reason again: a package read off a declaration with errors
+        // could be left out without a valid reason.
+        Job::ExcludedPackages if analysis.failed() => say(
+            out,
+            "there is no list of excluded packages: phase 0 found errors, and `check` says \
+             which\n",
+        ),
+        Job::ExcludedPackages => say(
+            out,
+            &format!(
+                "{}\n",
+                packages::to_json(&repository.excluded_packages(&analysis))
+            ),
         ),
         #[cfg(feature = "ui")]
         Job::Ui => {

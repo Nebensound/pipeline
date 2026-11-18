@@ -1,0 +1,84 @@
+name: tool
+description: >-
+  Puts the tool `nebensound` on the PATH of the calling job: restored from the
+  cache when this exact tool was built before, built from source otherwise.
+
+# No inputs. The tool comes from the same commit as this file. GitHub fetches
+# the whole repository when it resolves an action, so the source lies three
+# levels up and needs no credentials.
+#
+# Phase 0 fills the cache, so a later job of the same run finds it there and
+# builds nothing: `Declare` runs phase 0 with it, and every unit job asks it
+# which files a check covers. A job builds the tool itself only when the cache
+# misses.
+
+outputs:
+  path:
+    description: The tool, as an absolute path.
+    value: ${{ steps.tool.outputs.home }}/nebensound
+
+runs:
+  using: composite
+  steps:
+    # The key is the content of the tool, not a version: the tool carries none,
+    # and two commits that leave it untouched share one build.
+    - name: Identify the tool
+      id: tool
+      shell: bash
+      run: |
+        set -euo pipefail
+        source_dir="$(cd "$GITHUB_ACTION_PATH/../../../tools/nebensound" && pwd)"
+        fingerprint="$(
+          cd "$source_dir"
+          find . -type f -not -path './target/*' -print0 \
+            | LC_ALL=C sort -z \
+            | xargs -0 sha256sum \
+            | sha256sum \
+            | cut -d ' ' -f 1
+        )"
+        {
+          echo "source=$source_dir"
+          echo "home=$RUNNER_TEMP/nebensound"
+          echo "key=nebensound-$RUNNER_OS-$RUNNER_ARCH-$fingerprint"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Look for a build of exactly this tool
+      id: cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.tool.outputs.home }}
+        key: ${{ steps.tool.outputs.key }}
+
+    # Without features: the interface is one, and a log needs no terminal
+    # library. The toolchain is the one the tool pins, taken from its own
+    # rust-toolchain.toml rather than repeated here.
+    - name: Build the tool
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: ${{ steps.tool.outputs.source }}
+      env:
+        TOOL_HOME: ${{ steps.tool.outputs.home }}
+      run: |
+        set -euo pipefail
+        rustup toolchain install
+        cargo build --release --locked
+        mkdir -p "$TOOL_HOME"
+        cp target/release/nebensound "$TOOL_HOME/nebensound"
+
+    # Several unit jobs can miss at once; the first to finish keeps its build,
+    # and the others are told the key is taken, which fails nothing.
+    - name: Keep the build for the next job
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ steps.tool.outputs.home }}
+        key: ${{ steps.tool.outputs.key }}
+
+    - name: Put the tool on the PATH
+      shell: bash
+      env:
+        TOOL_HOME: ${{ steps.tool.outputs.home }}
+      run: |
+        set -euo pipefail
+        "$TOOL_HOME/nebensound" --version
+        echo "$TOOL_HOME" >> "$GITHUB_PATH"

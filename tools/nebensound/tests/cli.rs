@@ -218,3 +218,89 @@ fn the_binary_says_the_same() {
     let text = String::from_utf8_lossy(&output.stdout);
     assert!(text.contains("uncovered-file"), "{text}");
 }
+
+#[test]
+fn files_names_what_a_building_block_checks() {
+    let dir = clean();
+    let (text, code) = call(&["nebensound", "-C", root(&dir), "files", "markdown", "."]);
+    assert_eq!(code, 0, "{text}");
+    assert_eq!(text, "README.md\n");
+
+    let (text, code) = call(&[
+        "nebensound",
+        "-C",
+        root(&dir),
+        "files",
+        "-z",
+        "markdown",
+        ".",
+    ]);
+    assert_eq!(code, 0, "{text}");
+    assert_eq!(text, "README.md\0");
+}
+
+#[test]
+fn files_refuses_what_the_plan_does_not_start() {
+    let dir = clean();
+    let (text, code) = call(&["nebensound", "-C", root(&dir), "files", "rust", "."]);
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains("the plan does not start the rust check"),
+        "{text}"
+    );
+
+    let (text, code) = call(&["nebensound", "-C", root(&dir), "files", "markdown", "/x"]);
+    assert_eq!(code, 2, "{text}");
+    assert!(
+        text.contains("is not a path inside the repository"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_repository_with_errors_gets_no_file_list() {
+    let dir = broken();
+    let (text, code) = call(&["nebensound", "-C", root(&dir), "files", "markdown", "."]);
+
+    assert_eq!(code, 1, "{text}");
+    assert_eq!(
+        text,
+        "there is no file list: phase 0 found errors, and `check` says which\n"
+    );
+}
+
+#[test]
+fn an_ignore_file_that_takes_out_more_than_the_declaration_fails_phase_0() {
+    let declaration = format!(
+        "{QUIET}\n[[exclude]]\npath = \".prettierignore\"\nreason = \"an ignore file, without a formatter\"\n"
+    );
+    let dir = repository(&[
+        (".nebensound/repo.toml", &declaration),
+        ("README.md", "# x\n"),
+        (".prettierignore", "*\n"),
+    ]);
+    let (text, code) = call(&["nebensound", "-C", root(&dir), "check"]);
+
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains("error[unexcused-ignore] at README.md: .prettierignore takes this file out"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_file_an_ignore_setting_names_is_read_from_the_repository() {
+    let dir = repository(&[
+        (".nebensound/repo.toml", QUIET),
+        ("README.md", "# x\n"),
+        (".yamllint.yaml", "ignore-from-file: .yamlignore\n"),
+    ]);
+    let (text, code) = call(&["nebensound", "-C", root(&dir), "check"]);
+
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains("error[unreadable-ignore-file] at .yamllint.yaml"),
+        "{text}"
+    );
+    assert!(text.contains(".yamlignore: "), "{text}");
+}

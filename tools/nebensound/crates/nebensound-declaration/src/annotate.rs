@@ -147,9 +147,10 @@ impl Annotated {
         find(&self.nodes, path)
     }
 
-    /// Hangs the findings on the nodes they belong to, and returns what hangs
-    /// on none: what is about the repository as a whole — it has no node of its
-    /// own — and what names a path the repository does not have.
+    /// Hangs the findings on the nodes they belong to, beside what hangs there
+    /// already, and returns what hangs on none: what is about the repository
+    /// as a whole — it has no node of its own — and what names a path the
+    /// repository does not have.
     ///
     /// One pass over the tree, not one search per finding: coverage can put a
     /// finding on every file, and searching the tree again for each of them
@@ -176,7 +177,7 @@ impl Annotated {
 fn hang(nodes: &mut [Node], waiting: &mut BTreeMap<RelativePath, Vec<Finding>>) {
     for node in nodes {
         if let Some(found) = waiting.remove(&node.path) {
-            node.findings = found;
+            node.findings.extend(found);
         }
         if let Kind::Folder(children) = &mut node.kind {
             hang(children, waiting);

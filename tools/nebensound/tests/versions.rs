@@ -964,6 +964,14 @@ fn a_shallow_clone_is_an_error_and_gets_no_plan() {
     let (text, code) = call(&["nebensound", "-C", root, "check"]);
     assert_eq!(code, 1, "{text}");
     assert!(text.contains("error[shallow-clone]"), "{text}");
+
+    // A building block's checkout in a unit job holds only the commit at
+    // hand, and its file lists do not depend on any version.
+    let (text, code) = call(&["nebensound", "-C", root, "files", "--", "markdown", "."]);
+    assert_eq!(code, 0, "{text}");
+    assert!(text.lines().any(|line| line == "README.md"), "{text}");
+    let (text, code) = call(&["nebensound", "-C", root, "excluded-packages"]);
+    assert_eq!((text.as_str(), code), ("[]\n", 0));
 }
 
 #[test]

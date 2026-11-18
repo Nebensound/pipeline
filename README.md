@@ -74,9 +74,16 @@ is running, so a change to the pipeline is checked by the pipeline it changes.
 
 ## Building blocks
 
-Every block checks one unit: the files Git tracks below the unit's path whose
-extension the register gives that check. A file nobody committed is not judged,
-and a committed one is not missed. Each finding is an annotation on its file.
+Every block checks one unit, and exactly the files `nebensound files <check>
+<unit path>` names: the files Git tracks below the unit's path whose extension
+the register gives that check, less what an `[[exclude]]` entry of the
+declaration takes out. A file nobody committed is not judged, and a committed
+one is not missed. Each finding is an annotation on its file.
+
+The unit job gets the tool the same way `Declare` does, from the cache phase 0
+fills ([`.github/actions/tool`](.github/actions/tool)); it builds the tool
+only when the cache misses. The list does not travel through a job output,
+which is limited in size.
 
 ### `check-json`
 
@@ -90,7 +97,9 @@ and a committed one is not missed. Each finding is an annotation on its file.
   the action's own configuration and no lint rule; a repository's Biome
   configuration is not read.
 - All three are formatted the way Prettier writes them, with the repository's
-  Prettier configuration.
+  Prettier configuration, without its ignore files, and with `requirePragma`,
+  `checkIgnorePragma`, `rangeStart` and `rangeEnd` set aside, which would pass
+  a whole file unchecked.
 
 Every step runs even when one before it failed, so one run shows every finding.
 
@@ -98,14 +107,22 @@ Every step runs even when one before it failed, so one run shows every finding.
 
 [`.github/actions/check-markdown`](.github/actions/check-markdown) checks every `.md` and `.markdown` file of the unit:
 
-- Formatted the way Prettier writes it.
+- Formatted the way Prettier writes it, run as in `check-json`.
 - No Markdownlint finding. Where the repository brings no Markdownlint
   configuration, the one beside the action applies (`MD013` off, since Prettier
-  does not wrap prose).
+  does not wrap prose). Its rules hold; its `ignores`, a negated `globs` entry
+  and `gitignore` take nothing out.
 - Every link into the repository leads to a file and a heading that exist
   (lychee, `--offline`). Links to the outside are not checked in a pull
   request: it should not turn red because someone else's server does not
-  answer.
+  answer. lychee reads the repository's `lychee.toml` and `.lycheeignore` at
+  the root, so excluded addresses, accepted status codes and timeouts stay the
+  repository's configuration. An `exclude_path` there is held against the
+  declaration by phase 0, like every setting that takes files out (see
+  [Exclusions](#exclusions)). The block names `lychee.toml` as the
+  configuration, so a lychee table in `Cargo.toml`, `pyproject.toml` or
+  `package.json`, which lychee would otherwise read where there is no
+  `lychee.toml`, is not read.
 
 ### `check-rust`
 
@@ -115,7 +132,9 @@ workspace, the unit's path. The toolchain is the one the workspace pins in its
 packages claim. Neither is an input, so no repository can tell the check to look
 away:
 
-- Formatted the way `cargo fmt` writes it.
+- Formatted the way `cargo fmt` writes it: every member, and every path
+  dependency that is no member, as `cargo fmt --all` reaches it. Such a
+  dependency is formatted only; the steps below never reached it.
 - Clippy without a warning, with all features and with no default features.
 - Tests pass with all features and with no default features.
 - Documentation builds without a warning.
@@ -126,6 +145,23 @@ away:
 - Every published package builds and passes its tests from its own packaged
   contents, outside the source tree.
 
+Rust code is excluded by the package, never by the file. Phase 0 fails on an
+`[[exclude]]` entry that takes a `.rs` file out of a package without taking out
+the folder that holds its `Cargo.toml` (`partial-package-exclusion`), and names
+the language's own means instead: `#[rustfmt::skip]`, `#[coverage(off)]` with a
+justification, `#[allow(...)]`. A package excluded as a whole, code of others
+such as a vendored copy, is out of every step: not formatted, not
+linted, not tested, not documented, not counted for coverage, and its
+`rust-version` and `publish` play no part. It is only compiled where another
+package depends on it, and rustc still prints its own warnings for it then,
+which fail nothing. That holds for a workspace member and for a path dependency
+outside the workspace alike: Clippy runs with `--no-deps`, since it would
+otherwise lint a member it compiles as a dependency of another one, and it never
+lints a path dependency that is no member. Every excluded package is named in
+the summary of the run with its reason, as a notice. Each package is judged on
+its own: one that lies inside an excluded package and that the declaration
+keeps in with an `[[include]]` is checked in every step, coverage included.
+
 ### `check-toml`
 
 [`.github/actions/check-toml`](.github/actions/check-toml) checks every `.toml`
@@ -133,8 +169,8 @@ and `.lock` file of the unit with Taplo 0.10.0, the release binary pinned by
 SHA-256:
 
 - Taplo reads each file from standard input. Given a path, it silently skips
-  every `.lock` file and every file the repository's `taplo.toml` excludes, and
-  reports success.
+  every `.lock` file and every file the `include` or `exclude` of the
+  repository's `taplo.toml` leaves out, and reports success.
 - `.toml` files are formatted the way Taplo writes them, with the repository's
   `taplo.toml`. Lockfiles are not format-checked: the tool that writes them
   (Cargo, uv) decides their layout.
@@ -171,10 +207,11 @@ first key or table of `.nebensound/repo.toml`:
 
 [`.github/actions/check-yaml`](.github/actions/check-yaml) checks every `.yml` and `.yaml` file of the unit:
 
-- Formatted the way Prettier writes it.
+- Formatted the way Prettier writes it, run as in `check-json`.
 - No yamllint finding. Where the repository brings no yamllint configuration,
   the one beside the action applies: the defaults, less what contradicts
-  Prettier or GitHub Actions.
+  Prettier or GitHub Actions. Its rules hold; its `ignore` and
+  `ignore-from-file` take nothing out.
 - Every workflow directly under `.github/workflows` passes actionlint, with
   ShellCheck reading every `run:` script. actionlint 1.7.12 does not know `$/`
   yet and reports every such call as invalid; the block drops exactly these
@@ -183,15 +220,54 @@ first key or table of `.nebensound/repo.toml`:
   pinned, with the schema it brings along). An unknown key fails the check
   with the file and the key named, instead of surfacing only after the merge.
 
-### Exclusions, for now
+### Exclusions
 
-For now, the blocks honour the exclusions a repository gives its tools, such as
-`.prettierignore`, its own Markdownlint or yamllint configuration, `lychee.toml`; `.gitignore` takes nothing out. That is temporary: such an
-exclusion needs no reason and can turn a check green that checked nothing. Once
-the plan carries the `[[exclude]]` entries of the declaration, `repo.toml` is
-the only place where a file is taken out of a check
-([#10](https://github.com/Nebensound/pipeline/issues/10)). `exclude` in
-`taplo.toml` already takes nothing out of `check-toml`.
+`.nebensound/repo.toml` is the only place where a repository takes a file out
+of a check, with an `[[exclude]]` entry and its reason. `nebensound tree` shows
+such a file as excluded, with the reason. Rust code is excluded only as a whole
+package (see [`check-rust`](#check-rust)).
+
+No block lets a tool's own way of leaving files out take a file out: an ignore
+file needs no reason and can turn a check green that checked nothing.
+`.gitignore` takes nothing out either. The blocks read none of these settings,
+except lychee's `exclude_path`, which comes along with the `lychee.toml`
+`check-markdown` reads, and rustfmt's `ignore`, which comes along with the
+repository's rustfmt configuration and takes effect on a nightly toolchain.
+Settings in a tool's configuration that pass a whole file unchecked are set
+aside on the command line: Prettier's `requirePragma`, `checkIgnorePragma`,
+`rangeStart` and `rangeEnd`, and rustfmt's `disable_all_formatting`. Run by
+hand, the tools read all of them, so phase 0
+holds them against the declaration and fails on every file one of them takes
+out that no `[[exclude]]` entry takes out (`unexcused-ignore`). For lychee,
+that also keeps `exclude_path` from taking a file out in the block: phase 0
+matches it against the path from the root, such as `docs/a.md`, the string the
+block hands lychee. A setting that takes out less is fine. Phase 0 reads:
+
+| Tool              | Setting                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------- |
+| Prettier          | `.prettierignore` at the root                                                               |
+| Taplo             | `include` and `exclude` in `.taplo.toml` or `taplo.toml` at the root                        |
+| markdownlint-cli2 | `ignores` in `.markdownlint-cli2.jsonc` or `.markdownlint-cli2.yaml`, in every folder       |
+| yamllint          | `ignore` and `ignore-from-file` in `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at root |
+| lychee            | `exclude_path` in `lychee.toml` at the root                                                 |
+| rustfmt           | `ignore` in `.rustfmt.toml` or `rustfmt.toml`, in every folder                              |
+
+Only the files the tool reads in a block count: a `.prettierignore` that takes
+out a Rust file takes out nothing Prettier would have looked at. Taplo's
+`include` counts only against `.toml` files, the ones Taplo reads without it; a
+`.lock` file is taken out of Taplo only by `exclude`. Where yamllint's file sets
+neither `ignore` nor `ignore-from-file`, phase 0 reads them in the file its
+`extends` names, as yamllint does. rustfmt's `ignore` is read in every folder,
+relative to that folder, since which configuration rustfmt applies to a file
+depends on where it runs; a `.rs` file it takes out cannot be excused by an
+`[[exclude]]` entry of its own, only by one that takes out its whole package. A setting phase 0 cannot read fails as well
+(`unreadable-ignore-file`). A JavaScript options file of markdownlint-cli2
+(`.markdownlint-cli2.cjs` or `.mjs`) is not judged, since phase 0 cannot read it
+without running it; the block sets its `ignores` aside all the same. A setting
+that switches a rule off for some files, such as yamllint's per-rule `ignore`
+or markdownlint-cli2's `overrides`, takes no file out of the tool and stays the
+repository's rule configuration. lychee's `.lycheeignore` leaves out addresses,
+not files, so phase 0 does not judge it.
 
 ## A repository's own checks
 

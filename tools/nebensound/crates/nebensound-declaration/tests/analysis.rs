@@ -6,7 +6,7 @@
 // here the reason travels with the call and the failure is the point.
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
-use nebensound_declaration::finding::{Finding, Rule, Severity, UnitName};
+use nebensound_declaration::finding::{Finding, Position, Rule, Severity, UnitName};
 use nebensound_declaration::names::ComponentName;
 use nebensound_declaration::path::RelativePath;
 use nebensound_declaration::resolve::{Origin, PipelineSource};
@@ -567,12 +567,33 @@ fn every_rule_has_a_code_of_its_own() {
         Rule::ExhaustedVersion,
         Rule::PointlessReleaseBranch,
         Rule::PreReleaseMinimum,
+        Rule::UnexcusedIgnore,
+        Rule::UnreadableIgnoreFile,
+        Rule::PartialPackageExclusion,
     ];
     let mut codes: Vec<_> = rules.iter().map(|rule| rule.code()).collect();
     codes.sort_unstable();
     let unique = codes.len();
     codes.dedup();
     assert_eq!(codes.len(), unique, "two rules share a code");
+}
+
+#[test]
+fn a_finding_that_points_at_a_place_names_its_line_and_column() {
+    let finding = Finding::error(Rule::PartialPackageExclusion, "only part of a package")
+        .at(RelativePath::new(".nebensound/repo.toml").unwrap())
+        .on(Position {
+            line: 12,
+            column: 10,
+        });
+    assert_eq!(
+        finding.to_string(),
+        "error[partial-package-exclusion] at .nebensound/repo.toml:12:10: only part of a package"
+    );
+
+    // A place without a file to be in names nothing.
+    let nowhere = Finding::warning(Rule::PointlessWatch, "x").on(Position { line: 1, column: 1 });
+    assert_eq!(nowhere.to_string(), "warning[pointless-watch]: x");
 }
 
 #[test]

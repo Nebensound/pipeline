@@ -29,10 +29,17 @@ nebensound-declaration = { path = "crates/nebensound-declaration", features = [
   "json-schema",
 ] }
 
-clap.workspace       = true
-ratatui              = { workspace = true, optional = true }
-serde_json.workspace = true
-thiserror.workspace  = true
+clap.workspace         = true
+globset.workspace      = true
+ignore.workspace       = true
+jsonc-parser.workspace = true
+ratatui                = { workspace = true, optional = true }
+regex.workspace        = true
+serde.workspace        = true
+serde_json.workspace   = true
+thiserror.workspace    = true
+toml.workspace         = true
+yaml-rust2.workspace   = true
 
 [dev-dependencies]
 # The library once more, so the tests can build an analysis without a disk; the
@@ -40,7 +47,6 @@ thiserror.workspace  = true
 nebensound-declaration = { path = "crates/nebensound-declaration" }
 
 portable-pty.workspace = true
-regex.workspace        = true
 tempfile.workspace     = true
 
 # The interface is opt-in. The composite action builds without it, so a run of
@@ -74,6 +80,9 @@ repository   = "https://github.com/Nebensound/pipeline"
 
 [workspace.dependencies]
 clap         = { version = "4", features = ["derive"] }
+globset      = "0.4"
+ignore       = "0.4"
+jsonc-parser = { version = "0.34", features = ["serde"] }
 portable-pty = "0.9"
 ratatui      = "0.30"
 regex        = "1"
@@ -84,6 +93,7 @@ tempfile     = "3"
 thiserror    = "2"
 toml         = "1"
 toml_edit    = "0.25"
+yaml-rust2   = "0.13"
 
 [workspace.lints.rust]
 missing_docs    = "deny"
