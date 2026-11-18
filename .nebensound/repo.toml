@@ -26,3 +26,7 @@ reason = "evidence for #10: a workspace member that stands for a vendored copy"
 [[exclude]]
 path   = "evidence/outside"
 reason = "evidence for #10: a path dependency outside the workspace"
+
+[[exclude]]
+path   = "tools/nebensound/src/draw.rs"
+reason = "evidence for #10: a single file with code cannot be excluded"

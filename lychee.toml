@@ -1,2 +1,4 @@
-# Evidence for #10: without the address exclusion, the link fails.
-max_retries = 2
+# Evidence for #10: an address exclusion of the repository takes effect, and
+# an exclude_path without a matching [[exclude]] fails phase 0.
+exclude      = ["missing-on-purpose"]
+exclude_path = ["^evidence/"]
