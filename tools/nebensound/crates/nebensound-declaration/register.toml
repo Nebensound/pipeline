@@ -96,7 +96,9 @@ produces = "site"
 [build.typst]
 produces = "document"
 
-# The organization's private crate registry.
+# The organization's private crate registry. The register names no host: which
+# registry that is reaches the pipeline through organization-level settings,
+# not through this repository or a calling repository.
 [target.private-registry]
 accepts = ["crate"]
 
