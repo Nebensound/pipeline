@@ -1,13 +1,10 @@
 # A test case for `check-toml`, not a package: it must keep passing against
-# `schemas/cargo.json`. It holds what a `[lints]` table of a consuming
-# repository carries, see "Deviation in `cargo.json`" in `schemas/README.md`.
-# Cargo never reads it, as no workspace lists it.
+# `schemas/cargo.json`. It holds the `[lints.rust]` entry with `check-cfg` that
+# a consuming repository carries, see "Deviation in `cargo.json`" in
+# `schemas/README.md`. Cargo never reads it, as no workspace lists it.
 [package]
 name    = "check-toml-cargo-lints"
 edition = "2024"
-
-[lints]
-workspace = true
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }

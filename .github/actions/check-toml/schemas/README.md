@@ -68,10 +68,11 @@ second alternative. `Lints` itself stays as upstream has it, so
 longer rejected here. What stays: a table of a tool holds lints, a lint is a
 level or a detailed lint, `workspace` must be a boolean, and a value of another
 type (for example a misspelled `workspac = true`, which is no table) still
-fails. `tests/cargo-lints/Cargo.toml` is a manifest that must keep passing: it
-carries the `check-cfg` entry, `[lints] workspace = true` and a
-`workspace = true` beside `[lints.rust]`, so a new copy of the files that
-brings the `anyOf` back turns the check red here.
+fails. Two manifests under `tests/` must keep passing, each with a form that
+Cargo and upstream both accept: `tests/cargo-lints/Cargo.toml` carries the
+`check-cfg` entry in `[lints.rust]`, `tests/cargo-lints-workspace/Cargo.toml`
+carries `[lints] workspace = true`. A new copy of the files that brings the
+`anyOf` back turns the check red here.
 
 Drop this deviation when a Taplo release reads the `anyOf` correctly and the
 vendored copy is taken again from SchemaStore.
