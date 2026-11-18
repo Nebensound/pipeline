@@ -81,15 +81,25 @@ struct Globs {
     written: Vec<String>,
 }
 
+/// An `include`: the files a tool reads in place of its default ones.
+struct Include {
+    globs: Globs,
+    /// The ending of the files the tool reads without an `include`. Only such
+    /// a file can an `include` leave out: one the tool never reads by default
+    /// is not taken out by a setting.
+    default: &'static str,
+}
+
 /// What a setting takes out.
 enum Matcher {
     /// Lines in the syntax of `.gitignore`, relative to the repository root.
     Gitignore(Gitignore),
     /// Globs relative to a folder. A file below it is out when it matches one
-    /// of `exclude`, or none of `include` where there is an `include`.
+    /// of `exclude`, or, where there is an `include`, when the tool reads it by
+    /// default and it matches none of `include`.
     Globs {
         base: RelativePath,
-        include: Option<Globs>,
+        include: Option<Include>,
         exclude: Globs,
     },
     /// Regular expressions over the path.
@@ -120,7 +130,9 @@ impl Matcher {
                 }
                 include
                     .as_ref()
-                    .filter(|include| !include.set.is_match(&below))
+                    .filter(|include| {
+                        below.ends_with(include.default) && !include.globs.set.is_match(&below)
+                    })
                     .map(|_| "since it matches none of the `include` patterns".to_owned())
             }
             Self::Regex(set) => set
@@ -180,9 +192,16 @@ fn taplo(source: &str) -> Result<Option<Matcher>, String> {
     }
     Ok(Some(Matcher::Globs {
         base: RelativePath::root(),
+        // Taplo reads `**/*.toml` unless `include` says otherwise, so a
+        // `.lock` file can only be taken out through `exclude`.
         include: config
             .include
-            .map(|written| globs(written, false))
+            .map(|written| {
+                globs(written, false).map(|globs| Include {
+                    globs,
+                    default: ".toml",
+                })
+            })
             .transpose()?,
         exclude: globs(config.exclude.unwrap_or_default(), false)?,
     }))

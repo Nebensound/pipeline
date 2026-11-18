@@ -51,6 +51,7 @@ const FILES: &[(&str, &str)] = &[
     ("data.json", "{}\n"),
     ("sub/x.yml", "a: 1\n"),
     ("Cargo.toml", "[package]\n"),
+    ("Cargo.lock", "version = 4\n"),
 ];
 
 fn with(extra: &[(&'static str, &'static str)]) -> Vec<(&'static str, &'static str)> {
@@ -181,6 +182,23 @@ fn taplo_takes_out_what_its_include_does_not_name() {
         "{}",
         found[0].message
     );
+}
+
+#[test]
+fn taplo_include_leaves_out_no_file_taplo_does_not_read_by_default() {
+    let found = found(
+        QUIET,
+        &with(&[(".taplo.toml", "include = [\"**/*.toml\"]\n")]),
+    );
+
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn taplo_exclude_takes_out_a_lockfile() {
+    let found = found(QUIET, &with(&[("taplo.toml", "exclude = [\"*.lock\"]\n")]));
+
+    assert_eq!(summary(&found), ["unexcused-ignore Cargo.lock"]);
 }
 
 #[test]
