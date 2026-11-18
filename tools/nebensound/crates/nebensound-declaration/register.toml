@@ -96,26 +96,40 @@ produces = "site"
 [build.typst]
 produces = "document"
 
+# Every target says how a unit that publishes there is released when its
+# declaration does not say: in one stage, where a merge to `main` is a full
+# release, or in two, where a merge to `main` is a pre-release and a pull
+# request into `release` makes the full release. A unit with several targets
+# takes two stages if any of them does; one without a target takes one stage.
+#
+# The crate registries take two stages: a published crate version stays, and
+# every consuming repository is raised to it. The other targets take one.
+
 # The organization's private crate registry. The register names no host: which
 # registry that is reaches the pipeline through organization-level settings,
 # not through this repository or a calling repository.
 [target.private-registry]
 accepts = ["crate"]
+release = "two-stage"
 
 # Publishing here cannot be taken back, so it is the one target that also
 # demands the language match.
 [target."crates.io"]
 accepts        = ["crate"]
 requires-check = "rust"
+release        = "two-stage"
 
 [target.release-assets]
 accepts = ["executable", "firmware", "document"]
+release = "single-stage"
 
 [target.ghcr]
 accepts = ["container"]
+release = "single-stage"
 
 [target.pages]
 accepts = ["site"]
+release = "single-stage"
 
 [preset.none]
 check   = []
