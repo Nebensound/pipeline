@@ -14,6 +14,7 @@ pub mod files;
 pub mod ignored;
 pub mod output;
 pub mod plan;
+pub mod reference;
 pub mod report;
 pub mod repository;
 #[cfg(feature = "ui")]
@@ -81,6 +82,9 @@ pub enum Command {
     // It describes the format, not a repository, so it reads none.
     /// Print the JSON Schema of `.nebensound/repo.toml`, for editors and Taplo.
     Schema,
+    // Like the schema, it describes the format and reads no repository.
+    /// Print the register as Markdown, as `docs/register.md` holds it.
+    Register,
     /// Open the interface. Only in a build with the `ui` feature.
     #[cfg(feature = "ui")]
     Ui,
@@ -172,6 +176,18 @@ fn dispatch(cli: &Cli, register: &str, defaults: &str, output: Output, out: &mut
             say(out, &format!("{:#}\n", schema.as_value()));
             return OK;
         }
+        Ok(Call::Register) => {
+            return match central_from(register, defaults) {
+                Ok(central) => {
+                    say(out, &reference::register(&central));
+                    OK
+                }
+                Err(failure) => {
+                    say(out, &format!("{failure}\n"));
+                    FOUND
+                }
+            };
+        }
         Ok(Call::Repository(job)) => job,
         Err(failure) => {
             say(out, &format!("{failure}\n"));
@@ -198,6 +214,8 @@ enum Call {
     /// Print the schema of the declaration. It is the same for every
     /// repository, so none is read for it.
     Schema,
+    /// Print the register as a page. It is the same for every repository too.
+    Register,
     /// Something about the repository.
     Repository(Job),
 }
@@ -227,6 +245,7 @@ enum Job {
 fn call(cli: &Cli) -> Result<Call, Failure> {
     Ok(Call::Repository(match &cli.command {
         Some(Command::Schema) => return Ok(Call::Schema),
+        Some(Command::Register) => return Ok(Call::Register),
         None | Some(Command::Check) => Job::Check,
         Some(Command::Tree) => Job::Tree,
         Some(Command::Plan) => Job::Plan,
