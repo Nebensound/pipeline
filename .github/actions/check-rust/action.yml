@@ -96,9 +96,11 @@ runs:
       with:
         workspaces: ${{ inputs.working-directory }}
 
-    # rustfmt names every file that differs, by its absolute path, and prints
-    # anything else only when it cannot read a file. A file `[[exclude]]` takes
-    # out may differ; every other line fails the step.
+    # rustfmt names every file that differs on standard output, by its
+    # absolute path. A file `[[exclude]]` takes out may differ; any other line
+    # there fails the step. On standard error it warns without failing (an
+    # option the toolchain does not support, say) and reports what keeps it
+    # from formatting; a line there that is not a warning fails the step.
     - name: Formatting
       shell: bash
       working-directory: ${{ inputs.working-directory }}
@@ -108,8 +110,10 @@ runs:
       run: |
         set -euo pipefail
         status=0
-        cargo fmt --all -- --check --files-with-diff > "$RUNNER_TEMP/check-rust-fmt" 2>&1 \
+        cargo fmt --all -- --check --files-with-diff \
+          > "$RUNNER_TEMP/check-rust-fmt" 2> "$RUNNER_TEMP/check-rust-fmt-err" \
           || status=$?
+        cat "$RUNNER_TEMP/check-rust-fmt-err" >&2
         if [ "$status" -eq 0 ]; then
           echo "Every file is formatted the way cargo fmt writes it."
           exit 0
@@ -124,6 +128,14 @@ runs:
           printf '%s' "$value"
         }
         failed=0
+        if grep -qv '^Warning: ' "$RUNNER_TEMP/check-rust-fmt-err"; then
+          failed=1
+        fi
+        # A failure that names no file is one, whatever standard error says.
+        if [ ! -s "$RUNNER_TEMP/check-rust-fmt" ]; then
+          echo "cargo fmt failed with exit code $status and named no file."
+          failed=1
+        fi
         while IFS= read -r line; do
           file="${line#"$GITHUB_WORKSPACE"/}"
           if [ "$file" != "$line" ] && grep -qzxF -- "$file" "$EXCLUDED"; then
