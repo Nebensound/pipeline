@@ -78,6 +78,15 @@ runs:
         LIST: ${{ steps.files.outputs.list }}
       run: |
         set -euo pipefail
+        # A file name is a property of the workflow command: escaped, so that
+        # a `,` or `:` in it does not cut the name short.
+        property() {
+          local value="$1"
+          value="${value//'%'/'%25'}"
+          value="${value//':'/'%3A'}"
+          value="${value//','/'%2C'}"
+          printf '%s' "$value"
+        }
         failed=0
         while IFS= read -r -d '' file; do
           case "$file" in
@@ -90,10 +99,10 @@ runs:
           jq --exit-status --slurp 'length == 1' "$file" \
             > /dev/null 2> "$RUNNER_TEMP/check-json-error" || status=$?
           if [ "$status" -eq 1 ]; then
-            echo "::error file=$file::not valid JSON: the file holds $(jq --slurp 'length' "$file") values, a JSON document is exactly one"
+            echo "::error file=$(property "$file")::not valid JSON: the file holds $(jq --slurp 'length' "$file") values, a JSON document is exactly one"
             failed=1
           elif [ "$status" -ne 0 ]; then
-            echo "::error file=$file::not valid JSON: $(cat "$RUNNER_TEMP/check-json-error")"
+            echo "::error file=$(property "$file")::not valid JSON: $(cat "$RUNNER_TEMP/check-json-error")"
             failed=1
           fi
         done < "$LIST"
@@ -141,7 +150,9 @@ runs:
     # which can take files out of the check without a reason. That is
     # temporary: until the plan carries the `[[exclude]]` entries of the
     # declaration, it is the only way to exclude a file. Once it does (#10), no
-    # block reads a tool's ignore file any more.
+    # block reads a tool's ignore file any more. `.gitignore` takes nothing
+    # out: Prettier would read it too by default, and so pass a committed file
+    # that an ignored directory holds.
     - name: Every JSON file is formatted
       if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
       shell: bash
@@ -153,7 +164,7 @@ runs:
         # Without colours: on GitHub Actions Prettier colours `warn` and
         # `error`, and the lines below would no longer match.
         xargs -0 "$RUNNER_TEMP/check-json-tools/node_modules/.bin/prettier" \
-          --check --no-color < "$LIST" \
+          --check --no-color --ignore-path .prettierignore < "$LIST" \
           > "$RUNNER_TEMP/check-json-prettier" 2>&1 || status=$?
         # Prettier names an unformatted file as `[warn] <file>` and one it
         # cannot parse as `[error] <file>: <message>`; each becomes an

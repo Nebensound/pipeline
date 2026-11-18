@@ -100,18 +100,19 @@ SHA-256:
 - Schemas are assigned by the action, by file name, so far `Cargo.toml`. They
   are copies of SchemaStore's schemas that lie beside the action with their
   licence notice (see [their README](.github/actions/check-toml/schemas/README.md)),
-  so the check makes no request to SchemaStore. A file with its own `#:schema`
-  directive keeps its schema. A schema that cannot be read fails the check
-  instead of being skipped.
+  so the check makes no request to SchemaStore. A file whose leading comments
+  hold its own `#:schema` directive with an absolute URL keeps that schema. A
+  schema that cannot be read fails the check instead of being skipped.
 
 ### Exclusions, for now
 
 For now, the blocks honour the exclusions a repository gives its tools, such as
-`.prettierignore`. That is temporary: such an exclusion needs no reason and can
-turn a check green that checked nothing. Once the plan carries the
-`[[exclude]]` entries of the declaration, `repo.toml` is the only place where a
-file is taken out of a check ([#10](https://github.com/Nebensound/pipeline/issues/10)). `exclude` in `taplo.toml` already takes
-nothing out of `check-toml`.
+`.prettierignore`; `.gitignore` takes nothing out. That is temporary: such an
+exclusion needs no reason and can turn a check green that checked nothing. Once
+the plan carries the `[[exclude]]` entries of the declaration, `repo.toml` is
+the only place where a file is taken out of a check
+([#10](https://github.com/Nebensound/pipeline/issues/10)). `exclude` in
+`taplo.toml` already takes nothing out of `check-toml`.
 
 ## Licence
 

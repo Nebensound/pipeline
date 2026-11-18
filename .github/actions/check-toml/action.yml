@@ -105,7 +105,12 @@ runs:
     # there can switch off the validation below. Schemas are assigned here, by
     # file name, not through Taplo's default catalogs, which Taplo 0.10.0
     # cannot read. A file that names its own schema with a `#:schema`
-    # directive keeps that, as the assignment here would outrank it.
+    # directive keeps that, as the assignment here would outrank it. Taplo
+    # honours the directive only in the comments before the first key or
+    # table, so only those are searched; a directive further down would leave
+    # the file without any schema. As the file comes from standard input, only
+    # an absolute URL works there: a relative one cannot be resolved and fails
+    # the check.
     #
     # The assigned schemas lie beside this action, in `schemas/`, pinned to a
     # commit of SchemaStore (see the README there). Validating against them
@@ -137,8 +142,13 @@ runs:
         # location becomes the annotation's line and column. Backtraces and
         # the like stay in the log.
         annotate() {
-          local detail position
+          local detail name position
           cat "$out"
+          # The file name is a property of the workflow command: escaped, so
+          # that a `,` or `:` in it does not cut the name short.
+          name="${1//'%'/'%25'}"
+          name="${name//':'/'%3A'}"
+          name="${name//','/'%2C'}"
           position="$(
             grep -m 1 -E '┌─ .*:[0-9]+:[0-9]+$' "$out" \
               | sed -E 's/.*:([0-9]+):([0-9]+)$/,line=\1,col=\2/' || true
@@ -151,9 +161,9 @@ runs:
           detail="${detail//$'\r'/'%0D'}"
           detail="${detail//$'\n'/'%0A'}"
           if [ -n "$detail" ]; then
-            echo "::error file=$1$position::$2%0A$detail"
+            echo "::error file=$name$position::$2%0A$detail"
           else
-            echo "::error file=$1$position::$2"
+            echo "::error file=$name$position::$2"
           fi
         }
 
@@ -169,7 +179,8 @@ runs:
               fi ;;
           esac
           schema=()
-          if ! grep --quiet --extended-regexp '^#:schema[[:space:]]' -- "$file"; then
+          if ! awk '/^[[:space:]]*#:schema[[:space:]]/ { found = 1; exit }
+              /^[[:space:]]*(#|$)/ { next } { exit } END { exit !found }' "$file"; then
             case "${file##*/}" in
               Cargo.toml) schema=(--schema "file://$schemas/cargo.json") ;;
             esac
