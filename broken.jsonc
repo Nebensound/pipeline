@@ -1,0 +1,4 @@
+// JSONC allows comments and trailing commas, not unquoted keys.
+{
+  proof: "a deliberately broken file",
+}
