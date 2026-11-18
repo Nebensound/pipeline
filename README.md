@@ -19,6 +19,17 @@ publishes what that declaration says.
 This is a prototype. Releases are on `0.0.x`. The code arrives piece by piece;
 the open issues and milestones show what comes next.
 
+## Reference
+
+- [The declaration](docs/declaration.md): every field of
+  `.nebensound/repo.toml`, its default and effect, and every finding phase 0
+  reports.
+- [The register](docs/register.md): the presets, checks, builds, publish
+  targets, version writers and ecosystems a declaration can name, generated
+  from the register compiled into the tool.
+- [The phases](docs/phases.md): what runs, under which name, on a pull request
+  and on a push.
+
 ## Calling the pipeline
 
 A repository describes itself in `.nebensound/repo.toml` and adds one caller
