@@ -1325,3 +1325,38 @@ fn a_pre_release_floor_in_one_stage_is_an_error_until_the_base_reaches_it() {
     );
     assert_eq!(versions(&analysis)["app-v"].as_deref(), Some("2.0.1"));
 }
+
+#[test]
+fn a_pre_release_floor_in_one_stage_is_measured_against_the_tags_that_are_set() {
+    let floor = |value: &str| floored(&[format!("minimum-version = \"{value}\"\n"), String::new()]);
+    let git = units_declared(&floor("0.5.0"));
+    assert_eq!(release(&git, "app-v"), "0.5.0");
+    let mut late = Vec::new();
+    for (number, expected) in [(1, "0.5.1"), (2, "0.5.2")] {
+        git.write(&[("app/a.md", &format!("# App\n\nFix {number}.\n"))]);
+        git.commit(&format!("fix: app {number}"));
+        assert_eq!(version(&git, "app-v").as_deref(), Some(expected));
+        late.push((git.head(), expected));
+    }
+
+    // A pre-release floor below what the unit has reached: whether the base
+    // has reached its three numbers depends on which tags are set.
+    git.write(&[(".nebensound/repo.toml", &floor("0.5.1-pre.1"))]);
+    git.commit("chore: name a pre-release floor the app has passed");
+    let analysis = analysed(&git);
+    assert_eq!(base(&analysis, "app-v"), "0.5.0");
+    assert_eq!(found(&analysis, Rule::PreReleaseMinimum).len(), 1);
+    assert_eq!(versions(&analysis)["app-v"], None);
+
+    for (commit, version) in late {
+        git.tag(&format!("app-v{version}"), &commit);
+    }
+    let analysis = analysed(&git);
+    assert_eq!(base(&analysis, "app-v"), "0.5.2");
+    assert!(
+        found(&analysis, Rule::PreReleaseMinimum).is_empty(),
+        "{:?}",
+        analysis.findings()
+    );
+    assert_eq!(versions(&analysis)["app-v"].as_deref(), Some("0.5.3"));
+}

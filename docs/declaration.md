@@ -356,7 +356,11 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
 - **A commit touches a unit** when it changes a file below the unit's path, or
   `.nebensound/repo.toml`. The repository is touched by every commit. Only the
   line of `main` counts, and a merge commit touches nothing. A moved or removed
-  file touches the unit it left as well.
+  file touches the unit it left as well. Every commit is measured against the
+  unit's path as the commit at hand declares it. When the unit's path changes,
+  the commits that touched it under its old path no longer count; whether each
+  commit should be measured against the path its own declaration names is not
+  decided yet.
 - **The change of a commit** follows from its message as a
   [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/). A
   message that is not a Conventional Commit counts as a patch. What a change
@@ -401,7 +405,15 @@ The version is a function of the history, not of the moment: every commit on
 `main` raises on its own, so two runs on `main` at the same time come to
 different numbers without waiting for each other. In one stage a commit comes
 to the same version whether the tags of the commits before it are set yet or
-not.
+not, with two exceptions:
+
+- A unit whose path has changed since the base. A commit that touched it under
+  the old path counts only through its own tag, as the base. Until that tag is
+  set, the commit at hand can come to the version the commit before it got.
+- A pre-release value of `minimum-version`. Whether the base has reached its
+  `X.Y.Z` depends on which tags are set, so with the tags of the commits before
+  it not set yet the commit at hand can be the error `pre-release-minimum`
+  where with them set it has a version.
 
 In two stages that does not hold yet for one window: a commit has been promoted
 into `release`, and its full release is not tagged yet. A commit that lands on
