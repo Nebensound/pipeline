@@ -187,6 +187,53 @@ fn a_folder_around_several_packages_takes_each_out() {
 }
 
 #[test]
+fn a_narrower_entry_inside_an_excluded_package_is_redundant() {
+    // The narrower entry wins for its own file, the folder's for the rest:
+    // every file of the package is out, so the package is out as a whole,
+    // with the reason of the entry that takes out its folder.
+    for narrower in ["tool/vendored/src/more.rs", "tool/vendored/Cargo.toml"] {
+        let declaration = format!(
+            "{}\n[[exclude]]\npath = \"{narrower}\"\nreason = \"generated\"\n",
+            declaring(&exclude("tool/vendored"))
+        );
+
+        assert!(found(&declaration, &[]).is_empty(), "{narrower}");
+        assert_eq!(
+            out(&declaration, &[]),
+            [Excluded {
+                folder: path("tool/vendored"),
+                reason: reason(),
+            }],
+            "{narrower}"
+        );
+    }
+}
+
+#[test]
+fn narrower_entries_alone_are_no_exclusion_of_the_package() {
+    // Every file is out, but no entry takes out the folder, so a `build.rs`
+    // Git tracks there tomorrow would be checked: the entries take out part
+    // of the package, and the one that takes out code is reported.
+    let declaration = format!(
+        "{}{}{}",
+        declaring(""),
+        exclude("tool/vendored/Cargo.toml"),
+        exclude("tool/vendored/src"),
+    );
+    let found = found(&declaration, &[]);
+
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0]
+            .message
+            .contains("the [[exclude]] entry `tool/vendored/src` takes"),
+        "{}",
+        found[0].message
+    );
+    assert!(out(&declaration, &[]).is_empty());
+}
+
+#[test]
 fn a_file_pulled_back_in_leaves_the_package_partly_excluded() {
     let declaration = format!(
         "{}\n[[include]]\npath = \"tool/vendored/src/more.rs\"\n",

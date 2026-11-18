@@ -34,7 +34,7 @@ use crate::ignored::{Read, folder};
 pub struct Excluded {
     /// The folder that holds its `Cargo.toml`.
     pub folder: RelativePath,
-    /// Why, as the entry that takes its manifest out says.
+    /// Why, as the entry that takes its folder out says.
     pub reason: Reason,
 }
 
@@ -56,12 +56,25 @@ impl Package<'_> {
     }
 
     /// The reason it is out as a whole, or [`None`] when it is not.
+    ///
+    /// It is out when its manifest and every one of its `.rs` files are
+    /// excluded, and an entry that takes out its whole folder is what takes
+    /// out at least one of them; the reason is that entry's, the first one
+    /// found from the manifest on. Which entry wins for each of the other
+    /// files does not matter: a narrower one inside the folder is redundant,
+    /// as it is for any other file, and no partial exclusion.
     fn excluded(&self) -> Option<&Reason> {
-        let Coverage::Excluded { reason, .. } = self.manifest else {
-            return None;
-        };
-        (self.whole(self.manifest) && self.code.iter().all(|(_, code)| self.whole(code)))
-            .then_some(reason)
+        let files = std::iter::once(self.manifest).chain(self.code.iter().map(|&(_, code)| code));
+        let mut found = None;
+        for coverage in files {
+            let Coverage::Excluded { reason, .. } = coverage else {
+                return None;
+            };
+            if found.is_none() && self.whole(coverage) {
+                found = Some(reason);
+            }
+        }
+        found
     }
 }
 
