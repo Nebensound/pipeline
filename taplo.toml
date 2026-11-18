@@ -1,0 +1,8 @@
+# target/ holds generated copies of files that are formatted here anyway.
+exclude = ["**/target/**"]
+
+[formatting]
+align_entries = true
+reorder_keys  = false
+column_width  = 88
+indent_string = "  "
