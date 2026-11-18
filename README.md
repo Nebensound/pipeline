@@ -129,12 +129,32 @@ SHA-256:
   (Cargo, uv) decides their layout.
 - Every file passes `taplo lint`, run without the repository's configuration so
   that it cannot switch the schema validation off.
-- Schemas are assigned by the action, by file name, so far `Cargo.toml`. They
-  are copies of SchemaStore's schemas that lie beside the action with their
+- Schemas are assigned by the action, so far to `Cargo.toml` by file name and
+  to `.nebensound/repo.toml` by path (below). The schemas for `Cargo.toml` are
+  copies of SchemaStore's schemas that lie beside the action with their
   licence notice (see [their README](.github/actions/check-toml/schemas/README.md)),
-  so the check makes no request to SchemaStore. A file whose leading comments
-  hold its own `#:schema` directive with an absolute URL keeps that schema. A
-  schema that cannot be read fails the check instead of being skipped.
+  so the check makes no request to SchemaStore. Apart from the declaration, a
+  file whose leading comments hold its own `#:schema` directive with an
+  absolute URL keeps that schema. A schema that cannot be read fails the check
+  instead of being skipped.
+- `.nebensound/repo.toml` is always checked against the schema of the
+  declaration that lies beside the action, the one of the same pipeline
+  version as phase 0, directive or not. `nebensound schema` derives it from
+  the types phase 0 reads the file with, so an unknown key fails with its line
+  and column. The schema is looser than phase 0, never stricter.
+
+The schema of the declaration on `main` has a public address, for editors:
+
+```text
+https://raw.githubusercontent.com/Nebensound/pipeline/main/.github/actions/check-toml/schemas/nebensound-declaration.json
+```
+
+An editor that reads Taplo's directive finds it through this line before the
+first key or table of `.nebensound/repo.toml`:
+
+```toml
+#:schema https://raw.githubusercontent.com/Nebensound/pipeline/main/.github/actions/check-toml/schemas/nebensound-declaration.json
+```
 
 ### `check-yaml`
 

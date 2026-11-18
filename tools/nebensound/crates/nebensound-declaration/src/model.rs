@@ -18,6 +18,7 @@ use crate::path::RelativePath;
 use crate::pattern::Pattern;
 
 /// The contents of `.nebensound/repo.toml`.
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Declaration {
@@ -47,6 +48,7 @@ pub struct Declaration {
 /// The reason is optional here: adding work is harmless and does not have to
 /// justify itself. The same table shape all the same, so that both directions
 /// look alike and an entry can carry one more field later.
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Inclusion {
@@ -63,16 +65,22 @@ pub struct Inclusion {
 /// justifies it, and both belong visibly named. Being a table also keeps it
 /// open — were a third field ever to arrive, the shape would not have to be
 /// rebuilt for it.
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Exclusion {
     /// What it applies to.
+    ///
+    /// In a repository's own file only a concrete path, so that is what the
+    /// schema of that file allows; the central defaults may name a pattern.
+    #[cfg_attr(feature = "json-schema", schemars(with = "RelativePath"))]
     pub path: Pattern,
     /// Why nobody looks.
     pub reason: Reason,
 }
 
 /// The repository as a unit.
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Repo {
@@ -91,6 +99,7 @@ pub struct Repo {
 }
 
 /// What `[repo.component]` offers. Only a pipeline, and only on request.
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct ComponentDefaults {
@@ -100,6 +109,7 @@ pub struct ComponentDefaults {
 }
 
 /// A part of the repository that is a unit of its own.
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Component {
@@ -121,6 +131,7 @@ pub struct Component {
 ///
 /// Every value names the whole effect rather than half of it, so that reading
 /// one tells you whether the declaring unit itself is included.
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 pub enum Versioning {
     /// Only this unit.
@@ -208,6 +219,12 @@ pub enum Pipeline {
 
 /// A pipeline written out rather than named.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+// Read through `RawPipeline`; the schema describes what that accepts.
+#[cfg_attr(
+    feature = "json-schema",
+    derive(schemars::JsonSchema),
+    schemars(deny_unknown_fields, default)
+)]
 pub struct ExplicitPipeline {
     /// The version writers that receive the unit's version as a derived copy.
     ///
