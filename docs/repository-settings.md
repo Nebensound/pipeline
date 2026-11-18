@@ -81,7 +81,24 @@ gh api \
 # expected: {"approval_policy":"all_external_contributors"}
 ```
 
+## Workflow token
+
+The default permissions of the workflow token are read, and workflows cannot
+approve pull request reviews. A workflow or job that needs more asks for it in
+its own `permissions` block; one that forgot to say anything gets a read-only
+token, and no workflow can count as an approving review. Every workflow here
+states its permissions explicitly, so none relies on the default.
+
+```sh
+gh api repos/Nebensound/pipeline/actions/permissions/workflow
+# expected: {"default_workflow_permissions":"read","can_approve_pull_request_reviews":false}
+```
+
 ## Checklist for the organization owner
 
 Settings the API refused are listed here with the exact call and response.
-None so far.
+
+- The same two settings at organization level (default workflow permissions
+  read, approval of pull request reviews by workflows off). Only the
+  organization owner can change them; the repository setting above does not
+  depend on them.
