@@ -1,18 +1,15 @@
 //! A temporary xtask for the acceptance run of the central workflow's xtask
-//! step: `check --all` fails on purpose, so that the run shows what a failing
-//! xtask does to `Check`.
+//! step: `check --all` passes, so that the run shows a passing xtask in
+//! `Check`.
 
 /// Runs the task the arguments name and returns what it reports.
 ///
 /// # Errors
 ///
-/// `check --all` fails on purpose, and an unknown task is named; `help`
-/// alone succeeds.
+/// An unknown task is named.
 pub fn run(args: &[String]) -> Result<&'static str, String> {
     match args {
-        [task, all] if task == "check" && all == "--all" => {
-            Err("check --all fails on purpose, for the acceptance run".to_owned())
-        }
+        [task, all] if task == "check" && all == "--all" => Ok("check --all passed"),
         [help] if help == "help" => Ok("usage: cargo xtask check --all"),
         _ => Err(format!("unknown task: {}", args.join(" "))),
     }
@@ -27,9 +24,8 @@ mod tests {
     }
 
     #[test]
-    fn check_all_fails_on_purpose() {
-        let error = run(&args(&["check", "--all"])).unwrap_err();
-        assert!(error.contains("on purpose"));
+    fn check_all_passes() {
+        assert_eq!(run(&args(&["check", "--all"])), Ok("check --all passed"));
     }
 
     #[test]
