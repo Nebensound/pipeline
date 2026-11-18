@@ -94,6 +94,14 @@ fn two_units_at_one_path_run_a_check_once_and_not_never() {
         .map(|name| checks(&plan, Some(name)).len())
         .sum();
     assert_eq!(runs, 1, "{}", plan.to_json());
+    // Components are resolved in name order, so `first` comes first and keeps
+    // the check; the sum alone would let it move to `second` unnoticed.
+    assert_eq!(checks(&plan, Some("first")), ["rust"], "{}", plan.to_json());
+    assert!(
+        checks(&plan, Some("second")).is_empty(),
+        "{}",
+        plan.to_json()
+    );
 }
 
 #[test]
