@@ -1,0 +1,3 @@
+# Temporary: the alias for the acceptance run of the xtask step.
+[alias]
+xtask = "run --locked --quiet --manifest-path xtask/Cargo.toml --"

@@ -13,3 +13,9 @@ pipeline = "none"
 path       = "tools/nebensound"
 pipeline   = "rust-workspace"
 versioning = "none"
+
+# Temporary: the xtask of the acceptance run of the xtask step.
+[component.xtask]
+path       = "xtask"
+pipeline   = "rust-workspace"
+versioning = "none"
