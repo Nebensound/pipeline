@@ -8,8 +8,6 @@
 //! runs is the build without it: the report needs no terminal library, and the
 //! most trusted code in the organization compiles nothing it does not call.
 
-#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
-
 #[cfg(feature = "ui")]
 pub mod draw;
 pub mod output;
