@@ -167,8 +167,8 @@ impl Plan {
 
 /// The fields that say which unit an entry is about.
 ///
-/// The repository has no name — its tag carries no prefix either — so the kind
-/// stands beside it rather than a reserved word a component could also be
+/// The repository has no name — its tags carry only the prefix `v` — so the
+/// kind stands beside it rather than a reserved word a component could also be
 /// called.
 fn identity(name: &UnitName, path: &RelativePath) -> Value {
     let (kind, name) = match name {

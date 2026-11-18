@@ -102,7 +102,8 @@ read, and `checks` shortened. It is written by `serde_json`, so a path holding
 quotes or control characters cannot break the JSON. `units` is
 every unit phase 0 resolved, repository first. `checks` is the same thing flat —
 one entry per check that is started — because a matrix takes a list and cannot
-unfold a list inside one. The repository has no name, as its tag has no prefix.
+unfold a list inside one. The repository has no name; its tags carry only the
+prefix `v`.
 
 `versions` is one entry per unit that carries a version, in the order of
 `units`: `prefix` is what its tags start with, `release` how it is released,

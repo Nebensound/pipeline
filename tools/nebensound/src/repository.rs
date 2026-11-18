@@ -248,7 +248,8 @@ impl Repository {
     /// Every option a setting of the person running it could change is given
     /// on the command line, so that the answer does not depend on their
     /// configuration: rename detection would hide the old path of a moved
-    /// file, and a root commit not shown as a creation would touch nothing.
+    /// file, a root commit not shown as a creation would touch nothing, and a
+    /// log output encoding other than UTF-8 would garble every commit.
     ///
     /// # Errors
     ///
@@ -292,6 +293,7 @@ impl Repository {
             "--no-color",
             "--no-notes",
             "--no-show-signature",
+            "--encoding=UTF-8",
             "--format=%x00%H%x00%P%x00%B",
             head.as_str(),
         ])?);

@@ -361,6 +361,7 @@ fn the_developers_configuration_does_not_change_the_answer() {
         ("log.showSignature", "true"),
         ("color.ui", "always"),
         ("core.quotePath", "true"),
+        ("i18n.logOutputEncoding", "UTF-16"),
     ] {
         git.run(&["config", "--local", key, value]);
     }
