@@ -21,8 +21,45 @@ the open issues and milestones show what comes next.
 
 ## Calling the pipeline
 
-To be written. This section will hold the complete caller file, pinned to an
-exact version or, until the first release, to a full commit SHA.
+A repository describes itself in `.nebensound/repo.toml` and adds one caller
+file, for example `.github/workflows/gate.yml`. This is the whole file:
+
+```yaml
+name: gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  nebensound:
+    uses: Nebensound/pipeline/.github/workflows/nebensound.yml@<full commit SHA>
+    permissions:
+      contents: read
+```
+
+One job, no inputs: what the repository is stands in its declaration, and the
+workflow reads it there. The reference is pinned to an exact version, so that
+every change to the pipeline reaches a repository as a pull request instead of
+as a silent switch. Until the first release there is no version, so it is pinned
+to the full 40-character SHA of a commit on `main`; from then on to a release
+tag such as `v0.0.1`.
+
+A run reports as `nebensound / Declare` (phase 0: the declaration read and
+checked against the tree), one job per unit that runs a check
+(`nebensound / Check repository`, `nebensound / Check component <name>`) and
+`nebensound / Check`, which sums the units up and is the one name a ruleset
+requires. A check the register knows but that has no building block yet fails
+by name in the step `Not written yet` of its unit.
+
+This repository calls the workflow the same way, with one difference: its own
+[`gate.yml`](.github/workflows/gate.yml) calls the workflow at the commit that
+is running, so a change to the pipeline is checked by the pipeline it changes.
 
 ## Licence
 

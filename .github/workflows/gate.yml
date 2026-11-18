@@ -1,0 +1,23 @@
+name: gate
+
+# This repository as a caller like any other: one job, no inputs.
+#
+# One difference, and it is deliberate. Every other repository pins the central
+# workflow to an exact version. This one calls the workflow at its own commit,
+# so a change to the pipeline is checked by the pipeline it changes — a broken
+# one fails its own pull request instead of everyone else's.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  nebensound:
+    uses: $/.github/workflows/nebensound.yml
+    permissions:
+      contents: read
