@@ -199,10 +199,12 @@ that holds its `Cargo.toml`, is an error (see
 [`partial-package-exclusion`](#partial-package-exclusion)). Inside a package,
 Rust has its own means: `#[rustfmt::skip]`, `#[coverage(off)]` with a
 justification, `#[allow(...)]`. A package excluded as a whole is meant for code
-of others inside the repository, a submodule or a vendored copy: `check-rust`
-leaves it out of every step and compiles it only as a dependency of others
-(see [the README](../README.md#check-rust)), and every run names it with its
-reason.
+of others inside the repository, such as a vendored copy: `check-rust` leaves it
+out of every step and compiles it only as a dependency of others (see
+[the README](../README.md#check-rust)), and every run names it with its reason.
+A package in a Git submodule cannot be excluded this way: phase 0 sees the files
+Git tracks, where a submodule is a single entry, and the gate checks out no
+submodules.
 
 `[[exclude]]` is the only way out of a check: a tool's own ignore setting takes nothing out of a building block, and
 phase 0 fails on every file such a setting takes out that no `[[exclude]]` entry
@@ -444,7 +446,11 @@ Error. A tool's own setting takes a file out of what that tool reads in a
 building block (a line of `.prettierignore`, for example), and no `[[exclude]]`
 entry takes it out. The building block checks the file all the same, since it
 reads no such setting; run by hand, the tool would skip it. Give the file an
-`[[exclude]]` entry with a reason, or let the setting keep it in.
+`[[exclude]]` entry with a reason, or let the setting keep it in. A `.rs` file
+that rustfmt's `ignore` takes out is excused only by an entry that takes out its
+whole package (see
+[`partial-package-exclusion`](#partial-package-exclusion)); inside a package,
+`#[rustfmt::skip]` is the means.
 [The README](../README.md#exclusions) lists the settings phase 0 reads.
 
 ### `unreadable-ignore-file`

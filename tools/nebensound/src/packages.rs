@@ -7,9 +7,11 @@
 //! `#[rustfmt::skip]`, `#[coverage(off)]` with a justification, `#[allow(...)]`.
 //!
 //! A whole package can be excluded: the folder that holds its `Cargo.toml`,
-//! with a reason. It is meant for code of others inside the repository, a
-//! submodule or a vendored copy. `check-rust` then leaves it out of every
-//! step, and compiles it only where another package depends on it.
+//! with a reason. It is meant for code of others inside the repository, such
+//! as a vendored copy. `check-rust` then leaves it out of every step, and
+//! compiles it only where another package depends on it. A package in a Git
+//! submodule is not found: phase 0 sees the files Git tracks, and a submodule
+//! is a single entry there.
 //!
 //! A package is a folder with a `Cargo.toml` that Git tracks and that has a
 //! `[package]` table; a manifest that does not read counts as one, since Cargo
