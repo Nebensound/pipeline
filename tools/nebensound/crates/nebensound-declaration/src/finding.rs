@@ -90,6 +90,9 @@ pub enum Rule {
     UnexcusedIgnore,
     /// A tool's setting that takes files out, and that phase 0 cannot read.
     UnreadableIgnoreFile,
+    /// An exclusion that takes code out of a Rust package, and not the whole
+    /// package.
+    PartialPackageExclusion,
 }
 
 impl Rule {
@@ -118,6 +121,7 @@ impl Rule {
             Self::PointlessWatch => "pointless-watch",
             Self::UnexcusedIgnore => "unexcused-ignore",
             Self::UnreadableIgnoreFile => "unreadable-ignore-file",
+            Self::PartialPackageExclusion => "partial-package-exclusion",
         }
     }
 }
@@ -126,6 +130,15 @@ impl fmt::Display for Rule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.code())
     }
+}
+
+/// Where in its file a finding points, both counted from 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Position {
+    /// The line.
+    pub line: usize,
+    /// The column, in characters.
+    pub column: usize,
 }
 
 /// One thing the crate has to say.
@@ -139,6 +152,8 @@ pub struct Finding {
     pub unit: Option<UnitName>,
     /// Which path it is about, when it is about one.
     pub path: Option<RelativePath>,
+    /// Where in that file, when it points at a place in it.
+    pub position: Option<Position>,
     /// What is wrong, in a sentence.
     pub message: String,
 }
@@ -152,6 +167,7 @@ impl Finding {
             rule,
             unit: None,
             path: None,
+            position: None,
             message: message.into(),
         }
     }
@@ -164,6 +180,7 @@ impl Finding {
             rule,
             unit: None,
             path: None,
+            position: None,
             message: message.into(),
         }
     }
@@ -181,6 +198,13 @@ impl Finding {
         self.path = Some(path);
         self
     }
+
+    /// Attaches the place in that file.
+    #[must_use]
+    pub fn on(mut self, position: Position) -> Self {
+        self.position = Some(position);
+        self
+    }
 }
 
 impl fmt::Display for Finding {
@@ -192,10 +216,11 @@ impl fmt::Display for Finding {
             .unit
             .as_ref()
             .map_or_else(String::new, |unit| format!(" {unit}"));
-        let path = self
-            .path
-            .as_ref()
-            .map_or_else(String::new, |path| format!(" at {path}"));
+        let path = match (&self.path, self.position) {
+            (Some(path), Some(Position { line, column })) => format!(" at {path}:{line}:{column}"),
+            (Some(path), None) => format!(" at {path}"),
+            (None, _) => String::new(),
+        };
         f.write_str(&format!(
             "{}[{}]{unit}{path}: {}",
             self.severity, self.rule, self.message

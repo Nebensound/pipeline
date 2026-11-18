@@ -16,10 +16,23 @@ use nebensound_declaration::register::{BUILTIN_DEFAULTS, BUILTIN_REGISTER};
 use nebensound_declaration::{Analysis, Central, Declaration, ReadError, Tree, analyse};
 use thiserror::Error;
 
-use crate::ignored;
+use crate::{ignored, packages};
 
 /// Where the declaration of a repository lies.
 pub const DECLARATION: &str = ".nebensound/repo.toml";
+
+/// [`DECLARATION`] as a path in the repository.
+fn declaration_path() -> RelativePath {
+    RelativePath::root().join(".nebensound").join("repo.toml")
+}
+
+/// Reads the declaration from its text.
+fn parse(source: &str) -> Result<Declaration, Error> {
+    Declaration::parse(source).map_err(|source| Error::Malformed {
+        path: DECLARATION.to_owned(),
+        source,
+    })
+}
 
 /// Why a repository could not be read.
 #[derive(Debug, Error)]
@@ -199,24 +212,21 @@ impl Repository {
     /// when it cannot be read, and [`Error::Malformed`] when it does not match
     /// the shape.
     pub fn declaration(&self) -> Result<Declaration, Error> {
-        let source = match self.read(DECLARATION) {
-            Ok(source) => source,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Err(Error::Missing {
-                    root: self.root.display().to_string(),
-                });
-            }
-            Err(source) => {
-                return Err(Error::Unreadable {
-                    path: DECLARATION.to_owned(),
-                    source,
-                });
-            }
-        };
-        Declaration::parse(&source).map_err(|source| Error::Malformed {
-            path: DECLARATION.to_owned(),
-            source,
-        })
+        parse(&self.declaration_source()?)
+    }
+
+    /// The declaration as text, before it is read.
+    fn declaration_source(&self) -> Result<String, Error> {
+        match self.read(DECLARATION) {
+            Ok(source) => Ok(source),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Err(Error::Missing {
+                root: self.root.display().to_string(),
+            }),
+            Err(source) => Err(Error::Unreadable {
+                path: DECLARATION.to_owned(),
+                source,
+            }),
+        }
     }
 
     /// A file as it stands in the repository, and only that: the declaration,
@@ -247,14 +257,34 @@ impl Repository {
     /// the declaration ([`crate::ignored`]): reading them is input, which the
     /// library has none of.
     pub fn analyse(&self, central: &Central) -> Result<Analysis, Error> {
-        let declaration = self.declaration()?;
+        let source = self.declaration_source()?;
+        let declaration = parse(&source)?;
         let tree = self.tree()?;
         let mut analysis = analyse(&declaration, central, &tree);
-        let read = |path: &RelativePath| self.read(&path.to_string()).map_err(|e| e.to_string());
-        let found = ignored::findings(&analysis, &read);
+        let read = self.reader();
+        let mut found = ignored::findings(&analysis, &read);
+        found.extend(packages::findings(
+            &analysis,
+            &declaration_path(),
+            &source,
+            &read,
+        ));
         let loose = analysis.tree.attach(found);
         analysis.loose.extend(loose);
         Ok(analysis)
+    }
+
+    /// The Rust packages `[[exclude]]` takes out as a whole
+    /// ([`crate::packages`]), in this repository as phase 0 analysed it.
+    #[must_use]
+    pub fn excluded_packages(&self, analysis: &Analysis) -> Vec<packages::Excluded> {
+        packages::excluded(analysis, &self.reader())
+    }
+
+    /// [`Self::read`] as the readers of the tools' settings and the
+    /// manifests take it.
+    fn reader(&self) -> impl Fn(&RelativePath) -> Result<String, String> + '_ {
+        |path: &RelativePath| self.read(&path.to_string()).map_err(|e| e.to_string())
     }
 
     fn git_failed(&self, message: &str) -> Error {

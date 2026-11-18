@@ -113,7 +113,11 @@ Every step runs even when one before it failed, so one run shows every finding.
 - Every link into the repository leads to a file and a heading that exist
   (lychee, `--offline`). Links to the outside are not checked in a pull
   request: it should not turn red because someone else's server does not
-  answer. lychee reads no `lychee.toml` or `.lycheeignore` of the repository.
+  answer. lychee reads the repository's `lychee.toml` and `.lycheeignore` at
+  the root, so excluded addresses, accepted status codes and timeouts stay the
+  repository's configuration. An `exclude_path` there is held against the
+  declaration by phase 0, like every setting that takes files out (see
+  [Exclusions](#exclusions)).
 
 ### `check-rust`
 
@@ -134,10 +138,20 @@ away:
 - Every published package builds and passes its tests from its own packaged
   contents, outside the source tree.
 
-A `.rs` file that `[[exclude]]` takes out is neither held to the formatting nor
-counted for coverage. Clippy, the tests, the documentation and the builds work
-on the crates as Cargo compiles them; a crate cannot be compiled without one of
-its files, so an excluded file a crate compiles is compiled with it.
+Rust code is excluded by the package, never by the file. Phase 0 fails on an
+`[[exclude]]` entry that takes a `.rs` file out of a package without taking out
+the folder that holds its `Cargo.toml` (`partial-package-exclusion`), and names
+the language's own means instead: `#[rustfmt::skip]`, `#[coverage(off)]` with a
+justification, `#[allow(...)]`. A package excluded as a whole, code of others
+such as a submodule or a vendored copy, is out of every step: not formatted, not
+linted, not tested, not documented, not counted for coverage, and its
+`rust-version` and `publish` play no part. It is only compiled where another
+package depends on it, and rustc still prints its own warnings for it then,
+which fail nothing. That holds for a workspace member and for a path dependency
+outside the workspace alike: Clippy runs with `--no-deps`, since it would
+otherwise lint a member it compiles as a dependency of another one, and it never
+lints a path dependency that is no member. Every excluded package is named in
+the summary of the run with its reason, as a notice.
 
 ### `check-toml`
 
@@ -201,7 +215,8 @@ first key or table of `.nebensound/repo.toml`:
 
 `.nebensound/repo.toml` is the only place where a repository takes a file out
 of a check, with an `[[exclude]]` entry and its reason. `nebensound tree` shows
-such a file as excluded, with the reason.
+such a file as excluded, with the reason. Rust code is excluded only as a whole
+package (see [`check-rust`](#check-rust)).
 
 No block reads a tool's own way of leaving files out: an ignore file needs no
 reason and can turn a check green that checked nothing. `.gitignore` takes
@@ -226,7 +241,11 @@ neither `ignore` nor `ignore-from-file`, phase 0 reads them in the file its
 `extends` names, as yamllint does. A setting phase 0 cannot read fails as well
 (`unreadable-ignore-file`). A JavaScript options file of markdownlint-cli2
 (`.markdownlint-cli2.cjs` or `.mjs`) is not judged, since phase 0 cannot read it
-without running it; the block sets its `ignores` aside all the same.
+without running it; the block sets its `ignores` aside all the same. A setting
+that switches a rule off for some files, such as yamllint's per-rule `ignore`
+or markdownlint-cli2's `overrides`, takes no file out of the tool and stays the
+repository's rule configuration. lychee's `.lycheeignore` leaves out addresses,
+not files, so phase 0 does not judge it.
 
 ## A repository's own checks
 

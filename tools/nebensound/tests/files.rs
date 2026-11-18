@@ -18,8 +18,8 @@ pipeline = "rust-workspace"
 versioning = "none"
 
 [[exclude]]
-path   = "tool/src/generated.rs"
-reason = "generated from the schema, and written again on every build"
+path   = "tool/vendor/schema"
+reason = "a vendored copy of someone else's crate, kept as it came"
 
 [[exclude]]
 path   = "docs/draft.md"
@@ -34,8 +34,9 @@ const PATHS: &[&str] = &[
     "tool/Cargo.lock",
     "tool/Cargo.toml",
     "tool/README.md",
-    "tool/src/generated.rs",
     "tool/src/main.rs",
+    "tool/vendor/schema/Cargo.toml",
+    "tool/vendor/schema/src/lib.rs",
 ];
 
 fn path(text: &str) -> RelativePath {

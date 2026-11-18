@@ -386,7 +386,7 @@ fn places<'a>(files: &[&'a RelativePath]) -> Vec<(&'a RelativePath, Tool)> {
 }
 
 /// The folder a file lies in.
-fn folder(file: &RelativePath) -> RelativePath {
+pub(crate) fn folder(file: &RelativePath) -> RelativePath {
     let segments = file.segments();
     segments[..segments.len() - 1]
         .iter()

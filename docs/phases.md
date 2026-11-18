@@ -31,7 +31,10 @@ the tool `nebensound` on it and hands the result on:
    configuration, the annotated tree, the findings and a summary line.
    [The reference of the declaration](declaration.md) describes every field and
    every finding.
-3. When phase 0 found no error, `nebensound plan` prints the plan: every unit,
+3. When phase 0 found no error, every Rust package `[[exclude]]` takes out as a
+   whole (`nebensound excluded-packages`) is named in the summary of the run
+   with its reason, as a notice.
+4. Then `nebensound plan` prints the plan: every unit,
    with the checks started for it and the build it names. The units that start
    at least one check go on to the Check phase.
 

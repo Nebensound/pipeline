@@ -13,6 +13,7 @@ pub mod draw;
 pub mod files;
 pub mod ignored;
 pub mod output;
+pub mod packages;
 pub mod plan;
 pub mod reference;
 pub mod report;
@@ -79,6 +80,9 @@ pub enum Command {
         #[arg(short = 'z')]
         zero: bool,
     },
+    /// Print the Rust packages `[[exclude]]` takes out as a whole, each with
+    /// its reason, as JSON: what `check-rust` leaves out of every step.
+    ExcludedPackages,
     // It describes the format, not a repository, so it reads none.
     /// Print the JSON Schema of `.nebensound/repo.toml`, for editors and Taplo.
     Schema,
@@ -236,6 +240,8 @@ enum Job {
         unit: RelativePath,
         zero: bool,
     },
+    /// Print the packages taken out as a whole.
+    ExcludedPackages,
     /// Open the interface.
     #[cfg(feature = "ui")]
     Ui,
@@ -249,6 +255,7 @@ fn call(cli: &Cli) -> Result<Call, Failure> {
         None | Some(Command::Check) => Job::Check,
         Some(Command::Tree) => Job::Tree,
         Some(Command::Plan) => Job::Plan,
+        Some(Command::ExcludedPackages) => Job::ExcludedPackages,
         #[cfg(feature = "ui")]
         Some(Command::Ui) => Job::Ui,
         Some(Command::Explain { path }) => Job::Explain(path_of(path)?),
@@ -333,6 +340,20 @@ fn execute(
                 return Ok(FOUND);
             }
         },
+        // The same reason again: a package read off a declaration with errors
+        // could be left out without a valid reason.
+        Job::ExcludedPackages if analysis.failed() => say(
+            out,
+            "there is no list of excluded packages: phase 0 found errors, and `check` says \
+             which\n",
+        ),
+        Job::ExcludedPackages => say(
+            out,
+            &format!(
+                "{}\n",
+                packages::to_json(&repository.excluded_packages(&analysis))
+            ),
+        ),
         #[cfg(feature = "ui")]
         Job::Ui => {
             terminal::open(&analysis, output).map_err(|source| Failure::Terminal { source })?;

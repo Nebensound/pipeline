@@ -27,6 +27,29 @@ runs:
         set -euo pipefail
         nebensound -C "$GITHUB_WORKSPACE" check
 
+    # Only reached when phase 0 passed. Every Rust package `[[exclude]]` takes
+    # out as a whole is named in the summary of the run, with its reason: a
+    # notice, not a warning, since the declaration gives the reason.
+    # `check-rust` leaves such a package out of every step and compiles it
+    # only as a dependency of others.
+    - name: Name the excluded packages
+      shell: bash
+      run: |
+        set -euo pipefail
+        # The tool writes a refusal where the list would go: into the log
+        # with it, or the step fails without saying why.
+        if ! list="$(nebensound -C "$GITHUB_WORKSPACE" excluded-packages)"; then
+          echo "$list" >&2
+          exit 1
+        fi
+        echo "$list"
+        # A workflow command ends at a line break and reads `%` as the start
+        # of an escape, so a reason holding either is escaped.
+        jq -r '.[]
+          | "The Rust package at \(.path) is excluded from every step of check-rust: \(.reason)"
+          | gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A")
+          | "::notice title=Excluded package::\(.)"' <<< "$list"
+
     # Only reached when phase 0 passed: a declaration with errors gets no plan.
     - name: Hand on the plan
       id: plan

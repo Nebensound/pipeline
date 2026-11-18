@@ -191,10 +191,20 @@ only once.
 
 An exclusion takes the file out of phase 0 and out of its check alike: every
 building block checks exactly the files `nebensound files <check> <unit>` names,
-and those are the unit's files less what `[[exclude]]` takes out. What that
-means for the steps of `check-rust` that compile whole crates is in
-[the README](../README.md#check-rust). `[[exclude]]` is the only way out of a
-check: a tool's own ignore setting takes nothing out of a building block, and
+and those are the unit's files less what `[[exclude]]` takes out.
+
+Rust code is excluded by the package, never by the file. An entry that takes a
+`.rs` file out of a package without taking out the whole package, the folder
+that holds its `Cargo.toml`, is an error (see
+[`partial-package-exclusion`](#partial-package-exclusion)). Inside a package,
+Rust has its own means: `#[rustfmt::skip]`, `#[coverage(off)]` with a
+justification, `#[allow(...)]`. A package excluded as a whole is meant for code
+of others inside the repository, a submodule or a vendored copy: `check-rust`
+leaves it out of every step and compiles it only as a dependency of others
+(see [the README](../README.md#check-rust)), and every run names it with its
+reason.
+
+`[[exclude]]` is the only way out of a check: a tool's own ignore setting takes nothing out of a building block, and
 phase 0 fails on every file such a setting takes out that no `[[exclude]]` entry
 does (see [`unexcused-ignore`](#unexcused-ignore) and
 [the README](../README.md#exclusions)).
@@ -304,7 +314,9 @@ stable code; the wording of its message may improve, the code does not change.
   not true, not that something is broken.
 
 A finding reads like `error[uncovered-file] at src/main.rs: …`: the severity, the
-code, the unit or path it is about, and a sentence. The report of phase 0 shows
+code, the unit or path it is about, and a sentence. A finding that points at a
+place in a file adds its line and column, counted from 1:
+`error[partial-package-exclusion] at .nebensound/repo.toml:12:8: …`. The report of phase 0 shows
 each finding under the path it is about in the tree, and lists them all under
 `Findings`.
 
@@ -443,6 +455,23 @@ a pattern or an entry is not what the tool takes, or a file it names through
 the declaration, so it cannot tell whether the setting takes out more than
 `[[exclude]]` does. Correct the setting. The message says what is wrong.
 
+### `partial-package-exclusion`
+
+Error. An `[[exclude]]` entry takes code out of a Rust package and not the whole
+package: it names a `.rs` file or a folder inside the package, or it takes out
+the package's folder while an `[[include]]` pulls a file of it back in. Cargo
+compiles a package with all of its files, so a file with code cannot be left
+out on its own. The finding stands at the entry's `path` in
+`.nebensound/repo.toml`, with line and column. Remove the entry and use what
+Rust has for the case: `#[rustfmt::skip]`, `#[coverage(off)]` with a
+justification, `#[allow(...)]`. For code of others, exclude the package's whole
+folder and pull nothing of it back in.
+
+A package is a folder whose `Cargo.toml` Git tracks and has a `[package]` table;
+a `Cargo.toml` that does not read counts as one. A `.rs` file belongs to the
+innermost package around it, and a file that lies in no package is not judged
+here.
+
 ### When the file cannot be read
 
 Some mistakes stop phase 0 before any finding is made. It then prints one
@@ -469,6 +498,7 @@ cargo run --quiet -- -C <repository> check                 # the whole report
 cargo run --quiet -- -C <repository> explain <path>        # what holds for one path, and why
 cargo run --quiet -- -C <repository> plan                  # what a run would start
 cargo run --quiet -- -C <repository> files <check> <unit>  # what one building block checks
+cargo run --quiet -- -C <repository> excluded-packages     # the Rust packages taken out as a whole
 ```
 
 [The tool's README](../tools/nebensound/README.md) describes every call.
