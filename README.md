@@ -210,11 +210,12 @@ setting that takes out less is fine. Phase 0 reads:
 Only the files the tool reads in a block count: a `.prettierignore` that takes
 out a Rust file takes out nothing Prettier would have looked at. Taplo's
 `include` counts only against `.toml` files, the ones Taplo reads without it; a
-`.lock` file is taken out of Taplo only by `exclude`. A setting phase 0 cannot
-read fails as well (`unreadable-ignore-file`). A JavaScript options file of
-markdownlint-cli2 (`.markdownlint-cli2.cjs` or `.mjs`) is not judged, since
-phase 0 cannot read it without running it; the block sets its `ignores` aside
-all the same.
+`.lock` file is taken out of Taplo only by `exclude`. Where yamllint's file sets
+neither `ignore` nor `ignore-from-file`, phase 0 reads them in the file its
+`extends` names, as yamllint does. A setting phase 0 cannot read fails as well
+(`unreadable-ignore-file`). A JavaScript options file of markdownlint-cli2
+(`.markdownlint-cli2.cjs` or `.mjs`) is not judged, since phase 0 cannot read it
+without running it; the block sets its `ignores` aside all the same.
 
 ## A repository's own checks
 
