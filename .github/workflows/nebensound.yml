@@ -91,7 +91,7 @@ jobs:
       - name: Not written yet
         env:
           CHECKS: ${{ toJSON(matrix.checks) }}
-          WRITTEN: '["markdown", "yaml"]'
+          WRITTEN: '["json", "markdown", "toml", "yaml"]'
           UNIT_PATH: ${{ matrix.path }}
         run: |
           set -euo pipefail
@@ -107,9 +107,21 @@ jobs:
           done <<< "$missing"
           exit 1
 
+      - name: json
+        if: ${{ !cancelled() && contains(matrix.checks, 'json') }}
+        uses: $/.github/actions/check-json
+        with:
+          working-directory: ${{ matrix.path }}
+
       - name: markdown
         if: ${{ !cancelled() && contains(matrix.checks, 'markdown') }}
         uses: $/.github/actions/check-markdown
+        with:
+          working-directory: ${{ matrix.path }}
+
+      - name: toml
+        if: ${{ !cancelled() && contains(matrix.checks, 'toml') }}
+        uses: $/.github/actions/check-toml
         with:
           working-directory: ${{ matrix.path }}
 

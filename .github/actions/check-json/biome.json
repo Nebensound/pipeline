@@ -1,0 +1,9 @@
+{
+  "vcs": { "enabled": false },
+  "assist": { "enabled": false },
+  "formatter": { "enabled": false },
+  "linter": { "enabled": true, "rules": { "recommended": false } },
+  "json": {
+    "parser": { "allowComments": true, "allowTrailingCommas": true }
+  }
+}
