@@ -5,7 +5,8 @@
 //! resolved as the building blocks resolve them: npm installs the verified
 //! package file with `--ignore-scripts`, so nothing of it runs while it is put
 //! in place; pip installs the verified wheel into a virtual environment of its
-//! own, so that the computer's Python packages stay untouched.
+//! own, so that the computer's Python packages stay untouched, and takes only
+//! wheels for its dependencies, so that no build code of one runs either.
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -13,7 +14,7 @@ use std::process::{Command, Stdio};
 
 use nebensound_declaration::programs::Installer;
 
-use super::{Environment, execute};
+use super::{Environment, execute, find};
 
 /// Installs the package `file` into `dir` with the installer of the runtime
 /// whose executable is `runtime`.
@@ -47,14 +48,10 @@ pub fn package(
             let mut venv = Command::new(runtime);
             venv.args(["-m", "venv"]).arg(dir);
             run(&mut venv, &path, "python -m venv")?;
-            let python = if env.windows {
-                dir.join("Scripts").join("python.exe")
-            } else {
-                dir.join("bin").join("python")
-            };
-            let mut pip = Command::new(python);
+            let mut pip = Command::new(find::environment_python(dir, env.windows));
             pip.args(["-m", "pip", "install"])
                 .args(["--disable-pip-version-check", "--no-cache-dir", "--quiet"])
+                .arg("--only-binary=:all:")
                 .arg(file);
             run(&mut pip, &path, "pip")
         }

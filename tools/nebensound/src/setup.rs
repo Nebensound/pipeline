@@ -9,7 +9,8 @@
 //!   version of what is missing, and nothing that is present.
 //! - With `--pinned` it installs the pinned version of every program into its
 //!   own folder, whatever the computer has, and leaves the computer's programs
-//!   alone. The gate runs this way.
+//!   alone. This is the mode the gate is to run in once its blocks call
+//!   `setup` (#73).
 //! - With `--check` it changes nothing and says what is missing or differs.
 //!
 //! Pinned copies go into the tool's folder in the user's cache directory, one

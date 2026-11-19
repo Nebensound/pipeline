@@ -859,11 +859,11 @@ fn in_a_terminal_a_runtime_is_installed_on_a_yes_only() {
     );
 }
 
-#[test]
-fn with_runtimes_installs_without_asking_and_pip_gets_an_environment_of_its_own() {
-    let fixture = Fixture::new();
+/// A program on the runtime `py`, and the runtime itself, which acts like
+/// Python.
+fn on_python(fixture: &Fixture) -> Register {
     let python = tar_gz(&[("py/bin/py", PYTHON.as_bytes())]);
-    let register = register(
+    register(
         &[
             check(&["wheel-tool"]),
             packaged(
@@ -881,7 +881,13 @@ fn with_runtimes_installs_without_asking_and_pip_gets_an_environment_of_its_own(
             ),
         ]
         .concat(),
-    );
+    )
+}
+
+#[test]
+fn with_runtimes_installs_without_asking_and_pip_gets_an_environment_of_its_own() {
+    let fixture = Fixture::new();
+    let register = on_python(&fixture);
 
     let (text, code) = run(&register, Mode::Pinned, true, &mut fixture.env());
 
@@ -893,6 +899,89 @@ fn with_runtimes_installs_without_asking_and_pip_gets_an_environment_of_its_own(
         String::from_utf8_lossy(&output.stdout),
         "wheel-tool 7.8.9\n"
     );
+}
+
+#[test]
+fn a_virtual_environment_whose_python_is_gone_is_installed_again() {
+    let fixture = Fixture::new();
+    let register = on_python(&fixture);
+    let (text, code) = run(&register, Mode::Pinned, true, &mut fixture.env());
+    assert_eq!(code, 0, "{text}");
+    let python = fixture.path("cache/programs/wheel-tool/7.8.9/bin/python");
+    fs::remove_file(&python).expect("the environment's Python");
+
+    let (text, code) = run(&register, Mode::Check, false, &mut fixture.env());
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains("  wheel-tool 7.8.9 (json): missing\n"),
+        "{text}"
+    );
+
+    let (text, code) = run(&register, Mode::Missing, false, &mut fixture.env());
+    assert_eq!(code, 0, "{text}");
+    assert!(python.is_file(), "{text}");
+}
+
+#[test]
+fn pip_takes_wheels_only() {
+    let fixture = Fixture::new();
+    let runtime = fixture.path("runtime/bin/python3");
+    // A Python whose virtual environment's Python writes its arguments down.
+    executable(
+        &runtime,
+        br#"#!/bin/sh
+/bin/mkdir -p "$3/bin"
+printf '%s\n' '#!/bin/sh' 'echo "$*" > "${0%/*}/arguments"' > "$3/bin/python"
+/bin/chmod +x "$3/bin/python"
+"#,
+    );
+    let wheel = fixture.path("tool.whl");
+    let dir = fixture.path("dir");
+
+    install::package(Installer::Pip, &runtime, &wheel, &dir, &fixture.env()).expect("installed");
+
+    assert_eq!(
+        fs::read_to_string(dir.join("bin/arguments")).expect("written"),
+        format!(
+            "-m pip install --disable-pip-version-check --no-cache-dir --quiet \
+             --only-binary=:all: {}\n",
+            wheel.display()
+        )
+    );
+}
+
+#[test]
+fn a_runtime_that_prints_no_version_is_passed_over() {
+    // On Windows the Store puts `python3.exe` and `python.exe` on the PATH of
+    // a computer without Python, which print only where to get one.
+    let fixture = Fixture::new();
+    let register = on_a_runtime(&fixture, NPM);
+    let stub = fixture.path("stub/rt");
+    executable(
+        &stub,
+        b"#!/bin/sh\necho 'rt was not found; install it from the store' >&2\nexit 49\n",
+    );
+    let mut env = fixture.env();
+    env.search_path =
+        std::env::join_paths([fixture.path("stub"), fixture.path("bin")]).expect("a search path");
+    let pkg = ProgramName::new("pkg").expect("a name");
+    fixture.install("pkg", &prints("pkg 7.8.9"));
+
+    let (text, code) = run(&register, Mode::Check, false, &mut env);
+    assert_eq!(code, 1, "{text}");
+    assert!(text.contains("Runtimes\n  rt 4.5.6: missing\n"), "{text}");
+    let found = find::locate(&register, &pkg, &env).expect("found");
+    assert_eq!(found.runtime, None);
+
+    let rt = fixture.install("rt", &prints("rt 4.5.6"));
+    let (text, code) = run(&register, Mode::Check, false, &mut env);
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.contains(&format!("  rt 4.5.6: on the computer, {}\n", rt.display())),
+        "{text}"
+    );
+    let found = find::locate(&register, &pkg, &env).expect("found");
+    assert_eq!(found.runtime, Some(rt));
 }
 
 #[test]

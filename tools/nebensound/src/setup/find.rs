@@ -52,9 +52,11 @@ pub struct Location {
 #[must_use]
 pub fn locate(register: &Register, name: &ProgramName, env: &Environment) -> Option<Location> {
     let program = register.program.get(name)?;
-    let runtime = program.runtime.as_ref().and_then(|runtime| {
-        let definition = register.runtime.get(runtime)?;
-        pinned_runtime(runtime, definition, env).or_else(|| search_any(&definition.commands, env))
+    let runtime = program.runtime.as_ref().and_then(|name| {
+        match runtime(name, register.runtime.get(name)?, env) {
+            Found::Pinned(path) | Found::Computer { path, .. } => Some(path),
+            Found::Missing => None,
+        }
     });
     if let Some(executable) = pinned_program(register, name, program, env) {
         return Some(Location {
@@ -89,16 +91,28 @@ pub fn program(
 }
 
 /// What there is of a runtime.
+///
+/// One on the computer counts only when it prints its version, and the
+/// search goes on past one that does not: on Windows the Store puts
+/// `python3.exe` and `python.exe` on the `PATH` of a computer without Python,
+/// and all they print is where to get one.
 #[must_use]
 pub fn runtime(name: &RuntimeName, runtime: &Runtime, env: &Environment) -> Found {
     if let Some(path) = pinned_runtime(name, runtime, env) {
         return Found::Pinned(path);
     }
-    computer(
-        search_any(&runtime.commands, env),
-        &runtime.version_args,
-        env,
-    )
+    runtime
+        .commands
+        .iter()
+        .flat_map(|command| candidates(command, &env.search_path, env.windows))
+        .find_map(|path| {
+            let version = version(&path, &runtime.version_args, &env.search_path)?;
+            Some(Found::Computer {
+                path,
+                version: Some(version),
+            })
+        })
+        .unwrap_or(Found::Missing)
 }
 
 fn computer(path: Option<PathBuf>, args: &[String], env: &Environment) -> Found {
@@ -109,12 +123,6 @@ fn computer(path: Option<PathBuf>, args: &[String], env: &Environment) -> Found 
         }
         None => Found::Missing,
     }
-}
-
-fn search_any(commands: &[String], env: &Environment) -> Option<PathBuf> {
-    commands
-        .iter()
-        .find_map(|command| search(command, &env.search_path, env.windows))
 }
 
 /// The folder a program's pinned version goes to.
@@ -138,6 +146,16 @@ fn pinned_program(
 ) -> Option<PathBuf> {
     let dir = program_folder(env.folder.as_deref()?, name, &program.version);
     let executable = program_executable(register, program, &dir, env)?;
+    // A virtual environment points at the Python it was made with. Once that
+    // Python is gone, nothing in it starts, and it counts as no installation.
+    let pip = program
+        .runtime
+        .as_ref()
+        .and_then(|runtime| register.runtime.get(runtime))
+        .is_some_and(|runtime| runtime.installer == Installer::Pip);
+    if pip && !environment_python(&dir, env.windows).is_file() {
+        return None;
+    }
     finished(&dir, executable)
 }
 
@@ -200,6 +218,16 @@ pub fn installed_by(installer: Installer, dir: &Path, command: &str, windows: bo
     }
 }
 
+/// The Python of a virtual environment made in `dir`.
+#[must_use]
+pub fn environment_python(dir: &Path, windows: bool) -> PathBuf {
+    if windows {
+        dir.join("Scripts").join("python.exe")
+    } else {
+        dir.join("bin").join("python")
+    }
+}
+
 /// The first file on the search path that is this command and can be run.
 ///
 /// On Windows a command is found by its file with `.exe`, `.cmd` or `.bat`
@@ -207,6 +235,16 @@ pub fn installed_by(installer: Installer, dir: &Path, command: &str, windows: bo
 /// would be read relative to wherever the tool happens to run.
 #[must_use]
 pub fn search(command: &str, search_path: &OsStr, windows: bool) -> Option<PathBuf> {
+    candidates(command, search_path, windows).next()
+}
+
+/// Every file on the search path that is this command and can be run, in
+/// the order of the search path.
+fn candidates<'a>(
+    command: &'a str,
+    search_path: &'a OsStr,
+    windows: bool,
+) -> impl Iterator<Item = PathBuf> + 'a {
     let suffixes: &[&str] = if windows {
         &[".exe", ".cmd", ".bat"]
     } else {
@@ -214,12 +252,12 @@ pub fn search(command: &str, search_path: &OsStr, windows: bool) -> Option<PathB
     };
     std::env::split_paths(search_path)
         .filter(|dir| dir.is_absolute())
-        .flat_map(|dir| {
+        .flat_map(move |dir| {
             suffixes
                 .iter()
                 .map(move |suffix| dir.join(format!("{command}{suffix}")))
         })
-        .find(|candidate| runnable(candidate))
+        .filter(|candidate| runnable(candidate))
 }
 
 fn runnable(path: &Path) -> bool {
@@ -253,8 +291,8 @@ pub fn version(executable: &Path, args: &[String], search_path: &OsStr) -> Optio
     version_in(&text)
 }
 
-/// The first version in a text: three numbers joined by dots, not part of a
-/// longer run of digits and dots.
+/// The first version in a text: the first three numbers of the first run of
+/// at least three numbers joined by dots.
 #[must_use]
 pub fn version_in(text: &str) -> Option<String> {
     text.split(|c: char| !(c.is_ascii_digit() || c == '.'))

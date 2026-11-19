@@ -150,14 +150,15 @@ for the same reason it gets no plan.
   installs the pinned version of what is missing, and nothing that is present.
 - **`--pinned`** installs the pinned version of every program into its own
   folder, whatever the computer has, and leaves the computer's programs alone.
-  The gate runs this way.
+  This is the mode the gate is to run in once its blocks call `setup` (#73).
 - **`--check`** changes nothing. It lists every program and runtime with where
   it was found, what is missing, and which version differs from the pinned one.
 
 A download is refused unless it has the digest the register pins, and nothing
 of it is used then. Downloads go through `curl`, which macOS, Linux and Windows
 bring; a program on a runtime is installed by that runtime's installer: npm
-with `--ignore-scripts`, or pip into a virtual environment of its own.
+with `--ignore-scripts`, or pip into a virtual environment of its own, taking
+only wheels, so that no build code of a dependency runs.
 
 A **runtime** (Node.js, Python) is never installed unasked. One on the computer
 is used as it is, whatever its version. When one is missing, `setup` lists what
