@@ -21,8 +21,12 @@
 //!   that `HEAD` contains; `0.0.0` without one. Which commits are released
 //!   depends on the mode the unit had at the commit the tag is on: in one
 //!   stage a commit of the line, in two stages a commit promoted into
-//!   `release`. A pre-release counts, in either mode, only on a commit of the
-//!   line.
+//!   `release`. A full release on a released commit counts whatever its
+//!   number. A pre-release counts only on a commit of the line where the unit
+//!   was released in two stages.
+//! - Only the tip of `main` is promoted. A merge into `release` whose second
+//!   parent is not the commit `origin/main` points at is refused, and the
+//!   commit at hand resolves no version.
 //! - A commit **touches** a unit when it changes a file below the unit's path
 //!   as that commit declares it, or the declaration itself. The repository is
 //!   touched by every commit. Only the line counts, and a merge commit touches
@@ -147,6 +151,8 @@ pub struct History {
     pub parents: BTreeMap<String, Vec<String>>,
     /// The commit `origin/release` points at, if the branch exists.
     pub release: Option<String>,
+    /// The commit `origin/main` points at, if the branch exists.
+    pub main: Option<String>,
     /// Every tag of the repository.
     pub tags: Vec<Tag>,
     /// The declaration as each commit of the line holds it, by the object it
@@ -158,6 +164,66 @@ pub struct History {
 }
 
 impl History {
+    /// The first-parent line from a commit on, itself included.
+    fn first_parent_line<'h>(&'h self, start: &'h str) -> BTreeSet<&'h str> {
+        let mut line = BTreeSet::new();
+        let mut next = Some(start);
+        while let Some(commit) = next {
+            line.insert(commit);
+            next = self
+                .parents
+                .get(commit)
+                .and_then(|parents| parents.first())
+                .map(String::as_str);
+        }
+        line
+    }
+
+    /// The refusal of the commit at hand when it merges into `release`
+    /// something other than the tip of `main`.
+    ///
+    /// Only the tip of `main` is promoted. The commits of `main` after an
+    /// older one were given pre-releases counted from the release before;
+    /// promoting the older one would move the base under them, and the next
+    /// cycle would give their numbers out again.
+    ///
+    /// A merge into `release` is told by its first parent, which lies on the
+    /// first-parent line of `origin/release`. Below the commit `release` was
+    /// started on that line goes on through `main`, so a first parent there
+    /// makes a merge into `release` only when what it merges is a commit of
+    /// `main` as well; otherwise it is a pull request into `main`.
+    fn refusal(&self) -> Option<Finding> {
+        let head = self.line.first()?;
+        let [first, second, ..] = head.parents.as_slice() else {
+            return None;
+        };
+        let main = self.main.as_deref()?;
+        if second == main {
+            return None;
+        }
+        let main_line = self.first_parent_line(main);
+        let into_release = self
+            .release
+            .as_deref()
+            .is_some_and(|release| self.first_parent_line(release).contains(first.as_str()))
+            && (!main_line.contains(first.as_str()) || main_line.contains(second.as_str()));
+        into_release.then(|| {
+            let short = |commit: &str| commit.chars().take(12).collect::<String>();
+            Finding::error(
+                Rule::StalePromotion,
+                format!(
+                    "this merge into release brings in {}, and origin/main points at {}: only \
+                     the tip of main is promoted, so it does not count as a promotion. The \
+                     commits of main after it were already given versions counted from the \
+                     release before, and promoting an older commit would give their numbers out \
+                     again. Promote the tip of main with a pull request from main into release",
+                    short(second),
+                    short(main)
+                ),
+            )
+        })
+    }
+
     /// Every commit that this one contains, itself included.
     fn contained_in<'h>(&'h self, start: &'h str) -> BTreeSet<&'h str> {
         let mut seen = BTreeSet::new();
@@ -181,6 +247,12 @@ impl History {
     /// is a commit of the line of `main`. Nothing but such
     /// merges enters the branch, so these are the commits of `main` that
     /// became full releases.
+    ///
+    /// Whether `main` had moved on past such a commit when it was merged is
+    /// not in the history: Git keeps no record of where a branch pointed. It
+    /// is checked where it can be, at the merge itself and at the pull request
+    /// into `release` ([`History::refusal`]), and the release stage resolves
+    /// there; a refused merge gets no version and so no tag.
     ///
     /// The first-parent line of `release` does not end where the branch was
     /// started: below that commit it goes on through `main`'s own history.
@@ -552,6 +624,13 @@ pub fn versions(units: &[Unit], history: &History, register: &Register) -> Versi
             findings,
         };
     }
+    if let Some(refusal) = history.refusal() {
+        findings.push(refusal);
+        return Versions {
+            units: Vec::new(),
+            findings,
+        };
+    }
 
     let head = history.line.first();
     let on_line: BTreeMap<&str, usize> = history
@@ -619,7 +698,9 @@ pub fn versions(units: &[Unit], history: &History, register: &Register) -> Versi
 /// version, one on something other than a commit, a full release on a commit
 /// that was not released in the mode the unit had there
 /// ([`Context::released`]), and a pre-release on a commit off the line of
-/// `main`. A tag on a commit
+/// `main` or on one where the unit was released in one stage. A full release
+/// on a released commit counts whatever its number: whether the pipeline set
+/// it is the release check's to tell. A tag on a commit
 /// `HEAD` does not contain is passed over without one: it lies in history this
 /// commit does not have, such as a newer release, and whether it counts is not
 /// this commit's to judge.
@@ -674,14 +755,23 @@ fn count_tags<'h>(
             continue;
         }
         if version.is_pre() {
-            // In either mode a pre-release is given to a commit of the
-            // first-parent line of main, and only there.
-            if !context.on_line.contains_key(commit) {
-                findings.push(unexpected(
-                    "is a pre-release on a commit off the first-parent line of main, and only \
-                     a commit of that line is ever given a pre-release"
-                        .to_owned(),
-                ));
+            // A pre-release is given to a commit of the first-parent line of
+            // main where the unit was released in two stages, and only there.
+            let why = if !context.on_line.contains_key(commit) {
+                Some(
+                    "is a pre-release on a commit off the first-parent line of main, and only a \
+                     commit of that line is ever given a pre-release",
+                )
+            } else if context.release(commit, unit) == Release::SingleStage {
+                Some(
+                    "is a pre-release on a commit where the unit was released in one stage, \
+                     which gives out no pre-release",
+                )
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                findings.push(unexpected(why.to_owned()));
                 continue;
             }
         } else {
@@ -769,9 +859,9 @@ fn resolve_unit(
                 Rule::UnreleasedBeforeSwitch,
                 format!(
                     "this unit is released in one stage, and its newest tag {}{} is a \
-                     pre-release that never became a full release. Promote it into release \
-                     before switching to one stage, so that the versions go on from a full \
-                     release",
+                     pre-release that never became a full release. Only the tip of main is \
+                     promoted, so revert the switch to one stage, promote the tip of main into \
+                     release, and switch again: the versions then go on from a full release",
                     entry.prefix, newest.version
                 ),
             )

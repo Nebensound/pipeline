@@ -567,6 +567,7 @@ fn every_rule_has_a_code_of_its_own() {
         Rule::ExhaustedVersion,
         Rule::PointlessReleaseBranch,
         Rule::PreReleaseMinimum,
+        Rule::StalePromotion,
         Rule::UnexcusedIgnore,
         Rule::UnreadableIgnoreFile,
         Rule::PartialPackageExclusion,

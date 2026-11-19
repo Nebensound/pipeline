@@ -319,6 +319,8 @@ impl Repository {
     /// line of `origin/release`, the second one on that of `origin/main`. A
     /// pull request into `main` also merges onto a commit `origin/release` may
     /// stand on, but what it merges is not a commit of `main` yet.
+    /// Whether such a merge brings in the tip of `main`, and may promote
+    /// anything, is for the library to judge from `origin/main`.
     ///
     /// Every option a setting of the person running it could change is given
     /// on the command line, so that the answer does not depend on their
@@ -406,6 +408,7 @@ impl Repository {
             line,
             parents,
             release,
+            main,
             tags,
             declarations,
             files,

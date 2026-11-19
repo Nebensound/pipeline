@@ -280,10 +280,10 @@ tagged yet.
 
 `release` says how a unit's version reaches a full release:
 
-| Value            | Meaning                                                                                                                                                                                    |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `"single-stage"` | A merge to `main` is a full release.                                                                                                                                                       |
-| `"two-stage"`    | A merge to `main` is a pre-release `X.Y.Z-pre.N`. A pull request from `main` into the branch `release`, merged with a merge commit, makes the commit it promotes the full release `X.Y.Z`. |
+| Value            | Meaning                                                                                                                                                                                                        |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"single-stage"` | A merge to `main` is a full release.                                                                                                                                                                           |
+| `"two-stage"`    | A merge to `main` is a pre-release `X.Y.Z-pre.N`. A pull request from `main` into the branch `release`, merged with a merge commit, makes the commit it promotes, the tip of `main`, the full release `X.Y.Z`. |
 
 - Without the field, the unit's publish targets decide.
   [The register](register.md#publish-targets) names for every target how a
@@ -372,6 +372,12 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
   that moves, or a generated unit whose folder or file is renamed, therefore
   keeps counting the commits from before, and a switch between one stage and
   two keeps the releases of each period.
+- **Earlier declarations are read with the tool that runs**: its reader and
+  its register. A declaration it cannot read, such as one written for an older
+  reader with a field this one no longer knows, falls under the rule above. A
+  default of the register that changes under the same name changes what the
+  declarations of old commits mean, so it is a breaking change of the pipeline
+  (see [the register](register.md)).
 - **The base** is the unit's highest full release on a released commit that
   `HEAD` contains. Without such a tag the base is `0.0.0`. A person with write
   access can push any tag, so only tags on released commits count. Which
@@ -385,10 +391,25 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
     `main`; a merge there brought a side branch into `main` and promoted
     nothing.
 
-  Any other full release with the unit's prefix on a commit `HEAD` contains is
-  the warning `unexpected-tag` and does not count. A pre-release is given to a
-  commit of the line of `main` in either mode, so one on any other commit
-  `HEAD` contains is the warning `unexpected-tag` as well.
+  A full release on a released commit counts whatever its number. Whether the
+  pipeline set it is for the release check to tell, a step of its own. Any
+  other full release with the unit's prefix on a commit `HEAD` contains is the
+  warning `unexpected-tag` and does not count. A pre-release is given only to a
+  commit of the line of `main` where the unit was released in two stages, so
+  one on any other commit `HEAD` contains, or on one where the unit was
+  released in one stage, is the warning `unexpected-tag` as well.
+
+- **Only the tip of `main` is promoted.** A merge into `release` whose second
+  parent is not the commit `origin/main` points at is the error
+  `stale-promotion`, both on the pull request into `release` and on the merge
+  itself, and resolves no version. The commits of `main` after an older commit
+  were given pre-releases counted from the release before; promoting the older
+  one would give their numbers out again. Promoting an older commit is not
+  supported. Git keeps no record of where `origin/main` pointed when an
+  earlier merge was made, so the check runs where the release stage resolves,
+  at the merge. Read later, a refused merge that was pushed past the check is
+  taken for a promotion like any other; it got no tag, so the base does not
+  move with it.
 
 - **A commit touches a unit** when it changes a file below the unit's path as
   that commit declares it, or `.nebensound/repo.toml`. The repository is
@@ -621,10 +642,14 @@ released, so a full release on a merged side branch does not count. In two
 stages only a promoted commit is released, so a full release on any other
 commit of `main` does not count, even once a later promotion makes
 `origin/release` contain it. A pre-release is given only to a commit of the
-line of `main`, in either mode, so one on a merged side branch does not count
-either, and does not stop a switch to one stage.
-A person with write access can push any tag; only the releases the pipeline
-makes count. Delete the tag, or rename it so that it carries no unit's prefix.
+line of `main` where the unit was released in two stages, so one on a merged
+side branch, or on a commit where the unit was released in one stage, does not
+count either, and does not stop a switch to one stage
+([`unreleased-before-switch`](#unreleased-before-switch)).
+A person with write access can push any tag, so only tags on released commits
+count. A full release on a released commit counts whatever its number; whether
+the pipeline set it is for the release check to tell, a step of its own. Delete
+the tag, or rename it so that it carries no unit's prefix.
 
 ### `unconventional-commit`
 
@@ -652,8 +677,12 @@ release the unit in one stage.
 
 Error. A unit is released in one stage, and its newest tag is a pre-release:
 it was released in two stages, and its last pre-release never became a full
-release. Promote it into `release` before switching to one stage, so that the
-versions go on from a full release.
+release. Only the tip of `main` is promoted
+([`stale-promotion`](#stale-promotion)), and the tip is the switch, so revert
+the switch, promote the tip of `main` into `release`, and switch again. The
+versions then go on from a full release. A pre-release on a commit where the
+unit was released in one stage does not count
+([`unexpected-tag`](#unexpected-tag)) and does not lead here.
 
 ### `exhausted-version`
 
@@ -680,6 +709,19 @@ so no commit could ever meet the floor. The finding names the line and column in
 `.nebensound/repo.toml` where the value is written, or where the unit's table
 starts when the value was taken away: taking it away is lowering it, which has
 no effect. Write `X.Y.Z`, or release the unit in two stages.
+
+### `stale-promotion`
+
+Error. The commit at hand merges into `release` a commit other than the one
+`origin/main` points at: an older commit of `main`, or a commit of another
+branch. Only the tip of `main` is promoted. The commits of `main` after an
+older one were already given pre-releases counted from the release before, and
+promoting the older one would give their numbers out again. The merge does not
+count as a promotion and resolves no version, so the release stage tags
+nothing. Promote the tip of `main` with a pull request from `main` into
+`release`. Phase 0 tells a merge into `release` by its first parent, which lies
+on the first-parent line of `origin/release`; without `origin/main` it cannot
+tell the tip, and reports nothing.
 
 ### `unexcused-ignore`
 

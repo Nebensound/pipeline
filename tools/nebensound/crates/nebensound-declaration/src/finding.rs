@@ -102,6 +102,8 @@ pub enum Rule {
     PointlessReleaseBranch,
     /// A unit released in one stage whose minimum version is a pre-release.
     PreReleaseMinimum,
+    /// A merge into `release` of a commit other than the tip of `main`.
+    StalePromotion,
     /// A file a tool's own setting takes out, and no exclusion does.
     UnexcusedIgnore,
     /// A tool's setting that takes files out, and that phase 0 cannot read.
@@ -143,6 +145,7 @@ impl Rule {
             Self::ExhaustedVersion => "exhausted-version",
             Self::PointlessReleaseBranch => "pointless-release-branch",
             Self::PreReleaseMinimum => "pre-release-minimum",
+            Self::StalePromotion => "stale-promotion",
             Self::UnexcusedIgnore => "unexcused-ignore",
             Self::UnreadableIgnoreFile => "unreadable-ignore-file",
             Self::PartialPackageExclusion => "partial-package-exclusion",

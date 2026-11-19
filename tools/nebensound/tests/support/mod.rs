@@ -196,6 +196,13 @@ impl Git {
     /// `main` into `release`: `release` merged with the tip of `main`, `HEAD`
     /// detached on it, and `origin/main` where `main` is. Returns the merge.
     pub fn merge_into_release(&self) -> String {
+        self.merge_into_release_from("main")
+    }
+
+    /// Checks out a merge of `release` with any commit, the way a pull request
+    /// into `release` would build it: `HEAD` detached on it, and `origin/main`
+    /// where `main` is. Returns the merge.
+    pub fn merge_into_release_from(&self, commit: &str) -> String {
         self.run(&["update-ref", "refs/remotes/origin/main", "main"]);
         self.run(&["checkout", "--quiet", "--detach", "release"]);
         self.run(&[
@@ -203,8 +210,8 @@ impl Git {
             "--quiet",
             "--no-ff",
             "--message",
-            "Merge main into release",
-            "main",
+            "Merge into release",
+            commit,
         ]);
         self.head()
     }
