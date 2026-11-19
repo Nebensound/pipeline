@@ -87,8 +87,9 @@ parse; it is not formatted, since the tool that writes it decides its layout.
 A marker file that keeps an otherwise empty folder, `.gitkeep` or `.keep`,
 stands on the list of what nobody checks as long as it is empty: it needs no
 exclusion. Empty means what Git holds for it, not what lies in the working
-tree. A marker that holds content is a file like any other, and phase 0 reports
-it as `language-without-check`.
+tree. A marker added with `git add -N` holds nothing in Git yet, so it does not
+count as empty until it is staged. A marker that holds content is a file like
+any other, and phase 0 reports it as `language-without-check`.
 
 ### Where a check runs
 

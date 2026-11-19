@@ -37,7 +37,7 @@ fn without_a_git_program_it_says_so() {
 #[test]
 fn an_entry_that_is_not_a_path_is_reported() {
     let error = Repository::at(".")
-        .tree_of(b"100644 4b82 0\tgood.md\x00100644 4b82 0\t/absolute\0")
+        .tree_of(b"100644 4b82 0\tgood.md\x00100644 4b82 0\t/absolute\0", b"")
         .expect_err("an absolute path is not one inside the repository");
 
     assert!(error.to_string().contains("/absolute"), "{error}");
@@ -46,7 +46,10 @@ fn an_entry_that_is_not_a_path_is_reported() {
 #[test]
 fn a_listing_becomes_a_tree() {
     let tree = Repository::at(".")
-        .tree_of(b"100644 4b82 0\tREADME.md\x00100644 4b82 0\tdoc/a.md\0")
+        .tree_of(
+            b"100644 4b82 0\tREADME.md\x00100644 4b82 0\tdoc/a.md\0",
+            b"",
+        )
         .expect("both are paths");
 
     assert_eq!(tree.files().count(), 2);
@@ -61,29 +64,55 @@ fn path(value: &str) -> RelativePath {
 fn a_file_that_holds_the_empty_blob_is_empty() {
     // The empty blob under SHA-1 and under SHA-256; anything else holds
     // content. A file in conflict is listed once for each side, and is empty
-    // only when every side is.
+    // only when every side is. An entry added with `git add -N` holds the
+    // empty blob as a placeholder only, and is not empty.
     let tree = Repository::at(".")
         .tree_of(
             b"100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0\ta/.gitkeep\0\
               100644 473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813 0\tb/.gitkeep\0\
               100644 4b825dc642cb6eb9a060e54bf8d69288fbee4904 0\tc/.gitkeep\0\
               100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 2\td/.gitkeep\0\
-              100644 4b825dc642cb6eb9a060e54bf8d69288fbee4904 3\td/.gitkeep\0",
+              100644 4b825dc642cb6eb9a060e54bf8d69288fbee4904 3\td/.gitkeep\0\
+              100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0\te/.gitkeep\0",
+            b"e/.gitkeep\0",
         )
         .expect("all of them are paths");
 
-    assert_eq!(tree.files().count(), 4);
+    assert_eq!(tree.files().count(), 5);
     assert!(tree.is_empty_file(&path("a/.gitkeep")));
     assert!(tree.is_empty_file(&path("b/.gitkeep")));
     assert!(!tree.is_empty_file(&path("c/.gitkeep")));
     assert!(!tree.is_empty_file(&path("d/.gitkeep")));
+    assert!(!tree.is_empty_file(&path("e/.gitkeep")));
+}
+
+#[test]
+fn a_file_added_with_intent_does_not_count_as_empty() {
+    // `git add -N` lists the file with the empty blob, whatever it holds.
+    let dir = repository(&[
+        (".nebensound/repo.toml", QUIET),
+        ("kept/.gitkeep", ""),
+        ("sub/README.md", "# x\n"),
+    ]);
+    fs::write(dir.path().join("sub/.gitkeep"), "content\n").expect("a file in the fixture");
+    support::git(dir.path(), &["add", "--intent-to-add", "sub/.gitkeep"]);
+
+    let tree = Repository::at(dir.path()).tree().expect("a repository");
+    assert!(tree.is_empty_file(&path("kept/.gitkeep")));
+    assert!(!tree.is_empty_file(&path("sub/.gitkeep")));
+
+    // Below the root of a larger repository, the paths stay relative to it.
+    let tree = Repository::at(dir.path().join("sub"))
+        .tree()
+        .expect("a folder of a repository");
+    assert!(!tree.is_empty_file(&path(".gitkeep")));
 }
 
 #[test]
 fn an_entry_without_its_object_is_reported() {
     for listing in [&b"README.md\0"[..], &b"100644\tREADME.md\0"[..]] {
         let error = Repository::at(".")
-            .tree_of(listing)
+            .tree_of(listing, b"")
             .expect_err("the entry names no object");
 
         assert!(
@@ -101,7 +130,10 @@ fn an_entry_that_is_not_text_is_reported() {
     // would rename the file quietly, and two different names could collapse
     // into one.
     let error = Repository::at(".")
-        .tree_of(b"100644 4b82 0\tgood.md\x00100644 4b82 0\tbad\xff.md\0")
+        .tree_of(
+            b"100644 4b82 0\tgood.md\x00100644 4b82 0\tbad\xff.md\0",
+            b"",
+        )
         .expect_err("that is not text");
 
     assert!(error.to_string().contains("not UTF-8"), "{error}");
@@ -284,4 +316,21 @@ fn a_git_that_does_not_answer_about_the_history_is_reported() {
             "{word}: {error}"
         );
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_git_that_does_not_name_the_files_added_with_intent_is_reported() {
+    let dir = repository(&[(".nebensound/repo.toml", QUIET)]);
+    let tools = tempfile::tempdir().expect("a directory");
+
+    let error = Repository::at(dir.path())
+        .with_git(refusing(tools.path(), "--diff-filter=A"))
+        .tree()
+        .expect_err("the files added with intent are part of the tree");
+
+    assert!(
+        error.to_string().contains("refused --diff-filter=A"),
+        "{error}"
+    );
 }

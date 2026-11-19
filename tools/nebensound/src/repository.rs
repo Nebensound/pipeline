@@ -5,7 +5,7 @@
 //! half-finished file — and phase 0 would judge things the repository does not
 //! have. Git also holds the history and the tags every version is read from.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -198,12 +198,27 @@ impl Repository {
         // -z: git quotes unusual names otherwise, and the quotes would be read
         // as part of the path. --stage: each entry names the object it holds,
         // which tells an empty file without reading the working tree.
-        self.tree_of(&self.git_output(&["ls-files", "-z", "--stage"])?)
+        let listing = self.git_output(&["ls-files", "-z", "--stage"])?;
+        // An entry added with `git add -N` is listed with the empty blob,
+        // whatever the file holds. Against the index, only such an entry shows
+        // up as added. --no-renames: it must not pair up with a deleted file.
+        // --relative: the paths as ls-files prints them, below the root.
+        let intended = self.git_output(&[
+            "diff",
+            "--name-only",
+            "-z",
+            "--no-renames",
+            "--relative",
+            "--diff-filter=A",
+        ])?;
+        self.tree_of(&listing, &intended)
     }
 
-    /// The same tree from a listing that is already at hand, as
-    /// `git ls-files -z --stage` prints it: `<mode> <object> <stage>`, a tab
-    /// and the path, entries separated by a zero byte.
+    /// The same tree from listings that are already at hand. `listing` is what
+    /// `git ls-files -z --stage` prints: `<mode> <object> <stage>`, a tab and
+    /// the path, entries separated by a zero byte. `intended` is what
+    /// `git diff --name-only -z --diff-filter=A` prints: the entries added
+    /// with `git add -N`, separated by a zero byte.
     ///
     /// Raw bytes, not text: git hands out the path as it stands on disk, and
     /// replacing what is not UTF-8 would rename a file quietly — or make two
@@ -211,13 +226,16 @@ impl Repository {
     ///
     /// A file is empty when it holds the empty blob. A file in conflict is
     /// listed once for each side, and counts as empty only when every side is.
+    /// An entry added with `git add -N` holds the empty blob only as a
+    /// placeholder, so it never counts as empty.
     ///
     /// # Errors
     ///
     /// Returns [`Error::Git`] when an entry does not carry its object,
     /// [`Error::NotUtf8`] when a path is not text, and [`Error::Listing`] when
     /// it is not a path inside the repository.
-    pub fn tree_of(&self, listing: &[u8]) -> Result<Tree, Error> {
+    pub fn tree_of(&self, listing: &[u8], intended: &[u8]) -> Result<Tree, Error> {
+        let intended: BTreeSet<&[u8]> = intended.split(|byte| *byte == 0).collect();
         let mut files: BTreeMap<RelativePath, bool> = BTreeMap::new();
         for entry in listing.split(|byte| *byte == 0).filter(|e| !e.is_empty()) {
             let unstaged = || Error::Git {
@@ -243,7 +261,8 @@ impl Repository {
                 value: text.to_owned(),
                 source,
             })?;
-            *files.entry(path).or_insert(true) &= EMPTY_BLOBS.contains(&object);
+            *files.entry(path).or_insert(true) &=
+                EMPTY_BLOBS.contains(&object) && !intended.contains(name);
         }
         let empty: Vec<RelativePath> = files
             .iter()
