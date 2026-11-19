@@ -292,6 +292,12 @@ pub struct UnitVersion {
     /// The version of the commit at hand; [`None`] when the commit does not
     /// touch the unit, or when a finding stands in the way.
     pub version: Option<TagVersion>,
+    /// How many commits since its last full release touch it, the commit at
+    /// hand included: what its next full release takes in. 0 when the history
+    /// cannot be read for it: no `release` branch for two stages, or an
+    /// unreleased pre-release before a switch to one stage. A finding raised
+    /// later, while the version is worked out, leaves the count as it is.
+    pub waiting: usize,
 }
 
 /// The versions of a repository, and what is wrong with them.
@@ -829,6 +835,7 @@ fn resolve_unit(
         release: unit.release.release,
         base: Version::ZERO,
         version: None,
+        waiting: 0,
     };
     let two_stage = entry.release == Release::TwoStage;
     if two_stage && context.history.release.is_none() {
@@ -902,6 +909,7 @@ fn resolve_unit(
                     .is_none_or(|released| !released.contains(commit.id.as_str()))
         })
         .collect();
+    entry.waiting = touching.len();
     let step = Step {
         unit,
         context,

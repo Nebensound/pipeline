@@ -10,12 +10,14 @@ and what runs on a pull request and on a push.
 | Phase   | Jobs                                                                                            |
 | ------- | ----------------------------------------------------------------------------------------------- |
 | Declare | `nebensound / Declare`                                                                          |
+| Version | `nebensound / Version`                                                                          |
 | Check   | `nebensound / Check repository`, `nebensound / Check component <name>` and `nebensound / Check` |
 
-The workflow does not version, build, publish or deploy anything yet. Those
-phases arrive one at a time, each when it does something: a job that only
-existed to be green would report success for work nobody did. Until a phase is
-built, no job stands in for it, and this page does not describe it.
+The workflow does not build, publish or deploy anything yet, and it reports
+versions without tagging or releasing them. Those phases arrive one at a time,
+each when it does something: a job that only existed to be green would report
+success for work nobody did. Until a phase is built, no job stands in for it,
+and this page does not describe it.
 
 ## Declare
 
@@ -43,6 +45,42 @@ hands the result on:
 
 An error ends the phase here: there is no plan, no check runs, and
 `nebensound / Check` fails. A warning stops nothing.
+
+## Version
+
+The job `nebensound / Version` reports which version every unit carries. It
+writes nothing and tags nothing. It checks the repository out the way Declare
+does, with its whole history and every branch and tag, takes the tool from the
+cache Declare filled and runs `nebensound version`: the text table goes into the
+log, and the same table as Markdown into the summary of the run, one row per
+unit that carries a version:
+
+| Column       | What it says                                                                         |
+| ------------ | ------------------------------------------------------------------------------------ |
+| Unit, Path   | Which unit, and where it lives.                                                      |
+| Release      | `single-stage` or `two-stage`.                                                       |
+| Last release | Its highest full release, `none` without one.                                        |
+| This commit  | The version of the commit at hand, `none` when the commit does not touch the unit.   |
+| Waiting      | The commits since the last release that touch the unit, the commit at hand included. |
+
+[The reference of the declaration](declaration.md#versions) describes how each
+value is resolved. The repository always carries a version, so the table always
+has a row.
+
+On a pull request the checkout is the merge commit GitHub builds for it, and a
+merge commit touches no unit. The tool therefore reads it as the commit the
+squash merge would put on the base branch: one parent, the changes of the pull
+request, and its title and description as the message, as they stand when the
+run starts. The column is called `This pull request` there, and each version in
+it is the one that merge would get with `-pr.<number>` behind it, such as
+`0.4.2-pr.17` or `1.2.0-pre.3-pr.17`. It names artifacts and is never
+published. A pull request into `release` is merged with a merge commit and is
+read as it is.
+
+The job runs whatever Declare's result. When phase 0 finds an error, such as a
+shallow clone, there is no table: the log and the summary list every finding
+and the job fails. It waits for Declare only to take the tool from the cache.
+A cancelled run skips it.
 
 ## Check
 
@@ -93,9 +131,9 @@ called workflow.
 - **The second part** is the job in the central workflow. The pipeline fixes it.
 
 A ruleset requires a name in both parts. Of the names a run reports today, it
-requires `nebensound / Check`, and only that one: the unit jobs change with the
-repository, and Declare is part of what `Check` sums up. Further required names
-arrive with the phases that are not built yet.
+requires `nebensound / Version` and `nebensound / Check`, and only those: the
+unit jobs change with the repository, and Declare is part of what `Check` sums
+up. Further required names arrive with the phases that are not built yet.
 
 ## Pull request and push
 
@@ -110,10 +148,11 @@ on:
       - main
 ```
 
-Today both run the same jobs, Declare and Check, with the same steps; nothing
-depends on the event yet. A newer run for the same branch or pull request
-cancels the one still running. The permissions are read-only: the workflow
-reads the repository and writes nothing back.
+Today both run the same jobs, Declare, Version and Check, with the same steps.
+Only the versions depend on the event: on a pull request `Version` shows the
+version the merge would get with `-pr.<number>` behind it. A newer run for the
+same branch or pull request cancels the one still running. The permissions are
+read-only: the workflow reads the repository and writes nothing back.
 
 This repository calls the workflow the same way, with one difference: its own
 caller runs the workflow at the commit under test rather than at a pinned

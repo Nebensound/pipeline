@@ -26,7 +26,7 @@ channel would be a second version that can fall behind.
 ## Calls
 
 ```text
-nebensound [-C <directory>] [check | tree | explain <path> | plan | files [-z] <check> <unit> | excluded-packages | setup [--pinned] [--with-runtimes] [--check] | schema | register | ui]
+nebensound [-C <directory>] [check | tree | explain <path> | plan | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | excluded-packages | setup [--pinned] [--with-runtimes] [--check] | schema | register | ui]
 ```
 
 | Call                | What it does                                                                                                                                                                                                                                                                                                                        |
@@ -35,6 +35,7 @@ nebensound [-C <directory>] [check | tree | explain <path> | plan | files [-z] <
 | `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                                                                |
 | `explain <path>`    | What holds for one path and why: which units contain it, how each of them is released, which checks are in force, how its coverage stands.                                                                                                                                                                                          |
 | `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read.                                                                                                                                                                                                         |
+| `version`           | The version of every unit that carries one, as a table: last release, release mode, the version of the commit at hand and the commits waiting for the next release. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                                       |
 | `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                                                            |
 | `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                                                          |
 | `setup`             | Finds or installs the programs that the checks the plan starts call, as the register pins them: by default it uses those on the computer and installs the pinned version of what is missing; `--pinned` installs every one into its own folder; `--check` changes nothing. See [Setting up the programs](#setting-up-the-programs). |
@@ -130,6 +131,39 @@ would cover their files a second time.
 
 A repository with errors gets no plan, only a sentence and exit code `1`: a plan
 read off a broken declaration would start the wrong things.
+
+## The versions
+
+`version` prints the same versions `plan` lists, as a table to be read:
+
+```text
+Versions
+
+  Unit            Path  Release       Last release  This commit  Waiting
+  the repository  .     single-stage  0.3.1         0.3.2        1
+  component tool  tool  two-stage     1.4.0         1.5.0-pre.3  3
+```
+
+`Last release` is the unit's highest full release, `none` without one;
+`This commit` the version of the commit at hand, `none` when the commit does not
+touch the unit; `Waiting` the commits since the last release that touch the
+unit, the commit at hand included, which is what its next full release takes in.
+`--markdown` prints the same rows as a Markdown table with a short legend, which
+the job `Version` writes into the summary of the run. The repository always
+carries a version, so the table is never empty.
+
+`--pull-request <number> --message <message>` reads `HEAD` as the merge commit
+GitHub builds for a pull request, which touches no unit itself. It stands for
+the commit the squash merge would put on the base branch instead: one parent,
+the first parent of `HEAD`, the changes of `HEAD` against it, and the message
+given, which the job takes from the title and the description of the pull
+request. Every version is then the one that merge would get, with
+`-pr.<number>` behind it; the column is called `This pull request`. A merge into
+`release` is read as it is, since such a pull request is merged with a merge
+commit. Both options go together.
+
+A repository with errors gets no table: the sentence that there are no versions,
+every finding, and exit code `1`, as with the plan.
 
 ## The files of a check
 

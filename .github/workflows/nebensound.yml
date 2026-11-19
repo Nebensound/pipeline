@@ -3,9 +3,9 @@ name: nebensound
 # The one workflow a repository calls. No inputs: what the repository is stands
 # in its .nebensound/repo.toml.
 #
-# Phase 0 (Declare) and the checks (Check) so far. Version, Build and Publish
-# arrive one by one, each when it does something: a job that only exists to be
-# green reports success for work nobody did.
+# Phase 0 (Declare), the versions (Version) and the checks (Check) so far.
+# Build and Publish arrive one by one, each when it does something: a job that
+# only exists to be green reports success for work nobody did.
 
 on:
   workflow_call:
@@ -60,6 +60,59 @@ jobs:
           units="$(jq --compact-output '[.units[] | select(.checks | length > 0)]' <<< "$PLAN")"
           jq . <<< "$units"
           echo "units=$units" >> "$GITHUB_OUTPUT"
+
+  # The version of every unit that carries one, as a table in the summary of
+  # the run. It writes nothing and tags nothing: it reports. It runs whatever
+  # Declare's result, so that an error in the history fails it with the
+  # finding instead of leaving it skipped; it only waits for Declare to take
+  # the tool from the cache Declare filled. A cancelled run, for instance one
+  # a newer push replaced, skips it.
+  version:
+    name: Version
+    needs: declare
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # As in Declare: the whole history, every branch and every tag.
+      - name: Check out the calling repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Get the tool
+        uses: $/.github/actions/tool
+
+      # On a pull request the checkout is the merge commit GitHub builds for
+      # it, and the tool reads it as the squash merge would put it on the base
+      # branch, with the title and description as its message. The version
+      # shown is the one that merge would get, with -pr.<number> behind it.
+      # The text goes in through the environment, never into the script.
+      - name: Report the versions
+        env:
+          NUMBER: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          call=(nebensound -C "$GITHUB_WORKSPACE" version)
+          if [ -n "$NUMBER" ]; then
+            message="$TITLE"
+            if [ -n "$BODY" ]; then
+              message="$(printf '%s\n\n%s' "$TITLE" "$BODY")"
+            fi
+            # One argument with "=", so that a title starting with "-" stays
+            # the message and is not read as an option.
+            call+=(--pull-request "$NUMBER" "--message=$message")
+          fi
+          # The text table into the log, the Markdown table into the summary.
+          # When phase 0 found errors both say which, and the step fails.
+          status=0
+          "${call[@]}" || status=$?
+          "${call[@]}" --markdown >> "$GITHUB_STEP_SUMMARY" || status=$?
+          exit "$status"
 
   # One job per unit, as the plan of phase 0 names them, and in it one step per
   # check the unit runs. Each building block asks the tool which files its
