@@ -1,0 +1,10 @@
+# A workspace that passes every other step, beside a unit with the version
+# writer cargo whose manifest describes no package. The package test writes the
+# versions first, and the writer refuses: there is no package to give the
+# version to. The block fails with the writer's sentence, by name.
+[repo]
+pipeline = "rust-workspace"
+
+[component.loose]
+path     = "loose"
+pipeline = { version = ["cargo"] }

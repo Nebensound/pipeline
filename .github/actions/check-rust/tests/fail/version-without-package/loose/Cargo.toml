@@ -1,0 +1,4 @@
+# A manifest without a [package]: nothing the version writer could give a
+# version to.
+[workspace]
+resolver = "3"
