@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 use crate::annotate::{Annotated, Coverage, annotate};
 use crate::central::{Central, Ruling};
 use crate::finding::{Finding, Rule, UnitName};
+use crate::history::{History, UnitVersion};
 use crate::model::Declaration;
 use crate::names::CheckName;
 use crate::resolve::{Resolution, Unit};
@@ -385,9 +386,26 @@ pub struct Analysis {
     /// path the repository does not have. A finding about a component hangs at
     /// that component's folder.
     pub loose: Vec<Finding>,
+    /// The version of every unit that carries one, at the commit at hand.
+    /// Empty until a history is added with [`Analysis::with_history`].
+    pub versions: Vec<UnitVersion>,
 }
 
 impl Analysis {
+    /// The same analysis with the version of every unit resolved from a
+    /// history. What resolving turns up joins the findings that hang at no
+    /// path: it is about a unit or the repository, never about one file.
+    ///
+    /// The register resolves the declaration each commit of the history held,
+    /// since a unit's path and release mode at that commit count.
+    #[must_use]
+    pub fn with_history(mut self, history: &History, central: &Central) -> Self {
+        let resolved = crate::history::versions(&self.units, history, central.register());
+        self.versions = resolved.units;
+        self.loose.extend(resolved.findings);
+        self
+    }
+
     /// Everything found: first what hangs at no path, then the nodes in tree
     /// order.
     #[must_use]
@@ -426,6 +444,7 @@ pub fn analyse(declaration: &Declaration, central: &Central, tree: &Tree) -> Ana
         units: resolution.units,
         tree: annotated,
         loose,
+        versions: Vec::new(),
     }
 }
 

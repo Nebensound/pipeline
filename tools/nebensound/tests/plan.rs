@@ -24,6 +24,7 @@ fn checks(plan: &Plan, name: Option<&str>) -> Vec<String> {
         .find(|unit| {
             Plan {
                 units: vec![(*unit).clone()],
+                versions: Vec::new(),
             }
             .to_json()
             .contains(&wanted)
@@ -193,7 +194,9 @@ fn the_json_carries_the_units_and_a_flat_list_for_a_matrix() {
                 {"kind": "repository", "name": null, "path": ".", "check": "toml"},
                 {"kind": "repository", "name": null, "path": ".", "check": "yaml"},
                 {"kind": "component", "name": "tool", "path": "tool", "check": "rust"}
-            ]
+            ],
+            // Read off a history, which an analysis without a disk has none of.
+            "versions": []
         })
     );
 }

@@ -11,6 +11,7 @@ pub mod annotate;
 pub mod central;
 pub mod edit;
 pub mod finding;
+pub mod history;
 pub mod model;
 pub mod names;
 pub mod path;
@@ -28,12 +29,13 @@ pub use annotate::{Annotated, Coverage, Kind, Node, annotate};
 pub use central::{Central, Ruling};
 pub use edit::DeclarationFile;
 pub use finding::{Finding, Rule, Severity, UnitName};
+pub use history::{History, UnitVersion, Versions};
 pub use model::{Declaration, Pipeline, Publish, Release, Versioning};
 pub use register::Register;
 pub use resolve::{Resolution, Unit, resolve};
 pub use tree::Tree;
 pub use validate::{Analysis, analyse, validate};
-pub use version::Version;
+pub use version::{TagVersion, Version};
 
 use thiserror::Error;
 

@@ -19,15 +19,17 @@ built, no job stands in for it, and this page does not describe it.
 
 ## Declare
 
-Phase 0. The job `nebensound / Declare` checks the calling repository out, runs
-the tool `nebensound` on it and hands the result on:
+Phase 0. The job `nebensound / Declare` checks the calling repository out with
+its whole history and every branch and tag, runs the tool `nebensound` on it and
+hands the result on:
 
 1. The tool is built from the same commit of this repository as the workflow,
    and kept in the cache under a fingerprint of its sources, so two runs of the
    same tool share one build, and every unit job of the run takes it from there
    ([`.github/actions/tool`](../.github/actions/tool)).
 2. `nebensound check` reads `.nebensound/repo.toml`, resolves it against the
-   register and checks it against what Git tracks. It prints the resolved
+   register and checks it against what Git tracks, and resolves the version of
+   every unit from the tags and the history. It prints the resolved
    configuration, the annotated tree, the findings and a summary line.
    [The reference of the declaration](declaration.md) describes every field and
    every finding.
@@ -35,8 +37,9 @@ the tool `nebensound` on it and hands the result on:
    whole (`nebensound excluded-packages`) is named in the summary of the run
    with its reason, as a notice.
 4. Then `nebensound plan` prints the plan: every unit,
-   with the checks started for it and the build it names. The units that start
-   at least one check go on to the Check phase.
+   with the checks started for it and the build it names, and the version of
+   every unit that carries one. The units that start at least one check go on
+   to the Check phase.
 
 An error ends the phase here: there is no plan, no check runs, and
 `nebensound / Check` fails. A warning stops nothing.

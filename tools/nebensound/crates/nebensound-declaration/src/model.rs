@@ -16,7 +16,7 @@ use crate::names::{
 };
 use crate::path::RelativePath;
 use crate::pattern::Pattern;
-use crate::version::Version;
+use crate::version::TagVersion;
 
 /// The contents of `.nebensound/repo.toml`.
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
@@ -95,9 +95,10 @@ pub struct Repo {
     /// targets decide.
     #[serde(default)]
     pub release: Option<Release>,
-    /// The version it gets is never lower than this.
+    /// The version it gets is never lower than this: `X.Y.Z`, or
+    /// `X.Y.Z-pre.N` for a pre-release of a unit released in two stages.
     #[serde(default)]
-    pub minimum_version: Option<Version>,
+    pub minimum_version: Option<TagVersion>,
     /// Checks that may find nothing without failing, each with its reason.
     #[serde(default)]
     pub allow_unused: BTreeMap<CheckName, Reason>,
@@ -134,9 +135,10 @@ pub struct Component {
     /// targets decide.
     #[serde(default)]
     pub release: Option<Release>,
-    /// The version it gets is never lower than this.
+    /// The version it gets is never lower than this: `X.Y.Z`, or
+    /// `X.Y.Z-pre.N` for a pre-release of a unit released in two stages.
     #[serde(default)]
-    pub minimum_version: Option<Version>,
+    pub minimum_version: Option<TagVersion>,
     /// Checks that may find nothing without failing, each with its reason.
     #[serde(default)]
     pub allow_unused: BTreeMap<CheckName, Reason>,
