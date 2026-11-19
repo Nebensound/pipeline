@@ -9,7 +9,10 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use support::{Git, call, repository};
+use nebensound::plan;
+use nebensound::repository::Repository;
+use nebensound::writer::Order;
+use support::{Git, call, central, repository};
 
 /// A workspace of two packages, `app` depending on `lib` by path, each a unit
 /// of its own with the writer `cargo`.
@@ -418,7 +421,7 @@ fn a_workspace_reached_only_through_an_untouched_package_gets_its_lockfile_in_li
 }
 
 #[test]
-fn a_unit_the_commit_does_not_touch_gets_no_version() {
+fn a_unit_the_commit_does_not_touch_gets_its_last_release() {
     let git = Git::new();
     git.write(&two_packages());
     git.commit("feat: start");
@@ -435,7 +438,8 @@ fn a_unit_the_commit_does_not_touch_gets_no_version() {
     assert_eq!(code, 0, "{text}");
     assert!(
         text.contains(
-            "component app carries no version at this commit, so none is written for it."
+            "component app is not touched by this commit: the package app at crates/app gets its \
+             last release 0.0.1 (workspace root: .)."
         ),
         "{text}"
     );
@@ -445,10 +449,219 @@ fn a_unit_the_commit_does_not_touch_gets_no_version() {
         app.contains("lib = { path = \"../lib\", version = \"0.0.2\" }"),
         "{app}"
     );
-    assert!(!app.contains("version = \"0.0.1\""), "{app}");
     cargo(git.path(), &["build", "--locked"]);
     assert_eq!(reported(git.path(), "lib"), "0.0.2");
-    assert_eq!(reported(git.path(), "app"), "0.0.0");
+    assert_eq!(reported(git.path(), "app"), "0.0.1");
+}
+
+/// [`two_packages`] with both released at `0.0.1`, then a commit on `main`
+/// that touches `app` and not `lib`.
+fn app_changed_after_a_release() -> Git {
+    let git = Git::new();
+    git.write(&two_packages());
+    git.commit("feat: start");
+    git.tag("crates-lib-v0.0.1", &git.head());
+    git.tag("crates-app-v0.0.1", &git.head());
+    git.write(&[(
+        "crates/app/src/main.rs",
+        "//! An app, changed.\n\nfn main() {\n    println!(\"{}\", lib::one());\n}\n",
+    )]);
+    git.commit("fix: change the app");
+    git
+}
+
+/// What the package test of `check-rust` does with the versions written:
+/// every published package packaged in one call, then each copy tested with
+/// the copies of its siblings patched in for crates.io. `packages` are the
+/// published packages, each with its version.
+fn package_test(root: &Path, packages: &[(&str, &str)]) {
+    let target = tempfile::tempdir().expect("a target folder");
+    let mut args = vec!["package", "--locked", "--allow-dirty"];
+    for (name, _) in packages {
+        args.extend(["--package", name]);
+    }
+    cargo_into(root, target.path(), &args);
+    let copies = target.path().join("package");
+    let copy = |name: &str, version: &str| copies.join(format!("{name}-{version}"));
+    for (name, version) in packages {
+        let mut args = vec!["test".to_owned()];
+        for (other, version) in packages.iter().filter(|(other, _)| other != name) {
+            args.push("--config".to_owned());
+            args.push(format!(
+                "patch.crates-io.{other}.path='{}'",
+                copy(other, version).to_str().expect("a path in UTF-8")
+            ));
+        }
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        cargo(&copy(name, version), &args);
+    }
+}
+
+#[test]
+fn a_dependency_the_commit_does_not_touch_is_required_at_its_last_release_on_main() {
+    let git = app_changed_after_a_release();
+
+    let (text, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
+
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.contains(
+            "component lib is not touched by this commit: the package lib at crates/lib \
+             gets its last release 0.0.1"
+        ),
+        "{text}"
+    );
+    let app = read(git.path(), "crates/app/Cargo.toml");
+    assert!(app.contains("version = \"0.0.2\"\n"), "{app}");
+    assert!(
+        app.contains("lib = { path = \"../lib\", version = \"0.0.1\" }"),
+        "{app}"
+    );
+    cargo(git.path(), &["build", "--locked"]);
+    package_test(git.path(), &[("lib", "0.0.1"), ("app", "0.0.2")]);
+}
+
+#[test]
+fn a_dependency_the_commit_does_not_touch_is_required_at_its_last_release_on_a_pull_request() {
+    // The same change, made on a branch and built as GitHub builds a pull
+    // request: the merge commit, detached, read as its squash merge.
+    let git = app_changed_after_a_release();
+    git.run(&["checkout", "--quiet", "-b", "topic"]);
+    git.run(&["reset", "--quiet", "--hard", "HEAD~1"]);
+    git.run(&["branch", "--quiet", "--force", "main", "HEAD"]);
+    git.run(&["update-ref", "refs/remotes/origin/main", "main"]);
+    git.write(&[(
+        "crates/app/src/main.rs",
+        "//! An app, changed.\n\nfn main() {\n    println!(\"{}\", lib::one());\n}\n",
+    )]);
+    git.commit("wip");
+    git.run(&["checkout", "--quiet", "--detach", "main"]);
+    git.run(&[
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "--message",
+        "Merge topic",
+        "topic",
+    ]);
+
+    let (plan, code) = call(&[
+        "nebensound",
+        "-C",
+        git.root(),
+        "plan",
+        "--pull-request",
+        "5",
+        "--message",
+        "fix: change the app",
+    ]);
+    assert_eq!(code, 0, "{plan}");
+    let parsed: serde_json::Value = serde_json::from_str(&plan).expect("valid JSON");
+    let versions = &parsed["versions"];
+    assert_eq!(versions[1]["path"], "crates/app");
+    assert_eq!(versions[1]["version"], "0.0.2-pr.5");
+    assert_eq!(versions[1]["last"], "0.0.1");
+    assert_eq!(versions[2]["path"], "crates/lib");
+    assert_eq!(versions[2]["version"], serde_json::Value::Null);
+    assert_eq!(versions[2]["last"], "0.0.1");
+    let handed = tempfile::tempdir().expect("a folder for the plan");
+    let file = handed.path().join("plan.json");
+    fs::write(&file, &plan).expect("the plan is written");
+
+    let (text, code) = call(&[
+        "nebensound",
+        "-C",
+        git.root(),
+        "write-versions",
+        "--plan",
+        file.to_str().expect("a path in UTF-8"),
+    ]);
+
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.contains("component app: the package app at crates/app gets 0.0.2-pr.5"),
+        "{text}"
+    );
+    let app = read(git.path(), "crates/app/Cargo.toml");
+    assert!(
+        app.contains("lib = { path = \"../lib\", version = \"0.0.1\" }"),
+        "{app}"
+    );
+    cargo(git.path(), &["build", "--locked"]);
+    assert_eq!(reported(git.path(), "app"), "0.0.2-pr.5");
+    package_test(git.path(), &[("lib", "0.0.1"), ("app", "0.0.2-pr.5")]);
+}
+
+#[test]
+fn a_dependency_never_released_and_not_touched_is_an_error() {
+    for (dependency, named) in [
+        ("lib = { path = \"../lib\" }", "lib"),
+        // Renamed: the package is still `lib`.
+        ("renamed = { path = \"../lib\", package = \"lib\" }", "lib"),
+    ] {
+        let app = format!(
+            "[package]\nname = \"app\"\nedition = \"2024\"\n\n[dependencies]\n{dependency}\n"
+        );
+        let mut files = two_packages();
+        files.retain(|(path, _)| *path != "crates/app/Cargo.toml");
+        files.push(("crates/app/Cargo.toml", &app));
+        let git = Git::new();
+        git.write(&files);
+        git.commit("feat: start");
+        git.write(&[(
+            "crates/app/src/main.rs",
+            "//! An app, changed.\n\nfn main() {}\n",
+        )]);
+        git.commit("fix: change the app");
+
+        let (text, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
+
+        assert_eq!(code, 1, "{text}");
+        assert!(
+            text.contains(&format!(
+                "the package app gets 0.0.2 and depends by path on the package {named} at \
+                 crates/lib, and component lib is neither touched by this commit nor ever \
+                 released: there is no version of {named} that app could require."
+            )),
+            "{text}"
+        );
+        assert_eq!(read(git.path(), "crates/app/Cargo.toml"), app);
+        assert_eq!(read(git.path(), "crates/lib/Cargo.toml"), LIB);
+    }
+}
+
+#[test]
+fn a_dependency_of_the_tests_alone_needs_no_release() {
+    // Cargo drops a path dev-dependency without a version from the package.
+    let app = "[package]\nname = \"app\"\nedition = \"2024\"\n\n[dev-dependencies]\nlib = { path \
+               = \"../lib\" }\n";
+    let mut files = two_packages();
+    files.retain(|(path, _)| *path != "crates/app/Cargo.toml" && *path != "Cargo.lock");
+    files.push(("crates/app/Cargo.toml", app));
+    files.push(("crates/app/src/main.rs", "//! An app.\n\nfn main() {}\n"));
+    let git = Git::new();
+    git.write(&files);
+    git.commit("feat: start");
+    git.write(&[(
+        "crates/app/src/main.rs",
+        "//! An app, changed.\n\nfn main() {}\n",
+    )]);
+    git.commit("fix: change the app");
+
+    let (text, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
+
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.contains(
+            "component lib carries no version at this commit and was never released, so none is \
+             written for it."
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("the package app at crates/app gets 0.0.2"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -723,8 +936,30 @@ fn a_plan_that_does_not_read_is_refused() {
     let missing = handed.path().join("missing.json");
     let broken = handed.path().join("broken.json");
     fs::write(&broken, "{\"versions\": [{\"path\": \"../out\"}]}").expect("written");
+    let mut files = vec![missing, broken];
+    for (index, version) in [
+        "1.0",
+        "1.0.0-pr.x",
+        "1.0.0-pr.0",
+        "1.0.0-pr.",
+        "1.0.0-pre.1-pr",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let file = handed.path().join(format!("version-{index}.json"));
+        fs::write(
+            &file,
+            format!(
+                "{{\"versions\": [{{\"name\": \"lib\", \"path\": \"crates/lib\", \"version\": \
+                 \"{version}\", \"writers\": [\"cargo\"]}}]}}"
+            ),
+        )
+        .expect("written");
+        files.push(file);
+    }
 
-    for file in [missing, broken] {
+    for file in files {
         let file = file.to_str().expect("a path in UTF-8");
         let (text, code) = call(&["nebensound", "-C", root, "write-versions", "--plan", file]);
 
@@ -852,5 +1087,33 @@ fn a_manifest_that_cannot_be_written_says_so() {
     assert!(
         text.starts_with("thing/Cargo.toml could not be written: "),
         "{text}"
+    );
+}
+
+#[test]
+fn a_plan_for_a_pull_request_hands_on_the_versions_of_its_merge() {
+    let git = app_changed_after_a_release();
+    let central = central();
+    let analysis = Repository::at(git.path())
+        .analyse(&central)
+        .expect("the fixture reads");
+    let mut plan = plan::plan(&analysis, &central);
+    plan.pull_request = Some(9);
+
+    let orders = Order::of(&plan);
+
+    let app = orders
+        .iter()
+        .find(|order| order.unit == "component app")
+        .expect("app carries a version");
+    assert_eq!(app.version.as_deref(), Some("0.0.2-pr.9"));
+    let lib = orders
+        .iter()
+        .find(|order| order.unit == "component lib")
+        .expect("lib carries a version");
+    assert_eq!(lib.version, None);
+    assert_eq!(
+        lib.last.map(|last| last.to_string()).as_deref(),
+        Some("0.0.1")
     );
 }

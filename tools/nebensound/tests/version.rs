@@ -403,3 +403,30 @@ fn a_pull_request_version_is_the_merge_version_with_its_number() {
     let version = TagVersion::read("1.2.0-pre.3").expect("a version");
     assert_eq!(versions::of_pull_request(&version, 42), "1.2.0-pre.3-pr.42");
 }
+
+#[test]
+fn the_last_release_is_the_newest_tag_that_counts_a_pre_release_included() {
+    let git = released();
+    git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
+    let pre = git.commit("feat: lib one");
+    git.tag("lib-v0.1.0-pre.1", &pre);
+    git.write(&[("app/a.md", "# App\n\nOne.\n")]);
+    git.commit("fix: app one");
+
+    let analysis = analysed(&Repository::at(git.path()));
+    let last = |prefix: &str| {
+        analysis
+            .versions
+            .iter()
+            .find(|unit| unit.prefix == prefix)
+            .and_then(|unit| unit.last)
+            .map(|last| last.to_string())
+    };
+
+    // `lib` is not touched: its last release is the pre-release, above its
+    // last full release.
+    assert_eq!(of(&analysis, "lib-v"), (None, 1));
+    assert_eq!(last("lib-v").as_deref(), Some("0.1.0-pre.1"));
+    assert_eq!(last("app-v").as_deref(), Some("0.0.1"));
+    assert_eq!(last("v").as_deref(), Some("0.0.2"));
+}

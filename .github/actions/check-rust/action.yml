@@ -413,10 +413,12 @@ runs:
     # and a package without a version is not published (Cargo's `publish`
     # defaults to false then), so it would not be verified. The version writer
     # cargo writes the version each unit carries at this commit, from the plan,
-    # the same call as the block `version-cargo`; a unit the commit does not
-    # touch carries none. Every Cargo.toml and Cargo.lock it changed is put
-    # back when the step ends, so that a check after it in the same job sees
-    # the files as they are committed.
+    # the same call as the block `version-cargo`: on a pull request the one its
+    # merge would get, with -pr.<number> behind it, and for a unit the commit
+    # does not touch its last release, which a package that depends on it by
+    # path requires. Every Cargo.toml and Cargo.lock it changed is put back
+    # when the step ends, so that a check after it in the same job sees the
+    # files as they are committed.
     - name: Each published package builds and tests from its own contents
       if: steps.packages.outputs.checked != '0'
       shell: bash

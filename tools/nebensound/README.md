@@ -26,7 +26,7 @@ channel would be a second version that can fall behind.
 ## Calls
 
 ```text
-nebensound [-C <directory>] [check | tree | explain <path> | plan | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | excluded-packages | write-versions [--plan <file>] | setup [--pinned] [--with-runtimes] [--check] | schema | register | ui]
+nebensound [-C <directory>] [check | tree | explain <path> | plan [--pull-request <number> --message <message>] | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | excluded-packages | write-versions [--plan <file>] | setup [--pinned] [--with-runtimes] [--check] | schema | register | ui]
 ```
 
 | Call                | What it does                                                                                                                                                                                                                                                                                                                        |
@@ -34,7 +34,7 @@ nebensound [-C <directory>] [check | tree | explain <path> | plan | version [--m
 | `check`             | Runs phase 0 and prints everything: the resolved configuration, the tree, the findings and a summary line with the counts. The default, and what the composite action under `.github/actions/phase0` calls.                                                                                                                         |
 | `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                                                                |
 | `explain <path>`    | What holds for one path and why: which units contain it, how each of them is released, which checks are in force, how its coverage stands.                                                                                                                                                                                          |
-| `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read.                                                                                                                                                                                                         |
+| `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read. With `--pull-request <number> --message <message>`, for a pull request, as `version` reads it. See [The plan](#the-plan).                                                                               |
 | `version`           | The version of every unit that carries one, as a table: last release, release mode, the version of the commit at hand and the commits waiting for the next release. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                                       |
 | `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                                                            |
 | `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                                                          |
@@ -83,6 +83,7 @@ a run has to start, and where.
     {
       "base": "0.3.1",
       "kind": "repository",
+      "last": "0.3.1",
       "name": null,
       "path": ".",
       "prefix": "v",
@@ -93,6 +94,7 @@ a run has to start, and where.
     {
       "base": "1.4.0",
       "kind": "component",
+      "last": "1.5.0-pre.2",
       "name": "tool",
       "path": "tool",
       "prefix": "tool-v",
@@ -114,11 +116,21 @@ prefix `v`.
 
 `versions` is one entry per unit that carries a version, in the order of
 `units`: `prefix` is what its tags start with, `release` how it is released,
-`base` its last full release (`0.0.0` without one), `version` the version
-of the commit at hand, `null` when the commit does not touch the unit, and
-`writers` the version writers the unit selects. How they
-are resolved from tags and history is described in
+`base` its last full release (`0.0.0` without one), `last` the last version
+released for it, its newest tag that counts, a pre-release included (`null`
+without one), `version` the version of the commit at hand, `null` when the
+commit does not touch the unit, and `writers` the version writers the unit
+selects. `last` is what the version writer `cargo` requires of a path
+dependency whose unit the commit does not touch. How they are resolved from
+tags and history is described in
 [the reference of the declaration](../../docs/declaration.md#versions).
+
+`--pull-request <number> --message <message>` builds the plan for a pull
+request, reading `HEAD` the way [`version`](#the-versions) does: every
+`version` is then the one the squash merge would get, with `-pr.<number>`
+behind it, such as `1.5.0-pre.3-pr.17`. `base` and `last` stay versions that
+were released. Declare builds the plan this way on a pull request, so that the
+version writers write what a merge would publish.
 
 A check runs **once, at the outermost unit it is in force for**. The base set is
 in force everywhere, so it runs at the repository; a check a unit declares
@@ -174,7 +186,10 @@ every finding, and exit code `1`, as with the plan.
 `write-versions` is the version writer `cargo`. No manifest in the tree carries
 a version, and Cargo cannot take one from outside, so the version of the plan
 is written into the working tree before something builds with it, and never
-committed. For every unit of the plan with a version and the writer `cargo`, it
+committed. For every unit of the plan with the writer `cargo`, the version is
+the one of the commit at hand, `-pr.<number>` behind it in a plan built for a
+pull request; for a unit the commit does not touch it is `last`, the last
+version released for it. With that version it
 sets `package.version` in the unit's `Cargo.toml`, gives every path dependency
 on that package inside its workspace that version as its requirement, and sets
 the package's entry in the workspace's `Cargo.lock`, together with every entry
@@ -182,6 +197,14 @@ that names it with a version. A workspace of its own below the root, such as
 a `fuzz/` folder, gets its `Cargo.lock` brought in line the same way when it
 reaches the package through path dependencies, directly or through another
 package. Nothing else changes, and `cargo build --locked` passes afterwards.
+
+A unit that is neither touched nor ever released gets nothing written. A
+package that gets a version and depends on such a unit by path, in
+`[dependencies]` or `[build-dependencies]`, also per platform or through
+`workspace = true`, ends the call with exit code `1` and both packages named,
+before anything is written: there is no version it could require, and
+`cargo package` would refuse it. A dependency of its tests alone does not,
+since Cargo drops a path dev-dependency without a version from the package.
 
 The workspace is found the way Cargo finds it: the folder `package.workspace`
 names, else the nearest folder at or above the package whose `Cargo.toml` has
@@ -193,7 +216,8 @@ written: a second call changes nothing.
 
 ```text
 component lib: the package lib at crates/lib gets 1.4.1 (workspace root: .).
-component app carries no version at this commit, so none is written for it.
+component app is not touched by this commit: the package app at crates/app gets its last release 1.2.0 (workspace root: .).
+component cli carries no version at this commit and was never released, so none is written for it.
 Wrote Cargo.lock.
 Wrote crates/app/Cargo.toml.
 Wrote crates/lib/Cargo.toml.

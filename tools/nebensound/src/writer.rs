@@ -6,7 +6,14 @@
 //! hand is written into the checkout of the run, immediately before building,
 //! and never committed.
 //!
-//! For every unit of the plan with a version and the writer `cargo`:
+//! For every unit of the plan with the writer `cargo`, the version written is
+//! the one of the commit at hand, `-pr.<number>` behind it on a pull request;
+//! for a unit the commit does not touch, the last version released for it, so
+//! that a package that depends on it by path requires a version that exists.
+//! A unit that is neither touched nor ever released gets nothing written, and
+//! a package that gets a version and depends on such a unit, other than for
+//! its tests, is an error that names both: there is no version it could
+//! require. With the version:
 //!
 //! - `package.version` in the unit's `Cargo.toml` becomes that version;
 //! - every path dependency on that package inside its workspace gets that
@@ -43,12 +50,29 @@ use toml_edit::{ArrayOfTables, DocumentMut, Item, RawString, Table, TableLike, V
 use crate::ignored::folder;
 use crate::plan::{Plan, Versioned};
 use crate::repository::Repository;
+use crate::versions::of_pull_request;
 
 /// The writer this module is, as the register names it.
 pub const CARGO: &str = "cargo";
 
 /// The tables a manifest lists its dependencies in.
 const DEPENDENCIES: [&str; 3] = ["dependencies", "dev-dependencies", "build-dependencies"];
+
+/// Those of them a published package keeps: Cargo drops a path dev-dependency
+/// without a version from the package instead of refusing it.
+const PUBLISHED: [&str; 2] = ["dependencies", "build-dependencies"];
+
+/// The kind [`dependency_tables`] gives `[workspace.dependencies]`.
+const WORKSPACE: &str = "workspace";
+
+/// What a package depends on by path: each folder with the name of the
+/// package there.
+type Needs = Vec<(RelativePath, String)>;
+
+/// The dependencies a manifest takes from its workspace with
+/// `workspace = true`, each by its key and a label that [`shared`] gives back
+/// with its folder.
+type Inherited = Vec<(String, String)>;
 
 /// One unit that carries a version, as the plan names it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,15 +81,20 @@ pub struct Order {
     pub unit: String,
     /// Where it lives.
     pub path: RelativePath,
-    /// The version of the commit at hand; [`None`] when the commit does not
-    /// touch the unit.
-    pub version: Option<TagVersion>,
+    /// The version of the commit at hand as it is written: on a pull request
+    /// the one its squash merge would get, with `-pr.<number>` behind it.
+    /// [`None`] when the commit does not touch the unit.
+    pub version: Option<String>,
+    /// The last version released for the unit: its newest counted tag, a
+    /// pre-release included. [`None`] when it was never released.
+    pub last: Option<TagVersion>,
     /// The version writers it selects.
     pub writers: Vec<VersionWriterName>,
 }
 
 impl Order {
-    /// Every unit of a plan that carries a version.
+    /// Every unit of a plan that carries a version, for the pull request the
+    /// plan is built for if there is one.
     #[must_use]
     pub fn of(plan: &Plan) -> Vec<Self> {
         plan.versions
@@ -73,7 +102,13 @@ impl Order {
             .map(|Versioned { unit, writers }| Self {
                 unit: unit.name.to_string(),
                 path: unit.path.clone(),
-                version: unit.version,
+                version: unit.version.map(|version| {
+                    plan.pull_request.map_or_else(
+                        || version.to_string(),
+                        |number| of_pull_request(&version, number),
+                    )
+                }),
+                last: unit.last,
                 writers: writers.clone(),
             })
             .collect()
@@ -97,7 +132,8 @@ impl Order {
                     |name| format!("component {name}"),
                 ),
                 path: entry.path,
-                version: entry.version,
+                version: entry.version.map(|written| written.0),
+                last: entry.last,
                 writers: entry.writers,
             })
             .collect())
@@ -115,8 +151,38 @@ struct Handed {
 struct HandedVersion {
     name: Option<String>,
     path: RelativePath,
-    version: Option<TagVersion>,
+    version: Option<Written>,
+    last: Option<TagVersion>,
     writers: Vec<VersionWriterName>,
+}
+
+/// A version as a plan hands it on: `X.Y.Z` or `X.Y.Z-pre.N`, and on a pull
+/// request `-pr.<number>` behind it.
+#[derive(Deserialize)]
+#[serde(try_from = "String")]
+struct Written(String);
+
+impl TryFrom<String> for Written {
+    type Error = String;
+
+    fn try_from(text: String) -> Result<Self, String> {
+        let merged = text
+            .rsplit_once("-pr.")
+            .filter(|(_, number)| {
+                !number.starts_with('0')
+                    && !number.is_empty()
+                    && number.bytes().all(|byte| byte.is_ascii_digit())
+            })
+            .map_or(text.as_str(), |(merged, _)| merged);
+        if TagVersion::parse(merged).is_some() {
+            Ok(Self(text))
+        } else {
+            Err(format!(
+                "{text:?} is no version: X.Y.Z or X.Y.Z-pre.N, with -pr.<number> behind it on a \
+                 pull request"
+            ))
+        }
+    }
 }
 
 /// Why the versions could not be written.
@@ -150,6 +216,25 @@ pub enum WriteError {
         /// Its manifest.
         path: String,
     },
+    /// A package that gets a version depends on a unit that gets none.
+    #[error(
+        "the package {package} gets {version} and depends by path on the package {dependency} at \
+         {path}, and {unit} is neither touched by this commit nor ever released: there is no \
+         version of {dependency} that {package} could require. A commit that touches {unit} \
+         gives it one"
+    )]
+    UnreleasedDependency {
+        /// The package that gets a version.
+        package: String,
+        /// The version it gets.
+        version: String,
+        /// The package it depends on, as it names it.
+        dependency: String,
+        /// Where that package lies.
+        path: String,
+        /// The unit that package is.
+        unit: String,
+    },
     /// A changed file could not be written back.
     #[error("{path} could not be written: {message}")]
     Unwritable {
@@ -169,8 +254,9 @@ pub enum WriteError {
 /// # Errors
 ///
 /// Returns [`WriteError`] for a manifest or a lockfile that cannot be read,
-/// is not TOML or cannot be written back, and for a unit whose manifest holds
-/// no package. Every file is read before the first one is written, so only a
+/// is not TOML or cannot be written back, for a unit whose manifest holds no
+/// package, and for a package that gets a version and depends on a unit that
+/// gets none. Every file is read before the first one is written, so only a
 /// file that cannot be written back leaves the others written.
 pub fn write(
     repository: &Repository,
@@ -182,30 +268,42 @@ pub fn write(
         open: BTreeMap::new(),
     };
     let mut said = Vec::new();
+    let mut unversioned = Vec::new();
+    let mut versioned = Vec::new();
     for order in orders
         .iter()
         .filter(|order| order.writers.iter().any(|writer| writer.as_str() == CARGO))
     {
-        let Some(version) = order.version else {
-            said.push(format!(
-                "{} carries no version at this commit, so none is written for it.",
-                order.unit
-            ));
-            continue;
+        let (version, touched) = match (&order.version, order.last) {
+            (Some(version), _) => (version.clone(), true),
+            (None, Some(last)) => (last.to_string(), false),
+            (None, None) => {
+                said.push(format!(
+                    "{} carries no version at this commit and was never released, so none is \
+                     written for it.",
+                    order.unit
+                ));
+                unversioned.push(order);
+                continue;
+            }
         };
-        let version = version.to_string();
         let manifest = order.path.join("Cargo.toml");
         let document = files.strict(&manifest)?;
         let name = package_version(document, &version).ok_or_else(|| WriteError::NoPackage {
             unit: order.unit.clone(),
             path: manifest.to_string(),
         })?;
+        let (mut needs, inherited) = published(document, &order.path);
         let root =
             own_root(document, &order.path).unwrap_or_else(|| files.workspace_above(&order.path));
-        said.push(format!(
-            "{}: the package {name} at {} gets {version} (workspace root: {root}).",
-            order.unit, order.path
-        ));
+        needs.extend(
+            files
+                .lenient(&root.join("Cargo.toml"))
+                .map(|manifest| shared(manifest, &root, &inherited))
+                .unwrap_or_default(),
+        );
+        said.push(announced(order, &name, &version, &root, touched));
+        versioned.push((name.clone(), version.clone(), needs));
         let mut dependents = Vec::new();
         for dependent in manifests.iter().filter(|manifest| root.contains(manifest)) {
             let place = folder(dependent);
@@ -222,7 +320,9 @@ pub fn write(
                 files
                     .lenient(&workspace.join("Cargo.toml"))
                     .map(|manifest| shared(manifest, &workspace, &inherited))
-                    .unwrap_or_default(),
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(path, _)| path),
             );
             dependents.push((place, workspace, paths));
         }
@@ -252,6 +352,7 @@ pub fn write(
             }
         }
     }
+    released(versioned, &unversioned)?;
     let written = files.save()?;
     if written.is_empty() {
         said.push("Nothing to write: every file already holds what it should.".to_owned());
@@ -260,6 +361,56 @@ pub fn write(
         said.push(format!("Wrote {path}."));
     }
     Ok(said.join("\n"))
+}
+
+/// What is said about a unit that gets a version: the one of the commit at
+/// hand when it touches the unit, the last release otherwise.
+fn announced(
+    order: &Order,
+    name: &str,
+    version: &str,
+    root: &RelativePath,
+    touched: bool,
+) -> String {
+    if touched {
+        format!(
+            "{}: the package {name} at {} gets {version} (workspace root: {root}).",
+            order.unit, order.path
+        )
+    } else {
+        format!(
+            "{} is not touched by this commit: the package {name} at {} gets its last release \
+             {version} (workspace root: {root}).",
+            order.unit, order.path
+        )
+    }
+}
+
+/// Refuses a package that gets a version and depends by path on a unit that
+/// gets none. Such a package can be published with its version, and whatever
+/// it depends on by path has to be required at a version too.
+///
+/// `versioned` holds each package that gets a version: its name, the version
+/// and what it depends on by path where it is published, as [`published`]
+/// and [`shared`] name it.
+fn released(
+    versioned: Vec<(String, String, Needs)>,
+    unversioned: &[&Order],
+) -> Result<(), WriteError> {
+    for (package, version, needs) in versioned {
+        for (path, dependency) in needs {
+            if let Some(order) = unversioned.iter().find(|order| order.path == path) {
+                return Err(WriteError::UnreleasedDependency {
+                    package,
+                    version,
+                    dependency,
+                    path: path.to_string(),
+                    unit: order.unit.clone(),
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Sets `package.version` and returns the name of the package, or [`None`]
@@ -280,9 +431,9 @@ fn package_version(manifest: &mut DocumentMut, version: &str) -> Option<String> 
 struct Links {
     /// The folders its path dependencies name.
     paths: BTreeSet<RelativePath>,
-    /// The names of the dependencies it takes from its workspace with
-    /// `workspace = true`.
-    inherited: Vec<String>,
+    /// The dependencies it takes from its workspace with `workspace = true`,
+    /// each by its key, twice: [`shared`] takes a key and a label.
+    inherited: Inherited,
 }
 
 /// Gives every path dependency on `target` the version as its requirement,
@@ -295,51 +446,19 @@ fn require(
     target: &RelativePath,
     version: &str,
 ) -> Links {
-    let mut tables: Vec<&mut dyn TableLike> = Vec::new();
-    let tables_in = manifest
-        .iter_mut()
-        .filter_map(|(key, item)| item.as_table_like_mut().map(|table| (key, table)));
-    for (key, table) in tables_in {
-        match key.get() {
-            kind if DEPENDENCIES.contains(&kind) => tables.push(table),
-            // Per platform: `[target.'cfg(unix)'.dependencies]`.
-            "target" => {
-                for (_, platform) in table.iter_mut() {
-                    tables.extend(
-                        platform
-                            .as_table_like_mut()
-                            .into_iter()
-                            .flat_map(|platform| {
-                                platform.iter_mut().filter_map(|(kind, deps)| {
-                                    DEPENDENCIES
-                                        .contains(&kind.get())
-                                        .then(|| deps.as_table_like_mut())
-                                        .flatten()
-                                })
-                            }),
-                    );
-                }
-            }
-            // Inherited with `workspace = true`, written once at the root.
-            "workspace" => tables.extend(
-                table
-                    .get_mut("dependencies")
-                    .and_then(Item::as_table_like_mut),
-            ),
-            _ => {}
-        }
-    }
     let mut links = Links {
         paths: BTreeSet::new(),
         inherited: Vec::new(),
     };
-    for table in tables {
+    for (_, table) in dependency_tables(manifest) {
         for (name, dependency) in table.iter_mut() {
             let Some(dependency) = dependency.as_table_like_mut() else {
                 continue;
             };
             if dependency.get("workspace").and_then(Item::as_bool) == Some(true) {
-                links.inherited.push(name.get().to_owned());
+                links
+                    .inherited
+                    .push((name.get().to_owned(), name.get().to_owned()));
             }
             let Some(path) = dependency
                 .get("path")
@@ -357,27 +476,104 @@ fn require(
     links
 }
 
+/// Every table a manifest lists dependencies in, each with its kind: one of
+/// [`DEPENDENCIES`], also per platform (`[target.'cfg(unix)'.dependencies]`),
+/// and [`WORKSPACE`] for `[workspace.dependencies]`, where the dependencies
+/// inherited with `workspace = true` are written once at the root.
+fn dependency_tables(manifest: &mut DocumentMut) -> Vec<(&'static str, &mut dyn TableLike)> {
+    let kind_of = |key: &str| DEPENDENCIES.into_iter().find(|kind| *kind == key);
+    let mut tables: Vec<(&'static str, &mut dyn TableLike)> = Vec::new();
+    let tables_in = manifest
+        .iter_mut()
+        .filter_map(|(key, item)| item.as_table_like_mut().map(|table| (key, table)));
+    for (key, table) in tables_in {
+        match key.get() {
+            "target" => {
+                for (_, platform) in table.iter_mut() {
+                    tables.extend(
+                        platform
+                            .as_table_like_mut()
+                            .into_iter()
+                            .flat_map(|platform| {
+                                platform.iter_mut().filter_map(|(kind, deps)| {
+                                    kind_of(kind.get()).zip(deps.as_table_like_mut())
+                                })
+                            }),
+                    );
+                }
+            }
+            WORKSPACE => tables.extend(
+                table
+                    .get_mut("dependencies")
+                    .and_then(Item::as_table_like_mut)
+                    .map(|dependencies| (WORKSPACE, dependencies)),
+            ),
+            kind => tables.extend(kind_of(kind).map(|kind| (kind, table))),
+        }
+    }
+    tables
+}
+
 /// The folders the `[workspace.dependencies]` of a workspace's manifest name
-/// by path for the dependencies `inherited`.
-fn shared(
-    manifest: &DocumentMut,
-    workspace: &RelativePath,
-    inherited: &[String],
-) -> Vec<RelativePath> {
+/// by path for the dependencies `inherited`, each given by its key and a
+/// label that comes back with its folder.
+fn shared(manifest: &DocumentMut, workspace: &RelativePath, inherited: &Inherited) -> Needs {
     let dependencies = manifest
         .get("workspace")
         .and_then(|table| table.get("dependencies"))
         .and_then(Item::as_table_like);
     inherited
         .iter()
-        .filter_map(|name| {
+        .filter_map(|(key, label)| {
             dependencies
-                .and_then(|dependencies| dependencies.get(name))
+                .and_then(|dependencies| dependencies.get(key))
                 .and_then(|dependency| dependency.get("path"))
                 .and_then(Item::as_str)
+                .and_then(|written| resolve(workspace, written))
+                .map(|path| (path, label.clone()))
         })
-        .filter_map(|written| resolve(workspace, written))
         .collect()
+}
+
+/// What a package depends on by path where it is published, the
+/// dependencies of its tests left out: each folder its manifest names with
+/// the name of the package there, and each dependency it inherits with
+/// `workspace = true` by its key and that name, for [`shared`] to find.
+///
+/// `folder` is where the manifest lies, which its paths are relative to.
+fn published(manifest: &mut DocumentMut, folder: &RelativePath) -> (Needs, Inherited) {
+    let mut needs = Vec::new();
+    let mut inherited = Vec::new();
+    for (_, table) in dependency_tables(manifest)
+        .into_iter()
+        .filter(|(kind, _)| PUBLISHED.contains(kind))
+    {
+        let dependencies = table.iter().filter_map(|(key, dependency)| {
+            dependency
+                .as_table_like()
+                .map(|dependency| (key, dependency))
+        });
+        for (key, dependency) in dependencies {
+            // Renamed with `package = "..."`, the key is not the name.
+            let name = dependency
+                .get("package")
+                .and_then(Item::as_str)
+                .unwrap_or(key)
+                .to_owned();
+            if dependency.get("workspace").and_then(Item::as_bool) == Some(true) {
+                inherited.push((key.to_owned(), name));
+            } else {
+                needs.extend(
+                    dependency
+                        .get("path")
+                        .and_then(Item::as_str)
+                        .and_then(|written| resolve(folder, written))
+                        .map(|path| (path, name)),
+                );
+            }
+        }
+    }
+    (needs, inherited)
 }
 
 /// Gives the package's entry in a lockfile the version, and every entry that

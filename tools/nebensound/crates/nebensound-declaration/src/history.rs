@@ -23,7 +23,8 @@
 //!   stage a commit of the line, in two stages a commit promoted into
 //!   `release`. A full release on a released commit counts whatever its
 //!   number. A pre-release counts only on a commit of the line where the unit
-//!   was released in two stages.
+//!   was released in two stages. The **last** release of a unit is its newest
+//!   tag that counts, a pre-release included; none without one.
 //! - Only the tip of `main` is promoted. A merge into `release` whose second
 //!   parent is not the commit `origin/main` points at is refused, and the
 //!   commit at hand resolves no version.
@@ -289,6 +290,10 @@ pub struct UnitVersion {
     pub release: Release,
     /// Its last full release, `0.0.0` without one.
     pub base: Version,
+    /// The last version released for it: its newest counted tag, a
+    /// pre-release included; [`None`] when it was never released. What a
+    /// dependency the commit at hand does not touch is required at.
+    pub last: Option<TagVersion>,
     /// The version of the commit at hand; [`None`] when the commit does not
     /// touch the unit, or when a finding stands in the way.
     pub version: Option<TagVersion>,
@@ -834,6 +839,7 @@ fn resolve_unit(
         prefix: unit.tag_prefix(),
         release: unit.release.release,
         base: Version::ZERO,
+        last: None,
         version: None,
         waiting: 0,
     };
@@ -859,6 +865,9 @@ fn resolve_unit(
     if let Some(base) = base {
         entry.base = base.version.version;
     }
+    // Versions only rise along the history, so the newest counted tag is the
+    // highest one; a pre-release released with the base sorts below it.
+    entry.last = counted.iter().map(|tag| tag.version).max();
     // The commits the base's release holds: their pre-releases were released
     // with it, whatever their number.
     let released = base.map(|base| context.history.contained_in(base.commit));

@@ -25,6 +25,7 @@ fn checks(plan: &Plan, name: Option<&str>) -> Vec<String> {
             Plan {
                 units: vec![(*unit).clone()],
                 versions: Vec::new(),
+                pull_request: None,
             }
             .to_json()
             .contains(&wanted)

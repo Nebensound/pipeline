@@ -400,6 +400,11 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
   one on any other commit `HEAD` contains, or on one where the unit was
   released in one stage, is the warning `unexpected-tag` as well.
 
+- **The last release** of a unit is its newest tag that counts, a pre-release
+  included; a unit without one was never released. It is what the version
+  writer `cargo` requires of a path dependency whose unit the commit at hand
+  does not touch, and it stands in the plan as `last`.
+
 - **Only the tip of `main` is promoted.** A merge into `release` whose second
   parent is not the commit `origin/main` points at is the error
   `stale-promotion`, both on the pull request into `release` and on the merge

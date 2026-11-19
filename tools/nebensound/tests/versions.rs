@@ -1076,13 +1076,14 @@ fn a_generated_unit_carries_its_parents_name_in_its_prefix() {
         plan["versions"],
         serde_json::json!([
             {"kind": "repository", "name": null, "path": ".", "prefix": "v",
-             "release": "single-stage", "base": "0.0.0", "version": "0.0.2", "writers": []},
+             "release": "single-stage", "base": "0.0.0", "last": null, "version": "0.0.2",
+             "writers": []},
             {"kind": "component", "name": "guide", "path": "docs/guide.md",
              "prefix": "docs-guide-v", "release": "single-stage", "base": "0.0.1",
-             "version": "0.0.2", "writers": []},
+             "last": "0.0.1", "version": "0.0.2", "writers": []},
             {"kind": "component", "name": "handbook", "path": "docs/handbook.md",
              "prefix": "docs-handbook-v", "release": "single-stage", "base": "0.0.0",
-             "version": null, "writers": []}
+             "last": null, "version": null, "writers": []}
         ])
     );
 }

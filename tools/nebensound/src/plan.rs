@@ -18,7 +18,8 @@
 //!
 //! Beside it stands the version of every unit that carries one, as the history
 //! resolves it for the commit at hand, with the version writers that copy it
-//! into the unit's files before it builds.
+//! into the unit's files before it builds. On a pull request that is the
+//! version its squash merge would get, with `-pr.<number>` behind it.
 
 use nebensound_declaration::finding::UnitName;
 use nebensound_declaration::names::{BuildName, CheckName, VersionWriterName};
@@ -26,6 +27,8 @@ use nebensound_declaration::path::RelativePath;
 use nebensound_declaration::resolve::Unit;
 use nebensound_declaration::{Analysis, Central, TagVersion, UnitVersion};
 use serde_json::{Value, json};
+
+use crate::versions::of_pull_request;
 
 /// One unit with the checks that are started for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +62,9 @@ pub struct Plan {
     pub units: Vec<Planned>,
     /// The version of every unit that carries one, in the same order.
     pub versions: Vec<Versioned>,
+    /// The pull request the plan is built for, if any: every `version` of
+    /// [`Plan::to_json`] then carries `-pr.<number>` behind it.
+    pub pull_request: Option<u64>,
 }
 
 /// Builds the plan from an analysis.
@@ -108,6 +114,7 @@ pub fn plan(analysis: &Analysis, central: &Central) -> Plan {
     Plan {
         units: planned,
         versions,
+        pull_request: None,
     }
 }
 
@@ -143,9 +150,13 @@ impl Plan {
     /// cannot unfold a list inside one.
     ///
     /// `versions` is one entry per unit that carries a version: what its tags
-    /// start with, how it is released, its last full release as `base`, and
-    /// the `version` of the commit at hand, null when the commit does not
-    /// touch the unit, and the `writers` that copy it into the unit's files.
+    /// start with, how it is released, its last full release as `base`, the
+    /// last version released for it as `last` (its newest counted tag, a
+    /// pre-release included, null when it was never released), the `version`
+    /// of the commit at hand, null when the commit does not touch the unit,
+    /// and the `writers` that copy it into the unit's files. For a pull
+    /// request `version` is the one its squash merge would get, with
+    /// `-pr.<number>` behind it.
     ///
     /// One line, so that it can be handed on as a step output as it is. Keys
     /// stand in alphabetical order; nothing that reads JSON depends on it.
@@ -180,7 +191,13 @@ impl Plan {
                 entry["prefix"] = json!(unit.prefix);
                 entry["release"] = json!(unit.release.as_str());
                 entry["base"] = json!(unit.base.to_string());
-                entry["version"] = json!(unit.version.as_ref().map(TagVersion::to_string));
+                entry["last"] = json!(unit.last.as_ref().map(TagVersion::to_string));
+                entry["version"] = json!(unit.version.as_ref().map(|version| {
+                    self.pull_request.map_or_else(
+                        || version.to_string(),
+                        |number| of_pull_request(version, number),
+                    )
+                }));
                 entry["writers"] = writers.iter().map(VersionWriterName::as_str).collect();
                 entry
             })

@@ -40,10 +40,13 @@ hands the result on:
    with its reason, as a notice.
 4. Then `nebensound plan` prints the plan: every unit,
    with the checks started for it and the build it names, and the version of
-   every unit that carries one with the version writers it selects. The units
-   that start at least one check go on to the Check phase, and the whole plan
-   is handed on with them: a later job checks out no history, so a version
-   writer takes the versions from the plan.
+   every unit that carries one, its last release and the version writers it
+   selects. On a pull request the plan is built the way the job Version reads
+   it (see below): each version is the one the merge would get, with
+   `-pr.<number>` behind it. The units that start at least one check go on to
+   the Check phase, and the whole plan is handed on with them: a later job
+   checks out no history, so a version writer takes the versions from the
+   plan.
 
 An error ends the phase here: there is no plan, no check runs, and
 `nebensound / Check` fails. A warning stops nothing.
@@ -159,7 +162,9 @@ on:
 
 Today both run the same jobs, Declare, Version and Check, with the same steps.
 Only the versions depend on the event: on a pull request `Version` shows the
-version the merge would get with `-pr.<number>` behind it. A newer run for the
+version the merge would get with `-pr.<number>` behind it, and the plan carries
+the same versions, which the package test of `check-rust` writes and builds
+with. A newer run for the
 same branch or pull request cancels the one still running. The permissions are
 read-only: the workflow reads the repository and writes nothing back.
 
