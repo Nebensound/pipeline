@@ -105,6 +105,100 @@ const STAND_INS: &[(&str, StandIn)] = &[
     ),
 ];
 
+/// A program a block's step expects on the `PATH` in a version, where on
+/// GitHub an action the step calls would put it there and the xtask stands in
+/// with the one on the `PATH` (see [`needs`]).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Need {
+    /// The program.
+    pub program: &'static str,
+    /// The version the step asks for.
+    pub version: String,
+    argument: &'static str,
+    prefix: &'static str,
+}
+
+/// What the steps of `action` expect on the `PATH`: every program an action
+/// they call would put there, with the version the step names. A version
+/// written as an expression is known only when the step runs, so it is left
+/// out; the blocks write none.
+#[must_use]
+pub fn needs(action: &Action) -> Vec<Need> {
+    let Runs::Composite(steps) = &action.runs else {
+        return Vec::new();
+    };
+    steps
+        .iter()
+        .filter_map(|step| match &step.kind {
+            Kind::Uses { action, with } => Some((action, with)),
+            Kind::Run { .. } => None,
+        })
+        .filter_map(|(reference, with)| {
+            let name = reference
+                .split_once('@')
+                .map_or(reference.as_str(), |(name, _)| name);
+            STAND_INS
+                .iter()
+                .find_map(|(action, stand_in)| match stand_in {
+                    StandIn::Version {
+                        program,
+                        argument,
+                        input,
+                        prefix,
+                    } if *action == name => with
+                        .iter()
+                        .find(|(key, _)| key.eq_ignore_ascii_case(input))
+                        .filter(|(_, version)| !version.contains("${{"))
+                        .map(|(_, version)| Need {
+                            program,
+                            version: version.clone(),
+                            argument,
+                            prefix,
+                        }),
+                    _ => None,
+                })
+        })
+        .collect()
+}
+
+/// Asks the program `need` names on the `PATH` of `env` for its version. `Ok`
+/// carries what it printed when that is the version the step asks for, `Err`
+/// what it printed otherwise, or `none` when it printed nothing or cannot be
+/// started.
+///
+/// # Errors
+///
+/// As described above.
+pub fn probe(need: &Need, env: &[(OsString, OsString)]) -> Result<String, String> {
+    let printed = Command::new(need.program)
+        .arg(need.argument)
+        .env_clear()
+        .envs(env.iter().map(|(name, value)| (name, value)))
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+        .unwrap_or_default();
+    if fits(&printed, need.prefix, &need.version) {
+        Ok(printed)
+    } else if printed.is_empty() {
+        Err("none".to_owned())
+    } else {
+        Err(printed)
+    }
+}
+
+/// Whether a word of `printed` is `prefix` and then `wanted`, alone or followed
+/// by more parts after a dot: `v24.3.0` fits `24` with the prefix `v`, and
+/// `v240.1` does not.
+fn fits(printed: &str, prefix: &str, wanted: &str) -> bool {
+    printed.split_whitespace().any(|word| {
+        word.strip_prefix(prefix)
+            .and_then(|version| version.strip_prefix(wanted))
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+    })
+}
+
 /// The machine the actions run on.
 #[derive(Debug)]
 pub struct Host {
@@ -544,12 +638,7 @@ impl Host {
                     .output()
                     .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
                     .unwrap_or_default();
-                let fits = printed.split_whitespace().any(|word| {
-                    word.strip_prefix(prefix)
-                        .and_then(|version| version.strip_prefix(wanted.as_str()))
-                        .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
-                });
-                if fits {
+                if fits(&printed, prefix, &wanted) {
                     line(
                         format!("{reference} stands in with `{program}` from the PATH: {printed}"),
                         true,

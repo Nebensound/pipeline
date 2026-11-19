@@ -322,10 +322,13 @@ not part of the case's repository.
   entry (`check-<name>`, `version-<writer>`, `build-<name>`,
   `publish-<target>`), or the workflow's own machinery (`phase0`, `tool`);
 - every block is called from a step of `nebensound.yml` that is named after its
-  entry and switched on it, as `contains(matrix.checks, '<name>')`;
+  entry and switched on it with exactly the condition
+  `${{ !cancelled() && contains(matrix.checks, '<name>') }}`, so that an
+  inverted or widened switch is caught;
 - the step `Not written yet` counts exactly the checks that have a block as
   written;
-- every block has a passing and a failing case.
+- every block has a passing and a failing case. A `.DS_Store` beside the cases
+  is passed over: Git ignores it, so the gate never sees it.
 
 For now the xtask knows only how a check is called and tested, so a block of
 another category is reported until the xtask learns that kind. The first
@@ -371,11 +374,13 @@ and exits with `1`, since the cases did not run. Running them on macOS comes
 with the checks that run from the tool (#73, #74).
 
 `cargo xtask setup` calls `nebensound setup` for this repository with the tool
-of this commit, built from `tools/nebensound/`, and hands it every option
-unchanged (`--pinned`, `--with-runtimes`, `--check`). It adds nothing of its
-own: the blocks fetch their programs themselves when the cases run them, and
-what they expect of the machine stays the machine's: Node.js and Go on the
-`PATH` in the versions their steps ask for, Python, and rustup.
+of this commit, built from `tools/nebensound/` with the toolchain the tool
+pins, and hands it every option unchanged (`--pinned`, `--with-runtimes`,
+`--check`). Then it checks what only the test cases need: Node.js and Go on the
+`PATH` in the versions the blocks' steps ask for (read from their
+`action.yml`), Python, and rustup. It installs none of these, since they stay
+the machine's, but names each one that is missing or of another version and
+exits with `1` then, so that a machine it passes can run the cases.
 
 The cases are
 taken out of this repository's own checks with `[[exclude]]` and a reason in

@@ -28,6 +28,12 @@ pub const FINDING: &str = "expected-finding";
 /// Where the building blocks lie, from the repository root.
 pub const ACTIONS: &str = ".github/actions";
 
+/// Entries under `tests/pass/` and `tests/fail/` that are no case and are
+/// passed over: files a desktop leaves behind and Git ignores, so that the
+/// gate never sees them. Counting them would fail the layout locally where
+/// the gate passes.
+pub const LEFT_BEHIND: &[&str] = &[".DS_Store"];
+
 /// The steps of a block the xtask does not run, each with why: the block, the
 /// step's name and the reason. Each of them has to be a step of its block.
 pub const SKIPPED: &[(&str, &str, &str)] = &[(
@@ -69,7 +75,8 @@ impl Case {
 }
 
 /// The cases of the block in `block`: the passing ones first, each kind in the
-/// order of its names. A block without a `tests/` folder has none.
+/// order of its names. A block without a `tests/` folder has none. What
+/// [`LEFT_BEHIND`] names is passed over.
 ///
 /// # Errors
 ///
@@ -87,6 +94,11 @@ pub fn discover(block: &Path) -> Result<Vec<Case>, Error> {
         let mut paths: Vec<PathBuf> = entries
             .map_while(Result::ok)
             .map(|entry| entry.path())
+            .filter(|path| {
+                !path
+                    .file_name()
+                    .is_some_and(|name| LEFT_BEHIND.iter().any(|left| name == *left))
+            })
             .collect();
         paths.sort();
         for path in paths {

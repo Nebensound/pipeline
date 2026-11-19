@@ -8,11 +8,12 @@
 //!   `action.yml` ([`runner`]). The central workflow runs
 //!   `cargo xtask check --all` as the last step of `Check repository`.
 //! - `setup` calls `nebensound setup` for this repository, with the tool of
-//!   this commit, to find or install the programs its checks call. It adds
-//!   nothing of its own: the blocks fetch their programs themselves when the
-//!   cases run them, and what they expect of the machine (Node.js and Go on
-//!   the `PATH` in the versions they ask for, Python, rustup) stays the
-//!   machine's.
+//!   this commit, to find or install the programs its checks call, and then
+//!   checks what only the test cases need ([`MACHINE`]): Node.js and Go on
+//!   the `PATH` in the versions the blocks' steps ask for, Python and rustup.
+//!   It installs none of them: the blocks fetch their own programs when the
+//!   cases run them, and those four stay the machine's, so it names each one
+//!   that is missing.
 //!
 //! The binary is a few lines. Everything else lives here, so that it can be
 //! checked without starting the process.
@@ -40,6 +41,16 @@ const FOUND: u8 = 1;
 /// The call was wrong.
 const MISUSE: u8 = 2;
 
+/// What the steps of the blocks call on the machine beside the programs the
+/// register pins and the programs [`runner::needs`] finds, each with what
+/// makes it print its version: `check-yaml` runs Python's pip, and the tool
+/// and `check-rust` install toolchains with rustup.
+pub const MACHINE: &[(&str, &str)] = &[("python3", "--version"), ("rustup", "--version")];
+
+/// The options after `setup` that ask the tool for its help, after which
+/// nothing is checked.
+const HELP: &[&str] = &["help", "--help", "-h"];
+
 const USAGE: &str = "\
 Usage: cargo xtask check --all
        cargo xtask setup [<option> ...]
@@ -52,6 +63,9 @@ check --all   Holds the building blocks, the register and nebensound.yml to
 setup         Calls `nebensound setup` for this repository, built from this
               commit, to find or install the programs its checks call. Every
               option goes to it unchanged: --pinned, --with-runtimes, --check.
+              Then it checks, and installs nothing, what only the test cases
+              need: Node.js and Go in the versions the blocks ask for, Python
+              and rustup.
 ";
 
 /// Why something could not be done, as one sentence.
@@ -243,10 +257,16 @@ fn check(setup: &Setup, out: &mut dyn Write) -> u8 {
 }
 
 /// `setup`: `nebensound setup` for this repository, built from this commit
-/// with the toolchain the tool pins and handed every option unchanged. It
-/// shares the terminal, so that it can ask before it installs a runtime.
+/// with the toolchain the tool pins and handed every option unchanged, then
+/// what only the test cases need ([`machine`]). The tool shares the terminal,
+/// so that it can ask before it installs a runtime.
+///
+/// Cargo runs in the tool's directory: rustup picks the toolchain from the
+/// directory it is started in, not from `--manifest-path`, so only there does
+/// the tool's `rust-toolchain.toml` count.
 fn programs(options: &[String], setup: &Setup, out: &mut dyn Write) -> u8 {
-    let manifest = setup.root.join("tools/nebensound/Cargo.toml");
+    let tool = setup.root.join("tools/nebensound");
+    let manifest = tool.join("Cargo.toml");
     let status = Command::new(&setup.cargo)
         .args(["run", "--quiet", "--locked", "--manifest-path"])
         .arg(&manifest)
@@ -255,11 +275,11 @@ fn programs(options: &[String], setup: &Setup, out: &mut dyn Write) -> u8 {
         .arg(&setup.root)
         .arg("setup")
         .args(options)
-        .current_dir(&setup.root)
+        .current_dir(&tool)
         .env_clear()
         .envs(runner::environment(setup.env.clone()))
         .status();
-    match status {
+    let code = match status {
         Ok(status) => status
             .code()
             .and_then(|code| u8::try_from(code).ok())
@@ -268,13 +288,105 @@ fn programs(options: &[String], setup: &Setup, out: &mut dyn Write) -> u8 {
             say(
                 out,
                 &format!(
-                    "::error::cannot start `{}` to build the tool: {error}\n",
-                    setup.cargo.to_string_lossy()
+                    "::error::cannot start `{}` in {} to build the tool: {error}\n",
+                    setup.cargo.to_string_lossy(),
+                    tool.display()
                 ),
             );
-            FOUND
+            return FOUND;
+        }
+    };
+    if options.iter().any(|option| HELP.contains(&option.as_str())) {
+        return code;
+    }
+    let machine = machine(setup, out);
+    if code == OK { machine } else { code }
+}
+
+/// Checks what only the test cases need on the `PATH` and installs nothing:
+/// the programs the blocks' steps expect in a version ([`runner::needs`]),
+/// and [`MACHINE`]. Each is named with what was found; the result is [`FOUND`]
+/// when one is missing.
+fn machine(setup: &Setup, out: &mut dyn Write) -> u8 {
+    say(out, "What the test cases need besides:\n");
+    let needs = match block_needs(&setup.root) {
+        Ok(needs) => needs,
+        Err(error) => {
+            say(out, &format!("::error::{error}\n"));
+            return FOUND;
+        }
+    };
+    let env = runner::environment(setup.env.clone());
+    let mut missing = 0;
+    for need in &needs {
+        let (program, version) = (need.program, &need.version);
+        match runner::probe(need, &env) {
+            Ok(printed) => say(
+                out,
+                &format!("{program} {version}: on the PATH, {printed}\n"),
+            ),
+            Err(printed) => {
+                say(
+                    out,
+                    &format!(
+                        "{program} {version}: missing, the PATH has {printed}. Put {program} \
+                         {version} on the PATH.\n"
+                    ),
+                );
+                missing += 1;
+            }
         }
     }
+    for (program, argument) in MACHINE {
+        let found = Command::new(program)
+            .arg(argument)
+            .env_clear()
+            .envs(env.iter().map(|(name, value)| (name, value)))
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| {
+                String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_owned()
+            });
+        if let Some(printed) = found {
+            say(out, &format!("{program}: on the PATH, {printed}\n"));
+        } else {
+            say(
+                out,
+                &format!("{program}: missing. Put {program} on the PATH.\n"),
+            );
+            missing += 1;
+        }
+    }
+    if missing == 0 {
+        OK
+    } else {
+        say(
+            out,
+            &format!("{missing} program(s) the test cases need are missing, each named above.\n"),
+        );
+        FOUND
+    }
+}
+
+/// What the steps of every action under `.github/actions/` expect on the
+/// `PATH`, each program and version once.
+fn block_needs(root: &Path) -> Result<Vec<runner::Need>, Error> {
+    let mut needs = std::collections::BTreeSet::new();
+    for dir in layout::directories(&root.join(ACTIONS))? {
+        if dir.action {
+            let action = action::Action::load(&root.join(ACTIONS).join(&dir.name))?;
+            needs.extend(runner::needs(&action));
+        }
+    }
+    Ok(needs.into_iter().collect())
 }
 
 /// Runs the cases of `blocks` and returns how many did not go as expected.

@@ -570,3 +570,67 @@ fn a_composite_action_a_step_calls_is_fetched_and_run() {
     let message = error(scene.run_on(&host, &mut Job::default(), &node, &[], &[]));
     assert!(message.contains("runs on `node24`"), "{message}");
 }
+
+#[test]
+fn what_the_steps_expect_on_the_path_is_read_from_the_action() {
+    let action = xtask::action::Action::parse(
+        r"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        Node-Version: 24
+    - uses: actions/setup-go@v7
+      with:
+        go-version: ${{ inputs.go }}
+    - uses: actions/setup-go@v7
+    - uses: Swatinem/rust-cache@v2
+    - uses: someone/else@v1
+      with:
+        node-version: 22
+    - shell: bash
+      run: echo
+",
+        "the action",
+    )
+    .unwrap();
+    let needs = runner::needs(&action);
+    let found: Vec<(&str, &str)> = needs
+        .iter()
+        .map(|need| (need.program, need.version.as_str()))
+        .collect();
+    assert_eq!(found, [("node", "24")]);
+
+    let other =
+        xtask::action::Action::parse("runs:\n  using: docker\n  image: x\n", "docker").unwrap();
+    assert!(runner::needs(&other).is_empty());
+}
+
+#[test]
+fn a_need_is_met_only_by_its_version() {
+    let scene = Scene::new();
+    let bin = scene.path().join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let env = vec![(
+        OsString::from("PATH"),
+        OsString::from(format!("{}:/usr/bin:/bin", bin.display())),
+    )];
+    let action = xtask::action::Action::parse(
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v7\n      with:\n        node-version: 24\n",
+        "the action",
+    )
+    .unwrap();
+    let need = runner::needs(&action).remove(0);
+
+    assert_eq!(runner::probe(&need, &env), Err("none".to_owned()));
+    for (printed, expected) in [
+        ("v24", Ok("v24".to_owned())),
+        ("v24.3.0", Ok("v24.3.0".to_owned())),
+        ("v240.1.0", Err("v240.1.0".to_owned())),
+        ("v26.13.1", Err("v26.13.1".to_owned())),
+    ] {
+        executable(&bin.join("node"), &format!("#!/bin/sh\necho {printed}\n"));
+        assert_eq!(runner::probe(&need, &env), expected, "{printed}");
+    }
+}

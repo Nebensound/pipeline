@@ -7,7 +7,8 @@
 //! directory is the assignment, and no table has to be kept beside it.
 //!
 //! Every block belongs to a register entry and is called from a step of
-//! `nebensound.yml` that is named after the entry and switched on it. A check
+//! `nebensound.yml` that is named after the entry and switched on it, with
+//! exactly the condition the workflow documents for it. A check
 //! the register knows and nobody has written yet has no directory: the step
 //! `Not written yet` fails for it by name, so that step's list of written
 //! checks names exactly the checks that have a block. Every block brings its
@@ -258,13 +259,18 @@ pub fn compare(register: &str, workflow: &str, directories: &[Directory]) -> Res
             ));
             continue;
         }
-        let switch = format!("contains(matrix.checks, '{}')", entry.name);
+        // The whole condition, as nebensound.yml documents it: a substring
+        // would let `!contains(…)` or `contains(…) || true` through.
+        let switch = format!(
+            "${{{{ !cancelled() && contains(matrix.checks, '{}') }}}}",
+            entry.name
+        );
         if called.is_empty() {
             problems.push(format!("`{name}` is never called from nebensound.yml"));
         }
         if called
             .iter()
-            .any(|call| call.name != entry.name || !call.condition.contains(&switch))
+            .any(|call| call.name != entry.name || call.condition.trim() != switch)
         {
             problems.push(format!(
                 "nebensound.yml calls `{name}` from a step that is not named `{}` and switched \

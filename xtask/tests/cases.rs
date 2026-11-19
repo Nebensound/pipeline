@@ -20,6 +20,8 @@ fn cases_are_found_passing_first_each_kind_by_name() {
         &[
             ("tests/pass/b/file", ""),
             ("tests/pass/a/file", ""),
+            ("tests/pass/.DS_Store", ""),
+            ("tests/fail/.DS_Store", ""),
             (
                 "tests/fail/z/expected-finding",
                 "# A comment.\n\n  first *\nsecond\n",

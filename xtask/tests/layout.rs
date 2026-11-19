@@ -90,6 +90,36 @@ fn agreeing_parts_find_nothing() {
 }
 
 #[test]
+fn a_switch_that_is_inverted_or_always_true_is_named() {
+    for condition in [
+        "${{ !cancelled() && !contains(matrix.checks, 'demo') }}",
+        "${{ !cancelled() && contains(matrix.checks, 'demo') || true }}",
+        "${{ contains(matrix.checks, 'demo') }}",
+    ] {
+        let steps = format!(
+            "- name: demo\n  if: \"{condition}\"\n  uses: $/.github/actions/check-demo\n- uses: $/.github/actions/phase0\n"
+        );
+        let found = layout::compare(
+            REGISTER,
+            &workflow(r#"["demo"]"#, &steps),
+            &[
+                dir("check-demo", true, Ok(both())),
+                dir("phase0", true, Ok(Vec::new())),
+                dir("tool", true, Ok(Vec::new())),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            found.problems,
+            [
+                "nebensound.yml calls `check-demo` from a step that is not named `demo` and switched on it with `${{ !cancelled() && contains(matrix.checks, 'demo') }}`"
+            ],
+            "{condition}"
+        );
+    }
+}
+
+#[test]
 fn every_disagreement_is_named() {
     let steps = "- name: wrong\n  if: ${{ contains(matrix.checks, 'demo') }}\n  uses: $/.github/actions/check-demo\n- name: other\n  if: always()\n  uses: $/.github/actions/check-other\n- uses: $/.github/actions/check-gone\n";
     let found = layout::compare(
@@ -120,10 +150,10 @@ fn every_disagreement_is_named() {
         [
             "`build-cargo-package` is a block for the build `cargo-package`, and the xtask knows only how a check is called and tested; it has to learn the other kind first",
             "`check-cases` belongs to no register entry, and it is no machinery of the workflow (phase0, tool)",
-            "nebensound.yml calls `check-demo` from a step that is not named `demo` and switched on it with `contains(matrix.checks, 'demo')`",
+            "nebensound.yml calls `check-demo` from a step that is not named `demo` and switched on it with `${{ !cancelled() && contains(matrix.checks, 'demo') }}`",
             "`check-demo` has no failing test case under tests/fail/",
             "`check-other` has no action.yml",
-            "nebensound.yml calls `check-other` from a step that is not named `other` and switched on it with `contains(matrix.checks, 'other')`",
+            "nebensound.yml calls `check-other` from a step that is not named `other` and switched on it with `${{ !cancelled() && contains(matrix.checks, 'other') }}`",
             "`check-other` exists, but `Not written yet` still fails for `other`",
             "`check-other` has no passing test case under tests/pass/",
             "`check-preset` belongs to no register entry, and it is no machinery of the workflow (phase0, tool)",

@@ -285,12 +285,76 @@ fn fake_cargo(scene: &Scene, code: u8) -> OsString {
     script.into()
 }
 
+/// An executable script at `path`.
+fn script(path: &Path, body: &str) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
+    let mut permissions = fs::metadata(path).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
+    fs::set_permissions(path, permissions).unwrap();
+}
+
+/// A block whose steps ask for Node.js 24 and Go 1.26 through the actions
+/// that would put them on the PATH.
+const NEEDY: &str = r#"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 24
+    - uses: actions/setup-go@v7
+      with:
+        go-version: "1.26"
+    - shell: bash
+      run: echo
+"#;
+
+/// A repository root with the tool's directory, a block that asks for
+/// Node.js 24 and Go 1.26, a second block asking for Node.js 24 as well, a
+/// non-composite action and a directory without an action; and a setup whose
+/// PATH is `bin` beside the system's own directories.
+fn needy(scene: &Scene) -> (PathBuf, PathBuf, Setup) {
+    let root = scene.path().canonicalize().unwrap().join("root");
+    write(
+        &root,
+        &[
+            ("tools/nebensound/Cargo.toml", ""),
+            (".github/actions/check-a/action.yml", NEEDY),
+            (".github/actions/check-b/action.yml", NEEDY),
+            (
+                ".github/actions/check-c/action.yml",
+                "runs:\n  using: node24\n  main: index.js\n",
+            ),
+            (".github/actions/check-d/README.md", ""),
+        ],
+    );
+    let bin = scene.path().join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let mut setup = setup(&root, scene.path(), "macos");
+    setup
+        .env
+        .retain(|(name, _)| name != "PATH" && name != "RUSTUP_TOOLCHAIN");
+    setup.env.push((
+        OsString::from("PATH"),
+        OsString::from(format!("{}:/usr/bin:/bin", bin.display())),
+    ));
+    (root, bin, setup)
+}
+
+/// Puts on `bin` every program the test cases need, in the versions asked.
+fn provide(bin: &Path) {
+    script(&bin.join("node"), "echo v24.3.0");
+    script(&bin.join("go"), "echo go version go1.26.2 linux/amd64");
+    script(&bin.join("python3"), "echo Python 3.13.1");
+    script(&bin.join("rustup"), "echo rustup 1.29.0; echo info >&2");
+}
+
 #[test]
 fn setup_calls_the_tool_of_this_commit_with_every_option() {
     let scene = Scene::new();
-    let root = scene.path().canonicalize().unwrap().join("root");
-    fs::create_dir_all(&root).unwrap();
-    let mut setup = setup(&root, scene.path(), "macos");
+    let (root, bin, mut setup) = needy(&scene);
+    provide(&bin);
     setup.env.push((
         OsString::from("RUSTUP_TOOLCHAIN"),
         OsString::from("nightly"),
@@ -299,8 +363,17 @@ fn setup_calls_the_tool_of_this_commit_with_every_option() {
     setup.cargo = fake_cargo(&scene, 0);
     let (code, out) = call(&["setup", "--pinned", "--with-runtimes"], &setup);
     assert_eq!(code, 0, "{out}");
-    assert_eq!(out, "");
+    assert_eq!(
+        out,
+        "What the test cases need besides:\n\
+         go 1.26: on the PATH, go version go1.26.2 linux/amd64\n\
+         node 24: on the PATH, v24.3.0\n\
+         python3: on the PATH, Python 3.13.1\n\
+         rustup: on the PATH, rustup 1.29.0\n"
+    );
     let manifest = root.join("tools/nebensound/Cargo.toml");
+    // Cargo starts in the tool's directory, so that rustup takes the
+    // toolchain the tool pins, and without the xtask's RUSTUP_TOOLCHAIN.
     let expected = [
         "run",
         "--quiet",
@@ -313,7 +386,7 @@ fn setup_calls_the_tool_of_this_commit_with_every_option() {
         "setup",
         "--pinned",
         "--with-runtimes",
-        &root.to_string_lossy(),
+        &root.join("tools/nebensound").to_string_lossy(),
         "toolchain=unset",
     ]
     .join("\n");
@@ -322,23 +395,84 @@ fn setup_calls_the_tool_of_this_commit_with_every_option() {
         format!("{expected}\n")
     );
 
-    // Its exit code is the tool's; `help` after `setup` is the tool's too.
-    setup.cargo = fake_cargo(&scene, 1);
-    let (code, _) = call(&["setup", "help"], &setup);
-    assert_eq!(code, 1);
-    assert!(
-        fs::read_to_string(scene.path().join("call"))
-            .unwrap()
-            .contains("\nsetup\nhelp\n")
-    );
+    // Its exit code is the tool's, and what the cases need is checked all the
+    // same.
+    setup.cargo = fake_cargo(&scene, 3);
+    let (code, out) = call(&["setup", "--check"], &setup);
+    assert_eq!(code, 3, "{out}");
+    assert!(out.contains("node 24: on the PATH"), "{out}");
+
+    // `help` after `setup` is the tool's, and nothing is checked after it.
+    for help in ["help", "--help", "-h"] {
+        setup.cargo = fake_cargo(&scene, 1);
+        let (code, out) = call(&["setup", help], &setup);
+        assert_eq!(code, 1);
+        assert_eq!(out, "");
+        assert!(
+            fs::read_to_string(scene.path().join("call"))
+                .unwrap()
+                .contains(&format!("\nsetup\n{help}\n"))
+        );
+    }
 
     setup.cargo = scene.path().join("no-cargo").into();
     let (code, out) = call(&["setup"], &setup);
     assert_eq!(code, 1, "{out}");
     assert!(
-        out.starts_with("::error::cannot start `") && out.contains("no-cargo` to build the tool"),
+        out.starts_with("::error::cannot start `")
+            && out.contains(&format!(
+                "no-cargo` in {} to build the tool",
+                root.join("tools/nebensound").display()
+            )),
         "{out}"
     );
+}
+
+#[test]
+fn setup_names_what_the_test_cases_need_and_the_machine_lacks() {
+    let scene = Scene::new();
+    let (_, bin, mut setup) = needy(&scene);
+    setup.cargo = fake_cargo(&scene, 0);
+
+    // A Node.js of another version, a Go that prints nothing, and a Python
+    // and a rustup that fail. The PATH ends in the system's directories, so a
+    // Python of the system would be found behind a missing one.
+    script(&bin.join("node"), "echo v26.13.1");
+    script(&bin.join("python3"), "exit 127");
+    script(&bin.join("go"), "exit 0");
+    script(&bin.join("rustup"), "echo rustup 1.29.0; exit 1");
+    let (code, out) = call(&["setup"], &setup);
+    assert_eq!(code, 1, "{out}");
+    assert_eq!(
+        out,
+        "What the test cases need besides:\n\
+         go 1.26: missing, the PATH has none. Put go 1.26 on the PATH.\n\
+         node 24: missing, the PATH has v26.13.1. Put node 24 on the PATH.\n\
+         python3: missing. Put python3 on the PATH.\n\
+         rustup: missing. Put rustup on the PATH.\n\
+         4 program(s) the test cases need are missing, each named above.\n"
+    );
+}
+
+#[test]
+fn setup_with_actions_it_cannot_read_is_a_failure() {
+    let scene = Scene::new();
+    let (root, bin, mut setup) = needy(&scene);
+    provide(&bin);
+    setup.cargo = fake_cargo(&scene, 0);
+
+    fs::write(root.join(".github/actions/check-a/action.yml"), "runs: [").unwrap();
+    let (code, out) = call(&["setup"], &setup);
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains("::error::") && out.contains("is no YAML"),
+        "{out}"
+    );
+
+    fs::remove_dir_all(root.join(".github")).unwrap();
+    let (code, out) = call(&["setup"], &setup);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("::error::cannot list"), "{out}");
 }
 
 #[test]
@@ -349,10 +483,12 @@ fn setup_killed_by_a_signal_is_a_failure() {
     let mut permissions = fs::metadata(&script).unwrap().permissions();
     std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
     fs::set_permissions(&script, permissions).unwrap();
+    fs::create_dir_all(scene.path().join("tools/nebensound")).unwrap();
     let mut setup = setup(scene.path(), scene.path(), "linux");
     setup.cargo = script.into();
     let (code, out) = call(&["setup"], &setup);
     assert_eq!(code, 1, "{out}");
+    assert!(!out.contains("cannot start"), "{out}");
 }
 
 #[test]
