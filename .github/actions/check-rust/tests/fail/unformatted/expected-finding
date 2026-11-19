@@ -1,0 +1,1 @@
+::error file=src/lib.rs::not formatted the way cargo fmt writes it

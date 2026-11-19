@@ -18,3 +18,34 @@ pipeline = "none"
 path       = "tools/nebensound"
 pipeline   = "rust-workspace"
 versioning = "none"
+
+# The xtask of this repository, a Cargo workspace of its own for the same
+# reason. Phase 0 demands that it runs the rust check like any other Rust code.
+[component.xtask]
+path       = "xtask"
+pipeline   = "rust-workspace"
+versioning = "none"
+
+# The test cases of the building blocks. Each is a small repository of its own
+# that `cargo xtask check` hands to its block; a failing case is wrong on
+# purpose, and a passing one is judged by its block alone. Each check-rust case
+# is a whole Cargo package, the only way Rust code can be excluded.
+[[exclude]]
+path   = ".github/actions/check-json/tests"
+reason = "test cases of check-json, judged by that block through the xtask; the failing ones are wrong on purpose"
+
+[[exclude]]
+path   = ".github/actions/check-markdown/tests"
+reason = "test cases of check-markdown, judged by that block through the xtask; the failing ones are wrong on purpose"
+
+[[exclude]]
+path   = ".github/actions/check-rust/tests"
+reason = "test cases of check-rust, whole Cargo packages judged by that block through the xtask; the failing ones are wrong on purpose"
+
+[[exclude]]
+path   = ".github/actions/check-toml/tests"
+reason = "test cases of check-toml, judged by that block through the xtask; the failing ones are wrong on purpose"
+
+[[exclude]]
+path   = ".github/actions/check-yaml/tests"
+reason = "test cases of check-yaml, judged by that block through the xtask; the failing ones are wrong on purpose"
