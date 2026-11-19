@@ -293,8 +293,10 @@ pub struct UnitVersion {
     /// touch the unit, or when a finding stands in the way.
     pub version: Option<TagVersion>,
     /// How many commits since its last full release touch it, the commit at
-    /// hand included: what its next full release takes in. 0 when a finding
-    /// stands in the way.
+    /// hand included: what its next full release takes in. 0 when the history
+    /// cannot be read for it: no `release` branch for two stages, or an
+    /// unreleased pre-release before a switch to one stage. A finding raised
+    /// later, while the version is worked out, leaves the count as it is.
     pub waiting: usize,
 }
 

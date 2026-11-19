@@ -65,11 +65,12 @@ jobs:
   # the run. It writes nothing and tags nothing: it reports. It runs whatever
   # Declare's result, so that an error in the history fails it with the
   # finding instead of leaving it skipped; it only waits for Declare to take
-  # the tool from the cache Declare filled.
+  # the tool from the cache Declare filled. A cancelled run, for instance one
+  # a newer push replaced, skips it.
   version:
     name: Version
     needs: declare
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 

@@ -80,6 +80,7 @@ read as it is.
 The job runs whatever Declare's result. When phase 0 finds an error, such as a
 shallow clone, there is no table: the log and the summary list every finding
 and the job fails. It waits for Declare only to take the tool from the cache.
+A cancelled run skips it.
 
 ## Check
 

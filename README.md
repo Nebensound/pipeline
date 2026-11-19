@@ -66,8 +66,9 @@ checked against the tree), `nebensound / Version` (the version of every unit,
 as a table in the summary of the run), one job per unit that runs a check
 (`nebensound / Check repository`, `nebensound / Check component <name>`) and
 `nebensound / Check`, which sums the units up. A ruleset requires
-`nebensound / Version` and `nebensound / Check`. A check the register knows but that has no building block yet fails
-by name in the step `Not written yet` of its unit.
+`nebensound / Version` and `nebensound / Check`. A check the register knows but
+that has no building block yet fails by name in the step `Not written yet` of
+its unit.
 
 This repository calls the workflow the same way, with one difference: its own
 [`gate.yml`](.github/workflows/gate.yml) calls the workflow at the commit that
