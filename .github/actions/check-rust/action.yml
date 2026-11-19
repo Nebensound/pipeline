@@ -447,8 +447,11 @@ runs:
           echo "Nothing is published from here, so there is nothing to verify."
           exit 0
         fi
+        # --allow-dirty: the versions just written are changes Git does not
+        # have, and Cargo refuses to package uncommitted changes without it.
+        # Nothing else in the checkout is changed.
         for name in $published; do
-          cargo package --locked -p "$name"
+          cargo package --locked --allow-dirty -p "$name"
         done
         # Outside the workspace its rust-toolchain.toml no longer applies, so
         # the toolchain is named for the copies.

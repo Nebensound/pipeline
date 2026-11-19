@@ -15,8 +15,9 @@ description: >-
 # Cargo cannot take a version from outside, so it is written immediately before
 # a build that needs it. The files it changes are Cargo.toml and Cargo.lock
 # files and nothing else; whoever runs a check after it in the same checkout
-# restores them first. The calling job puts the tool on the PATH first (the
-# action `tool`).
+# puts them back first, and `cargo package` after it needs `--allow-dirty`,
+# since Git does not have the change. The calling job puts the tool on the PATH
+# first (the action `tool`).
 
 inputs:
   plan:
