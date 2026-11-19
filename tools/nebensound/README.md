@@ -161,9 +161,11 @@ with `--ignore-scripts`, or pip into a virtual environment of its own, taking
 only wheels, so that no build code of a dependency runs.
 
 A **runtime** (Node.js, Python) is never installed unasked. One on the computer
-is used as it is, whatever its version. When one is missing, `setup` lists what
-it would install and asks for a yes or no in a terminal; `--with-runtimes`
-installs it without asking. Without a terminal nothing is asked, and without
+is used as it is, whatever its version, as long as it prints one; one that does
+not (such as the Windows Store's `python3.exe` stand-in) is passed over and the
+search goes on. When one is missing, `setup` lists what it would install and
+asks for a yes or no in a terminal; `--with-runtimes` installs it without
+asking. Without a terminal nothing is asked, and without
 `--with-runtimes` nothing at all is installed then: not the runtime, and not the
 programs that do not need one.
 
@@ -204,7 +206,9 @@ Remove-Item -Recurse -Force "$env:LOCALAPPDATA\nebensound"   # Windows
 ```
 
 A program installed with pip keeps the Python it was installed with. When that
-Python is gone, delete the program's folder and run `setup` again.
+Python is gone, `setup` installs the program again; on Windows, where the
+environment keeps a copy of its Python, delete the program's folder and run
+`setup` again.
 
 ### For the other calls
 

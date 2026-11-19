@@ -103,8 +103,9 @@ without a build the program has to be on the computer already.
 ## Runtimes
 
 What a program on a runtime runs on. A runtime on the computer is used as it is,
-whatever its version; the pinned one is installed only when the runtime is
-missing and someone agrees.
+whatever its version, as long as it prints one; one that does not is passed
+over. The pinned one is installed only when the runtime is missing and someone
+agrees.
 
 | Runtime  | Name    | Version   | Installs with | Builds                                                                                                |
 | -------- | ------- | --------- | ------------- | ----------------------------------------------------------------------------------------------------- |

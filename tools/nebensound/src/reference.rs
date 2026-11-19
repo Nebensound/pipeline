@@ -170,8 +170,9 @@ fn runtimes(register: &Register) -> String {
     section(
         "Runtimes",
         "What a program on a runtime runs on. A runtime on the computer is used as it is,\n\
-         whatever its version; the pinned one is installed only when the runtime is\n\
-         missing and someone agrees.",
+         whatever its version, as long as it prints one; one that does not is passed\n\
+         over. The pinned one is installed only when the runtime is missing and someone\n\
+         agrees.",
         &["Runtime", "Name", "Version", "Installs with", "Builds"],
         &rows,
     )
