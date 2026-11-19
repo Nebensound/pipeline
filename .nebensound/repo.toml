@@ -59,3 +59,7 @@ reason = "test cases of check-toml, judged by that block through the xtask; the 
 [[exclude]]
 path   = ".github/actions/check-yaml/tests"
 reason = "test cases of check-yaml, judged by that block through the xtask; the failing ones are wrong on purpose"
+
+[[exclude]]
+path   = ".github/actions/version-cargo/tests"
+reason = "test cases of version-cargo, judged by that block through the xtask; the failing ones are wrong on purpose"

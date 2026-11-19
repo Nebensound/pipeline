@@ -1,0 +1,13 @@
+# A workspace of two packages, app depending on lib by path, each a unit with
+# the version writer cargo. The block writes both versions, the requirement
+# and the lockfile.
+[repo]
+pipeline = "none"
+
+[component.app]
+path     = "app"
+pipeline = { version = ["cargo"] }
+
+[component.lib]
+path     = "lib"
+pipeline = { version = ["cargo"] }

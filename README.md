@@ -369,27 +369,35 @@ not part of the case's repository.
 - every directory under `.github/actions/` is a block that belongs to a register
   entry (`check-<name>`, `version-<writer>`, `build-<name>`,
   `publish-<target>`), or the workflow's own machinery (`phase0`, `tool`);
-- every block is called from a step of `nebensound.yml` that is named after its
-  entry and switched on it with exactly the condition
+- every check block is called from a step of `nebensound.yml` that is named
+  after its entry and switched on it with exactly the condition
   `${{ !cancelled() && contains(matrix.checks, '<name>') }}`, so that an
   inverted or widened switch is caught. The step has no other key than `name`,
   `if`, `uses` and `with`, and hands the block exactly
   `working-directory: ${{ matrix.path }}`, so that neither
-  `continue-on-error` nor another path silences the check;
+  `continue-on-error` nor another path silences the check. Beside it the step
+  may hand `plan: ${{ needs.declare.outputs.plan }}`, the plan of phase 0, to a
+  check that writes the versions before it tests a package, as `check-rust`
+  does;
 - the step `Not written yet` counts exactly the checks that have a block as
-  written;
+  written, and the step `Version writers not written yet` exactly the version
+  writers. No step calls a `version-<writer>` block yet: the Build phase that
+  runs it before building brings that call;
 - every block has a passing and a failing case. A `.DS_Store` beside the cases
   is passed over: Git ignores it, so the gate never sees it.
 
-For now the xtask knows only how a check is called and tested, so a block of
-another category is reported until the xtask learns that kind. The first
-`version-`, `build-` or `publish-` block teaches it, together with its cases.
+For now the xtask knows only how a check and a version writer are called and
+tested, so a block of another category is reported until the xtask learns that
+kind. The first `build-` or `publish-` block teaches it, together with its
+cases.
 
 Then it runs every block against its cases. It builds the tool through
 [`.github/actions/tool`](.github/actions/tool), copies each case into a fresh
 Git repository, runs [`.github/actions/phase0`](.github/actions/phase0) on it,
-and runs the block once for every unit the plan starts the block's check for,
-just as a unit job does. A passing case needs the block to succeed everywhere. A
+and runs a check block once for every unit the plan starts the block's check
+for, just as a unit job does, with the plan when the block takes one. A version
+writer's block runs once with the plan, provided a unit of the plan selects the
+writer. A passing case needs the block to succeed everywhere. A
 failing case needs it to fail and to print every finding the case names, so a
 block that fails for another reason does not count.
 

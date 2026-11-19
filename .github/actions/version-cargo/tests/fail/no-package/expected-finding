@@ -1,0 +1,1 @@
+component lib selects the version writer cargo, and lib/Cargo.toml has no [package] with a name: there is no package to give the version to
