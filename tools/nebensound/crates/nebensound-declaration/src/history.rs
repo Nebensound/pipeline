@@ -50,6 +50,7 @@
 //! well as on a real repository.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
 use toml_edit::{Document, Item};
 
@@ -241,8 +242,112 @@ struct Declared {
     carries_version: bool,
 }
 
-/// The units the declaration of one commit resolves to, by name.
-type View = BTreeMap<UnitName, Declared>;
+/// The units the declaration of one commit resolves to, by name. Shared
+/// between the commits that come to the same units.
+type View = Rc<BTreeMap<UnitName, Declared>>;
+
+/// One declaration as it reads, whichever commits hold it.
+enum Read {
+    /// It generates no unit, so it resolves to the same units at every commit
+    /// that holds it.
+    Fixed(View),
+    /// It generates units, so what it resolves to depends on the tree of the
+    /// commit that holds it.
+    Generating {
+        declaration: Box<Declaration>,
+        /// The paths of the units that generate children.
+        generators: Vec<RelativePath>,
+    },
+}
+
+impl Read {
+    /// A declaration as it reads with the register.
+    fn new(declaration: Declaration, register: &Register) -> Self {
+        let declared = resolve(&declaration, register, &Tree::default()).units;
+        let generators: Vec<RelativePath> = declared
+            .iter()
+            .filter(|unit| unit.versioning.generates_children())
+            .map(|unit| unit.path.clone())
+            .collect();
+        if generators.is_empty() {
+            Self::Fixed(view(declared))
+        } else {
+            Self::Generating {
+                declaration: Box::new(declaration),
+                generators,
+            }
+        }
+    }
+}
+
+/// The entries directly below each generator that a file makes exist, each
+/// with whether it is that file itself rather than a folder holding it. They
+/// are all that a generator reads from a tree.
+fn entries<'a>(
+    file: &'a RelativePath,
+    generators: &'a [RelativePath],
+) -> impl Iterator<Item = (RelativePath, bool)> + 'a {
+    generators.iter().filter_map(move |generator| {
+        file.segments()
+            .strip_prefix(generator.segments())?
+            .split_first()
+            .map(|(name, below)| (generator.join(name), below.is_empty()))
+    })
+}
+
+/// The children of a generating declaration as the line is walked back: by
+/// each entry, how many files make it exist. A commit of the line rarely adds
+/// or removes a child, so the units a declaration resolves to are resolved
+/// again only when it does, not at every commit.
+struct Tracked<'h> {
+    /// The object the declaration is held in.
+    object: &'h str,
+    generators: &'h [RelativePath],
+    children: BTreeMap<(RelativePath, bool), usize>,
+    /// What the declaration resolves to with these children; [`None`] once
+    /// they have changed.
+    view: Option<View>,
+}
+
+impl<'h> Tracked<'h> {
+    /// The children these files make exist.
+    fn new(
+        object: &'h str,
+        generators: &'h [RelativePath],
+        files: &BTreeSet<RelativePath>,
+    ) -> Self {
+        let mut tracked = Self {
+            object,
+            generators,
+            children: BTreeMap::new(),
+            view: None,
+        };
+        for file in files {
+            tracked.count(file, true);
+        }
+        tracked
+    }
+
+    /// Counts a file the tree gains, or one it loses.
+    fn count(&mut self, file: &RelativePath, gained: bool) {
+        for entry in entries(file, self.generators) {
+            let before = self.children.get(&entry).copied().unwrap_or_default();
+            let after = if gained {
+                before.saturating_add(1)
+            } else {
+                before.saturating_sub(1)
+            };
+            if (before == 0) != (after == 0) {
+                self.view = None;
+            }
+            if after == 0 {
+                self.children.remove(&entry);
+            } else {
+                self.children.insert(entry, after);
+            }
+        }
+    }
+}
 
 /// What each commit of the line declares, in the order of the line; [`None`]
 /// for a commit without a declaration, or with one that does not read.
@@ -253,10 +358,15 @@ type View = BTreeMap<UnitName, Declared>;
 /// what that one added and removed. At a merge into `release` the commit of
 /// `main` it merges holds the tree of the merge, so nothing is taken back.
 fn views(history: &History, register: &Register) -> Vec<Option<View>> {
-    let declarations: BTreeMap<&str, Option<Declaration>> = history
+    let reads: BTreeMap<&str, Option<Read>> = history
         .declarations
         .iter()
-        .map(|(object, text)| (object.as_str(), Declaration::parse(text).ok()))
+        .map(|(object, text)| {
+            let read = Declaration::parse(text)
+                .ok()
+                .map(|declaration| Read::new(declaration, register));
+            (object.as_str(), read)
+        })
         .collect();
     // A file whose name no declaration could write down generates nothing.
     let mut files: BTreeSet<RelativePath> = history
@@ -264,14 +374,42 @@ fn views(history: &History, register: &Register) -> Vec<Option<View>> {
         .iter()
         .filter_map(|file| RelativePath::new(file).ok())
         .collect();
+    let mut tracked: Option<Tracked> = None;
     let mut views = Vec::with_capacity(history.line.len());
     for (position, commit) in history.line.iter().enumerate() {
-        let declaration = commit
-            .declaration
-            .as_deref()
-            .and_then(|object| declarations.get(object))
-            .and_then(Option::as_ref);
-        views.push(declaration.map(|declaration| view(declaration, register, &files)));
+        let read = commit.declaration.as_deref().and_then(|object| {
+            reads
+                .get(object)
+                .and_then(Option::as_ref)
+                .map(|read| (object, read))
+        });
+        views.push(match read {
+            None => None,
+            Some((_, Read::Fixed(view))) => Some(Rc::clone(view)),
+            Some((
+                object,
+                Read::Generating {
+                    declaration,
+                    generators,
+                },
+            )) => {
+                if tracked
+                    .as_ref()
+                    .is_some_and(|tracked| tracked.object != object)
+                {
+                    tracked = None;
+                }
+                let tracked =
+                    tracked.get_or_insert_with(|| Tracked::new(object, generators, &files));
+                let view = tracked.view.get_or_insert_with(|| {
+                    let below = files
+                        .iter()
+                        .filter(|file| generators.iter().any(|generator| generator.contains(file)));
+                    view(resolve(declaration, register, &Tree::new(below.cloned())).units)
+                });
+                Some(Rc::clone(view))
+            }
+        });
         let older = history.line.get(position + 1);
         if older.is_some_and(|older| commit.parents.first() == Some(&older.id)) {
             for file in commit
@@ -279,13 +417,22 @@ fn views(history: &History, register: &Register) -> Vec<Option<View>> {
                 .iter()
                 .filter_map(|file| RelativePath::new(file).ok())
             {
-                files.remove(&file);
+                if files.remove(&file)
+                    && let Some(tracked) = &mut tracked
+                {
+                    tracked.count(&file, false);
+                }
             }
             for file in commit
                 .removed
                 .iter()
                 .filter_map(|file| RelativePath::new(file).ok())
             {
+                if let Some(tracked) = &mut tracked
+                    && !files.contains(&file)
+                {
+                    tracked.count(&file, true);
+                }
                 files.insert(file);
             }
         }
@@ -293,36 +440,24 @@ fn views(history: &History, register: &Register) -> Vec<Option<View>> {
     views
 }
 
-/// The units one declaration resolves to with the files its commit held.
-fn view(declaration: &Declaration, register: &Register, files: &BTreeSet<RelativePath>) -> View {
-    let declared = resolve(declaration, register, &Tree::default()).units;
-    let generators: Vec<&RelativePath> = declared
-        .iter()
-        .filter(|unit| unit.versioning.generates_children())
-        .map(|unit| &unit.path)
-        .collect();
-    let units = if generators.is_empty() {
-        declared
-    } else {
-        let below = files
-            .iter()
-            .filter(|file| generators.iter().any(|generator| generator.contains(file)));
-        resolve(declaration, register, &Tree::new(below.cloned())).units
-    };
-    units
-        .into_iter()
-        .map(|unit| {
-            (
-                unit.name,
-                Declared {
-                    path: unit.path,
-                    release: unit.release.release,
-                    floor: unit.minimum_version.map(|floor| floor.version),
-                    carries_version: unit.carries_version,
-                },
-            )
-        })
-        .collect()
+/// What the units of one declaration say, by name.
+fn view(units: Vec<Unit>) -> View {
+    Rc::new(
+        units
+            .into_iter()
+            .map(|unit| {
+                (
+                    unit.name,
+                    Declared {
+                        path: unit.path,
+                        release: unit.release.release,
+                        floor: unit.minimum_version.map(|floor| floor.version),
+                        carries_version: unit.carries_version,
+                    },
+                )
+            })
+            .collect(),
+    )
 }
 
 /// What the history says once, for every unit.
@@ -452,7 +587,7 @@ pub fn versions(units: &[Unit], history: &History, register: &Register) -> Versi
             .views
             .iter()
             .flatten()
-            .flat_map(BTreeMap::values)
+            .flat_map(|view| view.values())
             .any(|unit| unit.carries_version && unit.release == Release::TwoStage);
     if history.release.is_some() && !two_stage {
         findings.push(Finding::warning(

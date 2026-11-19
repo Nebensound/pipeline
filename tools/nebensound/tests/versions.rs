@@ -759,6 +759,62 @@ fn a_generated_unit_whose_folder_moves_keeps_counting() {
 }
 
 #[test]
+fn generated_units_follow_the_children_each_commit_held() {
+    // Each commit of the line generates the units of its own tree, whether
+    // it adds a file to a child, adds a child, removes a file from one or
+    // removes a child, and whatever declaration it holds.
+    let declared = "[repo]\npipeline = \"none\"\n\n[component.docs]\npath = \"docs\"\npipeline = \
+                    \"none\"\nversioning = \"child-folders\"\n";
+    let git = Git::new();
+    git.write(&[
+        (".nebensound/repo.toml", declared),
+        ("README.md", "# Docs\n"),
+        ("docs/guide/a.md", "# Guide\n"),
+    ]);
+    git.commit("chore: start");
+    assert_eq!(release(&git, "docs-guide-v"), "0.0.1");
+
+    git.write(&[("docs/guide/b.md", "# More of the guide\n")]);
+    git.commit("fix: a second page for the guide");
+    assert_eq!(release(&git, "docs-guide-v"), "0.0.2");
+
+    git.write(&[("docs/handbook/c.md", "# Handbook\n")]);
+    git.commit("feat: add a handbook");
+    assert_eq!(version(&git, "docs-guide-v"), None);
+    // The first commit counts as well: it wrote the declaration, which
+    // touches every unit.
+    assert_eq!(release(&git, "docs-handbook-v"), "0.0.2");
+
+    git.remove("docs/guide/b.md");
+    git.commit("fix: drop the guide's second page");
+    assert_eq!(release(&git, "docs-guide-v"), "0.0.3");
+    assert_eq!(version(&git, "docs-handbook-v"), None);
+
+    git.remove("docs/guide/a.md");
+    git.commit("fix: drop the guide");
+    let analysis = analysed(&git);
+    assert!(!analysis.failed(), "{:?}", analysis.findings());
+    assert!(found(&analysis, Rule::UnexpectedTag).is_empty());
+    assert_eq!(
+        versions(&analysis),
+        BTreeMap::from([
+            ("v".to_owned(), Some("0.0.5".to_owned())),
+            ("docs-handbook-v".to_owned(), None),
+        ])
+    );
+
+    // A new declaration touches every unit; the commits before it are still
+    // read with the declaration and the children they held.
+    git.write(&[(
+        ".nebensound/repo.toml",
+        &format!("{declared}minimum-version = \"0.2.0\"\n"),
+    )]);
+    git.commit("feat: lift the docs");
+    assert_eq!(base(&analysed(&git), "docs-handbook-v"), "0.0.2");
+    assert_eq!(release(&git, "docs-handbook-v"), "0.2.0");
+}
+
+#[test]
 fn a_generated_unit_takes_the_pre_release_floor_of_its_parent() {
     let git = Git::new();
     git.write(&[
