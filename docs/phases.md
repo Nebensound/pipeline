@@ -38,8 +38,10 @@ hands the result on:
    with its reason, as a notice.
 4. Then `nebensound plan` prints the plan: every unit,
    with the checks started for it and the build it names, and the version of
-   every unit that carries one. The units that start at least one check go on
-   to the Check phase.
+   every unit that carries one with the version writers it selects. The units
+   that start at least one check go on to the Check phase, and the whole plan
+   is handed on with them: a later job checks out no history, so a version
+   writer takes the versions from the plan.
 
 An error ends the phase here: there is no plan, no check runs, and
 `nebensound / Check` fails. A warning stops nothing.
@@ -80,6 +82,13 @@ builds it only when the cache misses. Then its steps:
 result. It fails when phase 0 did not pass or when any unit job did not pass,
 and it passes when every check the plan started passed, or when the plan started
 none.
+
+Its second step, **Version writers not written yet**, fails by name for every
+version writer a unit of the plan selects that has no building block
+`version-<writer>` yet, the way a check without one fails in its unit job. A
+writer belongs to a unit that carries a version, which need not run a check,
+so it is named here. The writers written today are listed in
+[the README](../README.md#version-cargo).
 
 ## Check names
 

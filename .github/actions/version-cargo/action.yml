@@ -1,0 +1,41 @@
+name: version-cargo
+description: >-
+  The version writer cargo: writes the version every unit carries at the
+  commit at hand into its Cargo.toml, as the requirement of every path
+  dependency on it, and into Cargo.lock, in the checkout of the run and never
+  committed.
+
+# One input, and it is not a setting: the plan of phase 0, as Declare hands it
+# on. A job after Declare checks out the commit at hand and nothing before it,
+# so the versions cannot be resolved here; they travel with the plan. The block
+# is a thin call of `nebensound write-versions --plan`, and what it writes is
+# described there. It writes for every unit of the plan that selects the writer
+# cargo, and leaves the others alone.
+#
+# Cargo cannot take a version from outside, so it is written immediately before
+# a build that needs it. The files it changes are Cargo.toml and Cargo.lock
+# files and nothing else; whoever runs a check after it in the same checkout
+# restores them first. The calling job puts the tool on the PATH first (the
+# action `tool`).
+
+inputs:
+  plan:
+    description: The plan of phase 0 (`nebensound plan`), as Declare hands it on.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Write the versions
+      shell: bash
+      env:
+        PLAN: ${{ inputs.plan }}
+      run: |
+        set -euo pipefail
+        if [ -z "$PLAN" ]; then
+          echo "::error::No plan was handed in, so no version can be written."
+          exit 1
+        fi
+        file="$RUNNER_TEMP/version-cargo-plan.json"
+        printf '%s\n' "$PLAN" > "$file"
+        nebensound -C "$GITHUB_WORKSPACE" write-versions --plan "$file"

@@ -22,8 +22,10 @@ pub mod repository;
 pub mod terminal;
 #[cfg(feature = "ui")]
 pub mod ui;
+pub mod writer;
 
 use std::ffi::OsString;
+use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -83,6 +85,15 @@ pub enum Command {
     /// Print the Rust packages `[[exclude]]` takes out as a whole, each with
     /// its reason, as JSON: what `check-rust` leaves out of every step.
     ExcludedPackages,
+    /// Write the version of every unit with the version writer `cargo` into
+    /// its Cargo.toml, its dependents and Cargo.lock, in the working tree.
+    /// Never committed: it is done in the checkout of a run, before building.
+    WriteVersions {
+        /// Take the versions from a plan `nebensound plan` printed, for a
+        /// checkout without the history to resolve them from.
+        #[arg(long, value_name = "FILE")]
+        plan: Option<PathBuf>,
+    },
     // It describes the format, not a repository, so it reads none.
     /// Print the JSON Schema of `.nebensound/repo.toml`, for editors and Taplo.
     Schema,
@@ -108,6 +119,17 @@ pub enum Failure {
         /// What it was.
         source: std::io::Error,
     },
+    /// The plan that was handed in does not read.
+    #[error("the plan {path} does not read: {message}")]
+    Plan {
+        /// Where it was looked for.
+        path: String,
+        /// What it failed on.
+        message: String,
+    },
+    /// The versions could not be written.
+    #[error(transparent)]
+    Write(#[from] writer::WriteError),
     /// The path that was named is not one.
     #[error("{value:?} is not a path inside the repository: {source}")]
     Path {
@@ -242,6 +264,8 @@ enum Job {
     },
     /// Print the packages taken out as a whole.
     ExcludedPackages,
+    /// Write the versions, from this plan or from the history.
+    WriteVersions(Option<PathBuf>),
     /// Open the interface.
     #[cfg(feature = "ui")]
     Ui,
@@ -256,6 +280,7 @@ fn call(cli: &Cli) -> Result<Call, Failure> {
         Some(Command::Tree) => Job::Tree,
         Some(Command::Plan) => Job::Plan,
         Some(Command::ExcludedPackages) => Job::ExcludedPackages,
+        Some(Command::WriteVersions { plan }) => Job::WriteVersions(plan.clone()),
         #[cfg(feature = "ui")]
         Some(Command::Ui) => Job::Ui,
         Some(Command::Explain { path }) => Job::Explain(path_of(path)?),
@@ -292,8 +317,11 @@ fn execute(
     let central = central_from(register, defaults)?;
     let analysis = match job {
         // Asked for by the building blocks in a unit job, whose checkout holds
-        // only the commit at hand: the history is read in Declare.
-        Job::Files { .. } | Job::ExcludedPackages => repository.analyse_files(&central),
+        // only the commit at hand: the history is read in Declare, and the
+        // versions come with the plan it hands on.
+        Job::Files { .. } | Job::ExcludedPackages | Job::WriteVersions(Some(_)) => {
+            repository.analyse_files(&central)
+        }
         _ => repository.analyse(&central),
     }?;
 
@@ -359,6 +387,33 @@ fn execute(
                 packages::to_json(&repository.excluded_packages(&analysis))
             ),
         ),
+        // The same reason again: a version read off a declaration with errors
+        // could be written into the wrong package.
+        Job::WriteVersions(_) if analysis.failed() => say(
+            out,
+            "no version is written: phase 0 found errors, and `check` says which\n",
+        ),
+        Job::WriteVersions(plan) => {
+            let orders = match plan {
+                Some(file) => fs::read_to_string(file)
+                    .map_err(|error| error.to_string())
+                    .and_then(|text| writer::Order::read(&text).map_err(|error| error.to_string()))
+                    .map_err(|message| Failure::Plan {
+                        path: file.display().to_string(),
+                        message,
+                    })?,
+                None => writer::Order::of(&plan::plan(&analysis, &central)),
+            };
+            let manifests: Vec<RelativePath> = analysis
+                .tree
+                .files()
+                .into_iter()
+                .map(|(node, _)| node.path.clone())
+                .filter(|path| path.file_name() == Some("Cargo.toml"))
+                .collect();
+            let said = writer::write(&repository, &manifests, &orders)?;
+            say(out, &format!("{said}\n"));
+        }
         #[cfg(feature = "ui")]
         Job::Ui => {
             terminal::open(&analysis, output).map_err(|source| Failure::Terminal { source })?;

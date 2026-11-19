@@ -8,8 +8,8 @@ publishes what that declaration says.
 
 - **One reusable workflow**, which a repository calls.
 - **Its building blocks.** Each block performs one step and is named after its
-  entry in the register, with the category in front: `check-<name>`,
-  `build-<name>`, `publish-<target>`.
+  entry in the register, with the category in front: `version-<writer>`,
+  `check-<name>`, `build-<name>`, `publish-<target>`.
 - **The tool `nebensound`.** It reads a repository's declaration, checks it
   against the tree and tells the workflow which blocks to run for which part of
   the repository.
@@ -66,7 +66,8 @@ checked against the tree), one job per unit that runs a check
 (`nebensound / Check repository`, `nebensound / Check component <name>`) and
 `nebensound / Check`, which sums the units up and is the one name a ruleset
 requires. A check the register knows but that has no building block yet fails
-by name in the step `Not written yet` of its unit.
+by name in the step `Not written yet` of its unit, and a version writer without
+one in the step `Version writers not written yet` of `nebensound / Check`.
 
 This repository calls the workflow the same way, with one difference: its own
 [`gate.yml`](.github/workflows/gate.yml) calls the workflow at the commit that
@@ -147,7 +148,10 @@ away:
 - Regions, lines and functions are 100% covered (`cargo-llvm-cov`, on a pinned
   nightly toolchain, where `#[coverage(off)]` takes effect).
 - Every published package builds and passes its tests from its own packaged
-  contents, outside the source tree.
+  contents, outside the source tree. The versions are written first, as
+  [`version-cargo`](#version-cargo) writes them, and put back when the step
+  ends: a package without a version is not published, so only a unit with a
+  version at this commit is verified here.
 
 Rust code is excluded by the package, never by the file. Phase 0 fails on an
 `[[exclude]]` entry that takes a `.rs` file out of a package without taking out
@@ -224,6 +228,34 @@ first key or table of `.nebensound/repo.toml`:
 - `.github/dependabot.yml` matches the Dependabot schema (`check-jsonschema`,
   pinned, with the schema it brings along). An unknown key fails the check
   with the file and the key named, instead of surfacing only after the merge.
+
+### `version-cargo`
+
+[`.github/actions/version-cargo`](.github/actions/version-cargo) is the version
+writer `cargo`. No manifest in the tree carries a version: tags are the truth,
+and Cargo cannot take a version from outside. So the version is written into
+the checkout of the run, immediately before something builds with it, and never
+committed. The block hands the plan Declare printed to
+`nebensound write-versions --plan`, since its job checks out no history to
+resolve a version from. For every unit of the plan with a version and the
+writer `cargo`:
+
+- `package.version` in the unit's `Cargo.toml` becomes that version.
+- Every path dependency on the package inside its workspace gets that version
+  as its requirement, in `[dependencies]`, `[dev-dependencies]`,
+  `[build-dependencies]`, their `[target.*]` forms and
+  `[workspace.dependencies]`: a package whose dependency names no version
+  cannot be published.
+- The workspace's `Cargo.lock` is brought in line: the package's own entry, and
+  every entry that names it with a version. No other entry changes, so
+  `cargo build --locked` passes.
+
+Every change keeps the rest of the file as it is written, and a second call
+changes nothing. A unit the commit does not touch carries no version and gets
+none. Only `Cargo.toml` and `Cargo.lock` files change. `check-rust` writes the
+versions the same way for its package test; the Build phase that calls the
+block before building is not built yet. A version writer without a building
+block (today `asciidoc`) fails by name in `nebensound / Check`.
 
 ### Exclusions
 

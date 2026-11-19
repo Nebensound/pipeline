@@ -26,7 +26,7 @@ channel would be a second version that can fall behind.
 ## Calls
 
 ```text
-nebensound [-C <directory>] [check | tree | explain <path> | plan | files [-z] <check> <unit> | excluded-packages | schema | register | ui]
+nebensound [-C <directory>] [check | tree | explain <path> | plan | files [-z] <check> <unit> | excluded-packages | write-versions [--plan <file>] | schema | register | ui]
 ```
 
 | Call                | What it does                                                                                                                                                                                                                                                                                     |
@@ -37,6 +37,7 @@ nebensound [-C <directory>] [check | tree | explain <path> | plan | files [-z] <
 | `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read.                                                                                                                                                                      |
 | `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                         |
 | `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                       |
+| `write-versions`    | Writes the version of every unit with the version writer `cargo` into its `Cargo.toml`, the path dependencies on it and `Cargo.lock`, in the working tree; never committed. With `--plan <file>`, takes the versions from a printed plan instead of the history.                                 |
 | `schema`            | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. `check-toml` assigns the copy committed beside it; [its README](../../.github/actions/check-toml/schemas/README.md#nebensound-declarationjson) says how to write that copy again. |
 | `register`          | The register as Markdown, exactly as [`docs/register.md`](../../docs/register.md) holds it, which a test compares with this output. Reads no repository.                                                                                                                                         |
 | `ui`                | The same result to walk through. Only in a build with the `ui` feature.                                                                                                                                                                                                                          |
@@ -84,7 +85,8 @@ a run has to start, and where.
       "path": ".",
       "prefix": "v",
       "release": "single-stage",
-      "version": "0.3.2"
+      "version": "0.3.2",
+      "writers": []
     },
     {
       "base": "1.4.0",
@@ -93,7 +95,8 @@ a run has to start, and where.
       "path": "tool",
       "prefix": "tool-v",
       "release": "two-stage",
-      "version": "1.5.0-pre.3"
+      "version": "1.5.0-pre.3",
+      "writers": ["cargo"]
     }
   ]
 }
@@ -109,8 +112,9 @@ prefix `v`.
 
 `versions` is one entry per unit that carries a version, in the order of
 `units`: `prefix` is what its tags start with, `release` how it is released,
-`base` its last full release (`0.0.0` without one), and `version` the version
-of the commit at hand, `null` when the commit does not touch the unit. How they
+`base` its last full release (`0.0.0` without one), `version` the version
+of the commit at hand, `null` when the commit does not touch the unit, and
+`writers` the version writers the unit selects. How they
 are resolved from tags and history is described in
 [the reference of the declaration](../../docs/declaration.md#versions).
 
@@ -129,6 +133,42 @@ would cover their files a second time.
 
 A repository with errors gets no plan, only a sentence and exit code `1`: a plan
 read off a broken declaration would start the wrong things.
+
+## Writing the versions
+
+`write-versions` is the version writer `cargo`. No manifest in the tree carries
+a version, and Cargo cannot take one from outside, so the version of the plan
+is written into the working tree before something builds with it, and never
+committed. For every unit of the plan with a version and the writer `cargo`, it
+sets `package.version` in the unit's `Cargo.toml`, gives every path dependency
+on that package inside its workspace that version as its requirement, and sets
+the package's entry in the workspace's `Cargo.lock`, together with every entry
+that names it with a version. Nothing else changes, and `cargo build --locked`
+passes afterwards.
+
+The workspace is found the way Cargo finds it: the folder `package.workspace`
+names, else the nearest folder at or above the package whose `Cargo.toml` has
+a `[workspace]` that does not exclude it, else the package's own folder. The
+dependents are the `Cargo.toml` files Git tracks below it; one that is not TOML
+is passed over. Every change goes through `toml_edit`, so comments, blank lines
+and the order of keys stay, and a file whose text does not change is not
+written: a second call changes nothing.
+
+```text
+component lib: the package lib at crates/lib gets 1.4.1 (workspace root: .).
+component app carries no version at this commit, so none is written for it.
+Wrote Cargo.lock.
+Wrote crates/app/Cargo.toml.
+Wrote crates/lib/Cargo.toml.
+```
+
+Without `--plan` the versions are resolved from the history, as `plan` resolves
+them. A job after Declare checks out the commit at hand and nothing before it,
+so the building blocks hand in the plan Declare printed with `--plan <file>`.
+A repository with errors gets nothing written, only a sentence and exit code
+`1`. A manifest or lockfile that cannot be read, is not TOML or cannot be
+written back, and a unit whose `Cargo.toml` holds no package with a name, end
+the call with exit code `1` and the reason.
 
 ## The files of a check
 

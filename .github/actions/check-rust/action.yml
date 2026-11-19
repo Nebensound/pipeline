@@ -5,8 +5,9 @@ description: >-
   version, full coverage, and every published package built and tested from
   its own contents.
 
-# One input, and it is not a setting: where the workspace is. It comes from the
-# plan of phase 0, never from the calling repository. The toolchain is the one
+# Two inputs, and neither is a setting: where the workspace is, and the plan of
+# phase 0 itself, for the versions the package test writes. Both come from
+# phase 0, never from the calling repository. The toolchain is the one
 # the workspace pins in its rust-toolchain.toml, and the oldest supported
 # version is its `rust-version` — both are read here rather than handed in, so
 # that no repository can tell this check to look away.
@@ -29,6 +30,12 @@ inputs:
   working-directory:
     description: The directory of the Cargo workspace, as the plan names it.
     required: true
+  plan:
+    description: >-
+      The plan of phase 0 (`nebensound plan`), as Declare hands it on. Without
+      it no version is written, and a package without one is not verified.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -401,14 +408,37 @@ runs:
     # Only what is published, and not excluded. A package with publish = false
     # has no package anyone could build from the outside, and
     # `cargo package --workspace` fails on it instead of skipping it.
+    #
+    # The versions first. No manifest carries one, since tags are the truth,
+    # and a package without a version is not published (Cargo's `publish`
+    # defaults to false then), so it would not be verified. The version writer
+    # cargo writes the version each unit carries at this commit, from the plan,
+    # the same call as the block `version-cargo`; a unit the commit does not
+    # touch carries none. Every Cargo.toml and Cargo.lock it changed is put
+    # back when the step ends, so that a check after it in the same job sees
+    # the files as they are committed.
     - name: Each published package builds and tests from its own contents
       if: steps.packages.outputs.checked != '0'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         PACKAGES: ${{ steps.packages.outputs.json }}
+        PLAN: ${{ inputs.plan }}
       run: |
         set -euo pipefail
+        root="$GITHUB_WORKSPACE"
+        put_back() {
+          git -C "$root" diff --name-only -z -- ':(glob)**/Cargo.toml' ':(glob)**/Cargo.lock' \
+            | xargs -0 -r git -C "$root" checkout --quiet --
+        }
+        trap put_back EXIT
+        if [ -n "$PLAN" ]; then
+          plan="$RUNNER_TEMP/check-rust-plan.json"
+          printf '%s\n' "$PLAN" > "$plan"
+          nebensound -C "$root" write-versions --plan "$plan"
+        else
+          echo "No plan was handed in, so no version is written."
+        fi
         published="$(cargo metadata --locked --format-version 1 --no-deps \
           | jq -r --slurpfile packages "$PACKAGES" '
               .packages[] | select(.publish != [] and (.name | IN($packages[0].checked[])))
