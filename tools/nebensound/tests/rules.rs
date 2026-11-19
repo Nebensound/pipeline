@@ -4,7 +4,7 @@
 
 mod support;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use nebensound::rules::{Defaults, MARKDOWNLINT, YAMLLINT, report};
 use nebensound_declaration::path::RelativePath;
@@ -19,16 +19,22 @@ const MD_UNNAMED: &str = "the pipeline's file does not name it; Markdownlint's o
 const YAML_UNNAMED: &str =
     "the pipeline's file does not name it; what its `extends: default` sets holds";
 
-/// The report for a repository holding these files, read from memory, held
-/// against these defaults.
-fn rules_with(defaults: Defaults<'_>, files: &[(&str, &str)]) -> String {
-    let mut paths: Vec<&str> = vec![".nebensound/repo.toml", "README.md"];
-    paths.extend(files.iter().map(|(path, _)| *path));
+/// The report for a repository under this declaration that holds these
+/// paths, the files among them read from memory, held against these defaults.
+fn report_for(
+    declaration: &str,
+    paths: &[&str],
+    files: &[(&str, &str)],
+    defaults: Defaults<'_>,
+) -> String {
+    let mut all: BTreeSet<&str> = paths.iter().copied().collect();
+    all.extend(files.iter().map(|(path, _)| *path));
+    let all: Vec<&str> = all.into_iter().collect();
     let contents: BTreeMap<String, String> = files
         .iter()
         .map(|(path, content)| ((*path).to_owned(), (*content).to_owned()))
         .collect();
-    let analysis = analysis(QUIET, &paths);
+    let analysis = analysis(declaration, &all);
     let read = |path: &RelativePath| {
         contents
             .get(&path.to_string())
@@ -36,6 +42,22 @@ fn rules_with(defaults: Defaults<'_>, files: &[(&str, &str)]) -> String {
             .ok_or_else(|| "no such file".to_owned())
     };
     report(&analysis, &read, defaults)
+}
+
+/// The report for a repository holding these files, and a Markdown file in
+/// each of their folders, so that the markdown check reaches every folder, held
+/// against these defaults.
+fn rules_with(defaults: Defaults<'_>, files: &[(&str, &str)]) -> String {
+    let readmes: BTreeSet<String> = files
+        .iter()
+        .map(|(path, _)| match path.rsplit_once('/') {
+            Some((dir, _)) => format!("{dir}/README.md"),
+            None => "README.md".to_owned(),
+        })
+        .collect();
+    let mut paths: Vec<&str> = vec![".nebensound/repo.toml", "README.md"];
+    paths.extend(readmes.iter().map(String::as_str));
+    report_for(QUIET, &paths, files, defaults)
 }
 
 /// The same against the defaults compiled into the tool.
@@ -526,10 +548,110 @@ fn a_yamllint_file_that_cannot_be_read_says_why() {
             "cannot be read: `extends` is not text",
         ),
         ("- rules\n", "cannot be read: it holds no mapping"),
+        (
+            "rules: {}\nrules: {}\n",
+            "cannot be read: String(\"rules\"): duplicated key in mapping",
+        ),
     ] {
         let text = rules(&[(".yamllint", source)]);
 
         let shown = after(&text, ".yamllint");
         assert!(shown[0].starts_with(why), "{text}");
     }
+}
+
+#[test]
+fn markdownlint_files_where_the_check_lints_nothing_are_not_read() {
+    let declaration = "[repo]\n\
+                       pipeline = \"none\"\n\
+                       \n\
+                       [[exclude]]\n\
+                       path   = \"vendor\"\n\
+                       reason = \"a vendored copy, kept as it came\"\n\
+                       \n\
+                       [[exclude]]\n\
+                       path   = \"docs/.markdownlint.json\"\n\
+                       reason = \"kept out of the json check\"\n";
+    let files = [
+        (
+            "vendor/.markdownlint-cli2.jsonc",
+            "{ \"config\": { \"MD001\": false } }",
+        ),
+        ("vendor/sub/.markdownlint.json", "{ \"MD003\": false }"),
+        ("assets/.markdownlint.json", "{ \"MD004\": false }"),
+        ("docs/.markdownlint.json", "{ \"MD005\": false }"),
+        ("guide/.markdownlint.json", "{ \"MD007\": false }"),
+    ];
+    let paths = [
+        ".nebensound/repo.toml",
+        "README.md",
+        "vendor/README.md",
+        "vendor/sub/notes.md",
+        "assets/logo.png",
+        "docs/index.md",
+        "guide/part/one.md",
+    ];
+
+    let text = report_for(declaration, &paths, &files, Defaults::BUILT_IN);
+
+    for gone in ["vendor/", "assets/", "MD001", "MD003", "MD004"] {
+        assert!(!text.contains(gone), "{gone}: {text}");
+    }
+    assert_eq!(
+        after(&text, "docs/.markdownlint.json"),
+        ["in place of everything above it, the default included"]
+    );
+    assert_eq!(
+        after(&text, "guide/.markdownlint.json"),
+        ["in place of everything above it, the default included"]
+    );
+}
+
+#[test]
+fn without_a_file_the_markdown_check_lints_nothing_is_laid_over_its_default() {
+    let text = report_for(
+        "[repo]\npipeline = \"none\"\n",
+        &[".nebensound/repo.toml"],
+        &[(".markdownlint.json", "{ \"MD041\": false }")],
+        Defaults::BUILT_IN,
+    );
+
+    assert!(
+        text.contains("Markdownlint: the default, nothing laid over it"),
+        "{text}"
+    );
+}
+
+#[test]
+fn yamllint_reads_its_configuration_as_yaml_1_1() {
+    let text = rules(&[(
+        ".yamllint",
+        "rules:\n\
+         \x20 truthy:\n\
+         \x20   check-keys: no\n\
+         \x20 document-start: Off\n\
+         \x20 key-ordering: { a: YES, b: on, c: 'no', d: \"off\", e: !!str yes }\n",
+    )]);
+
+    assert_eq!(
+        after(&text, "truthy"),
+        ["{\"check-keys\":false} (the same as the default)"]
+    );
+    assert_eq!(
+        after(&text, "document-start"),
+        ["false (the same as the default)"]
+    );
+    assert_eq!(
+        after(&text, "key-ordering"),
+        [format!(
+            "{{\"a\":true,\"b\":true,\"c\":\"no\",\"d\":\"off\",\"e\":\"yes\"}} ({YAML_UNNAMED})"
+        )]
+    );
+}
+
+#[test]
+fn markdownlint_reads_yaml_as_1_2() {
+    let text = rules(&[(".markdownlint.yaml", "MD013: no\n")]);
+
+    assert_eq!(after(&text, "MD013"), ["\"no\" (over the default false)"]);
 }

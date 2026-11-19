@@ -17,9 +17,15 @@
 //!   (`.markdownlint.jsonc`, `.json`, `.yaml`, `.yml`, `.cjs`, `.mjs`). The
 //!   block lays the one at the root over the default; one in a folder below
 //!   takes the place of everything above it there, and of the `config` of the
-//!   options file beside it, as markdownlint-cli2 reads it.
+//!   options file beside it, as markdownlint-cli2 reads it. markdownlint-cli2
+//!   reads the files of the folders that hold what it lints and of the folders
+//!   above them, so a folder's files are read only where the markdown check
+//!   covers a file in that folder or below it. Whether `[[exclude]]` takes the
+//!   configuration file itself out does not matter: the program reads it all
+//!   the same.
 //! - yamllint: `rules` in `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at
-//!   the root, whichever yamllint reads.
+//!   the root, whichever yamllint reads. yamllint reads it with `PyYAML`, as
+//!   YAML 1.1, so a plain `yes`, `no`, `on` or `off` in it is a boolean.
 //!
 //! A file written in JavaScript is named, not read: phase 0 runs no code of
 //! the repository. What an `extends` names is named, not read.
@@ -32,9 +38,12 @@
 use std::collections::BTreeSet;
 
 use nebensound_declaration::Analysis;
+use nebensound_declaration::annotate::Coverage;
 use nebensound_declaration::path::RelativePath;
 use serde_json::{Map, Number, Value};
-use yaml_rust2::{Yaml, YamlLoader};
+use yaml_rust2::parser::{MarkedEventReceiver, Parser};
+use yaml_rust2::scanner::{Marker, TScalarStyle};
+use yaml_rust2::{Event, Yaml, YamlLoader};
 
 use crate::ignored::{Read, folder};
 use crate::report::{column, shown};
@@ -213,7 +222,7 @@ impl Program {
     fn default(self, text: &str) -> Result<Config, String> {
         match self {
             Self::Markdownlint => config(parse(Format::Jsonc, text)?),
-            Self::Yamllint => yamllint(Format::Yaml, text),
+            Self::Yamllint => yamllint(text),
         }
     }
 
@@ -381,6 +390,56 @@ fn parse(format: Format, source: &str) -> Result<Value, String> {
     }
 }
 
+/// The words `PyYAML` reads as a boolean in a plain scalar, under YAML 1.1,
+/// each with the word YAML 1.2 writes for it.
+const YAML_1_1_BOOLEANS: &[(&str, &str)] = &[
+    ("yes", "true"),
+    ("Yes", "true"),
+    ("YES", "true"),
+    ("on", "true"),
+    ("On", "true"),
+    ("ON", "true"),
+    ("no", "false"),
+    ("No", "false"),
+    ("NO", "false"),
+    ("off", "false"),
+    ("Off", "false"),
+    ("OFF", "false"),
+];
+
+/// A loader that reads a plain scalar as YAML 1.1 does where 1.2 differs in a
+/// boolean, and hands everything else on as it stands. A quoted scalar stays
+/// text, as in `PyYAML`.
+struct Yaml11(YamlLoader);
+
+impl MarkedEventReceiver for Yaml11 {
+    fn on_event(&mut self, event: Event, mark: Marker) {
+        let event = match event {
+            Event::Scalar(word, TScalarStyle::Plain, anchor, None) => {
+                let word = YAML_1_1_BOOLEANS
+                    .iter()
+                    .find(|(old, _)| *old == word)
+                    .map_or(word, |(_, new)| (*new).to_owned());
+                Event::Scalar(word, TScalarStyle::Plain, anchor, None)
+            }
+            other => other,
+        };
+        self.0.on_event(event, mark);
+    }
+}
+
+/// The value a configuration of yamllint holds, read as `PyYAML` reads it.
+fn parse_yaml_1_1(source: &str) -> Result<Value, String> {
+    let mut loader = Yaml11(YamlLoader::default());
+    Parser::new_from_str(source)
+        .load(&mut loader, true)
+        .map_err(text)?;
+    // The loader keeps an error of its own, such as a key written twice, to
+    // itself; read as it stands, the source names it.
+    YamlLoader::load_from_str(source).map_err(text)?;
+    Ok(loader.0.documents().first().map_or(Value::Null, json))
+}
+
 /// A YAML value as the JSON value it stands for. A key that is not text is
 /// written out as YAML would show it.
 fn json(yaml: &Yaml) -> Value {
@@ -441,8 +500,8 @@ fn options(format: Format, source: &str) -> Result<Config, String> {
 }
 
 /// The rules of a configuration of yamllint: its `rules`, beside `extends`.
-fn yamllint(format: Format, source: &str) -> Result<Config, String> {
-    let Value::Object(mut top) = parse(format, source)? else {
+fn yamllint(source: &str) -> Result<Config, String> {
+    let Value::Object(mut top) = parse_yaml_1_1(source)? else {
         return Err(NO_MAPPING.to_owned());
     };
     let extends = extends(top.remove("extends"))?;
@@ -493,7 +552,7 @@ impl Layer {
         match self.kind {
             Kind::MarkdownlintOptions => options(format, &source),
             Kind::MarkdownlintRules => config(parse(format, &source)?),
-            Kind::Yamllint => yamllint(format, &source),
+            Kind::Yamllint => yamllint(&source),
         }
         .map(Some)
     }
@@ -517,8 +576,9 @@ fn first<'a>(
 /// folder, the one that holds rules only before the options file. At the root
 /// the block lays the options file's `config` over the file of rules only; in
 /// a folder below, markdownlint-cli2 takes the file of rules only and leaves
-/// the `config` beside it unread.
-fn markdownlint_layers(files: &[&RelativePath]) -> Vec<Layer> {
+/// the `config` beside it unread. A folder counts only where a file the check
+/// lints lies in it or below it: markdownlint-cli2 reads no other.
+fn markdownlint_layers(files: &[&RelativePath], linted: &[&RelativePath]) -> Vec<Layer> {
     let folders: BTreeSet<RelativePath> = files
         .iter()
         .filter(|file| {
@@ -526,6 +586,7 @@ fn markdownlint_layers(files: &[&RelativePath]) -> Vec<Layer> {
             MARKDOWNLINT_OPTIONS.contains(&name) || MARKDOWNLINT_RULES.contains(&name)
         })
         .map(|file| folder(file))
+        .filter(|dir| linted.iter().any(|file| dir.contains(file)))
         .collect();
     let mut layers = Vec::new();
     for dir in folders {
@@ -649,11 +710,19 @@ fn section(program: Program, default: &str, layers: &[Layer], read: &Read<'_>) -
 pub fn report(analysis: &Analysis, read: &Read<'_>, defaults: Defaults<'_>) -> String {
     let nodes = analysis.tree.files();
     let files: Vec<&RelativePath> = nodes.iter().map(|(node, _)| &node.path).collect();
+    let linted: Vec<&RelativePath> = nodes
+        .iter()
+        .filter(|(_, coverage)| {
+            matches!(coverage, Coverage::Covered(check)
+                if check.as_str() == Program::Markdownlint.check())
+        })
+        .map(|(node, _)| &node.path)
+        .collect();
     let mut lines = vec!["Rules".to_owned(), String::new()];
     lines.extend(section(
         Program::Markdownlint,
         defaults.markdownlint,
-        &markdownlint_layers(&files),
+        &markdownlint_layers(&files, &linted),
         read,
     ));
     lines.extend(section(

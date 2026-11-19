@@ -354,8 +354,13 @@ the default's options of that rule, as yamllint does, so writing one option of
 a rule the default sets is a difference only where that option differs.
 
 Read are, in every folder, the options file and the file of rules only that
-markdownlint-cli2 reads there, and yamllint's configuration at the root. A
-file in JavaScript is named, not read: phase 0 runs no code of the repository.
+markdownlint-cli2 reads there, and yamllint's configuration at the root.
+markdownlint-cli2 reads the files of the folders that hold what it lints and of
+the folders above them, so a folder's files are shown only where the markdown
+check covers a file in that folder or below it: a folder that an `[[exclude]]`
+takes out as a whole shows none. yamllint's configuration is read as yamllint
+reads it, as YAML 1.1, so a plain `no` or `off` in it is `false`. A file in
+JavaScript is named, not read: phase 0 runs no code of the repository.
 What an `extends` names is named, not read. A `.markdownlint.*` file below the
 root is shown `in place of everything above it, the default included`, which
 is how markdownlint-cli2 reads it; the `config` of a `.markdownlint-cli2.*`
