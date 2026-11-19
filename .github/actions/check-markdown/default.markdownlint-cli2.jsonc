@@ -1,8 +1,0 @@
-{
-  // What holds where a repository brings no Markdownlint configuration of its
-  // own. Prettier does not wrap prose and aligns tables, so a line length is
-  // not a rule it could keep.
-  "config": {
-    "MD013": false,
-  },
-}

@@ -1,0 +1,6 @@
+{
+  // One rule differs from the pipeline default, in a file that holds rules
+  // only. It is laid over the default all the same, so the long line below
+  // passes as well.
+  "MD041": false,
+}

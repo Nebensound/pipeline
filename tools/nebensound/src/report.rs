@@ -52,7 +52,7 @@ fn names(checks: &[CheckName]) -> String {
         .join(", ")
 }
 
-fn column(indent: usize, text: &str) -> String {
+pub(crate) fn column(indent: usize, text: &str) -> String {
     let padded = format!("{:indent$}{text}", "", indent = indent);
     format!("{padded:COLUMN$}")
 }

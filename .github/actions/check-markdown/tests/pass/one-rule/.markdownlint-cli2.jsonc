@@ -1,0 +1,8 @@
+{
+  // One rule differs from the pipeline default: a file may begin without a
+  // top-level heading. Every other rule keeps the default, so the long line
+  // below passes as well.
+  "config": {
+    "MD041": false,
+  },
+}
