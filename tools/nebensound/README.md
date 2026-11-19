@@ -198,6 +198,11 @@ because the history it lacks could hold the last release. Every option the perso
 rename detection, is given on the command line, so the answer does not depend
 on who runs it.
 
+Unlike the file list, the versions need a commit. They are resolved for `HEAD`,
+and each commit is read with the declaration it holds, so a change to
+`.nebensound/repo.toml` that is not committed yet reaches them only in part; see
+[what the history must hold](../../docs/declaration.md#what-the-history-must-hold).
+
 ## What the output says
 
 ```text

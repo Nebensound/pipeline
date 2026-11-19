@@ -457,6 +457,16 @@ every branch and tag. A release tag on a commit `HEAD` does not contain is
 passed over without a finding: it lies in history this commit does not have,
 such as a newer release, and whether it counts is not this commit's to judge.
 
+Versions are resolved for `HEAD`, and every commit of the line, `HEAD`
+included, is read with the declaration it holds. The units come from
+`.nebensound/repo.toml` as it stands in the working tree. A change to the
+declaration that is not committed yet therefore reaches the units but not the
+history, and the versions mix the two: a move, a change of the release mode or a
+new `minimum-version` takes effect only in part, and a finding such as
+`pre-release-minimum` stays where it is until the change is committed. Commit a change to the declaration before reading
+its versions with `check`, `plan`, `explain` or `ui`. In CI the checkout is the
+commit, so the two agree.
+
 ## Findings
 
 Phase 0 reports what is wrong with a declaration as findings. Each carries a
