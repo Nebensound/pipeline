@@ -265,9 +265,10 @@ path requires a version that exists. With that version:
 Every change keeps the rest of the file as it is written, and a second call
 changes nothing. A unit that is neither touched nor ever released gets nothing.
 A package that gets a version and depends on such a unit by path, in
-`[dependencies]` or `[build-dependencies]`, fails the call with both packages
-named: there is no version it could require. A dependency of its tests alone
-does not, since Cargo drops it from the package. Only `Cargo.toml` and
+`[dependencies]`, `[dev-dependencies]` or `[build-dependencies]`, fails the
+call with both packages named: there is no version it could require. A
+dependency of its tests counts too: Cargo drops it from the package, and the
+packaged tests that use it would not compile. Only `Cargo.toml` and
 `Cargo.lock` files change. `check-rust` writes the
 versions the same way for its package test; the Build phase that calls the
 block before building is not built yet. A version writer without a building

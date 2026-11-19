@@ -735,14 +735,19 @@ fn a_dependency_never_released_and_not_touched_is_an_error() {
 }
 
 #[test]
-fn a_dependency_of_the_tests_alone_needs_no_release() {
-    // Cargo drops a path dev-dependency without a version from the package.
+fn a_dependency_of_the_tests_alone_needs_a_release_as_well() {
+    // Cargo drops a path dev-dependency without a version from the package,
+    // and the tests of the packaged copy that use it would not compile.
     let app = "[package]\nname = \"app\"\nedition = \"2024\"\n\n[dev-dependencies]\nlib = { path \
                = \"../lib\" }\n";
     let mut files = two_packages();
     files.retain(|(path, _)| *path != "crates/app/Cargo.toml" && *path != "Cargo.lock");
     files.push(("crates/app/Cargo.toml", app));
     files.push(("crates/app/src/main.rs", "//! An app.\n\nfn main() {}\n"));
+    files.push((
+        "crates/app/tests/it.rs",
+        "//! A test.\n\n#[test]\nfn one() {\n    assert_eq!(lib::one(), 1);\n}\n",
+    ));
     let git = Git::new();
     git.write(&files);
     git.commit("feat: start");
@@ -754,18 +759,17 @@ fn a_dependency_of_the_tests_alone_needs_no_release() {
 
     let (text, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
 
-    assert_eq!(code, 0, "{text}");
+    assert_eq!(code, 1, "{text}");
     assert!(
         text.contains(
-            "component lib carries no version at this commit and was never released, so none is \
-             written for it."
+            "the package app gets 0.0.2 and depends by path on the package lib at crates/lib, \
+             and component lib is neither touched by this commit nor ever released: there is no \
+             version of lib that app could require."
         ),
         "{text}"
     );
-    assert!(
-        text.contains("the package app at crates/app gets 0.0.2"),
-        "{text}"
-    );
+    assert_eq!(read(git.path(), "crates/app/Cargo.toml"), app);
+    assert_eq!(read(git.path(), "crates/lib/Cargo.toml"), LIB);
 }
 
 #[test]

@@ -11,8 +11,8 @@
 //! for a unit the commit does not touch, the last version released for it, so
 //! that a package that depends on it by path requires a version that exists.
 //! A unit that is neither touched nor ever released gets nothing written, and
-//! a package that gets a version and depends on such a unit, other than for
-//! its tests, is an error that names both: there is no version it could
+//! a package that gets a version and depends on such a unit, for its tests
+//! as well, is an error that names both: there is no version it could
 //! require. With the version:
 //!
 //! - `package.version` in the unit's `Cargo.toml` becomes that version;
@@ -56,12 +56,11 @@ use crate::versions::of_pull_request;
 /// The writer this module is, as the register names it.
 pub const CARGO: &str = "cargo";
 
-/// The tables a manifest lists its dependencies in.
+/// The tables a manifest lists its dependencies in. A published package
+/// needs a version for each of them: Cargo drops a path dev-dependency without
+/// one from the package, and the tests of the packaged copy that use it no
+/// longer compile.
 const DEPENDENCIES: [&str; 3] = ["dependencies", "dev-dependencies", "build-dependencies"];
-
-/// Those of them a published package keeps: Cargo drops a path dev-dependency
-/// without a version from the package instead of refusing it.
-const PUBLISHED: [&str; 2] = ["dependencies", "build-dependencies"];
 
 /// The kind [`dependency_tables`] gives `[workspace.dependencies]`.
 const WORKSPACE: &str = "workspace";
@@ -548,7 +547,7 @@ fn shared(manifest: &DocumentMut, workspace: &RelativePath, inherited: &Inherite
 }
 
 /// What a package depends on by path where it is published, the
-/// dependencies of its tests left out: each folder its manifest names with
+/// dependencies of its tests included: each folder its manifest names with
 /// the name of the package there, and each dependency it inherits with
 /// `workspace = true` by its key and that name, for [`shared`] to find.
 ///
@@ -558,7 +557,7 @@ fn published(manifest: &mut DocumentMut, folder: &RelativePath) -> (Needs, Inher
     let mut inherited = Vec::new();
     for (_, table) in dependency_tables(manifest)
         .into_iter()
-        .filter(|(kind, _)| PUBLISHED.contains(kind))
+        .filter(|(kind, _)| *kind != WORKSPACE)
     {
         let dependencies = table.iter().filter_map(|(key, dependency)| {
             dependency

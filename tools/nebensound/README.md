@@ -201,11 +201,12 @@ Nothing else changes, and `cargo build --locked` passes afterwards.
 
 A unit that is neither touched nor ever released gets nothing written. A
 package that gets a version and depends on such a unit by path, in
-`[dependencies]` or `[build-dependencies]`, also per platform or through
-`workspace = true`, ends the call with exit code `1` and both packages named,
-before anything is written: there is no version it could require, and
-`cargo package` would refuse it. A dependency of its tests alone does not,
-since Cargo drops a path dev-dependency without a version from the package.
+`[dependencies]`, `[dev-dependencies]` or `[build-dependencies]`, also per
+platform or through `workspace = true`, ends the call with exit code `1` and
+both packages named, before anything is written: there is no version it could
+require. `cargo package` would refuse it, or, for a dependency of its tests,
+drop it from the package, so that the packaged tests that use it would not
+compile.
 
 The workspace is found the way Cargo finds it: the folder `package.workspace`
 names, else the nearest folder at or above the package whose `Cargo.toml` has
