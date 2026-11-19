@@ -160,6 +160,16 @@ identifier!(
     EcosystemName,
     "ecosystem name"
 );
+identifier!(
+    /// The name of a program a check calls, in the central register.
+    ProgramName,
+    "program name"
+);
+identifier!(
+    /// The name of a runtime a program runs on, in the central register.
+    RuntimeName,
+    "runtime name"
+);
 
 /// A file extension, written with its leading dot.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

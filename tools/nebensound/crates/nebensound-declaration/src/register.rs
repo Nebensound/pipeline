@@ -1,5 +1,5 @@
-//! The central register of presets, version writers, checks, builds and
-//! targets.
+//! The central register of presets, version writers, checks, builds,
+//! targets, and the programs and runtimes the checks call.
 //!
 //! It is data, not code, and it is compiled into this crate. A repository
 //! therefore never holds a copy that could fall behind: adopting a change to
@@ -12,9 +12,10 @@ use thiserror::Error;
 
 use crate::model::{Publish, Release};
 use crate::names::{
-    ArtifactKind, BuildName, CheckName, EcosystemName, Extension, PresetName, TargetName,
-    VersionWriterName,
+    ArtifactKind, BuildName, CheckName, EcosystemName, Extension, PresetName, ProgramName,
+    RuntimeName, TargetName, VersionWriterName,
 };
+use crate::programs::{Program, Runtime, download_problem, is_version};
 
 /// The vocabulary as it stands in `register.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -32,6 +33,12 @@ pub struct Register {
     pub preset: BTreeMap<PresetName, Preset>,
     /// Every package ecosystem Dependabot can watch.
     pub ecosystem: BTreeMap<EcosystemName, Ecosystem>,
+    /// Every program a check calls, pinned.
+    #[serde(default)]
+    pub program: BTreeMap<ProgramName, Program>,
+    /// Every runtime a program runs on, pinned.
+    #[serde(default)]
+    pub runtime: BTreeMap<RuntimeName, Runtime>,
 }
 
 /// How an ecosystem is recognized.
@@ -65,6 +72,9 @@ pub struct Check {
     /// Whole file names it covers, for the files that have no extension.
     #[serde(default)]
     pub filenames: Vec<String>,
+    /// The programs it calls.
+    #[serde(default)]
+    pub programs: Vec<ProgramName>,
 }
 
 /// What a build produces.
@@ -126,6 +136,34 @@ pub enum RegisterError {
         /// The name.
         name: String,
     },
+    /// A program or runtime pins something that is not a version.
+    #[error("{holder} pins {version:?}, and a version here is three numbers, such as 1.2.3")]
+    Version {
+        /// The program or runtime.
+        holder: String,
+        /// What it pins.
+        version: String,
+    },
+    /// A program or runtime has downloads that do not fit it.
+    #[error("{holder} {problem}")]
+    Download {
+        /// The program or runtime.
+        holder: String,
+        /// What does not fit.
+        problem: &'static str,
+    },
+}
+
+/// Refuses a pinned version that is not three numbers.
+fn pinned(holder: &dyn std::fmt::Display, version: &str) -> Result<(), RegisterError> {
+    if is_version(version) {
+        Ok(())
+    } else {
+        Err(RegisterError::Version {
+            holder: holder.to_string(),
+            version: version.to_owned(),
+        })
+    }
 }
 
 /// The register this crate was built with.
@@ -166,6 +204,36 @@ impl Register {
             }
         };
 
+        for (name, check) in &self.check {
+            for program in &check.programs {
+                if !self.program.contains_key(program) {
+                    return Err(dangling(name, "program", program));
+                }
+            }
+        }
+        for (name, program) in &self.program {
+            if let Some(runtime) = &program.runtime
+                && !self.runtime.contains_key(runtime)
+            {
+                return Err(dangling(name, "runtime", runtime));
+            }
+            pinned(name, &program.version)?;
+            if let Some(problem) = download_problem(&program.download, program.runtime.is_some()) {
+                return Err(RegisterError::Download {
+                    holder: name.to_string(),
+                    problem,
+                });
+            }
+        }
+        for (name, runtime) in &self.runtime {
+            pinned(name, &runtime.version)?;
+            if let Some(problem) = download_problem(&runtime.download, false) {
+                return Err(RegisterError::Download {
+                    holder: name.to_string(),
+                    problem,
+                });
+            }
+        }
         for (name, target) in &self.target {
             if let Some(check) = &target.requires_check
                 && !self.check.contains_key(check)
@@ -203,6 +271,25 @@ impl Register {
             }
         }
         Ok(())
+    }
+
+    /// The programs these checks call, each once, in name order.
+    #[must_use]
+    pub fn programs_of<'a>(
+        &'a self,
+        checks: impl IntoIterator<Item = &'a CheckName>,
+    ) -> Vec<(&'a ProgramName, &'a Program)> {
+        let mut names: Vec<&ProgramName> = checks
+            .into_iter()
+            .filter_map(|check| self.check.get(check))
+            .flat_map(|check| &check.programs)
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+            .into_iter()
+            .filter_map(|name| self.program.get_key_value(name))
+            .collect()
     }
 
     /// The ecosystem whose manifest this file is, if it is one.

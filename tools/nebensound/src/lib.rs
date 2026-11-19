@@ -18,6 +18,7 @@ pub mod plan;
 pub mod reference;
 pub mod report;
 pub mod repository;
+pub mod setup;
 #[cfg(feature = "ui")]
 pub mod terminal;
 #[cfg(feature = "ui")]
@@ -89,6 +90,21 @@ pub enum Command {
     // Like the schema, it describes the format and reads no repository.
     /// Print the register as Markdown, as `docs/register.md` holds it.
     Register,
+    /// Find or install the programs that the checks the declaration starts
+    /// call: by default those on the computer, and the pinned version of what
+    /// is missing.
+    Setup {
+        /// Install the pinned version of every program into the tool's folder
+        /// in the user's cache directory, whatever the computer has.
+        #[arg(long, conflicts_with = "check")]
+        pinned: bool,
+        /// Install a missing runtime without asking.
+        #[arg(long, conflicts_with = "check")]
+        with_runtimes: bool,
+        /// Change nothing; say what is missing or differs.
+        #[arg(long)]
+        check: bool,
+    },
     /// Open the interface. Only in a build with the `ui` feature.
     #[cfg(feature = "ui")]
     Ui,
@@ -242,6 +258,8 @@ enum Job {
     },
     /// Print the packages taken out as a whole.
     ExcludedPackages,
+    /// Find or install the programs of the checks.
+    Setup(setup::Options),
     /// Open the interface.
     #[cfg(feature = "ui")]
     Ui,
@@ -256,6 +274,18 @@ fn call(cli: &Cli) -> Result<Call, Failure> {
         Some(Command::Tree) => Job::Tree,
         Some(Command::Plan) => Job::Plan,
         Some(Command::ExcludedPackages) => Job::ExcludedPackages,
+        Some(Command::Setup {
+            pinned,
+            with_runtimes,
+            check,
+        }) => Job::Setup(setup::Options {
+            mode: match (*check, *pinned) {
+                (true, _) => setup::Mode::Check,
+                (false, true) => setup::Mode::Pinned,
+                (false, false) => setup::Mode::Missing,
+            },
+            with_runtimes: *with_runtimes,
+        }),
         #[cfg(feature = "ui")]
         Some(Command::Ui) => Job::Ui,
         Some(Command::Explain { path }) => Job::Explain(path_of(path)?),
@@ -354,6 +384,23 @@ fn execute(
                 packages::to_json(&repository.excluded_packages(&analysis))
             ),
         ),
+        // The same reason again: the programs of a declaration with errors
+        // could be those of the wrong checks.
+        Job::Setup(_) if analysis.failed() => say(
+            out,
+            "there is nothing to set up: phase 0 found errors, and `check` says which\n",
+        ),
+        Job::Setup(options) => {
+            let checks = setup::started(&plan::plan(&analysis, &central));
+            let mut environment = setup::Environment::current();
+            return Ok(setup::run(
+                central.register(),
+                &checks,
+                *options,
+                &mut environment,
+                out,
+            ));
+        }
         #[cfg(feature = "ui")]
         Job::Ui => {
             terminal::open(&analysis, output).map_err(|source| Failure::Terminal { source })?;
