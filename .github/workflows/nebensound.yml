@@ -103,7 +103,9 @@ jobs:
             if [ -n "$BODY" ]; then
               message="$(printf '%s\n\n%s' "$TITLE" "$BODY")"
             fi
-            call+=(--pull-request "$NUMBER" --message "$message")
+            # One argument with "=", so that a title starting with "-" stays
+            # the message and is not read as an option.
+            call+=(--pull-request "$NUMBER" "--message=$message")
           fi
           # The text table into the log, the Markdown table into the summary.
           # When phase 0 found errors both say which, and the step fails.

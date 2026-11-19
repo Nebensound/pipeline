@@ -383,6 +383,22 @@ fn the_pull_request_and_its_message_go_together() {
 }
 
 #[test]
+fn a_message_that_starts_with_a_hyphen_stays_the_message() {
+    // The job passes the message as `--message=<message>`, so a title such as
+    // `- fix: x` or `--help` reaches the tool as the message, not as an option.
+    let git = Git::new();
+    git.write(&[(".nebensound/repo.toml", QUIET)]);
+    git.commit("chore: start");
+
+    for message in ["- fix: x", "--help"] {
+        let argument = format!("--message={message}");
+        let (text, code) = version(&git, &["--pull-request", "3", &argument]);
+        assert_eq!(code, 0, "{message}: {text}");
+        assert!(text.contains("This pull request"), "{message}: {text}");
+    }
+}
+
+#[test]
 fn a_pull_request_version_is_the_merge_version_with_its_number() {
     let version = TagVersion::read("1.2.0-pre.3").expect("a version");
     assert_eq!(versions::of_pull_request(&version, 42), "1.2.0-pre.3-pr.42");
