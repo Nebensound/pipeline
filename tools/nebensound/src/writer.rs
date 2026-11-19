@@ -23,8 +23,9 @@
 //! - every path dependency on that package, wherever in the repository the
 //!   manifest that names it lies, gets that version as its requirement, since
 //!   a package whose dependency names no version cannot be published. The
-//!   manifest of a unit that gets nothing is left out, apart from the
-//!   `[workspace.dependencies]` it holds as the root of a workspace;
+//!   manifest of a unit that gets nothing is left out, apart from the entries
+//!   of the `[workspace.dependencies]` it holds as the root of a workspace
+//!   that a member that gets a version inherits;
 //! - the package's entry in the workspace's `Cargo.lock` gets that version,
 //!   and so does every entry that names it together with a version, so that
 //!   `--locked` holds. No other entry changes. The same goes for the
@@ -32,6 +33,13 @@
 //!   path dependencies, directly or through other packages: one that contains
 //!   it while excluding it, one beside it, or a `fuzz/` folder with a
 //!   `[workspace]` of its own.
+//!
+//! A call can start from the units at or below one folder alone, as the
+//! package test of one workspace does, so that what another workspace needs
+//! cannot fail it. Only a touched unit there gets the version of the commit on
+//! its own account; any other unit gets a version only where one that gets a
+//! version depends on it by path, the version of the commit when the commit
+//! touches it and its last release otherwise.
 //!
 //! The workspace is found the way Cargo finds it: the folder the manifest
 //! names in `package.workspace`, else the nearest folder at or above the
@@ -255,7 +263,12 @@ pub enum WriteError {
 /// it did, one line per sentence.
 ///
 /// `manifests` are the `Cargo.toml` files Git tracks: the dependents are
-/// looked for among them.
+/// looked for among them. `below` is where the units that start the writing
+/// lie: only a touched unit at or below it gets the version of the commit on
+/// its own account, and the path dependencies of those are followed wherever
+/// they lie. [`RelativePath::root`] starts from every touched unit; the
+/// package test of one workspace starts from the units in its folder, so that
+/// what another workspace needs cannot fail it.
 ///
 /// # Errors
 ///
@@ -269,6 +282,7 @@ pub fn write(
     repository: &Repository,
     manifests: &[RelativePath],
     orders: &[Order],
+    below: &RelativePath,
 ) -> Result<String, WriteError> {
     let mut files = Files {
         repository,
@@ -278,14 +292,8 @@ pub fn write(
         .iter()
         .filter(|order| order.writers.iter().any(|writer| writer.as_str() == CARGO))
         .collect();
-    let chosen = choose(&mut files, &cargo)?;
-    // The manifests of the units that get nothing stay as they are.
-    let unwritten: BTreeSet<RelativePath> = cargo
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| !chosen.contains_key(index))
-        .map(|(_, order)| order.path.clone())
-        .collect();
+    let chosen = choose(&mut files, &cargo, below)?;
+    let unwritten = unwritten(&cargo, &chosen);
     let mut said = Vec::new();
     for (index, order) in cargo.iter().enumerate() {
         let Some(Chosen {
@@ -296,11 +304,7 @@ pub fn write(
             ..
         }) = chosen.get(&index)
         else {
-            said.push(format!(
-                "{} is not touched by this commit, and no package that gets a version depends on \
-                 it by path, so nothing is written for it.",
-                order.unit
-            ));
+            said.push(passed_over(order, below));
             continue;
         };
         said.push(announced(order, name, version, root, *touched));
@@ -320,7 +324,7 @@ pub fn write(
                 &place,
                 &order.path,
                 version,
-                !unwritten.contains(&place),
+                unwritten.get(&place),
             );
             let own = own_root(document, &place);
             let workspace = own.unwrap_or_else(|| files.workspace_above(&place));
@@ -383,25 +387,38 @@ struct Chosen {
     touched: bool,
     /// What it depends on by path where it is published.
     needs: Needs,
+    /// The keys of the dependencies it inherits from the
+    /// `[workspace.dependencies]` of its workspace with `workspace = true`.
+    inherits: BTreeSet<String>,
 }
 
 /// Picks the units that get a version, by their place in `cargo`, and sets
 /// the version of each one's package.
 ///
-/// Every unit the commit touches gets the version of the commit. A unit it
-/// does not touch gets its last release only where a package that gets a
-/// version depends on it by path, followed through the path dependencies of
-/// each one it gives a version to. A package such a unit cannot give a
-/// version to, never released, is an error that names both. A path
-/// dependency on a package that is no unit with the writer `cargo` is left to
-/// Cargo, which refuses to package a dependent without a version requirement.
-fn choose(files: &mut Files<'_>, cargo: &[&Order]) -> Result<BTreeMap<usize, Chosen>, WriteError> {
+/// Every unit the commit touches at or below `below` gets the version of the
+/// commit. Any other unit gets a version only where a package that gets one
+/// depends on it by path, followed through the path dependencies of each one
+/// it gives a version to: the version of the commit when the commit touches
+/// it, its last release otherwise. A package such a unit cannot give a
+/// version to, neither touched nor ever released, is an error that names
+/// both. A path dependency on a package that is no unit with the writer
+/// `cargo` is left to Cargo, which refuses to package a dependent without a
+/// version requirement.
+fn choose(
+    files: &mut Files<'_>,
+    cargo: &[&Order],
+    below: &RelativePath,
+) -> Result<BTreeMap<usize, Chosen>, WriteError> {
     let mut chosen = BTreeMap::new();
     // Each package given a version whose path dependencies are still to be
     // followed: its name, its version and what it depends on.
     let mut queue = VecDeque::new();
     for (index, order) in cargo.iter().enumerate() {
-        if let Some(version) = &order.version {
+        if let Some(version) = order
+            .version
+            .as_ref()
+            .filter(|_| below.contains(&order.path))
+        {
             let unit = files.chosen(order, version.clone(), true)?;
             queue.push_back((unit.name.clone(), unit.version.clone(), unit.needs.clone()));
             chosen.insert(index, unit);
@@ -416,21 +433,66 @@ fn choose(files: &mut Files<'_>, cargo: &[&Order]) -> Result<BTreeMap<usize, Cho
             else {
                 continue;
             };
-            let Some(last) = order.last else {
-                return Err(WriteError::UnreleasedDependency {
-                    package,
-                    version,
-                    dependency,
-                    path: path.to_string(),
-                    unit: order.unit.clone(),
-                });
+            let (given, touched) = match (&order.version, order.last) {
+                (Some(touched), _) => (touched.clone(), true),
+                (None, Some(last)) => (last.to_string(), false),
+                (None, None) => {
+                    return Err(WriteError::UnreleasedDependency {
+                        package,
+                        version,
+                        dependency,
+                        path: path.to_string(),
+                        unit: order.unit.clone(),
+                    });
+                }
             };
-            let unit = files.chosen(order, last.to_string(), false)?;
+            let unit = files.chosen(order, given, touched)?;
             queue.push_back((unit.name.clone(), unit.version.clone(), unit.needs.clone()));
             chosen.insert(found, unit);
         }
     }
     Ok(chosen)
+}
+
+/// The folders of the units that get nothing, whose manifests stay as they
+/// are, each with the keys of its `[workspace.dependencies]` that a member
+/// that gets a version inherits: the only entries written there, when the
+/// unit is the root of that member's workspace.
+fn unwritten(
+    cargo: &[&Order],
+    chosen: &BTreeMap<usize, Chosen>,
+) -> BTreeMap<RelativePath, BTreeSet<String>> {
+    cargo
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !chosen.contains_key(index))
+        .map(|(_, order)| {
+            let keys = chosen
+                .values()
+                .filter(|unit| unit.root == order.path)
+                .flat_map(|unit| unit.inherits.iter().cloned())
+                .collect();
+            (order.path.clone(), keys)
+        })
+        .collect()
+}
+
+/// What is said about a unit that gets nothing: one the commit touches lies
+/// outside the folder the call starts from.
+fn passed_over(order: &Order, below: &RelativePath) -> String {
+    if order.version.is_some() {
+        format!(
+            "{} lies outside {below}, and no package that gets a version depends on it by path, \
+             so nothing is written for it.",
+            order.unit
+        )
+    } else {
+        format!(
+            "{} is not touched by this commit, and no package that gets a version depends on it \
+             by path, so nothing is written for it.",
+            order.unit
+        )
+    }
 }
 
 /// What is said about a unit that gets a version: the one of the commit at
@@ -483,16 +545,16 @@ struct Links {
 /// and returns where the manifest's dependencies lead.
 ///
 /// `folder` is where the manifest lies, which its paths are relative to.
-/// `package_too` is false for the manifest of a unit with the writer `cargo`
-/// that gets no version: it stays as it is, apart from the
-/// `[workspace.dependencies]` it holds as the root of a workspace, which the
-/// members that get a version inherit from.
+/// `only` is [`Some`] for the manifest of a unit with the writer `cargo` that
+/// gets no version: it stays as it is, apart from the entries of the
+/// `[workspace.dependencies]` it holds as the root of a workspace whose keys
+/// `only` names, those that a member that gets a version inherits.
 fn require(
     manifest: &mut DocumentMut,
     folder: &RelativePath,
     target: &RelativePath,
     version: &str,
-    package_too: bool,
+    only: Option<&BTreeSet<String>>,
 ) -> Links {
     let mut links = Links {
         paths: BTreeSet::new(),
@@ -515,7 +577,8 @@ fn require(
             else {
                 continue;
             };
-            if &path == target && (package_too || kind == WORKSPACE) {
+            let wanted = only.is_none_or(|keys| kind == WORKSPACE && keys.contains(name.get()));
+            if &path == target && wanted {
                 set(dependency, "version", version);
             }
             links.paths.insert(path);
@@ -815,6 +878,7 @@ impl Files<'_> {
             root,
             touched,
             needs,
+            inherits: inherited.into_iter().map(|(key, _)| key).collect(),
         })
     }
 

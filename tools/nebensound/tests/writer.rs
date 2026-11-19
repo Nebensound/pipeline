@@ -807,6 +807,223 @@ fn the_workspace_dependencies_of_a_unit_that_gets_nothing_get_the_requirement() 
     );
 }
 
+#[test]
+fn a_workspace_root_that_gets_nothing_keeps_what_no_member_that_gets_a_version_inherits() {
+    // `ws` is a package with a workspace of its own, released and untouched,
+    // and inherits `lib` from its own `[workspace.dependencies]`. `lib` beside
+    // it is touched. Nothing that gets a version inherits that entry, so the
+    // manifest of `ws` stays as it is; its lockfile, which locks `lib`, is
+    // brought in line.
+    let ws = "[package]\nname = \"ws\"\nedition = \"2024\"\n\n[dependencies]\nlib.workspace = \
+              true\n\n[workspace]\n\n[workspace.dependencies]\nlib = { path = \"../lib\" }\n";
+    let git = Git::new();
+    git.write(&[
+        (
+            ".nebensound/repo.toml",
+            "[repo]\npipeline = \"none\"\n\n[component.ws]\npath = \"ws\"\npipeline = { \
+             version = [\"cargo\"], check = [\"rust\"] }\n\n[component.lib]\npath = \
+             \"lib\"\npipeline = { version = [\"cargo\"], check = [\"rust\"] }\n",
+        ),
+        ("ws/Cargo.toml", ws),
+        (
+            "ws/Cargo.lock",
+            "version = 4\n\n[[package]]\nname = \"lib\"\nversion = \"0.0.0\"\n\n[[package]]\n\
+             name = \"ws\"\nversion = \"0.0.0\"\ndependencies = [\n \"lib\",\n]\n",
+        ),
+        ("ws/src/lib.rs", "//! The workspace.\n"),
+        ("lib/Cargo.toml", LIB),
+        ("lib/src/lib.rs", "//! A library.\n"),
+    ]);
+    git.commit("feat: start");
+    git.tag("ws-v0.0.1", &git.head());
+    git.tag("lib-v0.0.1", &git.head());
+    git.write(&[("lib/src/lib.rs", "//! A library, changed.\n")]);
+    git.commit("fix: change the library");
+
+    let (text, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
+
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.contains("component ws is not touched by this commit, and no package"),
+        "{text}"
+    );
+    assert!(text.contains("Wrote ws/Cargo.lock."), "{text}");
+    assert_eq!(read(git.path(), "ws/Cargo.toml"), ws);
+    cargo(&git.path().join("ws"), &["build", "--locked"]);
+}
+
+/// Two workspaces side by side, each a unit of its own with the writer
+/// `cargo`: `a`, whose `app` depends by path on `lib`, and `b`. `b` depends
+/// by path on what `b_needs` names.
+fn two_workspaces(b_needs: &str) -> Git {
+    let b_dependencies = if b_needs.is_empty() {
+        String::new()
+    } else {
+        format!("\n[dependencies]\n{b_needs}\n")
+    };
+    let b_manifest =
+        format!("[package]\nname = \"b\"\nedition = \"2024\"\n{b_dependencies}\n[workspace]\n");
+    let b_lockfile = if b_needs.is_empty() {
+        "version = 4\n\n[[package]]\nname = \"b\"\nversion = \"0.0.0\"\n".to_owned()
+    } else {
+        "version = 4\n\n[[package]]\nname = \"b\"\nversion = \"0.0.0\"\ndependencies = [\n \
+         \"lib\",\n]\n\n[[package]]\nname = \"lib\"\nversion = \"0.0.0\"\n"
+            .to_owned()
+    };
+    let git = Git::new();
+    git.write(&[
+        (
+            ".nebensound/repo.toml",
+            "[repo]\npipeline = \"none\"\n\n[component.a]\npath = \"a\"\nversioning = \
+             \"child-folders\"\npipeline = { version = [\"cargo\"], check = [\"rust\"] }\n\n\
+             [component.b]\npath = \"b\"\npipeline = { version = [\"cargo\"], check = \
+             [\"rust\"] }\n",
+        ),
+        (
+            "a/Cargo.toml",
+            "[workspace]\nmembers  = [\"app\", \"lib\"]\nresolver = \"3\"\n",
+        ),
+        ("a/Cargo.lock", LOCKFILE),
+        ("a/lib/Cargo.toml", LIB),
+        (
+            "a/lib/src/lib.rs",
+            "//! A library.\n\n/// One.\n#[must_use]\npub fn one() -> u8 {\n    1\n}\n",
+        ),
+        ("a/app/Cargo.toml", APP),
+        (
+            "a/app/src/main.rs",
+            "//! An app.\n\nfn main() {\n    println!(\"{}\", lib::one());\n}\n",
+        ),
+        ("b/Cargo.toml", b_manifest.as_str()),
+        ("b/Cargo.lock", b_lockfile.as_str()),
+        ("b/src/lib.rs", "//! Another workspace.\n"),
+    ]);
+    git.commit("feat: start");
+    git
+}
+
+#[test]
+fn a_call_below_one_workspace_is_not_failed_by_another() {
+    // `app` was released, `lib` never was, and the commit touches `a/app` and
+    // `b`. The whole repository cannot be written, since `app` needs a
+    // version of `lib`; the workspace `b` can.
+    let git = two_workspaces("");
+    git.tag("a-app-v0.0.1", &git.head());
+    git.write(&[
+        (
+            "a/app/src/main.rs",
+            "//! An app, changed.\n\nfn main() {\n    println!(\"{}\", lib::one());\n}\n",
+        ),
+        ("b/src/lib.rs", "//! Another workspace, changed.\n"),
+    ]);
+    git.commit("fix: change both");
+
+    let (whole, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
+    assert_eq!(code, 1, "{whole}");
+    assert!(
+        whole.contains("the package app gets 0.0.2 and depends by path on the package lib"),
+        "{whole}"
+    );
+
+    let (text, code) = call(&[
+        "nebensound",
+        "-C",
+        git.root(),
+        "write-versions",
+        "--below",
+        "b",
+    ]);
+
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.contains("component b: the package b at b gets 0.0.2"),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "component app lies outside b, and no package that gets a version depends on it by \
+             path, so nothing is written for it."
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("component lib is not touched by this commit"),
+        "{text}"
+    );
+    assert_eq!(read(git.path(), "a/app/Cargo.toml"), APP);
+    assert_eq!(read(git.path(), "a/lib/Cargo.toml"), LIB);
+    assert_eq!(read(git.path(), "a/Cargo.lock"), LOCKFILE);
+    cargo(&git.path().join("b"), &["build", "--locked"]);
+    assert_eq!(reported(&git.path().join("b"), "b"), "0.0.2");
+}
+
+#[test]
+fn a_call_below_one_workspace_follows_its_path_dependencies_out_of_it() {
+    // `b` depends by path on `lib` in the workspace `a`, and the commit
+    // touches both and not `app`. Below `b`, `lib` gets the version of the
+    // commit, since the commit touches it, though it was never released.
+    let git = two_workspaces("lib = { path = \"../a/lib\" }");
+    git.write(&[
+        (
+            "a/lib/src/lib.rs",
+            "//! A library, changed.\n\n/// One.\n#[must_use]\npub fn one() -> u8 {\n    1\n}\n",
+        ),
+        ("b/src/lib.rs", "//! Another workspace, changed.\n"),
+    ]);
+    git.commit("fix: change both");
+
+    let (text, code) = call(&[
+        "nebensound",
+        "-C",
+        git.root(),
+        "write-versions",
+        "--below",
+        "b",
+    ]);
+
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.contains("component lib: the package lib at a/lib gets 0.0.2"),
+        "{text}"
+    );
+    assert!(
+        text.contains("component app is not touched by this commit"),
+        "{text}"
+    );
+    let b = read(git.path(), "b/Cargo.toml");
+    assert!(
+        b.contains("lib = { path = \"../a/lib\", version = \"0.0.2\" }"),
+        "{b}"
+    );
+    assert_eq!(read(git.path(), "a/app/Cargo.toml"), APP);
+    cargo(&git.path().join("b"), &["build", "--locked"]);
+    cargo(&git.path().join("a"), &["build", "--locked"]);
+}
+
+#[test]
+fn a_call_below_a_path_that_is_none_is_refused() {
+    let git = two_workspaces("");
+
+    let (text, code) = call(&[
+        "nebensound",
+        "-C",
+        git.root(),
+        "write-versions",
+        "--below",
+        "../b",
+    ]);
+
+    assert_eq!(code, 2, "{text}");
+    assert!(
+        text.contains("\"../b\" is not a path inside the repository"),
+        "{text}"
+    );
+    assert_eq!(
+        read(git.path(), "b/Cargo.toml"),
+        "[package]\nname = \"b\"\nedition = \"2024\"\n\n[workspace]\n"
+    );
+}
+
 /// [`two_packages`] with both released at `0.0.1`, then a commit on `main`
 /// that touches `app` and not `lib`.
 fn app_changed_after_a_release() -> Git {

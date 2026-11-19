@@ -105,6 +105,11 @@ pub enum Command {
         /// checkout without the history to resolve them from.
         #[arg(long, value_name = "FILE")]
         plan: Option<PathBuf>,
+        /// Start only from the units at or below this path, as the package
+        /// test of one workspace does; their path dependencies are followed
+        /// wherever they lie.
+        #[arg(long, value_name = "PATH")]
+        below: Option<String>,
     },
     /// Print the version of every unit that carries one: its last release, how
     /// it is released, the version of the commit at hand and how many commits
@@ -327,8 +332,12 @@ enum Job {
     },
     /// Print the packages taken out as a whole.
     ExcludedPackages,
-    /// Write the versions, from this plan or from the history.
-    WriteVersions(Option<PathBuf>),
+    /// Write the versions, from this plan or from the history, starting from
+    /// the units below this path.
+    WriteVersions {
+        plan: Option<PathBuf>,
+        below: RelativePath,
+    },
     /// Print the versions.
     Version {
         markdown: bool,
@@ -350,7 +359,12 @@ fn call(cli: &Cli) -> Result<Call, Failure> {
         Some(Command::Tree) => Job::Tree,
         Some(Command::Plan { pull_request }) => Job::Plan(pull_request.read()),
         Some(Command::ExcludedPackages) => Job::ExcludedPackages,
-        Some(Command::WriteVersions { plan }) => Job::WriteVersions(plan.clone()),
+        Some(Command::WriteVersions { plan, below }) => Job::WriteVersions {
+            plan: plan.clone(),
+            below: below
+                .as_deref()
+                .map_or_else(|| Ok(RelativePath::root()), path_of)?,
+        },
         Some(Command::Version {
             markdown,
             pull_request,
@@ -427,9 +441,10 @@ fn execute(
         // needs follows from the checks the plan starts, never from a
         // version, so a question about a release does not keep anyone from
         // setting up the programs either.
-        Job::Files { .. } | Job::ExcludedPackages | Job::WriteVersions(Some(_)) | Job::Setup(_) => {
-            repository.analyse_files(&central)
-        }
+        Job::Files { .. }
+        | Job::ExcludedPackages
+        | Job::WriteVersions { plan: Some(_), .. }
+        | Job::Setup(_) => repository.analyse_files(&central),
         _ => repository.analyse(&central),
     }?;
 
@@ -495,13 +510,13 @@ fn execute(
         ),
         // The same reason again: a version read off a declaration with errors
         // could be written into the wrong package.
-        Job::WriteVersions(_) if analysis.failed() => say(
+        Job::WriteVersions { .. } if analysis.failed() => say(
             out,
             "no version is written: phase 0 found errors, and `check` says which\n",
         ),
-        Job::WriteVersions(plan) => say(
+        Job::WriteVersions { plan, below } => say(
             out,
-            &write_versions(&repository, &analysis, &central, plan.as_deref())?,
+            &write_versions(&repository, &analysis, &central, plan.as_deref(), below)?,
         ),
         // The same reason once more: a version read off a declaration with
         // errors could be one the history does not give, so what is printed
@@ -547,12 +562,14 @@ fn plan_of(analysis: &Analysis, central: &Central, pull_request: Option<&PullReq
 }
 
 /// Writes the versions, from the plan in `plan` or, without one, from the
-/// history, and returns what was done, ended by a line break.
+/// history, starting from the units at or below `below`, and returns what was
+/// done, ended by a line break.
 fn write_versions(
     repository: &Repository,
     analysis: &Analysis,
     central: &Central,
     plan: Option<&Path>,
+    below: &RelativePath,
 ) -> Result<String, Failure> {
     let orders = match plan {
         Some(file) => fs::read_to_string(file)
@@ -573,6 +590,6 @@ fn write_versions(
         .collect();
     Ok(format!(
         "{}\n",
-        writer::write(repository, &manifests, &orders)?
+        writer::write(repository, &manifests, &orders, below)?
     ))
 }
