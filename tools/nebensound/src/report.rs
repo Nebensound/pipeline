@@ -152,9 +152,7 @@ fn unit_lines(unit: &Unit) -> Vec<String> {
             listed(&unit.pipeline.dependabot)
         ));
     }
-    let version = unit
-        .version_file()
-        .map_or_else(|| "none".to_owned(), |file| file.to_string());
+    let version = if unit.carries_version { "tags" } else { "none" };
     lines.push(format!(
         "{}{version} (versioning = \"{}\")",
         column(6, "Version"),

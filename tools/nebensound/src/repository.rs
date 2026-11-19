@@ -133,6 +133,9 @@ pub fn central_from(register: &str, defaults: &str) -> Result<Central, Error> {
 pub struct Repository {
     root: PathBuf,
     git: OsString,
+    /// The message of the squash merge `HEAD` stands for, when it is read as
+    /// a pull request.
+    squash: Option<String>,
 }
 
 impl Repository {
@@ -142,7 +145,22 @@ impl Repository {
         Self {
             root: root.into(),
             git: OsString::from("git"),
+            squash: None,
         }
+    }
+
+    /// Read as a pull request: `HEAD`, the merge commit GitHub builds for it,
+    /// stands for the commit its squash merge would put on the base branch.
+    ///
+    /// That commit has one parent, the first parent of `HEAD`, the changes of
+    /// `HEAD` against it, and this message: the title and the description of
+    /// the pull request, which the squash merge takes. The versions are then
+    /// those the merge would get. A pull request into `release` is merged with
+    /// a merge commit and is read as it is.
+    #[must_use]
+    pub fn as_pull_request(mut self, message: impl Into<String>) -> Self {
+        self.squash = Some(message.into());
+        self
     }
 
     /// With another git program.
@@ -372,7 +390,7 @@ impl Repository {
         let mut reachable = vec!["rev-list", "--parents", head.as_str()];
         reachable.extend(release.as_deref());
         reachable.extend(main.as_deref());
-        let parents = parents(&self.git_output(&reachable)?);
+        let mut parents = parents(&self.git_output(&reachable)?);
         let merged = match (
             parents.get(&head).map(Vec::as_slice),
             release.as_deref(),
@@ -393,7 +411,13 @@ impl Repository {
             listing = self.log(&["--max-count=1", head.as_str()])?;
         }
         listing.extend(self.log(&[merged.unwrap_or(head.as_str())])?);
-        let line = line(&listing);
+        let into_release = merged.is_some();
+        let mut line = line(&listing);
+        if let Some(message) = self.squash.as_deref()
+            && !into_release
+        {
+            squash(&mut line, &mut parents, message);
+        }
         let files = String::from_utf8_lossy(&self.git_output(&[
             "ls-tree",
             "-r",
@@ -549,6 +573,23 @@ fn parents(listing: &[u8]) -> BTreeMap<String, Vec<String>> {
             (ids.next().unwrap_or_default(), ids.collect())
         })
         .collect()
+}
+
+/// Makes the first commit of the line the squash merge it stands for: one
+/// parent, its first, and the message given. Its changes are already those
+/// against its first parent. What only its other parents bring in is no longer
+/// contained in it, as it will not be in the commit the merge puts on the base
+/// branch, so a tag there is passed over.
+fn squash(line: &mut [Commit], parents: &mut BTreeMap<String, Vec<String>>, message: &str) {
+    // The line starts at `HEAD`, which exists here, and `rev-list` named its
+    // parents; nothing is left to decide.
+    for head in line.iter_mut().take(1) {
+        head.parents.truncate(1);
+        message.clone_into(&mut head.message);
+        parents
+            .entry(head.id.clone())
+            .and_modify(|own| own.truncate(1));
+    }
 }
 
 /// Whether a commit lies on the first-parent line that starts at another.

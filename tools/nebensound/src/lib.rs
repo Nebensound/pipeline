@@ -23,6 +23,7 @@ pub mod setup;
 pub mod terminal;
 #[cfg(feature = "ui")]
 pub mod ui;
+pub mod versions;
 pub mod writer;
 
 use std::ffi::OsString;
@@ -38,6 +39,7 @@ use thiserror::Error;
 
 use crate::output::Output;
 use crate::repository::{Repository, central_from};
+use crate::versions::PullRequest;
 
 /// Nothing to report.
 const OK: u8 = 0;
@@ -95,6 +97,23 @@ pub enum Command {
         /// checkout without the history to resolve them from.
         #[arg(long, value_name = "FILE")]
         plan: Option<PathBuf>,
+    },
+    /// Print the version of every unit that carries one: its last release, how
+    /// it is released, the version of the commit at hand and how many commits
+    /// wait for the next release.
+    Version {
+        /// Print the table as Markdown, for the summary of a run.
+        #[arg(long)]
+        markdown: bool,
+        /// Read `HEAD` as the merge commit of this pull request: the versions
+        /// are those its squash merge would get, with `-pr.<number>` behind
+        /// them.
+        #[arg(long, value_name = "NUMBER", requires = "message", value_parser = clap::value_parser!(u64).range(1..))]
+        pull_request: Option<u64>,
+        /// The message the squash merge of the pull request would carry: its
+        /// title and description.
+        #[arg(long, requires = "pull_request")]
+        message: Option<String>,
     },
     // It describes the format, not a repository, so it reads none.
     /// Print the JSON Schema of `.nebensound/repo.toml`, for editors and Taplo.
@@ -283,6 +302,11 @@ enum Job {
     ExcludedPackages,
     /// Write the versions, from this plan or from the history.
     WriteVersions(Option<PathBuf>),
+    /// Print the versions.
+    Version {
+        markdown: bool,
+        pull_request: Option<PullRequest>,
+    },
     /// Find or install the programs of the checks.
     Setup(setup::Options),
     /// Open the interface.
@@ -300,6 +324,16 @@ fn call(cli: &Cli) -> Result<Call, Failure> {
         Some(Command::Plan) => Job::Plan,
         Some(Command::ExcludedPackages) => Job::ExcludedPackages,
         Some(Command::WriteVersions { plan }) => Job::WriteVersions(plan.clone()),
+        Some(Command::Version {
+            markdown,
+            pull_request,
+            message,
+        }) => Job::Version {
+            markdown: *markdown,
+            pull_request: pull_request
+                .zip(message.clone())
+                .map(|(number, message)| PullRequest { number, message }),
+        },
         Some(Command::Setup {
             pinned,
             with_runtimes,
@@ -330,6 +364,18 @@ fn path_of(value: &str) -> Result<RelativePath, Failure> {
     })
 }
 
+/// The repository the call reads: for the versions of a pull request, `HEAD`
+/// as the squash merge of that pull request would put it on its base branch.
+fn repository_of(cli: &Cli, job: &Job) -> Repository {
+    match job {
+        Job::Version {
+            pull_request: Some(pull_request),
+            ..
+        } => Repository::at(&cli.repository).as_pull_request(pull_request.message.clone()),
+        _ => Repository::at(&cli.repository),
+    }
+}
+
 fn execute(
     cli: &Cli,
     job: &Job,
@@ -344,7 +390,7 @@ fn execute(
     #[cfg(not(feature = "ui"))]
     let _ = output;
 
-    let repository = Repository::at(&cli.repository);
+    let repository = repository_of(cli, job);
     let central = central_from(register, defaults)?;
     let analysis = match job {
         // Asked for by the building blocks in a unit job, whose checkout holds
@@ -431,6 +477,16 @@ fn execute(
             let said = write_versions(&repository, &analysis, &central, plan.as_deref())?;
             say(out, &format!("{said}\n"));
         }
+        // The same reason once more: a version read off a declaration with
+        // errors could be one the history does not give, so what is printed
+        // then is every finding.
+        Job::Version {
+            markdown,
+            pull_request,
+        } => say(
+            out,
+            &versions::report(&analysis, *markdown, pull_request.as_ref()),
+        ),
         // The same reason again: the programs of a declaration with errors
         // could be those of the wrong checks.
         Job::Setup(_) if analysis.failed() => say(

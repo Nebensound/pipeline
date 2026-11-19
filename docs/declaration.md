@@ -271,10 +271,8 @@ itself is included.
 
 Whether a unit carries a version decides whether phase 0 resolves one for it
 (see [Versions](#versions)), whether the plan names its build, and whether it
-may publish and select version writers. The report of phase 0 names the file
-that is to hold the version: `.nebensound/version` for the repository,
-`.nebensound/versions/<name>` for a component. Versions are not written or
-tagged yet.
+may publish and select version writers. No version is stored in the tree: tags
+are the truth.
 
 ## Releases
 
@@ -329,6 +327,9 @@ Tags are the truth, and no version is stored in the tree. Phase 0 resolves for
 every unit that carries a version which version the commit at hand has, from
 Git alone, and `nebensound plan` lists them under `versions` (see
 [the tool's README](../tools/nebensound/README.md#the-plan)).
+`nebensound version` shows them as a table, with the number of commits waiting
+for each unit's next release, and the job `nebensound / Version` writes the same
+table into the summary of every run (see [the phases](phases.md#version)).
 
 ### Tag names
 
