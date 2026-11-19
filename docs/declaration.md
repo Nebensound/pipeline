@@ -37,7 +37,10 @@ reason = "drawn in an editor that writes it; no tool here formats it"
   [JSON Schema of the file](../.github/actions/check-toml/schemas/nebensound-declaration.json),
   for completion and for marking an unknown key where it is written. The
   `check-toml` building block checks the file against the same schema whether
-  the line is there or not. Phase 0 is the judge: the schema lets through some
+  the line is there or not, and always against the schema of the version the
+  caller pins, while the line points at `main` and can run ahead of that
+  version (see [Calling the workflow](calling.md#the-schema-line-runs-ahead-of-the-pin)).
+  Phase 0 is the judge: the schema lets through some
   files that phase 0 then rejects, never the other way round.
 - Phase 0 reads the file in every run, in the job `nebensound / Declare`, and
   checks it against what Git tracks in the repository: `git ls-files`, so a

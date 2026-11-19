@@ -112,6 +112,15 @@ builds it only when the cache misses. Then its steps:
    xtask's code is Rust like any other, so phase 0 demands a unit that runs the
    `rust` check over `xtask/`.
 
+### Where a failed check is found
+
+The job `nebensound / Check` only gathers: it reports that something failed and
+holds no finding. The finding is in the job of the unit that failed, in the step
+of the check, where it is written to the log and as an annotation on its file
+and line, shown on the pull request's Files tab and in the summary of the run.
+A failure of phase 0 is in the job `nebensound / Declare`, which lists every
+finding.
+
 ### The summary
 
 `nebensound / Check` runs after Declare and every unit job, whatever their
@@ -132,8 +141,10 @@ called workflow.
 
 A ruleset requires a name in both parts. Of the names a run reports today, it
 requires `nebensound / Version` and `nebensound / Check`, and only those: the
-unit jobs change with the repository, and Declare is part of what `Check` sums
-up. Further required names arrive with the phases that are not built yet.
+unit jobs change with the repository, so a ruleset that required one would
+block a pull request when the unit goes away or is renamed, and Declare is part
+of what `Check` sums up. Of the reported jobs, only `Check` is meant for a
+ruleset to require for the checks. Further required names arrive with the phases that are not built yet.
 
 ## Pull request and push
 
