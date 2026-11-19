@@ -86,6 +86,25 @@ pub enum Rule {
     UnwatchedManifest,
     /// A watched ecosystem whose manifest does not exist.
     PointlessWatch,
+    /// A tag with a unit's prefix that is not one of its releases.
+    UnexpectedTag,
+    /// A commit message that is not a Conventional Commit.
+    UnconventionalCommit,
+    /// A clone without the whole history, so no version can be told.
+    ShallowClone,
+    /// A unit released in two stages, and no branch `origin/release`.
+    MissingReleaseBranch,
+    /// A unit released in one stage whose newest tag is a pre-release that its
+    /// last full release does not hold.
+    UnreleasedBeforeSwitch,
+    /// A version whose field to raise holds the largest number already.
+    ExhaustedVersion,
+    /// A branch `origin/release`, and no unit released in two stages.
+    PointlessReleaseBranch,
+    /// A unit released in one stage whose minimum version is a pre-release.
+    PreReleaseMinimum,
+    /// A merge into `release` of a commit other than the tip of `main`.
+    StalePromotion,
     /// A file a tool's own setting takes out, and no exclusion does.
     UnexcusedIgnore,
     /// A tool's setting that takes files out, and that phase 0 cannot read.
@@ -119,6 +138,15 @@ impl Rule {
             Self::VersionWriterWithoutVersion => "version-writer-without-version",
             Self::UnwatchedManifest => "unwatched-manifest",
             Self::PointlessWatch => "pointless-watch",
+            Self::UnexpectedTag => "unexpected-tag",
+            Self::UnconventionalCommit => "unconventional-commit",
+            Self::ShallowClone => "shallow-clone",
+            Self::MissingReleaseBranch => "missing-release-branch",
+            Self::UnreleasedBeforeSwitch => "unreleased-before-switch",
+            Self::ExhaustedVersion => "exhausted-version",
+            Self::PointlessReleaseBranch => "pointless-release-branch",
+            Self::PreReleaseMinimum => "pre-release-minimum",
+            Self::StalePromotion => "stale-promotion",
             Self::UnexcusedIgnore => "unexcused-ignore",
             Self::UnreadableIgnoreFile => "unreadable-ignore-file",
             Self::PartialPackageExclusion => "partial-package-exclusion",

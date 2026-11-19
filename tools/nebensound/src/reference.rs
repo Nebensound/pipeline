@@ -33,7 +33,14 @@ cargo run --quiet -- register > ../../docs/register.md
 
 A name stands here once the format knows it. Whether a step behind it is built
 yet is a separate question: [the phases](phases.md) say which phases run today,
-and a check whose building block is not written yet fails by name in its unit.";
+and a check whose building block is not written yet fails by name in its unit.
+
+What a name means does not change. Versions are resolved from the declaration of
+every earlier commit, read with the register of the tool that runs (see
+[Versions](declaration.md#versions)). A default that changes under the same name
+(the release mode of a target, or what a preset brings) changes what the
+declarations of old commits mean, and with it which tags count. Such a change is
+a breaking change of the pipeline; a new default comes under a new name.";
 
 /// The page, as `docs/register.md` holds it.
 #[must_use]

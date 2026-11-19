@@ -7,7 +7,7 @@ mod support;
 
 use nebensound::report;
 use nebensound_declaration::path::RelativePath;
-use support::{analysis, call, central, repository};
+use support::{Git, analysis, call, central, repository};
 
 /// One unit of each kind: the repository, declared components whose release
 /// mode their targets decide or that write it, and generated units.
@@ -188,10 +188,12 @@ fn the_configuration_names_both_fields_for_every_unit() {
 
 #[test]
 fn explain_on_a_repository_shows_both_fields() {
-    let dir = repository(KINDS_FILES);
-    let root = dir.path().to_str().expect("a path in UTF-8");
+    // The library is released in two stages, which needs the branch release.
+    let git = Git::new();
+    git.write(KINDS_FILES).commit("feat: one unit of each kind");
+    git.promote();
 
-    let (text, code) = call(&["nebensound", "-C", root, "explain", "service"]);
+    let (text, code) = call(&["nebensound", "-C", git.root(), "explain", "service"]);
 
     assert_eq!(code, 0, "{text}");
     assert!(

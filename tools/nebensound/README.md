@@ -34,7 +34,7 @@ nebensound [-C <directory>] [check | tree | explain <path> | plan | files [-z] <
 | `check`             | Runs phase 0 and prints everything: the resolved configuration, the tree, the findings and a summary line with the counts. The default, and what the composite action under `.github/actions/phase0` calls.                                                                                      |
 | `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                             |
 | `explain <path>`    | What holds for one path and why: which units contain it, how each of them is released, which checks are in force, how its coverage stands.                                                                                                                                                       |
-| `plan`              | Which unit runs which check and builds what, as one line of JSON for a matrix to read.                                                                                                                                                                                                           |
+| `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read.                                                                                                                                                                      |
 | `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                         |
 | `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                       |
 | `schema`            | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. `check-toml` assigns the copy committed beside it; [its README](../../.github/actions/check-toml/schemas/README.md#nebensound-declarationjson) says how to write that copy again. |
@@ -75,6 +75,26 @@ a run has to start, and where.
       "name": "tool",
       "path": "tool"
     }
+  ],
+  "versions": [
+    {
+      "base": "0.3.1",
+      "kind": "repository",
+      "name": null,
+      "path": ".",
+      "prefix": "v",
+      "release": "single-stage",
+      "version": "0.3.2"
+    },
+    {
+      "base": "1.4.0",
+      "kind": "component",
+      "name": "tool",
+      "path": "tool",
+      "prefix": "tool-v",
+      "release": "two-stage",
+      "version": "1.5.0-pre.3"
+    }
   ]
 }
 ```
@@ -84,7 +104,15 @@ read, and `checks` shortened. It is written by `serde_json`, so a path holding
 quotes or control characters cannot break the JSON. `units` is
 every unit phase 0 resolved, repository first. `checks` is the same thing flat —
 one entry per check that is started — because a matrix takes a list and cannot
-unfold a list inside one. The repository has no name, as its tag has no prefix.
+unfold a list inside one. The repository has no name; its tags carry only the
+prefix `v`.
+
+`versions` is one entry per unit that carries a version, in the order of
+`units`: `prefix` is what its tags start with, `release` how it is released,
+`base` its last full release (`0.0.0` without one), and `version` the version
+of the commit at hand, `null` when the commit does not touch the unit. How they
+are resolved from tags and history is described in
+[the reference of the declaration](../../docs/declaration.md#versions).
 
 A check runs **once, at the outermost unit it is in force for**. The base set is
 in force everywhere, so it runs at the repository; a check a unit declares
@@ -158,6 +186,24 @@ decided by Git. A walk over the file system would count `target/`,
 judge things the repository does not have.
 
 `git add` is enough; a commit is not needed, because `ls-files` reads the index.
+
+The versions come from Git as well: the line of `main` (the first-parent line
+of `HEAD`, or at a merge into `release` that of the commit of `main` it
+merges), the declaration and the files each commit of that line held, the tags
+and the branches `origin/release` and `origin/main`. Where a unit lived and how
+it was released is read at each commit from its own declaration, so a unit
+that moves or switches between one stage and two keeps its earlier releases.
+At a merge into `release`, `origin/main` also tells whether it brings in the tip
+of `main`: only the tip is promoted, and any other merge is the error
+`stale-promotion`. A repository without a commit has no version yet; a shallow clone is an error,
+because the history it lacks could hold the last release. Every option the person's Git configuration could change, such as
+rename detection, is given on the command line, so the answer does not depend
+on who runs it.
+
+Unlike the file list, the versions need a commit. They are resolved for `HEAD`,
+and each commit is read with the declaration it holds, so a change to
+`.nebensound/repo.toml` that is not committed yet reaches them only in part; see
+[what the history must hold](../../docs/declaration.md#what-the-history-must-hold).
 
 ## What the output says
 
