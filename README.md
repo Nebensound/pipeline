@@ -30,8 +30,8 @@ the open issues and milestones show what comes next.
 - [The phases](docs/phases.md): what runs, under which name, on a pull request
   and on a push.
 - [Calling the workflow](docs/calling.md): how to pin while no release exists,
-  why the schema line can run ahead of the pin, and how to change one
-  Markdownlint rule.
+  why the schema line can run ahead of the pin, and how to change one linter
+  rule in one place.
 
 ## Calling the pipeline
 

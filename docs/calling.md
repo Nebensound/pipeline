@@ -37,29 +37,15 @@ the line is there or not. When the editor and the run disagree, the run is
 right for this repository; raise the pin to use the key. See
 [the declaration](declaration.md#the-file).
 
-## Configuring Markdownlint
+## Changing one linter rule
 
-Where a repository brings no Markdownlint configuration, the one beside
-`check-markdown` applies: it switches `MD013` off, since Prettier does not wrap
-prose. A repository's own configuration at its root, in any of the files
-markdownlint-cli2 reads (`.markdownlint-cli2.jsonc`, `.markdownlint.jsonc` and
-the others), replaces that default as a whole, not rule by rule. Changing one
-rule therefore means repeating what the default sets, or the line-length rule
-comes back:
+A repository's own Markdownlint or yamllint configuration is laid over the
+pipeline's default rule by rule, so it names only the rule it wants different;
+nothing of the default has to be repeated. [Linter rules](../README.md#linter-rules)
+in the README states how, with an example of a one-rule configuration file.
 
-```jsonc
-// .markdownlint-cli2.jsonc
-{
-  "config": {
-    "MD013": false, // repeated from the pipeline's default
-    "MD033": false, // the one change
-  },
-}
-```
-
-A default of the pipeline that changes later does not reach such a repository.
-When one rule should differ in one place, the smaller way is an inline
-directive in the file, which leaves the default untouched everywhere else:
+For a single place in a single file, the tool's own inline directive is still
+the smaller way and works in the check:
 
 ```markdown
 <!-- markdownlint-disable-next-line MD033 -->
@@ -67,11 +53,7 @@ directive in the file, which leaves the default untouched everywhere else:
 ```
 
 `<!-- markdownlint-disable MD033 -->` and `<!-- markdownlint-enable MD033 -->`
-switch a rule off and on again around a stretch of a file. Inline directives
-are the tool's own way of silencing one rule, so they work in the check. What
-takes a file out of a check is a different matter: only an `[[exclude]]` entry
-does that (see [Exclusions](../README.md#exclusions)).
-
-yamllint behaves the same: a repository's own `.yamllint`, `.yamllint.yaml` or
-`.yamllint.yml` at the root replaces the pipeline's default as a whole. Its
-smaller way is a comment, such as `# yamllint disable-line rule:truthy`.
+switch a rule off and on again around a stretch of a file, and yamllint reads a
+comment such as `# yamllint disable-line rule:truthy`. What takes a file out of
+a check is a different matter: only an `[[exclude]]` entry does that (see
+[Exclusions](../README.md#exclusions)).
