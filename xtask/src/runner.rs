@@ -92,17 +92,26 @@ const PASSED_ON: &[&str] = &[
 const PASSED_ON_PREFIXES: &[&str] = &["LC_", "XDG_"];
 
 /// Default variables the runner gives every step and a block's action reads,
-/// set the same way locally and in the gate: lychee's action builds a link
-/// to the run from the repository and the run's ID, under `set -u`. A case
-/// is no repository on GitHub and runs in no workflow run, so these name
-/// none.
-const RUN: &[(&str, &str)] = &[
-    ("GITHUB_REPOSITORY", "xtask/case"),
-    ("GITHUB_REPOSITORY_OWNER", "xtask"),
-    ("GITHUB_RUN_ID", "0"),
-    ("GITHUB_RUN_NUMBER", "0"),
-    ("GITHUB_RUN_ATTEMPT", "1"),
+/// each with its name in the `github` context, set the same way locally and in
+/// the gate: lychee's action builds a link to the run from the repository and
+/// the run's ID, under `set -u` from the variables and in an expression from
+/// the context. A case is no repository on GitHub and runs in no workflow
+/// run, so these name none.
+const RUN: &[(&str, &str, &str)] = &[
+    ("GITHUB_REPOSITORY", "repository", "xtask/case"),
+    ("GITHUB_REPOSITORY_OWNER", "repository_owner", "xtask"),
+    ("GITHUB_RUN_ID", "run_id", "0"),
+    ("GITHUB_RUN_NUMBER", "run_number", "0"),
+    ("GITHUB_RUN_ATTEMPT", "run_attempt", "1"),
 ];
+
+/// The `job` context, as far as an action the blocks call reads it: lychee's
+/// action links the run's summary to the job's check run. A case runs in no
+/// job on GitHub, so it names none. Any other name of `job` is refused, as is
+/// any name of `github` and `runner` the xtask does not set: on GitHub it
+/// would have a value, and reading it as empty would run a block one way here
+/// and another way for every caller.
+const JOB: &[(&str, &str)] = &[("check_run_id", "0")];
 
 /// What stands in for an action that runs on Node.js.
 #[derive(Clone, Copy, Debug)]
@@ -494,14 +503,19 @@ impl Host {
     }
 
     fn github(&self, place: Place<'_>, dir: &Path) -> BTreeMap<&'static str, String> {
-        BTreeMap::from([
+        let mut github = BTreeMap::from([
             ("workspace", place.workspace.display().to_string()),
             ("action_path", dir.display().to_string()),
             // No step is handed a token: the blocks need none, and nothing a
             // case holds should run with one.
             ("token", String::new()),
             ("server_url", self.origin.clone()),
-        ])
+        ]);
+        github.extend(
+            RUN.iter()
+                .map(|(_, name, value)| (*name, (*value).to_owned())),
+        );
+        github
     }
 
     fn runner(&self, place: Place<'_>) -> BTreeMap<&'static str, String> {
@@ -543,7 +557,7 @@ impl Host {
         command
             .env("PATH", path.join(":"))
             .env("CARGO_INSTALL_ROOT", &self.installs)
-            .envs(RUN.iter().copied())
+            .envs(RUN.iter().map(|(variable, _, value)| (variable, value)))
             .env("CI", "true")
             .env("GITHUB_ACTIONS", "true")
             .env("GITHUB_SERVER_URL", &self.origin)
@@ -866,6 +880,19 @@ pub fn file_commands(text: &str, what: &str) -> Result<Vec<(String, String)>, Er
     Ok(found)
 }
 
+/// The value a name of `github`, `runner` or `job` has, or the refusal when
+/// the xtask sets none for it (see [`JOB`]).
+fn known(value: Option<String>, path: &[String]) -> Result<String, Error> {
+    value.ok_or_else(|| unknown(path))
+}
+
+fn unknown(path: &[String]) -> Error {
+    Error::new(format!(
+        "`{}` names no value the xtask knows",
+        path.join(".")
+    ))
+}
+
 /// What a step recorded under its `id`.
 struct Record {
     result: &'static str,
@@ -897,14 +924,16 @@ impl Scope for Context<'_> {
                 .steps
                 .get(*id)
                 .and_then(|record| record.outputs.get(*name).cloned()),
-            ["github", name] => self.github.get(*name).cloned(),
-            ["runner", name] => self.runner.get(*name).cloned(),
-            ["job", _] => None,
+            ["github", name] => Some(known(self.github.get(*name).cloned(), path)?),
+            ["runner", name] => Some(known(self.runner.get(*name).cloned(), path)?),
+            ["job", name] => Some(known(
+                JOB.iter()
+                    .find(|(known, _)| known == name)
+                    .map(|(_, value)| (*value).to_owned()),
+                path,
+            )?),
             [context, ..] if ["inputs", "steps", "github", "runner", "job"].contains(context) => {
-                return Err(Error::new(format!(
-                    "`{}` names no value the xtask knows",
-                    path.join(".")
-                )));
+                return Err(unknown(path));
             }
             _ => {
                 return Err(Error::new(format!(

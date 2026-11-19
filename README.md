@@ -371,7 +371,10 @@ a block print something else locally than in the gate. Of the variables the
 runner sets for every step, a step gets `CI`, `GITHUB_ACTIONS`, the `RUNNER_`
 and file-command variables, and fixed values for the repository and the run
 (`GITHUB_REPOSITORY`, `GITHUB_RUN_ID` and their kin), which lychee's action
-reads; a case belongs to no repository on GitHub and to no run. What a step
+reads; a case belongs to no repository on GitHub and to no run. The
+expressions `github.*`, `runner.*` and `job.*` know only the names the blocks
+and the actions they call read, with the same values; any other name fails the
+xtask, since on GitHub it would have a value the xtask cannot give. What a step
 installs with `cargo install` goes into a folder of the run that comes first on
 its `PATH`, so the cases leave the developer's own programs as they are.
 

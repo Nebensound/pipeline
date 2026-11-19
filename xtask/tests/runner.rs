@@ -178,7 +178,8 @@ fn a_step_sees_what_the_runner_hands_it() {
              echo \"${{ github.workspace }}\" | grep -q workspace && echo github.workspace\n\
              echo \"${{ github.action_path }}\" | grep -q main && echo github.action_path\n\
              echo \"${{ runner.temp }}\" | grep -q temp && echo runner.temp\n\
-             echo \"[${{ runner.os }}] [${{ runner.arch }}] [${{ github.token }}] [${{ github.server_url }}] [${{ job.check_run_id }}] [${{ github.unknown }}]\"",
+             echo \"[${{ runner.os }}] [${{ runner.arch }}] [${{ github.token }}] [${{ github.server_url }}] [${{ job.check_run_id }}]\"\n\
+             echo \"${{ github.repository }} ${{ github.repository_owner }} ${{ github.run_id }} ${{ github.run_number }} ${{ github.run_attempt }}\"",
         ),
     );
     let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[], &[]));
@@ -197,7 +198,8 @@ fn a_step_sees_what_the_runner_hands_it() {
             "github.workspace",
             "github.action_path",
             "runner.temp",
-            "[Linux] [X64] [] [file:///nowhere] [] []",
+            "[Linux] [X64] [] [file:///nowhere] [0]",
+            "xtask/case xtask 0 0 1",
         ]
     );
 }
@@ -305,6 +307,28 @@ fn what_the_runner_would_not_run_is_refused() {
             "runs:\n  using: composite\n  steps:\n    - run: echo ${{ steps.a }}\n      shell: bash\n",
             &[],
             "names no value",
+        ),
+        // On GitHub these have a value, so reading them as empty would run a
+        // block one way here and another way for every caller.
+        (
+            "runs:\n  using: composite\n  steps:\n    - run: echo ${{ github.event_name }}\n      shell: bash\n",
+            &[],
+            "`github.event_name` names no value the xtask knows",
+        ),
+        (
+            "runs:\n  using: composite\n  steps:\n    - run: echo\n      shell: bash\n      if: github.event_name == 'pull_request'\n",
+            &[],
+            "`github.event_name` names no value the xtask knows",
+        ),
+        (
+            "runs:\n  using: composite\n  steps:\n    - run: echo ${{ runner.name }}\n      shell: bash\n",
+            &[],
+            "`runner.name` names no value the xtask knows",
+        ),
+        (
+            "runs:\n  using: composite\n  steps:\n    - run: echo\n      shell: bash\n      if: job.status == 'success'\n",
+            &[],
+            "`job.status` names no value the xtask knows",
         ),
         (
             "runs:\n  using: composite\n  steps:\n    - uses: a/b@c\n      with:\n        a: ${{ x.y }}\n",
