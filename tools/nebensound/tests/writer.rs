@@ -81,11 +81,16 @@ fn read(root: &Path, path: &str) -> String {
 /// its own build: the fixture is built plainly, into a folder of its own.
 fn cargo(root: &Path, args: &[&str]) -> String {
     let target = tempfile::tempdir().expect("a target folder");
+    cargo_into(root, target.path(), args)
+}
+
+/// The same, into a target folder the caller keeps.
+fn cargo_into(root: &Path, target: &Path, args: &[&str]) -> String {
     let output = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
         .args(args)
         .arg("--offline")
         .current_dir(root)
-        .env("CARGO_TARGET_DIR", target.path())
+        .env("CARGO_TARGET_DIR", target)
         .env_remove("RUSTFLAGS")
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .env_remove("RUSTDOCFLAGS")
@@ -229,6 +234,52 @@ fn only_cargo_manifests_and_lockfiles_change() {
             "crates/lib/Cargo.toml"
         ],
         "{status}"
+    );
+}
+
+#[test]
+fn packages_that_depend_on_each_other_package_together() {
+    // What the package test of `check-rust` does: one `cargo package` for all
+    // published packages, then each copy tested with its siblings patched in.
+    let git = Git::new();
+    git.write(&two_packages());
+    git.commit("feat: start");
+    let (text, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
+    assert_eq!(code, 0, "{text}");
+    let target = tempfile::tempdir().expect("a target folder");
+
+    cargo_into(
+        git.path(),
+        target.path(),
+        &[
+            "package",
+            "--locked",
+            "--allow-dirty",
+            "--package",
+            "lib",
+            "--package",
+            "app",
+        ],
+    );
+
+    let packaged = target.path().join("package");
+    let app = read(&packaged.join("app-0.0.1"), "Cargo.toml");
+    assert!(
+        app.contains("[dependencies.lib]\nversion = \"0.0.1\"\n"),
+        "{app}"
+    );
+    assert!(!app.contains("../lib"), "{app}");
+    let lib = packaged.join("lib-0.0.1");
+    cargo(
+        &packaged.join("app-0.0.1"),
+        &[
+            "build",
+            "--config",
+            &format!(
+                "patch.crates-io.lib.path='{}'",
+                lib.to_str().expect("a path in UTF-8")
+            ),
+        ],
     );
 }
 

@@ -442,32 +442,46 @@ runs:
         published="$(cargo metadata --locked --format-version 1 --no-deps \
           | jq -r --slurpfile packages "$PACKAGES" '
               .packages[] | select(.publish != [] and (.name | IN($packages[0].checked[])))
-              | .name')"
+              | "\(.name) \(.version)"')"
         if [ -z "$published" ]; then
           echo "Nothing is published from here, so there is nothing to verify."
           exit 0
         fi
+        # All in one call. A package that depends on another one published
+        # from here by path names it by version in its package, and that
+        # version is on no registry yet. Packaged together, Cargo builds each
+        # against the packages of the others; packaged one by one, it looks a
+        # sibling up on crates.io and fails, or finds a stranger's crate.
+        #
         # --allow-dirty: the versions just written are changes Git does not
         # have, and Cargo refuses to package uncommitted changes without it.
         # Nothing else in the checkout is changed.
-        for name in $published; do
-          cargo package --locked --allow-dirty -p "$name"
-        done
+        args=()
+        while read -r name version; do
+          args+=(--package "$name")
+        done <<< "$published"
+        cargo package --locked --allow-dirty "${args[@]}"
+        # Each package is copied out, and each copy is tested with the copies
+        # of its siblings patched in for crates.io, for the same reason. A
+        # patch a copy does not need only draws a warning.
+        copies=()
+        while read -r name version; do
+          rm -rf "${RUNNER_TEMP:?}/$name-$version"
+          cp -r "target/package/$name-$version" "$RUNNER_TEMP/$name-$version"
+          copies+=("$name $RUNNER_TEMP/$name-$version")
+        done <<< "$published"
         # Outside the workspace its rust-toolchain.toml no longer applies, so
         # the toolchain is named for the copies.
         toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
-        tested=0
-        for dir in target/package/*/; do
-          name="$(basename "$dir")"
-          case "$name" in tmp-crate) continue ;; esac
-          [ -f "$dir/Cargo.toml" ] || continue
-          rm -rf "$RUNNER_TEMP/$name"
-          cp -r "$dir" "$RUNNER_TEMP/$name"
-          ( cd "$RUNNER_TEMP/$name" && cargo "+$toolchain" test --all-features )
-          tested=$((tested + 1))
+        for copy in "${copies[@]}"; do
+          read -r name dir <<< "$copy"
+          patches=()
+          for sibling in "${copies[@]}"; do
+            read -r other path <<< "$sibling"
+            if [ "$other" != "$name" ]; then
+              patches+=(--config "patch.crates-io.$other.path='$path'")
+            fi
+          done
+          ( cd "$dir" && cargo "+$toolchain" test --all-features "${patches[@]}" )
         done
-        if [ "$tested" -eq 0 ]; then
-          echo "No package was produced, so nothing was verified." >&2
-          exit 1
-        fi
-        echo "Verified $tested package(s) outside the source tree."
+        echo "Verified ${#copies[@]} package(s) outside the source tree."

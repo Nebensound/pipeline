@@ -151,7 +151,9 @@ away:
   contents, outside the source tree. The versions are written first, as
   [`version-cargo`](#version-cargo) writes them, and put back when the step
   ends: a package without a version is not published, so only a unit with a
-  version at this commit is verified here.
+  version at this commit is verified here. The packages are packaged in one
+  call and each is tested with the packages of its siblings in place of
+  crates.io, since a version just written is on no registry yet.
 
 Rust code is excluded by the package, never by the file. Phase 0 fails on an
 `[[exclude]]` entry that takes a `.rs` file out of a package without taking out
