@@ -458,7 +458,8 @@ digest     = "sha256:23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22d
 executable = "jq.exe"
 
 # The `.sha256` files of the release; the same digests stand on the release
-# assets. These are the archives lychee-action fetches for this version.
+# assets. The Linux archives are the ones lychee-action fetches for this
+# version.
 [program.lychee]
 version = "0.24.2"
 command = "lychee"
