@@ -1,4 +1,8 @@
 [package]
-name = "fixture"
+name    = "fixture"
 edition = "2024"
 publish = false
+
+# The workspace `loose` belongs to: its manifest names no workspace of its own,
+# and this one does not exclude it.
+[workspace]

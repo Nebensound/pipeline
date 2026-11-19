@@ -1,7 +1,8 @@
-# A workspace that passes every other step, beside a unit with the version
-# writer cargo whose manifest describes no package. The package test writes the
-# versions first, and the writer refuses: there is no package to give the
-# version to. The block fails with the writer's sentence, by name.
+# A workspace that passes every other step, with a unit inside it that selects
+# the version writer cargo and whose manifest describes no package. The package
+# test writes the versions of the workspace's units first, and the writer
+# refuses: there is no package to give the version to. The block fails with the
+# writer's sentence, by name.
 [repo]
 pipeline = "rust-workspace"
 

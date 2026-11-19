@@ -30,7 +30,7 @@ pub mod writer;
 use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 use nebensound_declaration::path::RelativePath;
@@ -105,11 +105,11 @@ pub enum Command {
         /// checkout without the history to resolve them from.
         #[arg(long, value_name = "FILE")]
         plan: Option<PathBuf>,
-        /// Start only from the units at or below this path, as the package
-        /// test of one workspace does; their path dependencies are followed
-        /// wherever they lie.
+        /// Start only from the units of the workspace Cargo finds at this
+        /// path, as the package test of one workspace does; their path
+        /// dependencies are followed wherever they lie.
         #[arg(long, value_name = "PATH")]
-        below: Option<String>,
+        workspace: Option<String>,
     },
     /// Print the version of every unit that carries one: its last release, how
     /// it is released, the version of the commit at hand and how many commits
@@ -313,6 +313,16 @@ enum Call {
     Repository(Job),
 }
 
+/// What `write-versions` is asked for.
+struct Writing {
+    /// The plan to take the versions from; [`None`] resolves them from the
+    /// history.
+    plan: Option<PathBuf>,
+    /// A folder of the workspace whose units start the writing; [`None`]
+    /// starts from every unit.
+    workspace: Option<RelativePath>,
+}
+
 /// A call about the repository.
 enum Job {
     /// Run phase 0 and print the whole result.
@@ -332,12 +342,8 @@ enum Job {
     },
     /// Print the packages taken out as a whole.
     ExcludedPackages,
-    /// Write the versions, from this plan or from the history, starting from
-    /// the units below this path.
-    WriteVersions {
-        plan: Option<PathBuf>,
-        below: RelativePath,
-    },
+    /// Write the versions.
+    WriteVersions(Writing),
     /// Print the versions.
     Version {
         markdown: bool,
@@ -359,12 +365,10 @@ fn call(cli: &Cli) -> Result<Call, Failure> {
         Some(Command::Tree) => Job::Tree,
         Some(Command::Plan { pull_request }) => Job::Plan(pull_request.read()),
         Some(Command::ExcludedPackages) => Job::ExcludedPackages,
-        Some(Command::WriteVersions { plan, below }) => Job::WriteVersions {
+        Some(Command::WriteVersions { plan, workspace }) => Job::WriteVersions(Writing {
             plan: plan.clone(),
-            below: below
-                .as_deref()
-                .map_or_else(|| Ok(RelativePath::root()), path_of)?,
-        },
+            workspace: workspace.as_deref().map(path_of).transpose()?,
+        }),
         Some(Command::Version {
             markdown,
             pull_request,
@@ -443,7 +447,7 @@ fn execute(
         // setting up the programs either.
         Job::Files { .. }
         | Job::ExcludedPackages
-        | Job::WriteVersions { plan: Some(_), .. }
+        | Job::WriteVersions(Writing { plan: Some(_), .. })
         | Job::Setup(_) => repository.analyse_files(&central),
         _ => repository.analyse(&central),
     }?;
@@ -510,13 +514,13 @@ fn execute(
         ),
         // The same reason again: a version read off a declaration with errors
         // could be written into the wrong package.
-        Job::WriteVersions { .. } if analysis.failed() => say(
+        Job::WriteVersions(_) if analysis.failed() => say(
             out,
             "no version is written: phase 0 found errors, and `check` says which\n",
         ),
-        Job::WriteVersions { plan, below } => say(
+        Job::WriteVersions(writing) => say(
             out,
-            &write_versions(&repository, &analysis, &central, plan.as_deref(), below)?,
+            &write_versions(&repository, &analysis, &central, writing)?,
         ),
         // The same reason once more: a version read off a declaration with
         // errors could be one the history does not give, so what is printed
@@ -561,17 +565,15 @@ fn plan_of(analysis: &Analysis, central: &Central, pull_request: Option<&PullReq
     format!("{}\n", plan.to_json())
 }
 
-/// Writes the versions, from the plan in `plan` or, without one, from the
-/// history, starting from the units at or below `below`, and returns what was
-/// done, ended by a line break.
+/// Writes the versions as `writing` asks and returns what was done, ended by a
+/// line break.
 fn write_versions(
     repository: &Repository,
     analysis: &Analysis,
     central: &Central,
-    plan: Option<&Path>,
-    below: &RelativePath,
+    writing: &Writing,
 ) -> Result<String, Failure> {
-    let orders = match plan {
+    let orders = match &writing.plan {
         Some(file) => fs::read_to_string(file)
             .map_err(|error| error.to_string())
             .and_then(|text| writer::Order::read(&text).map_err(|error| error.to_string()))
@@ -590,6 +592,6 @@ fn write_versions(
         .collect();
     Ok(format!(
         "{}\n",
-        writer::write(repository, &manifests, &orders, below)?
+        writer::write(repository, &manifests, &orders, writing.workspace.as_ref())?
     ))
 }

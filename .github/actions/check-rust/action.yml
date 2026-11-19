@@ -416,10 +416,11 @@ runs:
     # the same call as the block `version-cargo`: on a pull request the one its
     # merge would get, with -pr.<number> behind it, and for a unit the commit
     # does not touch its last release where a package that gets a version
-    # depends on it by path. It starts from the units in this workspace's
-    # folder alone and follows their path dependencies wherever they lie, so
-    # that what another workspace of the repository needs cannot fail this
-    # one. A unit that gets nothing has no version and is not packaged here.
+    # depends on it by path. It starts from the units of this workspace alone,
+    # as Cargo finds it, and follows their path dependencies wherever they lie,
+    # so that what another workspace of the repository needs cannot fail this
+    # one, also a workspace of its own in a folder below this one. A unit that
+    # gets nothing has no version and is not packaged here.
     # Every Cargo.toml and Cargo.lock it changed is put back when the step
     # ends, so that a check after it in the same job sees the files as they
     # are committed.
@@ -442,7 +443,7 @@ runs:
         if [ -n "$PLAN" ]; then
           plan="$RUNNER_TEMP/check-rust-plan.json"
           printf '%s\n' "$PLAN" > "$plan"
-          nebensound -C "$root" write-versions --plan "$plan" --below "$UNIT"
+          nebensound -C "$root" write-versions --plan "$plan" --workspace "$UNIT"
         else
           echo "No plan was handed in, so no version is written."
         fi

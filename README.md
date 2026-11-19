@@ -156,9 +156,10 @@ away:
   [`version-cargo`](#version-cargo) writes them, and put back when the step
   ends: a package without a version is not published, so only a unit with a
   version is verified here, on a pull request with the version its merge would
-  get. The writing starts from the units in the workspace's folder alone and
-  follows their path dependencies wherever they lie, so what another workspace
-  of the repository needs cannot fail this one. The packages are packaged in one call and each is tested with the
+  get. The writing starts from the units of the workspace alone, as Cargo
+  finds it, and follows their path dependencies wherever they lie, so what
+  another workspace of the repository needs cannot fail this one, also a
+  workspace of its own in a folder below it. The packages are packaged in one call and each is tested with the
   packages of its siblings in place of crates.io, since a version just written
   is on no registry yet. A local package they depend on that is not packaged
   with them, a path dependency that is no member or a member an `[[exclude]]`
@@ -289,7 +290,7 @@ that carries no version at all (a unit with `versioning = "none"`, or one that
 does not select the writer `cargo`) is left to Cargo: the package test fails
 with Cargo's message. Only `Cargo.toml` and `Cargo.lock` files change.
 `check-rust` writes the versions the same way for its package test, starting
-from the units in its workspace's folder (`--below`); the Build
+from the units of its workspace (`--workspace`); the Build
 phase that calls the block before building is not built yet. A version writer
 without a building block (today `asciidoc`) fails by name in
 `nebensound / Check`.

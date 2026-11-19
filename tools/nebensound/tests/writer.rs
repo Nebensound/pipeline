@@ -903,7 +903,7 @@ fn two_workspaces(b_needs: &str) -> Git {
 }
 
 #[test]
-fn a_call_below_one_workspace_is_not_failed_by_another() {
+fn a_call_for_one_workspace_is_not_failed_by_another() {
     // `app` was released, `lib` never was, and the commit touches `a/app` and
     // `b`. The whole repository cannot be written, since `app` needs a
     // version of `lib`; the workspace `b` can.
@@ -930,7 +930,7 @@ fn a_call_below_one_workspace_is_not_failed_by_another() {
         "-C",
         git.root(),
         "write-versions",
-        "--below",
+        "--workspace",
         "b",
     ]);
 
@@ -941,8 +941,8 @@ fn a_call_below_one_workspace_is_not_failed_by_another() {
     );
     assert!(
         text.contains(
-            "component app lies outside b, and no package that gets a version depends on it by \
-             path, so nothing is written for it."
+            "component app lies outside the workspace at b, and no package that gets a version \
+             depends on it by path, so nothing is written for it."
         ),
         "{text}"
     );
@@ -958,9 +958,9 @@ fn a_call_below_one_workspace_is_not_failed_by_another() {
 }
 
 #[test]
-fn a_call_below_one_workspace_follows_its_path_dependencies_out_of_it() {
+fn a_call_for_one_workspace_follows_its_path_dependencies_out_of_it() {
     // `b` depends by path on `lib` in the workspace `a`, and the commit
-    // touches both and not `app`. Below `b`, `lib` gets the version of the
+    // touches both and not `app`. For `b`, `lib` gets the version of the
     // commit, since the commit touches it, though it was never released.
     let git = two_workspaces("lib = { path = \"../a/lib\" }");
     git.write(&[
@@ -977,7 +977,7 @@ fn a_call_below_one_workspace_follows_its_path_dependencies_out_of_it() {
         "-C",
         git.root(),
         "write-versions",
-        "--below",
+        "--workspace",
         "b",
     ]);
 
@@ -1001,7 +1001,7 @@ fn a_call_below_one_workspace_follows_its_path_dependencies_out_of_it() {
 }
 
 #[test]
-fn a_call_below_a_path_that_is_none_is_refused() {
+fn a_call_for_a_path_that_is_none_is_refused() {
     let git = two_workspaces("");
 
     let (text, code) = call(&[
@@ -1009,7 +1009,7 @@ fn a_call_below_a_path_that_is_none_is_refused() {
         "-C",
         git.root(),
         "write-versions",
-        "--below",
+        "--workspace",
         "../b",
     ]);
 
@@ -1022,6 +1022,128 @@ fn a_call_below_a_path_that_is_none_is_refused() {
         read(git.path(), "b/Cargo.toml"),
         "[package]\nname = \"b\"\nedition = \"2024\"\n\n[workspace]\n"
     );
+}
+
+/// A package at the repository root, the repository unit, whose workspace
+/// excludes `b`: a workspace of its own below it, in which `app` depends by
+/// path on `lib`. The root and `app` were released, `lib` never was.
+fn a_workspace_inside_another() -> Git {
+    let git = Git::new();
+    git.write(&[
+        (
+            ".nebensound/repo.toml",
+            "[repo]\npipeline = { version = [\"cargo\"], check = [\"rust\"] }\n\n[component.b]\n\
+             path = \"b\"\nversioning = \"child-folders\"\npipeline = { version = [\"cargo\"] }\n",
+        ),
+        ("Cargo.toml", ROOT),
+        (
+            "Cargo.lock",
+            "version = 4\n\n[[package]]\nname = \"root\"\nversion = \"0.0.0\"\n",
+        ),
+        ("src/lib.rs", "//! The root.\n"),
+        (
+            "b/Cargo.toml",
+            "[workspace]\nmembers  = [\"app\", \"lib\"]\nresolver = \"3\"\n",
+        ),
+        ("b/Cargo.lock", LOCKFILE),
+        ("b/lib/Cargo.toml", LIB),
+        (
+            "b/lib/src/lib.rs",
+            "//! A library.\n\n/// One.\n#[must_use]\npub fn one() -> u8 {\n    1\n}\n",
+        ),
+        ("b/app/Cargo.toml", APP),
+        (
+            "b/app/src/main.rs",
+            "//! An app.\n\nfn main() {\n    println!(\"{}\", lib::one());\n}\n",
+        ),
+    ]);
+    git.commit("feat: start");
+    git.tag("v0.0.1", &git.head());
+    git.tag("b-app-v0.0.1", &git.head());
+    git.write(&[
+        ("src/lib.rs", "//! The root, changed.\n"),
+        (
+            "b/app/src/main.rs",
+            "//! An app, changed.\n\nfn main() {\n    println!(\"{}\", lib::one());\n}\n",
+        ),
+    ]);
+    git.commit("fix: change both");
+    git
+}
+
+/// The manifest at the root of [`a_workspace_inside_another`].
+const ROOT: &str =
+    "[package]\nname    = \"root\"\nedition = \"2024\"\n\n[workspace]\nexclude = [\"b\"]\n";
+
+#[test]
+fn a_call_for_one_workspace_is_not_failed_by_a_workspace_of_its_own_below_it() {
+    // The commit touches the root and `b/app`. The whole repository cannot be
+    // written, since `app` needs a version of `lib`; the workspace at the
+    // root, which never builds `b`, can.
+    let git = a_workspace_inside_another();
+
+    let (whole, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
+    assert_eq!(code, 1, "{whole}");
+    assert!(
+        whole.contains("the package app gets 0.0.2 and depends by path on the package lib"),
+        "{whole}"
+    );
+
+    let (text, code) = call(&[
+        "nebensound",
+        "-C",
+        git.root(),
+        "write-versions",
+        "--workspace",
+        ".",
+    ]);
+
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.contains("the repository: the package root at . gets 0.0.2 (workspace root: .)."),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "component app lies outside the workspace at ., and no package that gets a version \
+             depends on it by path, so nothing is written for it."
+        ),
+        "{text}"
+    );
+    assert_eq!(read(git.path(), "b/app/Cargo.toml"), APP);
+    assert_eq!(read(git.path(), "b/lib/Cargo.toml"), LIB);
+    assert_eq!(read(git.path(), "b/Cargo.lock"), LOCKFILE);
+    assert_eq!(reported(git.path(), "root"), "0.0.2");
+}
+
+#[test]
+fn a_call_for_a_member_starts_from_its_whole_workspace() {
+    // Handed the folder of a member, the call starts from the workspace that
+    // member belongs to: both packages of [`two_packages`] get the version of
+    // the commit, as they do for the workspace's root.
+    let git = Git::new();
+    git.write(&two_packages());
+    git.commit("feat: start");
+
+    let (text, code) = call(&[
+        "nebensound",
+        "-C",
+        git.root(),
+        "write-versions",
+        "--workspace",
+        "crates/app",
+    ]);
+
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.contains("component lib: the package lib at crates/lib gets 0.0.1"),
+        "{text}"
+    );
+    assert!(
+        text.contains("component app: the package app at crates/app gets 0.0.1"),
+        "{text}"
+    );
+    cargo(git.path(), &["build", "--locked"]);
 }
 
 /// [`two_packages`] with both released at `0.0.1`, then a commit on `main`
