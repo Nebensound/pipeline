@@ -154,17 +154,33 @@ runs:
         done < "$RUNNER_TEMP/check-markdown-prettier"
         exit "$status"
 
-    # A repository's own Markdownlint configuration at its root wins; without
-    # one, the configuration beside this file holds. Its rules hold as written,
-    # but nothing in it takes a file out. markdownlint-cli2 would skip a named
-    # file in three ways: through `ignores` in any options file, and through a
-    # negated entry of `globs` or through `gitignore` in the options file of
-    # the folder it starts from. So it is called through its own `main`: every
-    # file is handed over literally (`:` in front), which `gitignore` does not
-    # reach; it starts from an empty folder, so the repository's options file
-    # counts as that of the repository's folder, whose `globs` play no part;
-    # and `ignores` is overridden with an empty list for every folder. What
-    # remains is the repository's rules, read as markdownlint-cli2 reads them.
+    # The pipeline's default (`tools/nebensound/rules/markdownlint.jsonc`,
+    # from the same commit as this file) lies beneath every configuration of
+    # the repository, which is laid over it rule by rule: a rule the
+    # repository does not name keeps the default's value, so its file names
+    # only what differs, and a change of the default reaches it.
+    #
+    # markdownlint-cli2 gets the default as its base options, beneath
+    # everything it reads. It lays the `config` of a `.markdownlint-cli2.*`
+    # options file over what lies above it rule by rule, in every folder. A
+    # `.markdownlint.*` file, which holds rules only, it would take instead of
+    # everything above it, the default included. So the one at the root is
+    # read here the way markdownlint-cli2 reads it (`extends` included) and
+    # laid over the default, and markdownlint-cli2 is handed a view of the
+    # files in which that one is not there. One in a folder below the root
+    # still takes the place of everything above it in its folder; the
+    # reference says so.
+    #
+    # Its rules hold, but nothing in it takes a file out. markdownlint-cli2
+    # would skip a named file in three ways: through `ignores` in any options
+    # file, and through a negated entry of `globs` or through `gitignore` in
+    # the options file of the folder it starts from. So it is called through
+    # its own `main`: every file is handed over literally (`:` in front), which
+    # `gitignore` does not reach; it starts from an empty folder, so the
+    # repository's options file counts as that of the repository's folder,
+    # whose `globs` play no part; and `ignores` is overridden with an empty
+    # list for every folder. What remains is the repository's rules over the
+    # default, read as markdownlint-cli2 reads them.
     - name: Every Markdown file passes Markdownlint
       if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
       shell: bash
@@ -172,47 +188,79 @@ runs:
         LIST: ${{ steps.files.outputs.list }}
       run: |
         set -euo pipefail
-        config="$GITHUB_ACTION_PATH/default.markdownlint-cli2.jsonc"
-        for own in \
-          .markdownlint-cli2.jsonc .markdownlint-cli2.yaml .markdownlint-cli2.cjs \
-          .markdownlint-cli2.mjs .markdownlint.jsonc .markdownlint.json \
-          .markdownlint.yaml .markdownlint.yml .markdownlint.cjs .markdownlint.mjs; do
-          if [ -f "$own" ]; then
-            config="$own"
-            break
-          fi
-        done
-        echo "Configuration: $config"
         # The folder it starts from. It names every file relative to that
         # folder, so that prefix is taken off again where a finding is printed.
         base="$(mktemp -d "$RUNNER_TEMP/check-markdown-base.XXXXXX")"
         prefix="$(realpath --relative-to="$base" "$PWD")/"
-        fallback=""
-        if [ "$config" = "$GITHUB_ACTION_PATH/default.markdownlint-cli2.jsonc" ]; then
-          fallback="$config"
-        fi
         status=0
-        TOOLS="$RUNNER_TEMP/check-markdown-tools" BASE="$base" FALLBACK="$fallback" \
+        TOOLS="$RUNNER_TEMP/check-markdown-tools" BASE="$base" \
+          DEFAULT="$GITHUB_ACTION_PATH/../../../tools/nebensound/rules/markdownlint.jsonc" \
           node --input-type=module --eval '
-            import { readFileSync } from "node:fs";
-            import { join, resolve } from "node:path";
+            import fs from "node:fs";
+            import { basename, join, resolve } from "node:path";
             import { pathToFileURL } from "node:url";
 
-            const { TOOLS, BASE, LIST, FALLBACK } = process.env;
-            const cli = join(TOOLS, "node_modules", "markdownlint-cli2", "markdownlint-cli2.mjs");
-            const { main } = await import(pathToFileURL(cli).href);
-            const argv = readFileSync(LIST, "utf8")
+            const { TOOLS, BASE, LIST, DEFAULT } = process.env;
+            const load = async (...path) =>
+              import(pathToFileURL(join(TOOLS, "node_modules", "markdownlint-cli2", ...path)).href);
+            const { main } = await load("markdownlint-cli2.mjs");
+            const { readConfig, extendConfig } = await load("export-markdownlint-promise.mjs");
+            const { default: parsers } = await load("parsers", "parsers.mjs");
+
+            // As markdownlint-cli2 reads a file that holds rules only: the
+            // first of these names in a folder, `extends` resolved.
+            const names = [
+              ".markdownlint.jsonc", ".markdownlint.json", ".markdownlint.yaml",
+              ".markdownlint.yml", ".markdownlint.cjs", ".markdownlint.mjs",
+            ];
+            const rules = async (file) => {
+              if (!/\.[cm]js$/.test(file)) {
+                return readConfig(file, parsers, fs);
+              }
+              const config = { ...(await import(pathToFileURL(file).href)).default };
+              return config.extends ? extendConfig(config, file, parsers, fs) : config;
+            };
+            const atRoot = names.map((name) => join(process.cwd(), name));
+            const own = atRoot.find((file) => fs.existsSync(file));
+            let config = await readConfig(DEFAULT, parsers, fs);
+            if (own) {
+              config = { ...config, ...(await rules(own)) };
+            }
+            // What lies over the default at the root, for the log; what lies
+            // over it in a folder below, `nebensound check` names.
+            const options = [
+              ".markdownlint-cli2.jsonc", ".markdownlint-cli2.yaml",
+              ".markdownlint-cli2.cjs", ".markdownlint-cli2.mjs",
+            ].find((name) => fs.existsSync(join(process.cwd(), name)));
+            const over = [own && basename(own), options].filter(Boolean);
+            console.log(over.length === 0
+              ? "Rules: the pipeline default"
+              : `Rules: the pipeline default, and laid over it ${over.join(", then ")}`);
+            // The view of the files markdownlint-cli2 is handed: the same,
+            // less the file at the root that holds rules only, which is laid
+            // over the default above.
+            const hidden = new Set(atRoot);
+            const view = {
+              ...fs,
+              promises: {
+                ...fs.promises,
+                access: (file, mode) =>
+                  hidden.has(file)
+                    ? Promise.reject(Object.assign(new Error(`ENOENT: ${file}`), { code: "ENOENT" }))
+                    : fs.promises.access(file, mode),
+              },
+            };
+            const argv = fs.readFileSync(LIST, "utf8")
               .split("\0")
               .filter((file) => file !== "")
               .map((file) => `:${resolve(file)}`);
-            if (FALLBACK) {
-              argv.push("--config", FALLBACK);
-            }
             process.exitCode = await main({
               directory: BASE,
               argv,
+              fs: view,
               logMessage: (message) => console.log(message),
               logError: (message) => console.error(message),
+              optionsDefault: { config },
               optionsOverride: { ignores: [] },
             });
           ' > "$RUNNER_TEMP/check-markdown-lint" 2>&1 || status=$?

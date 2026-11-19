@@ -1,5 +1,9 @@
-# What holds where a repository brings no yamllint configuration of its own:
-# the defaults, less what contradicts Prettier or GitHub Actions.
+# The pipeline's default for yamllint: yamllint's own defaults, less what
+# contradicts Prettier or GitHub Actions. `check-yaml` lays a repository's own
+# configuration over it rule by rule, so the repository names only the rules
+# it wants different, and a rule it does not name keeps the value given here,
+# also after this file changes. The tool compiles it in to say which rules a
+# repository sets differently.
 extends: default
 
 rules:

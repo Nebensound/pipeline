@@ -78,6 +78,15 @@ pub struct Exclusion {
     pub path: Pattern,
     /// Why nobody looks.
     pub reason: Reason,
+    /// Whether the entry holds only while the file is empty.
+    ///
+    /// For a marker such as `.gitkeep`, which keeps a folder and says nothing
+    /// beyond its own existence: once it holds content, it is a file like any
+    /// other, and the entry no longer excuses it. Only the central defaults
+    /// may set it, so the schema of a repository's own file leaves it out.
+    #[serde(default, rename = "only-if-empty")]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    pub only_if_empty: bool,
 }
 
 /// The repository as a unit.

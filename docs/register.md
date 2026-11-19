@@ -179,7 +179,8 @@ recognizes a manifest of each by.
 ## Excluded everywhere
 
 What nobody checks, in any repository. A declaration can pull an entry back in
-with `[[include]]`; it cannot add a pattern of its own.
+with `[[include]]`; it cannot add a pattern of its own. An entry that holds only
+while the file is empty excuses nothing once the file holds content.
 
 | Pattern             | Reason                                                                        |
 | ------------------- | ----------------------------------------------------------------------------- |
@@ -219,3 +220,5 @@ with `[[include]]`; it cannot add a pattern of its own.
 | `**/Gemfile.lock`   | lockfile in a format of its own; no tool in the organization checks it        |
 | `**/justfile`       | command list in a syntax of its own; no tool in the organization checks it    |
 | `**/Makefile`       | command list in a syntax of its own; no tool in the organization checks it    |
+| `**/.gitkeep`       | an empty marker that keeps a folder; only while the file is empty             |
+| `**/.keep`          | an empty marker that keeps a folder; only while the file is empty             |

@@ -178,11 +178,19 @@ runs:
         done < "$RUNNER_TEMP/check-yaml-prettier"
         exit "$status"
 
-    # A repository's own yamllint configuration at its root wins; without one,
-    # the configuration beside this file holds. Its rules hold as written, but
-    # its `ignore` and `ignore-from-file` take nothing out: yamllint would skip
-    # what they name even when the file is named to it, so its own linter runs
-    # here with them set aside, file by file, the way its command line does.
+    # The pipeline's default (`tools/nebensound/rules/yamllint.yaml`, from the
+    # same commit as this file) lies beneath the repository's own yamllint
+    # configuration at its root, which is laid over it rule by rule, the way
+    # yamllint lays a configuration over the one its `extends` names: a rule
+    # the repository does not name keeps the default's value, and an option
+    # it does not name keeps the default's option of that rule. So its file
+    # names only what differs, and a change of the default reaches it. What
+    # its own `extends` names comes along with it, over the default as well.
+    #
+    # Its rules hold, but its `ignore` and `ignore-from-file` take nothing out:
+    # yamllint would skip what they name even when the file is named to it, so
+    # its own linter runs here with them set aside, file by file, the way its
+    # command line does.
     - name: Every YAML file passes yamllint
       if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
       shell: bash
@@ -190,17 +198,22 @@ runs:
         LIST: ${{ steps.files.outputs.list }}
       run: |
         set -euo pipefail
-        config="$GITHUB_ACTION_PATH/default.yamllint.yaml"
-        for own in .yamllint .yamllint.yaml .yamllint.yml; do
-          if [ -f "$own" ]; then
-            config="$own"
+        own=""
+        for name in .yamllint .yamllint.yaml .yamllint.yml; do
+          if [ -f "$name" ]; then
+            own="$name"
             break
           fi
         done
-        echo "Configuration: $config"
+        if [ -n "$own" ]; then
+          echo "Rules: the pipeline default, and laid over it $own"
+        else
+          echo "Rules: the pipeline default"
+        fi
         # Every finding is written as an annotation on its line. A warning
         # fails nothing, an error fails the step, as on the command line.
-        CONFIG="$config" PYTHONPATH="$RUNNER_TEMP/check-yaml-tools/python" python3 -c '
+        DEFAULT="$GITHUB_ACTION_PATH/../../../tools/nebensound/rules/yamllint.yaml" OWN="$own" \
+          PYTHONPATH="$RUNNER_TEMP/check-yaml-tools/python" python3 -c '
         import locale
         import os
         import sys
@@ -208,9 +221,30 @@ runs:
         from yamllint import cli, linter
         from yamllint.config import YamlLintConfig, YamlLintConfigError
 
-        config = os.environ["CONFIG"]
+
+        class Layered(YamlLintConfig):
+            """A configuration laid over a base the way yamllint lays one over
+            the configuration its `extends` names: after its own `extends` is
+            read, before the rules are checked."""
+
+            def __init__(self, file, base):
+                self.base = base
+                super().__init__(file=file)
+
+            def parse(self, raw_content):
+                super().parse(raw_content)
+                try:
+                    self.extend(self.base)
+                except Exception as error:
+                    raise YamlLintConfigError(f"invalid config: {error}") from error
+
+
+        config = os.environ["DEFAULT"]
         try:
             conf = YamlLintConfig(file=config)
+            if os.environ["OWN"]:
+                config = os.environ["OWN"]
+                conf = Layered(config, conf)
         except YamlLintConfigError as error:
             sys.exit(f"{config}: {error}")
         # Both `ignore` and `ignore-from-file` end up here.
