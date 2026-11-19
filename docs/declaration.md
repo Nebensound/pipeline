@@ -796,6 +796,7 @@ cargo run --quiet -- -C <repository> explain <path>        # what holds for one 
 cargo run --quiet -- -C <repository> plan                  # what a run would start
 cargo run --quiet -- -C <repository> files <check> <unit>  # what one building block checks
 cargo run --quiet -- -C <repository> excluded-packages     # the Rust packages taken out as a whole
+cargo run --quiet -- -C <repository> setup                 # find or install the programs its checks call
 ```
 
 [The tool's README](../tools/nebensound/README.md) describes every call.

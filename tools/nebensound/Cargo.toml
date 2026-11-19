@@ -24,12 +24,17 @@ repository.workspace   = true
 # second distribution channel would be a second version that can fall behind.
 publish = false
 
+# What `setup` needs to put a pinned program in place: sha2 holds a download
+# against its digest, flate2 and tar unpack a .gz or .tar.gz build, zip a .zip
+# build (Windows). The download itself goes through curl, so no HTTP or TLS
+# library is linked.
 [dependencies]
 nebensound-declaration = { path = "crates/nebensound-declaration", features = [
   "json-schema",
 ] }
 
 clap.workspace         = true
+flate2.workspace       = true
 globset.workspace      = true
 ignore.workspace       = true
 jsonc-parser.workspace = true
@@ -37,10 +42,13 @@ ratatui                = { workspace = true, optional = true }
 regex.workspace        = true
 serde.workspace        = true
 serde_json.workspace   = true
+sha2.workspace         = true
+tar.workspace          = true
 thiserror.workspace    = true
 toml.workspace         = true
 toml_edit.workspace    = true
 yaml-rust2.workspace   = true
+zip.workspace          = true
 
 [dev-dependencies]
 # The library once more, so the tests can build an analysis without a disk; the
@@ -81,6 +89,7 @@ repository   = "https://github.com/Nebensound/pipeline"
 
 [workspace.dependencies]
 clap         = { version = "4", features = ["derive"] }
+flate2       = "1"
 globset      = "0.4"
 ignore       = "0.4"
 jsonc-parser = { version = "0.34", features = ["serde"] }
@@ -90,11 +99,15 @@ regex        = "1"
 schemars     = { version = "1", default-features = false, features = ["derive", "std"] }
 serde        = { version = "1", features = ["derive"] }
 serde_json   = "1"
+sha2         = "0.10"
+tar          = { version = "0.4", default-features = false }
 tempfile     = "3"
 thiserror    = "2"
 toml         = "1"
 toml_edit    = "0.25"
 yaml-rust2   = "0.13"
+# Version 9 adds nix, zeroize and getrandom, with no feature to leave them out.
+zip = { version = "8", default-features = false, features = ["deflate-flate2"] }
 
 [workspace.lints.rust]
 missing_docs    = "deny"

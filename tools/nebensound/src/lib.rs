@@ -18,6 +18,7 @@ pub mod plan;
 pub mod reference;
 pub mod report;
 pub mod repository;
+pub mod setup;
 #[cfg(feature = "ui")]
 pub mod terminal;
 #[cfg(feature = "ui")]
@@ -27,11 +28,12 @@ pub mod writer;
 use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 use nebensound_declaration::path::RelativePath;
 use nebensound_declaration::register::{BUILTIN_DEFAULTS, BUILTIN_REGISTER};
+use nebensound_declaration::{Analysis, Central};
 use thiserror::Error;
 
 use crate::output::Output;
@@ -100,6 +102,21 @@ pub enum Command {
     // Like the schema, it describes the format and reads no repository.
     /// Print the register as Markdown, as `docs/register.md` holds it.
     Register,
+    /// Find or install the programs that the checks the declaration starts
+    /// call: by default those on the computer, and the pinned version of what
+    /// is missing.
+    Setup {
+        /// Install the pinned version of every program into the tool's folder
+        /// in the user's cache directory, whatever the computer has.
+        #[arg(long, conflicts_with = "check")]
+        pinned: bool,
+        /// Install a missing runtime without asking.
+        #[arg(long, conflicts_with = "check")]
+        with_runtimes: bool,
+        /// Change nothing; say what is missing or differs.
+        #[arg(long)]
+        check: bool,
+    },
     /// Open the interface. Only in a build with the `ui` feature.
     #[cfg(feature = "ui")]
     Ui,
@@ -266,6 +283,8 @@ enum Job {
     ExcludedPackages,
     /// Write the versions, from this plan or from the history.
     WriteVersions(Option<PathBuf>),
+    /// Find or install the programs of the checks.
+    Setup(setup::Options),
     /// Open the interface.
     #[cfg(feature = "ui")]
     Ui,
@@ -281,6 +300,18 @@ fn call(cli: &Cli) -> Result<Call, Failure> {
         Some(Command::Plan) => Job::Plan,
         Some(Command::ExcludedPackages) => Job::ExcludedPackages,
         Some(Command::WriteVersions { plan }) => Job::WriteVersions(plan.clone()),
+        Some(Command::Setup {
+            pinned,
+            with_runtimes,
+            check,
+        }) => Job::Setup(setup::Options {
+            mode: match (*check, *pinned) {
+                (true, _) => setup::Mode::Check,
+                (false, true) => setup::Mode::Pinned,
+                (false, false) => setup::Mode::Missing,
+            },
+            with_runtimes: *with_runtimes,
+        }),
         #[cfg(feature = "ui")]
         Some(Command::Ui) => Job::Ui,
         Some(Command::Explain { path }) => Job::Explain(path_of(path)?),
@@ -318,8 +349,11 @@ fn execute(
     let analysis = match job {
         // Asked for by the building blocks in a unit job, whose checkout holds
         // only the commit at hand: the history is read in Declare, and the
-        // versions come with the plan it hands on.
-        Job::Files { .. } | Job::ExcludedPackages | Job::WriteVersions(Some(_)) => {
+        // versions come with the plan it hands on. Which programs `setup`
+        // needs follows from the checks the plan starts, never from a
+        // version, so a question about a release does not keep anyone from
+        // setting up the programs either.
+        Job::Files { .. } | Job::ExcludedPackages | Job::WriteVersions(Some(_)) | Job::Setup(_) => {
             repository.analyse_files(&central)
         }
         _ => repository.analyse(&central),
@@ -394,25 +428,25 @@ fn execute(
             "no version is written: phase 0 found errors, and `check` says which\n",
         ),
         Job::WriteVersions(plan) => {
-            let orders = match plan {
-                Some(file) => fs::read_to_string(file)
-                    .map_err(|error| error.to_string())
-                    .and_then(|text| writer::Order::read(&text).map_err(|error| error.to_string()))
-                    .map_err(|message| Failure::Plan {
-                        path: file.display().to_string(),
-                        message,
-                    })?,
-                None => writer::Order::of(&plan::plan(&analysis, &central)),
-            };
-            let manifests: Vec<RelativePath> = analysis
-                .tree
-                .files()
-                .into_iter()
-                .map(|(node, _)| node.path.clone())
-                .filter(|path| path.file_name() == Some("Cargo.toml"))
-                .collect();
-            let said = writer::write(&repository, &manifests, &orders)?;
+            let said = write_versions(&repository, &analysis, &central, plan.as_deref())?;
             say(out, &format!("{said}\n"));
+        }
+        // The same reason again: the programs of a declaration with errors
+        // could be those of the wrong checks.
+        Job::Setup(_) if analysis.failed() => say(
+            out,
+            "there is nothing to set up: phase 0 found errors, and `check` says which\n",
+        ),
+        Job::Setup(options) => {
+            let checks = setup::started(&plan::plan(&analysis, &central));
+            let mut environment = setup::Environment::current();
+            return Ok(setup::run(
+                central.register(),
+                &checks,
+                *options,
+                &mut environment,
+                out,
+            ));
         }
         #[cfg(feature = "ui")]
         Job::Ui => {
@@ -421,4 +455,32 @@ fn execute(
     }
 
     Ok(if analysis.failed() { FOUND } else { OK })
+}
+
+/// Writes the versions, from the plan in `plan` or, without one, from the
+/// history, and returns what was done.
+fn write_versions(
+    repository: &Repository,
+    analysis: &Analysis,
+    central: &Central,
+    plan: Option<&Path>,
+) -> Result<String, Failure> {
+    let orders = match plan {
+        Some(file) => fs::read_to_string(file)
+            .map_err(|error| error.to_string())
+            .and_then(|text| writer::Order::read(&text).map_err(|error| error.to_string()))
+            .map_err(|message| Failure::Plan {
+                path: file.display().to_string(),
+                message,
+            })?,
+        None => writer::Order::of(&plan::plan(analysis, central)),
+    };
+    let manifests: Vec<RelativePath> = analysis
+        .tree
+        .files()
+        .into_iter()
+        .map(|(node, _)| node.path.clone())
+        .filter(|path| path.file_name() == Some("Cargo.toml"))
+        .collect();
+    Ok(writer::write(repository, &manifests, &orders)?)
 }
