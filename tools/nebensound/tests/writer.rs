@@ -1392,7 +1392,8 @@ fn a_dependency_of_the_tests_alone_needs_a_release_as_well() {
         text.contains(
             "the package app gets 0.0.2 and depends by path on the package lib at crates/lib, \
              and component lib is neither touched by this commit nor ever released: there is no \
-             version of lib that app could require."
+             version of lib that app could require. A release of component lib (its tag) gives \
+             it one; until then, a commit that touches component lib as well passes"
         ),
         "{text}"
     );

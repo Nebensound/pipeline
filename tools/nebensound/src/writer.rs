@@ -236,8 +236,8 @@ pub enum WriteError {
     #[error(
         "the package {package} gets {version} and depends by path on the package {dependency} at \
          {path}, and {unit} is neither touched by this commit nor ever released: there is no \
-         version of {dependency} that {package} could require. A commit that touches {unit} \
-         gives it one"
+         version of {dependency} that {package} could require. A release of {unit} (its tag) \
+         gives it one; until then, a commit that touches {unit} as well passes"
     )]
     UnreleasedDependency {
         /// The package that gets a version.
@@ -398,14 +398,14 @@ struct Chosen {
 /// the version of each one's package.
 ///
 /// Every unit the commit touches gets the version of the commit, when `start`
-/// is [`Some`] only one whose workspace has that root. Any other unit gets a version only where a package that gets one
-/// depends on it by path, followed through the path dependencies of each one
-/// it gives a version to: the version of the commit when the commit touches
-/// it, its last release otherwise. A package such a unit cannot give a
-/// version to, neither touched nor ever released, is an error that names
-/// both. A path dependency on a package that is no unit with the writer
-/// `cargo` is left to Cargo, which refuses to package a dependent without a
-/// version requirement.
+/// is [`Some`] only one whose workspace has that root. Any other unit gets a
+/// version only where a package that gets one depends on it by path, followed
+/// through the path dependencies of each one it gives a version to: the
+/// version of the commit when the commit touches it, its last release
+/// otherwise. A package such a unit cannot give a version to, neither touched
+/// nor ever released, is an error that names both. A path dependency on a
+/// package that is no unit with the writer `cargo` is left to Cargo, which
+/// refuses to package a dependent without a version requirement.
 fn choose(
     files: &mut Files<'_>,
     cargo: &[&Order],

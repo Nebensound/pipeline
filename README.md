@@ -159,9 +159,9 @@ away:
   get. The writing starts from the units of the workspace alone, as Cargo
   finds it, and follows their path dependencies wherever they lie, so what
   another workspace of the repository needs cannot fail this one, also a
-  workspace of its own in a folder below it. The packages are packaged in one call and each is tested with the
-  packages of its siblings in place of crates.io, since a version just written
-  is on no registry yet. A local package they depend on that is not packaged
+  workspace of its own in a folder below it. The packages are packaged in one
+  call and each is tested with the packages of its siblings in place of
+  crates.io, since a version just written is on no registry yet. A local package they depend on that is not packaged
   with them, a path dependency that is no member or a member an `[[exclude]]`
   entry takes out, is put in place of crates.io from its folder.
 

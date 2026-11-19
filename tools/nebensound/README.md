@@ -212,9 +212,9 @@ afterwards.
 Any other unit with the writer gets nothing: its `Cargo.toml` stays as it is,
 apart from the entries of the `[workspace.dependencies]` it holds as the root
 of a workspace that a member that gets a version inherits, and without a
-version the package test of `check-rust` does not package it. A unit with commits after its newest tag
-still gets that tag's version where it gets one without being touched; the gap
-closes once a step sets tags at the release.
+version the package test of `check-rust` does not package it. A unit with
+commits after its newest tag still gets that tag's version where it gets one
+without being touched; the gap closes once a step sets tags at the release.
 
 A package that gets a version and depends by path on a unit that is neither
 touched nor ever released, in `[dependencies]`, `[dev-dependencies]` or
@@ -243,13 +243,13 @@ The workspace is found the way Cargo finds it: the folder `package.workspace`
 names, else the nearest folder at or above the package whose `Cargo.toml` has
 a `[workspace]` that does not exclude it, else the package's own folder. The
 dependents are all `Cargo.toml` files Git tracks, inside that workspace or
-outside it; one that is not TOML is passed over. Every change goes through `toml_edit`, so comments, blank lines
-and the order of keys stay, and a file whose text does not change is not
-written: a second call changes nothing.
+outside it; one that is not TOML is passed over. Every change goes through
+`toml_edit`, so comments, blank lines and the order of keys stay, and a file
+whose text does not change is not written: a second call changes nothing.
 
 ```text
-component lib: the package lib at crates/lib gets 1.4.1 (workspace root: .).
-component app is not touched by this commit: the package app at crates/app gets its last release 1.2.0 (workspace root: .).
+component app: the package app at crates/app gets 1.4.1 (workspace root: .).
+component lib is not touched by this commit: the package lib at crates/lib gets its last release 1.2.0 (workspace root: .).
 component cli is not touched by this commit, and no package that gets a version depends on it by path, so nothing is written for it.
 Wrote Cargo.lock.
 Wrote crates/app/Cargo.toml.
