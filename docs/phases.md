@@ -116,8 +116,9 @@ builds it only when the cache misses. Then its steps:
 
 The job `nebensound / Check` only gathers: it reports that something failed and
 holds no finding. The finding is in the job of the unit that failed, in the step
-of the check, where it is written to the log and as an annotation on its file
-and line, shown on the pull request's Files tab and in the summary of the run.
+of the check, where it is written to the log and, where the check can point at
+a file, as an annotation on it, shown on the pull request's Files tab and in
+the summary of the run.
 A failure of phase 0 is in the job `nebensound / Declare`, which lists every
 finding.
 

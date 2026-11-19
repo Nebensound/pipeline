@@ -63,7 +63,6 @@ directive in the file, which leaves the default untouched everywhere else:
 
 ```markdown
 <!-- markdownlint-disable-next-line MD033 -->
-
 <details>
 ```
 
