@@ -147,7 +147,10 @@ fn pinned_runtime(name: &RuntimeName, runtime: &Runtime, env: &Environment) -> O
     let build = runtime.download.get(&env.platform?)?;
     finished(
         &dir,
-        dir.join(build.executable.as_deref().unwrap_or_default()),
+        below(
+            dir.as_path(),
+            build.executable.as_deref().unwrap_or_default(),
+        ),
     )
 }
 
@@ -168,10 +171,19 @@ pub fn program_executable(
 ) -> Option<PathBuf> {
     let Some(runtime) = &program.runtime else {
         let build = program.download.get(&env.platform?)?;
-        return Some(dir.join(build.executable.as_deref().unwrap_or_default()));
+        return Some(below(dir, build.executable.as_deref().unwrap_or_default()));
     };
     let installer = register.runtime.get(runtime)?.installer;
     Some(installed_by(installer, dir, &program.command, env.windows))
+}
+
+/// A path the register writes with `/` between its parts, below `dir`, joined
+/// part by part so that it reads right on Windows as well.
+#[must_use]
+pub fn below(dir: &Path, relative: &str) -> PathBuf {
+    relative
+        .split('/')
+        .fold(dir.to_path_buf(), |path, part| path.join(part))
 }
 
 /// Where an installer puts the command of a package it installed into `dir`.

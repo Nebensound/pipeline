@@ -1228,6 +1228,10 @@ fn windows_keeps_its_programs_elsewhere() {
         find::installed_by(Installer::Pip, dir, "yamllint", false),
         dir.join("bin/yamllint")
     );
+    assert_eq!(
+        find::below(dir, "package/biome.exe"),
+        dir.join("package").join("biome.exe")
+    );
 
     let fixture = Fixture::new();
     let register = register(&check(&[]));

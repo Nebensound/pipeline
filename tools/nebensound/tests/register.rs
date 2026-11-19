@@ -109,14 +109,14 @@ fn the_page_names_what_the_register_says() {
         ],
         &[
             "`jq`",
-            "`1.7.1`",
+            "`1.8.1`",
             "none",
             "`linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`",
         ],
         &[
             "`python`",
             "Python",
-            "`3.12.16`",
+            "`3.14.10`",
             "`pip`",
             "`linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, \
              `windows-aarch64`",

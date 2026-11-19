@@ -93,7 +93,7 @@ without a build the program has to be on the computer already.
 | `biome`             | `2.5.15` | none     | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
 | `cargo-llvm-cov`    | `0.9.0`  | none     | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
 | `check-jsonschema`  | `0.39.0` | `python` | one package for every platform                                                                        |
-| `jq`                | `1.7.1`  | none     | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
+| `jq`                | `1.8.1`  | none     | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
 | `lychee`            | `0.24.2` | none     | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
 | `markdownlint-cli2` | `0.23.2` | `node`   | one package for every platform                                                                        |
 | `prettier`          | `3.9.6`  | `node`   | one package for every platform                                                                        |
@@ -109,7 +109,7 @@ missing and someone agrees.
 | Runtime  | Name    | Version   | Installs with | Builds                                                                                                |
 | -------- | ------- | --------- | ------------- | ----------------------------------------------------------------------------------------------------- |
 | `node`   | Node.js | `24.22.3` | `npm`         | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
-| `python` | Python  | `3.12.16` | `pip`         | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
+| `python` | Python  | `3.14.10` | `pip`         | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
 
 ## Builds
 

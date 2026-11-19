@@ -69,7 +69,7 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
         ("biome", "2.5.15", None),
         ("cargo-llvm-cov", "0.9.0", None),
         ("check-jsonschema", "0.39.0", Some("python")),
-        ("jq", "1.7.1", None),
+        ("jq", "1.8.1", None),
         ("lychee", "0.24.2", None),
         ("markdownlint-cli2", "0.23.2", Some("node")),
         ("prettier", "3.9.6", Some("node")),
@@ -102,7 +102,7 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
         runtimes,
         [
             ("node".to_owned(), "24.22.3".to_owned(), Installer::Npm),
-            ("python".to_owned(), "3.12.16".to_owned(), Installer::Pip),
+            ("python".to_owned(), "3.14.10".to_owned(), Installer::Pip),
         ]
     );
 }

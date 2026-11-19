@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use flate2::read::GzDecoder;
 
-use super::cannot;
+use super::{cannot, find};
 
 /// How a download is packed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,7 +62,7 @@ pub fn unpack(
     executable: &str,
 ) -> Result<PathBuf, String> {
     let source = File::open(file).map_err(cannot("cannot be read", file))?;
-    let target = dir.join(executable);
+    let target = find::below(dir, executable);
     match packing {
         Packing::Plain => write(source, &target)?,
         Packing::Gzip => write(GzDecoder::new(source), &target)?,
