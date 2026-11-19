@@ -76,9 +76,10 @@ jobs:
           mkdir -p "$bare" "$RUNNER_TEMP/home"
           ln -s "$(command -v git)" "$bare/git"
           ln -s "$(command -v curl)" "$bare/curl"
+          tool="$(command -v nebensound)"
           status=0
           env PATH="$bare" HOME="$RUNNER_TEMP/home" XDG_CACHE_HOME= \
-            nebensound setup --pinned < /dev/null || status=$?
+            "$tool" setup --pinned < /dev/null || status=$?
           echo "exit code $status"
           echo "What the home folder holds afterwards:"
           find "$RUNNER_TEMP/home"
@@ -98,8 +99,9 @@ jobs:
         run: |
           set -euo pipefail
           bare="$RUNNER_TEMP/bare"
+          tool="$(command -v nebensound)"
           mkdir -p "$RUNNER_TEMP/home2"
           env PATH="$bare" HOME="$RUNNER_TEMP/home2" XDG_CACHE_HOME= \
-            nebensound setup --pinned --with-runtimes < /dev/null
+            "$tool" setup --pinned --with-runtimes < /dev/null
           env PATH="$bare" HOME="$RUNNER_TEMP/home2" XDG_CACHE_HOME= \
-            nebensound setup --check
+            "$tool" setup --check
