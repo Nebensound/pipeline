@@ -363,9 +363,21 @@ What a step prints stands in the log behind a `|`, so that the findings of a
 failing case do not become annotations of the gate. What the xtask itself
 finds is an annotation.
 
-The blocks are written for the Linux runners of GitHub Actions, and so the cases
-run on Linux only; elsewhere the xtask holds the blocks, the register and
-`nebensound.yml` to each other and then refuses to run the cases. The cases are
+The blocks are written for the Linux runners of GitHub Actions, and so for now
+the cases run on Linux only, in the gate on every pull request and locally on
+Linux. Elsewhere the xtask holds the blocks, the register and `nebensound.yml`
+to each other, says in one sentence that the cases run only on Linux for now,
+and exits with `1`, since the cases did not run. Running them on macOS comes
+with the checks that run from the tool (#73, #74).
+
+`cargo xtask setup` calls `nebensound setup` for this repository with the tool
+of this commit, built from `tools/nebensound/`, and hands it every option
+unchanged (`--pinned`, `--with-runtimes`, `--check`). It adds nothing of its
+own: the blocks fetch their programs themselves when the cases run them, and
+what they expect of the machine stays the machine's: Node.js and Go on the
+`PATH` in the versions their steps ask for, Python, and rustup.
+
+The cases are
 taken out of this repository's own checks with `[[exclude]]` and a reason in
 [`.nebensound/repo.toml`](.nebensound/repo.toml). A case of `check-rust` is a
 whole Cargo package, the only way Rust code can be excluded.

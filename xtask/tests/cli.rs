@@ -20,6 +20,7 @@ fn setup(root: &Path, scratch: &Path, os: &str) -> Setup {
         env: std::env::vars_os().collect(),
         origin: "file:///nowhere".to_owned(),
         scratch: scratch.to_path_buf(),
+        cargo: "cargo".into(),
     }
 }
 
@@ -120,6 +121,7 @@ fn help_is_no_failure_and_a_wrong_call_is_one() {
         let (code, out) = call(&[help], &setup);
         assert_eq!(code, 0, "{out}");
         assert!(out.starts_with("Usage: cargo xtask check --all"), "{out}");
+        assert!(out.contains("cargo xtask setup [<option> ...]"), "{out}");
     }
     for (args, message) in [
         (&[][..], "no task named"),
@@ -202,7 +204,8 @@ fn elsewhere_than_linux_the_cases_do_not_run() {
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("They agree.\n"), "{out}");
     assert!(
-        out.contains("this machine runs macos. Run `cargo xtask check` on Linux."),
+        out.contains("::error::For now the test cases run only on Linux, since they run the steps")
+            && out.contains("and this machine runs macos.\n"),
         "{out}"
     );
     assert!(!out.contains("::group::"), "{out}");
@@ -262,6 +265,96 @@ fn a_run_without_its_tool_or_its_room_stops() {
     );
 }
 
+/// A stand-in for `cargo` that writes its arguments, its working directory and
+/// whether it saw `RUSTUP_TOOLCHAIN` to `call`, one per line, and exits with
+/// the code it is told.
+fn fake_cargo(scene: &Scene, code: u8) -> OsString {
+    let script = scene.path().join(format!("cargo-{code}"));
+    fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\n{{ for arg in \"$@\"; do echo \"$arg\"; done; pwd; \
+             echo \"toolchain=${{RUSTUP_TOOLCHAIN-unset}}\"; }} > \"$(dirname \"$0\")/call\"\n\
+             exit {code}\n"
+        ),
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&script).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
+    fs::set_permissions(&script, permissions).unwrap();
+    script.into()
+}
+
+#[test]
+fn setup_calls_the_tool_of_this_commit_with_every_option() {
+    let scene = Scene::new();
+    let root = scene.path().canonicalize().unwrap().join("root");
+    fs::create_dir_all(&root).unwrap();
+    let mut setup = setup(&root, scene.path(), "macos");
+    setup.env.push((
+        OsString::from("RUSTUP_TOOLCHAIN"),
+        OsString::from("nightly"),
+    ));
+
+    setup.cargo = fake_cargo(&scene, 0);
+    let (code, out) = call(&["setup", "--pinned", "--with-runtimes"], &setup);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out, "");
+    let manifest = root.join("tools/nebensound/Cargo.toml");
+    let expected = [
+        "run",
+        "--quiet",
+        "--locked",
+        "--manifest-path",
+        &manifest.to_string_lossy(),
+        "--",
+        "-C",
+        &root.to_string_lossy(),
+        "setup",
+        "--pinned",
+        "--with-runtimes",
+        &root.to_string_lossy(),
+        "toolchain=unset",
+    ]
+    .join("\n");
+    assert_eq!(
+        fs::read_to_string(scene.path().join("call")).unwrap(),
+        format!("{expected}\n")
+    );
+
+    // Its exit code is the tool's; `help` after `setup` is the tool's too.
+    setup.cargo = fake_cargo(&scene, 1);
+    let (code, _) = call(&["setup", "help"], &setup);
+    assert_eq!(code, 1);
+    assert!(
+        fs::read_to_string(scene.path().join("call"))
+            .unwrap()
+            .contains("\nsetup\nhelp\n")
+    );
+
+    setup.cargo = scene.path().join("no-cargo").into();
+    let (code, out) = call(&["setup"], &setup);
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.starts_with("::error::cannot start `") && out.contains("no-cargo` to build the tool"),
+        "{out}"
+    );
+}
+
+#[test]
+fn setup_killed_by_a_signal_is_a_failure() {
+    let scene = Scene::new();
+    let script = scene.path().join("cargo-killed");
+    fs::write(&script, "#!/bin/sh\nkill -9 $$\n").unwrap();
+    let mut permissions = fs::metadata(&script).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
+    fs::set_permissions(&script, permissions).unwrap();
+    let mut setup = setup(scene.path(), scene.path(), "linux");
+    setup.cargo = script.into();
+    let (code, out) = call(&["setup"], &setup);
+    assert_eq!(code, 1, "{out}");
+}
+
 #[test]
 fn a_repository_that_cannot_be_read_is_a_finding() {
     let scene = Scene::new();
@@ -286,6 +379,7 @@ fn the_current_setup_is_this_repository_on_this_machine() {
     assert!(setup.root.join(".github/actions").is_dir());
     assert_eq!(setup.os, std::env::consts::OS);
     assert_eq!(setup.origin, "https://github.com");
+    assert_eq!(setup.cargo, "cargo");
     assert!(!setup.env.is_empty());
 }
 

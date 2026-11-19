@@ -1,10 +1,18 @@
 //! The tasks of this repository, reached from its root as `cargo xtask`.
 //!
-//! There is one: `check`. It holds the building blocks, the register and
-//! `nebensound.yml` to each other ([`layout`]), and runs every building block
-//! against its test cases ([`cases`]) by running the block's own steps, read
-//! from its `action.yml` ([`runner`]). The central workflow runs
-//! `cargo xtask check --all` as the last step of `Check repository`.
+//! There are two, the standard tasks of a repository's xtask:
+//!
+//! - `check` holds the building blocks, the register and `nebensound.yml` to
+//!   each other ([`layout`]), and runs every building block against its test
+//!   cases ([`cases`]) by running the block's own steps, read from its
+//!   `action.yml` ([`runner`]). The central workflow runs
+//!   `cargo xtask check --all` as the last step of `Check repository`.
+//! - `setup` calls `nebensound setup` for this repository, with the tool of
+//!   this commit, to find or install the programs its checks call. It adds
+//!   nothing of its own: the blocks fetch their programs themselves when the
+//!   cases run them, and what they expect of the machine (Node.js and Go on
+//!   the `PATH` in the versions they ask for, Python, rustup) stays the
+//!   machine's.
 //!
 //! The binary is a few lines. Everything else lives here, so that it can be
 //! checked without starting the process.
@@ -34,12 +42,16 @@ const MISUSE: u8 = 2;
 
 const USAGE: &str = "\
 Usage: cargo xtask check --all
+       cargo xtask setup [<option> ...]
 
 check --all   Holds the building blocks, the register and nebensound.yml to
               each other, and runs every building block against its test cases
               in tests/pass/ and tests/fail/. The cases run the blocks' own
               steps, which are written for the Linux runners of GitHub Actions,
-              so they run on Linux only.
+              so for now they run on Linux only.
+setup         Calls `nebensound setup` for this repository, built from this
+              commit, to find or install the programs its checks call. Every
+              option goes to it unchanged: --pinned, --with-runtimes, --check.
 ";
 
 /// Why something could not be done, as one sentence.
@@ -113,6 +125,8 @@ pub struct Setup {
     pub origin: String,
     /// Where the run keeps what it makes, each run in a directory of its own.
     pub scratch: PathBuf,
+    /// The `cargo` that builds and starts the tool for `setup`.
+    pub cargo: OsString,
 }
 
 impl Setup {
@@ -127,6 +141,7 @@ impl Setup {
             env: std::env::vars_os().collect(),
             origin: "https://github.com".to_owned(),
             scratch: std::env::temp_dir(),
+            cargo: "cargo".into(),
         }
     }
 }
@@ -143,12 +158,16 @@ pub fn runner_arch(arch: &str) -> String {
 }
 
 /// What a call asks for.
-enum Call {
+enum Call<'a> {
     Help,
     Check,
+    Setup(&'a [String]),
 }
 
-fn parse(args: &[String]) -> Result<Call, String> {
+fn parse(args: &[String]) -> Result<Call<'_>, String> {
+    if args.first().is_some_and(|task| task == "setup") {
+        return Ok(Call::Setup(&args[1..]));
+    }
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     match args.as_slice() {
         ["help" | "--help" | "-h"] => Ok(Call::Help),
@@ -160,7 +179,8 @@ fn parse(args: &[String]) -> Result<Call, String> {
 }
 
 /// Runs one call and returns the exit code: 0 when there is nothing to report,
-/// 1 when a check found something, 2 when the call itself was wrong.
+/// 1 when a check found something, 2 when the call itself was wrong. `setup`
+/// returns the exit code of `nebensound setup`.
 pub fn run(args: &[String], setup: &Setup, out: &mut dyn Write) -> u8 {
     match parse(args) {
         Ok(Call::Help) => {
@@ -168,6 +188,7 @@ pub fn run(args: &[String], setup: &Setup, out: &mut dyn Write) -> u8 {
             OK
         }
         Ok(Call::Check) => check(setup, out),
+        Ok(Call::Setup(options)) => programs(options, setup, out),
         Err(problem) => {
             say(out, &format!("{problem}\n\n{USAGE}"));
             MISUSE
@@ -197,9 +218,9 @@ fn check(setup: &Setup, out: &mut dyn Write) -> u8 {
         say(
             out,
             &format!(
-                "::error::The test cases run the steps of the building blocks, which are \
-                 written for the Linux runners of GitHub Actions, and this machine runs {}. Run \
-                 `cargo xtask check` on Linux.\n",
+                "::error::For now the test cases run only on Linux, since they run the steps of \
+                 the building blocks, which are written for the Linux runners of GitHub Actions, \
+                 and this machine runs {}.\n",
                 setup.os
             ),
         );
@@ -218,6 +239,41 @@ fn check(setup: &Setup, out: &mut dyn Write) -> u8 {
     } else {
         say(out, &format!("{failures} problem(s), each named above.\n"));
         FOUND
+    }
+}
+
+/// `setup`: `nebensound setup` for this repository, built from this commit
+/// with the toolchain the tool pins and handed every option unchanged. It
+/// shares the terminal, so that it can ask before it installs a runtime.
+fn programs(options: &[String], setup: &Setup, out: &mut dyn Write) -> u8 {
+    let manifest = setup.root.join("tools/nebensound/Cargo.toml");
+    let status = Command::new(&setup.cargo)
+        .args(["run", "--quiet", "--locked", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--")
+        .arg("-C")
+        .arg(&setup.root)
+        .arg("setup")
+        .args(options)
+        .current_dir(&setup.root)
+        .env_clear()
+        .envs(runner::environment(setup.env.clone()))
+        .status();
+    match status {
+        Ok(status) => status
+            .code()
+            .and_then(|code| u8::try_from(code).ok())
+            .unwrap_or(FOUND),
+        Err(error) => {
+            say(
+                out,
+                &format!(
+                    "::error::cannot start `{}` to build the tool: {error}\n",
+                    setup.cargo.to_string_lossy()
+                ),
+            );
+            FOUND
+        }
     }
 }
 
