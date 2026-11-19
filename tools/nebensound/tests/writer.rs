@@ -284,6 +284,53 @@ fn packages_that_depend_on_each_other_package_together() {
 }
 
 #[test]
+fn a_workspace_of_its_own_below_the_root_gets_its_lockfile_in_line() {
+    // The shape `cargo fuzz init` leaves: a folder inside the package with a
+    // workspace and a lockfile of its own, and a path dependency back up.
+    let git = Git::new();
+    git.write(&[
+        (
+            ".nebensound/repo.toml",
+            "[repo]\npipeline = \"none\"\n\n[component.thing]\npath = \"thing\"\npipeline \
+             = { version = [\"cargo\"], check = [\"rust\"] }\n",
+        ),
+        (
+            "thing/Cargo.toml",
+            "[package]\nname = \"thing\"\nedition = \"2024\"\n",
+        ),
+        (
+            "thing/Cargo.lock",
+            "version = 4\n\n[[package]]\nname = \"thing\"\nversion = \"0.0.0\"\n",
+        ),
+        ("thing/src/lib.rs", "//! A thing.\n"),
+        (
+            "thing/fuzz/Cargo.toml",
+            "[package]\nname = \"thing-fuzz\"\nedition = \"2024\"\npublish = false\n\n\
+             [dependencies]\nthing = { path = \"..\" }\n\n[workspace]\nmembers = [\".\"]\n",
+        ),
+        (
+            "thing/fuzz/Cargo.lock",
+            "version = 4\n\n[[package]]\nname = \"thing\"\nversion = \"0.0.0\"\n\n\
+             [[package]]\nname = \"thing-fuzz\"\nversion = \"0.0.0\"\ndependencies = [\n \
+             \"thing\",\n]\n",
+        ),
+        ("thing/fuzz/src/main.rs", "//! Fuzzing.\n\nfn main() {}\n"),
+    ]);
+    git.commit("feat: start");
+
+    let (text, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
+
+    assert_eq!(code, 0, "{text}");
+    assert!(text.contains("Wrote thing/fuzz/Cargo.lock."), "{text}");
+    assert!(
+        read(git.path(), "thing/fuzz/Cargo.lock")
+            .contains("name = \"thing\"\nversion = \"0.0.1\"\n"),
+    );
+    cargo(&git.path().join("thing"), &["build", "--locked"]);
+    cargo(&git.path().join("thing/fuzz"), &["build", "--locked"]);
+}
+
+#[test]
 fn a_unit_the_commit_does_not_touch_gets_no_version() {
     let git = Git::new();
     git.write(&two_packages());

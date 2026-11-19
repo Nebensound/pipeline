@@ -14,7 +14,9 @@
 //!   version cannot be published;
 //! - the package's entry in the workspace's `Cargo.lock` gets that version,
 //!   and so does every entry that names it together with a version, so that
-//!   `--locked` holds. No other entry changes.
+//!   `--locked` holds. No other entry changes. The same goes for the
+//!   `Cargo.lock` of every other workspace a dependent belongs to, such as a
+//!   `fuzz/` folder with a `[workspace]` of its own.
 //!
 //! The workspace is found the way Cargo finds it: the folder the manifest
 //! names in `package.workspace`, else the nearest folder at or above the
@@ -27,7 +29,7 @@
 //! and the order of keys. A file whose text does not change is not written, so
 //! a second call changes nothing.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
 use nebensound_declaration::TagVersion;
@@ -203,16 +205,26 @@ pub fn write(
             "{}: the package {name} at {} gets {version} (workspace root: {root}).",
             order.unit, order.path
         ));
+        let mut workspaces = BTreeSet::from([root.clone()]);
         for dependent in manifests.iter().filter(|manifest| root.contains(manifest)) {
-            if let Some(document) = files.lenient(dependent) {
-                require(document, &folder(dependent), &order.path, &version);
+            let place = folder(dependent);
+            let Some(document) = files.lenient(dependent) else {
+                continue;
+            };
+            if require(document, &place, &order.path, &version) {
+                // A workspace of its own below the root, such as the `fuzz/`
+                // folder `cargo fuzz init` creates, locks the package too.
+                let own = own_root(document, &place);
+                workspaces.insert(own.unwrap_or_else(|| files.workspace_above(&place)));
             }
         }
-        let lockfile = root.join("Cargo.lock");
-        if fs::symlink_metadata(repository.root().join(lockfile.to_string())).is_ok() {
-            lock(files.strict(&lockfile)?, &name, &version);
-        } else {
-            said.push(format!("There is no {lockfile} to bring in line."));
+        for workspace in workspaces {
+            let lockfile = workspace.join("Cargo.lock");
+            if fs::symlink_metadata(repository.root().join(lockfile.to_string())).is_ok() {
+                lock(files.strict(&lockfile)?, &name, &version);
+            } else {
+                said.push(format!("There is no {lockfile} to bring in line."));
+            }
         }
     }
     let written = files.save()?;
@@ -239,7 +251,8 @@ fn package_version(manifest: &mut DocumentMut, version: &str) -> Option<String> 
     Some(name)
 }
 
-/// Gives every path dependency on `target` the version as its requirement.
+/// Gives every path dependency on `target` the version as its requirement,
+/// and says whether the manifest has one.
 ///
 /// `folder` is where the manifest lies, which its paths are relative to.
 fn require(
@@ -247,7 +260,7 @@ fn require(
     folder: &RelativePath,
     target: &RelativePath,
     version: &str,
-) {
+) -> bool {
     let mut tables: Vec<&mut dyn TableLike> = Vec::new();
     let tables_in = manifest
         .iter_mut()
@@ -282,6 +295,7 @@ fn require(
             _ => {}
         }
     }
+    let mut found = false;
     for table in tables {
         for (_, dependency) in table.iter_mut() {
             if let Some(dependency) = dependency.as_table_like_mut()
@@ -293,9 +307,11 @@ fn require(
                     == Some(target)
             {
                 set(dependency, "version", version);
+                found = true;
             }
         }
     }
+    found
 }
 
 /// Gives the package's entry in a lockfile the version, and every entry that

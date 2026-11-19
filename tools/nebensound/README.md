@@ -143,8 +143,10 @@ committed. For every unit of the plan with a version and the writer `cargo`, it
 sets `package.version` in the unit's `Cargo.toml`, gives every path dependency
 on that package inside its workspace that version as its requirement, and sets
 the package's entry in the workspace's `Cargo.lock`, together with every entry
-that names it with a version. Nothing else changes, and `cargo build --locked`
-passes afterwards.
+that names it with a version. A dependent in a workspace of its own below the
+root, such as a `fuzz/` folder, gets its workspace's `Cargo.lock` brought in
+line the same way. Nothing else changes, and `cargo build --locked` passes
+afterwards.
 
 The workspace is found the way Cargo finds it: the folder `package.workspace`
 names, else the nearest folder at or above the package whose `Cargo.toml` has
