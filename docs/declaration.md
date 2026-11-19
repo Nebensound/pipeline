@@ -271,10 +271,8 @@ itself is included.
 
 Whether a unit carries a version decides whether phase 0 resolves one for it
 (see [Versions](#versions)), whether the plan names its build, and whether it
-may publish and select version writers. The report of phase 0 names the file
-that is to hold the version: `.nebensound/version` for the repository,
-`.nebensound/versions/<name>` for a component. Versions are not written or
-tagged yet.
+may publish and select version writers. No version is stored in the tree: tags
+are the truth.
 
 ## Releases
 

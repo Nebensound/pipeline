@@ -89,10 +89,6 @@ fn a_pure_crate_resolves_and_has_nothing_wrong_with_it() {
     assert_eq!(repository.origin, Origin::Declared);
     assert!(repository.carries_version);
     assert_eq!(
-        repository.version_file().expect("the repository has one"),
-        RelativePath::new(".nebensound/version").expect("a path")
-    );
-    assert_eq!(
         repository.pipeline.source,
         PipelineSource::Preset(
             nebensound_declaration::names::PresetName::new("rust-library").expect("a name")
@@ -218,7 +214,6 @@ fn child_files_make_one_unit_per_document() {
 
     let folder = unit(&analysis, "manuals");
     assert!(!folder.carries_version, "the folder itself carries none");
-    assert_eq!(folder.version_file(), None);
 
     let setup = unit(&analysis, "setup");
     assert!(setup.carries_version);
@@ -231,10 +226,6 @@ fn child_files_make_one_unit_per_document() {
     // A generated unit has nowhere to say anything, so it inherits everything.
     assert_eq!(setup.pipeline.source, PipelineSource::Inherited);
     assert_eq!(setup.pipeline.targets(), folder.pipeline.targets());
-    assert_eq!(
-        setup.version_file().expect("a generated unit carries one"),
-        RelativePath::new(".nebensound/versions/setup").expect("a path")
-    );
 
     // The picture below a folder is not a direct child, so it makes no unit.
     assert_eq!(analysis.units.len(), 4);
@@ -452,7 +443,7 @@ fn a_unit_without_a_version_has_no_identity_to_publish_under() {
         CRATE_FILES,
     );
     assert!(codes(&analysis).contains(&"publish-without-version"));
-    assert_eq!(unit(&analysis, "thing").version_file(), None);
+    assert!(!unit(&analysis, "thing").carries_version);
 }
 
 #[test]
