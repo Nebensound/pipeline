@@ -13,6 +13,7 @@ use crate::names::{CheckName, EcosystemName, Reason};
 use crate::path::RelativePath;
 use crate::pattern::Pattern;
 use crate::register::{BUILTIN_DEFAULTS, BUILTIN_REGISTER, Register, RegisterError};
+use crate::tree::Tree;
 
 /// What holds for a file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -157,8 +158,18 @@ impl Central {
     /// The **more specific** entry wins: a concrete path beats every pattern, a
     /// longer path a shorter one, a file name a type. At equal specificity the
     /// inclusion wins — adding work is always allowed, excusing it is not.
+    ///
+    /// The tree says whether the file is empty: an entry that holds only for
+    /// an empty file is no candidate for one with content, or for one the
+    /// tree knows nothing about.
     #[must_use]
-    pub fn ruling<'a>(&'a self, declaration: &'a Declaration, file: &RelativePath) -> Ruling<'a> {
+    pub fn ruling<'a>(
+        &'a self,
+        declaration: &'a Declaration,
+        file: &RelativePath,
+        tree: &Tree,
+    ) -> Ruling<'a> {
+        let empty = tree.is_empty_file(file);
         let mut best: Option<Candidate<'a>> = None;
 
         let mut consider = |candidate: Candidate<'a>| {
@@ -174,6 +185,9 @@ impl Central {
         };
 
         for entry in self.defaults.exclude.iter().chain(&declaration.exclude) {
+            if entry.only_if_empty && !empty {
+                continue;
+            }
             consider(Candidate {
                 pattern: &entry.path,
                 excuse: Some(&entry.reason),

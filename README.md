@@ -29,6 +29,9 @@ the open issues and milestones show what comes next.
   from the register compiled into the tool.
 - [The phases](docs/phases.md): what runs, under which name, on a pull request
   and on a push.
+- [Calling the workflow](docs/calling.md): how to pin while no release exists,
+  why the schema line can run ahead of the pin, and how to change one linter
+  rule in one place.
 
 ## Calling the pipeline
 
@@ -115,10 +118,9 @@ Every step runs even when one before it failed, so one run shows every finding.
 [`.github/actions/check-markdown`](.github/actions/check-markdown) checks every `.md` and `.markdown` file of the unit:
 
 - Formatted the way Prettier writes it, run as in `check-json`.
-- No Markdownlint finding. Where the repository brings no Markdownlint
-  configuration, the one beside the action applies (`MD013` off, since Prettier
-  does not wrap prose). Its rules hold; its `ignores`, a negated `globs` entry
-  and `gitignore` take nothing out.
+- No Markdownlint finding, with the repository's rules laid over the
+  pipeline's default (see [Linter rules](#linter-rules)). Its `ignores`, a
+  negated `globs` entry and `gitignore` take nothing out.
 - Every link into the repository leads to a file and a heading that exist
   (lychee, `--offline`). Links to the outside are not checked in a pull
   request: it should not turn red because someone else's server does not
@@ -224,9 +226,8 @@ first key or table of `.nebensound/repo.toml`:
 [`.github/actions/check-yaml`](.github/actions/check-yaml) checks every `.yml` and `.yaml` file of the unit:
 
 - Formatted the way Prettier writes it, run as in `check-json`.
-- No yamllint finding. Where the repository brings no yamllint configuration,
-  the one beside the action applies: the defaults, less what contradicts
-  Prettier or GitHub Actions. Its rules hold; its `ignore` and
+- No yamllint finding, with the repository's rules laid over the pipeline's
+  default (see [Linter rules](#linter-rules)). Its `ignore` and
   `ignore-from-file` take nothing out.
 - Every workflow directly under `.github/workflows` passes actionlint, with
   ShellCheck reading every `run:` script. actionlint 1.7.12 does not know `$/`
@@ -275,6 +276,65 @@ packaged tests that use it would not compile. Only `Cargo.toml` and
 versions the same way for its package test; the Build phase that calls the
 block before building is not built yet. A version writer without a building
 block (today `asciidoc`) fails by name in `nebensound / Check`.
+
+### Linter rules
+
+Markdownlint and yamllint run with a default of the pipeline:
+[`tools/nebensound/rules/markdownlint.jsonc`](tools/nebensound/rules/markdownlint.jsonc)
+(`MD013` off, since Prettier does not wrap prose) and
+[`tools/nebensound/rules/yamllint.yaml`](tools/nebensound/rules/yamllint.yaml)
+(yamllint's defaults, less what contradicts Prettier or GitHub Actions). The
+block reads it from the pipeline version that runs. A repository's own
+configuration is laid over that default rule by rule: its file names only the
+rules it wants different, every rule it does not name keeps the default's
+value, and a later change of the default reaches it without a change of its
+own. `nebensound check` shows, per check, every rule the repository sets and
+how it stands to the default (see
+[the tool's README](tools/nebensound/README.md#the-rules)).
+
+A repository whose pull request template begins on a second-level heading
+needs one Markdownlint rule changed, for that folder only. Instead of an inline
+`<!-- markdownlint-disable-file MD041 -->` in the template,
+`.github/.markdownlint-cli2.jsonc` holds the one rule:
+
+```jsonc
+{
+  "config": {
+    "MD041": false,
+  },
+}
+```
+
+`MD013` stays off there and everywhere else, as the default has it. Where the
+rule is to hold in the whole repository, the same file stands at the root.
+markdownlint-cli2 lays the `config` of a `.markdownlint-cli2.jsonc` or
+`.markdownlint-cli2.yaml` over what lies above it rule by rule, in every
+folder. A `.markdownlint.*` file, which holds rules only, it takes instead of
+everything above it; the block lays the one at the root over the default all
+the same, and where the root holds both, the options file lies over it. One in
+a folder below the root still takes the place of everything above it in its
+folder, the default included, and of the `config` of a `.markdownlint-cli2.*`
+beside it, so the rules of a folder belong in its `.markdownlint-cli2.*`.
+
+A repository that wants a comment to need no space after its `#` writes one
+option of one yamllint rule into `.yamllint.yaml` at its root:
+
+```yaml
+rules:
+  comments:
+    require-starting-space: false
+```
+
+yamllint lays it over the default the way it lays a configuration over the one
+its `extends` names: the default's other option of that rule, one space before
+a comment, stays, and so does every other rule, such as `line-length` off. An
+`extends` in the repository's file brings what it names along, over the
+default as well: `extends: default` brings back yamllint's own line length.
+yamllint reads one configuration, at the root (`.yamllint`, `.yamllint.yaml`
+or `.yamllint.yml`).
+
+Settings that take whole files out stay what they are: set aside by the block
+and held against the declaration by phase 0 (see [Exclusions](#exclusions)).
 
 ### Exclusions
 

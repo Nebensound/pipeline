@@ -5,7 +5,7 @@
 //! half-finished file — and phase 0 would judge things the repository does not
 //! have. Git also holds the history and the tags every version is read from.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -28,6 +28,14 @@ const RELEASE_BRANCH: &str = "refs/remotes/origin/release";
 
 /// Where every version is given out.
 const MAIN_BRANCH: &str = "refs/remotes/origin/main";
+
+/// The object an empty file holds, under each hash Git can use: SHA-1 and
+/// SHA-256. Fixed by the empty content, so a repository of either kind names
+/// it the same way.
+const EMPTY_BLOBS: [&[u8]; 2] = [
+    b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    b"473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813",
+];
 
 /// [`DECLARATION`] as a path in the repository.
 fn declaration_path() -> RelativePath {
@@ -188,34 +196,80 @@ impl Repository {
     /// inside the repository.
     pub fn tree(&self) -> Result<Tree, Error> {
         // -z: git quotes unusual names otherwise, and the quotes would be read
-        // as part of the path.
-        self.tree_of(&self.git_output(&["ls-files", "-z"])?)
+        // as part of the path. --stage: each entry names the object it holds,
+        // which tells an empty file without reading the working tree.
+        let listing = self.git_output(&["ls-files", "-z", "--stage"])?;
+        // An entry added with `git add -N` is listed with the empty blob,
+        // whatever the file holds. Against the index, only such an entry shows
+        // up as added. --no-renames: it must not pair up with a deleted file.
+        // --relative: the paths as ls-files prints them, below the root.
+        let intended = self.git_output(&[
+            "diff",
+            "--name-only",
+            "-z",
+            "--no-renames",
+            "--relative",
+            "--diff-filter=A",
+        ])?;
+        self.tree_of(&listing, &intended)
     }
 
-    /// The same tree from a listing that is already at hand, entries separated
-    /// by a zero byte.
+    /// The same tree from listings that are already at hand. `listing` is what
+    /// `git ls-files -z --stage` prints: `<mode> <object> <stage>`, a tab and
+    /// the path, entries separated by a zero byte. `intended` is what
+    /// `git diff --name-only -z --diff-filter=A` prints: the entries added
+    /// with `git add -N`, separated by a zero byte.
     ///
     /// Raw bytes, not text: git hands out the path as it stands on disk, and
     /// replacing what is not UTF-8 would rename a file quietly — or make two
     /// different names collapse into one.
     ///
+    /// A file is empty when it holds the empty blob. A file in conflict is
+    /// listed once for each side, and counts as empty only when every side is.
+    /// An entry added with `git add -N` holds the empty blob only as a
+    /// placeholder, so it never counts as empty.
+    ///
     /// # Errors
     ///
-    /// Returns [`Error::NotUtf8`] when an entry is not text, and
-    /// [`Error::Listing`] when it is not a path inside the repository.
-    pub fn tree_of(&self, listing: &[u8]) -> Result<Tree, Error> {
-        let mut files = Vec::new();
+    /// Returns [`Error::Git`] when an entry does not carry its object,
+    /// [`Error::NotUtf8`] when a path is not text, and [`Error::Listing`] when
+    /// it is not a path inside the repository.
+    pub fn tree_of(&self, listing: &[u8], intended: &[u8]) -> Result<Tree, Error> {
+        let intended: BTreeSet<&[u8]> = intended.split(|byte| *byte == 0).collect();
+        let mut files: BTreeMap<RelativePath, bool> = BTreeMap::new();
         for entry in listing.split(|byte| *byte == 0).filter(|e| !e.is_empty()) {
-            let text = std::str::from_utf8(entry).map_err(|_| Error::NotUtf8 {
-                shown: String::from_utf8_lossy(entry).into_owned(),
+            let unstaged = || Error::Git {
+                root: self.root.display().to_string(),
+                message: format!(
+                    "{:?} is not an entry of `git ls-files --stage`",
+                    String::from_utf8_lossy(entry)
+                ),
+            };
+            let tab = entry
+                .iter()
+                .position(|byte| *byte == b'\t')
+                .ok_or_else(unstaged)?;
+            let (stage, name) = (&entry[..tab], &entry[tab + 1..]);
+            let object = stage
+                .split(|byte| *byte == b' ')
+                .nth(1)
+                .ok_or_else(unstaged)?;
+            let text = std::str::from_utf8(name).map_err(|_| Error::NotUtf8 {
+                shown: String::from_utf8_lossy(name).into_owned(),
             })?;
             let path = RelativePath::new(text).map_err(|source| Error::Listing {
                 value: text.to_owned(),
                 source,
             })?;
-            files.push(path);
+            *files.entry(path).or_insert(true) &=
+                EMPTY_BLOBS.contains(&object) && !intended.contains(name);
         }
-        Ok(Tree::new(files))
+        let empty: Vec<RelativePath> = files
+            .iter()
+            .filter(|(_, empty)| **empty)
+            .map(|(path, _)| path.clone())
+            .collect();
+        Ok(Tree::new(files.into_keys()).with_empty(empty))
     }
 
     /// The declaration as it is written.
@@ -527,7 +581,7 @@ impl Repository {
 
     /// [`Self::read`] as the readers of the tools' settings and the
     /// manifests take it.
-    fn reader(&self) -> impl Fn(&RelativePath) -> Result<String, String> + '_ {
+    pub(crate) fn reader(&self) -> impl Fn(&RelativePath) -> Result<String, String> + '_ {
         |path: &RelativePath| self.read(&path.to_string()).map_err(|e| e.to_string())
     }
 

@@ -1,0 +1,5 @@
+{
+  // Asks for a style of heading that Prettier does not write, so that the
+  // rule of this file shows in a finding.
+  "MD003": { "style": "setext" },
+}

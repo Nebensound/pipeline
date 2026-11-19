@@ -18,6 +18,7 @@ pub mod plan;
 pub mod reference;
 pub mod report;
 pub mod repository;
+pub mod rules;
 pub mod setup;
 #[cfg(feature = "ui")]
 pub mod terminal;
@@ -435,8 +436,9 @@ fn execute(
             say(
                 out,
                 &format!(
-                    "{}\n\n{}\n\n{}\n\n{}\n",
+                    "{}\n\n{}\n\n{}\n\n{}\n\n{}\n",
                     report::configuration(&analysis, &central),
+                    rules::report(&analysis, &repository.reader(), rules::Defaults::BUILT_IN),
                     report::tree(&analysis),
                     report::findings(&analysis),
                     report::summary(&analysis)

@@ -271,12 +271,20 @@ fn excluded(central: &Central) -> String {
         .defaults()
         .exclude
         .iter()
-        .map(|entry| vec![code(&entry.path), cell(entry.reason.as_str())])
+        .map(|entry| {
+            let reason = if entry.only_if_empty {
+                format!("{}; only while the file is empty", entry.reason)
+            } else {
+                entry.reason.to_string()
+            };
+            vec![code(&entry.path), cell(&reason)]
+        })
         .collect();
     section(
         "Excluded everywhere",
         "What nobody checks, in any repository. A declaration can pull an entry back in\n\
-         with `[[include]]`; it cannot add a pattern of its own.",
+         with `[[include]]`; it cannot add a pattern of its own. An entry that holds only\n\
+         while the file is empty excuses nothing once the file holds content.",
         &["Pattern", "Reason"],
         &rows,
     )

@@ -37,7 +37,10 @@ reason = "drawn in an editor that writes it; no tool here formats it"
   [JSON Schema of the file](../.github/actions/check-toml/schemas/nebensound-declaration.json),
   for completion and for marking an unknown key where it is written. The
   `check-toml` building block checks the file against the same schema whether
-  the line is there or not. Phase 0 is the judge: the schema lets through some
+  the line is there or not, and always against the schema of the version the
+  caller pins, while the line points at `main` and can run ahead of that
+  version (see [Calling the workflow](calling.md#the-schema-line-runs-ahead-of-the-pin)).
+  Phase 0 is the judge: the schema lets through some
   files that phase 0 then rejects, never the other way round.
 - Phase 0 reads the file in every run, in the job `nebensound / Declare`, and
   checks it against what Git tracks in the repository: `git ls-files`, so a
@@ -83,6 +86,13 @@ and `uv.lock` belong to `toml`, `composer.lock` and `flake.lock` to `json`, and
 `yarn.lock` and `Gemfile.lock` are in a format of their own that no check
 covers, so they stand on the list of what nobody checks. A lockfile has to
 parse; it is not formatted, since the tool that writes it decides its layout.
+
+A marker file that keeps an otherwise empty folder, `.gitkeep` or `.keep`,
+stands on the list of what nobody checks as long as it is empty: it needs no
+exclusion. Empty means what Git holds for it, not what lies in the working
+tree. A marker added with `git add -N` holds nothing in Git yet, so it does not
+count as empty until it is staged. A marker that holds content is a file like
+any other, and phase 0 reports it as `language-without-check`.
 
 ### Where a check runs
 
@@ -558,7 +568,8 @@ remove the component.
 Error. A file is not excluded, and no check in the register covers its kind.
 Exclude it with a reason if nobody should look at it. If it is a kind of file
 that belongs checked, the register needs a check for it, if need be one whose
-building block fails until it is written.
+building block fails until it is written. A `.gitkeep` or `.keep` that holds
+content lands here too: empty it, or give it a name that says what it is.
 
 ### `childless-generator`
 
