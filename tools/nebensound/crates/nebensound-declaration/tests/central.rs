@@ -218,6 +218,7 @@ const FIRMWARE: &str = "firmware image; a generated result, not the source";
 const CAD: &str = "CAD geometry; partly readable as text, but without a tool in the organization";
 const LEGAL: &str = "legal text, taken over unchanged";
 const UNFORMATTED: &str = "tool configuration without a formatter";
+const LOCKFILE: &str = "lockfile in a format of its own; no tool in the organization checks it";
 const COMMANDS: &str = "command list in a syntax of its own; no tool in the organization checks it";
 
 /// What nobody checks, entry for entry: the pattern and its reason. A line
@@ -275,6 +276,8 @@ const UNCHECKED_TABLE: &[(&str, &str)] = &[
     ("**/.gitattributes", UNFORMATTED),
     ("**/.dockerignore", UNFORMATTED),
     ("**/.editorconfig", UNFORMATTED),
+    ("**/yarn.lock", LOCKFILE),
+    ("**/Gemfile.lock", LOCKFILE),
     ("**/justfile", COMMANDS),
     ("**/Makefile", COMMANDS),
 ];

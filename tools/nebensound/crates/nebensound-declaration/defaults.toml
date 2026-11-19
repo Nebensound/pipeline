@@ -154,6 +154,14 @@ path   = "**/.editorconfig"
 reason = "tool configuration without a formatter"
 
 [[exclude]]
+path   = "**/yarn.lock"
+reason = "lockfile in a format of its own; no tool in the organization checks it"
+
+[[exclude]]
+path   = "**/Gemfile.lock"
+reason = "lockfile in a format of its own; no tool in the organization checks it"
+
+[[exclude]]
 path   = "**/justfile"
 reason = "command list in a syntax of its own; no tool in the organization checks it"
 

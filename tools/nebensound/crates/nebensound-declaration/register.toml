@@ -23,13 +23,18 @@ extensions = [".md", ".markdown"]
 [check.yaml]
 extensions = [".yml", ".yaml"]
 
+# Lockfiles are named, never covered by the extension `.lock`: the extension is
+# shared by formats that have nothing in common. composer.lock and flake.lock
+# are JSON; Cargo.lock and uv.lock are TOML; yarn.lock and Gemfile.lock are in
+# formats of their own and stand on the list of types nobody checks, in
+# defaults.toml.
 [check.json]
 extensions = [".json", ".jsonc", ".geojson"]
+filenames  = ["composer.lock", "flake.lock"]
 
-# Cargo.lock is TOML with a different extension, and every repository has to
-# commit its lockfiles — so the base set has to cover it.
 [check.toml]
-extensions = [".toml", ".lock"]
+extensions = [".toml"]
+filenames  = ["Cargo.lock", "uv.lock"]
 
 [check.rust]
 extensions = [".rs"]

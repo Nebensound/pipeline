@@ -63,7 +63,7 @@ that no check covers has to be excluded.
 | `dockerfile` | `.dockerfile`                                            | `Dockerfile`, `Containerfile` |
 | `html`       | `.html`, `.htm`                                          | none                          |
 | `javascript` | `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.tsx`             | none                          |
-| `json`       | `.json`, `.jsonc`, `.geojson`                            | none                          |
+| `json`       | `.json`, `.jsonc`, `.geojson`                            | `composer.lock`, `flake.lock` |
 | `markdown`   | `.md`, `.markdown`                                       | none                          |
 | `php`        | `.php`                                                   | none                          |
 | `python`     | `.py`, `.pyi`                                            | none                          |
@@ -72,7 +72,7 @@ that no check covers has to be excluded.
 | `rust`       | `.rs`                                                    | none                          |
 | `shell`      | `.sh`, `.bash`                                           | none                          |
 | `sql`        | `.sql`                                                   | none                          |
-| `toml`       | `.toml`, `.lock`                                         | none                          |
+| `toml`       | `.toml`                                                  | `Cargo.lock`, `uv.lock`       |
 | `typst`      | `.typ`                                                   | none                          |
 | `yaml`       | `.yml`, `.yaml`                                          | none                          |
 
@@ -169,5 +169,7 @@ with `[[include]]`; it cannot add a pattern of its own.
 | `**/.gitattributes` | tool configuration without a formatter                                        |
 | `**/.dockerignore`  | tool configuration without a formatter                                        |
 | `**/.editorconfig`  | tool configuration without a formatter                                        |
+| `**/yarn.lock`      | lockfile in a format of its own; no tool in the organization checks it        |
+| `**/Gemfile.lock`   | lockfile in a format of its own; no tool in the organization checks it        |
 | `**/justfile`       | command list in a syntax of its own; no tool in the organization checks it    |
 | `**/Makefile`       | command list in a syntax of its own; no tool in the organization checks it    |

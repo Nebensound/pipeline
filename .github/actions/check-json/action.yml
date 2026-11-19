@@ -1,16 +1,17 @@
 name: check-json
 description: >-
   The JSON check over one unit: every `.json`, `.jsonc` and `.geojson` file
-  the unit holds parses and is formatted the way Prettier writes it.
+  the unit holds parses and is formatted the way Prettier writes it; every
+  `composer.lock` and `flake.lock` parses.
 
 # One input, and it is not a setting: where the unit is. It comes from the plan
 # of phase 0. The files are the ones `nebensound files` names for the check and
-# the unit: what Git tracks below that path with an extension the register
-# gives the check, less what an `[[exclude]]` entry of the declaration takes
-# out. A file nobody committed is not judged, a committed one is not missed,
-# and no ignore mechanism of a tool takes one out. The calling job checks the
-# repository out and puts the tool on the PATH first (the action `tool`); every
-# step runs at the repository root.
+# the unit: what Git tracks below that path with an extension or a file name
+# the register gives the check, less what an `[[exclude]]` entry of the
+# declaration takes out. A file nobody committed is not judged, a committed
+# one is not missed, and no ignore mechanism of a tool takes one out. The
+# calling job checks the repository out and puts the tool on the PATH first
+# (the action `tool`); every step runs at the repository root.
 
 inputs:
   working-directory:
@@ -71,7 +72,7 @@ runs:
 
     # Strict JSON: no comments, no trailing commas. Prettier would accept both
     # and so cannot be the judge of validity.
-    - name: Every .json and .geojson file parses
+    - name: Every .json, .geojson and lock file parses
       if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
       shell: bash
       env:
@@ -155,6 +156,10 @@ runs:
     # `rangeEnd`) that leaves the file out, `overrides` included; the flags set
     # all of them aside, since the command line wins over the configuration.
     # What is not to be checked is not in the list.
+    #
+    # A lockfile (`composer.lock`, `flake.lock`) has to parse, above, and is not
+    # formatted: the tool that writes it decides its layout, and Composer's
+    # four-space indentation is not Prettier's.
     - name: Every JSON file is formatted
       if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
       shell: bash
@@ -163,6 +168,18 @@ runs:
       run: |
         set -euo pipefail
         status=0
+        formatted="$RUNNER_TEMP/check-json-formatted"
+        : > "$formatted"
+        while IFS= read -r -d '' file; do
+          case "${file##*/}" in
+            composer.lock | flake.lock) ;;
+            *) printf '%s\0' "$file" >> "$formatted" ;;
+          esac
+        done < "$LIST"
+        if [ ! -s "$formatted" ]; then
+          echo "No file to format-check: lockfiles are parsed, not formatted."
+          exit 0
+        fi
         # Without colours: on GitHub Actions Prettier colours `warn` and
         # `error`, and the lines below would no longer match.
         : > "$RUNNER_TEMP/check-json-nothing-ignored"
@@ -170,7 +187,7 @@ runs:
           --check --no-color --with-node-modules \
           --ignore-path "$RUNNER_TEMP/check-json-nothing-ignored" \
           --no-require-pragma --no-check-ignore-pragma \
-          --range-start=0 --range-end=Infinity -- < "$LIST" \
+          --range-start=0 --range-end=Infinity -- < "$formatted" \
           > "$RUNNER_TEMP/check-json-prettier" 2>&1 || status=$?
         # Prettier names an unformatted file as `[warn] <file>` and one it
         # cannot parse as `[error] <file>: <message>`; each becomes an
