@@ -30,14 +30,13 @@ use crate::action::{Action, Kind, Runs, Step};
 use crate::expr::{self, Scope, Value};
 use crate::{Error, say};
 
-/// Variables of this process that a step does not get.
+/// Variables of this process that the tool `setup` builds does not get.
 ///
 /// `cargo run` sets them for the xtask, and the gate sets `RUSTUP_TOOLCHAIN`
-/// to the toolchain the xtask pins. Handed on, they would make Cargo inside a
-/// step build with the xtask's toolchain instead of the one the case pins, and
-/// into the xtask's target directory. In the gate, a block's step has none of
-/// them either.
-const LEFT_OUT: &[&str] = &[
+/// to the toolchain the xtask pins. Handed on, they would make Cargo build
+/// with the xtask's toolchain instead of the one the tool pins, and into the
+/// xtask's target directory.
+const CARGO_SETS: &[&str] = &[
     "RUSTUP_TOOLCHAIN",
     "CARGO",
     "CARGO_MANIFEST_DIR",
@@ -48,9 +47,49 @@ const LEFT_OUT: &[&str] = &[
     "CARGO_TARGET_DIR",
 ];
 
-/// Prefixes of the variables of this process that a step does not get, for
-/// the same reason.
-const LEFT_OUT_PREFIXES: &[&str] = &["CARGO_PKG_", "CARGO_BIN_EXE_"];
+/// Prefixes of the variables of this process that the tool `setup` builds
+/// does not get, for the same reason.
+const CARGO_SETS_PREFIXES: &[&str] = &["CARGO_PKG_", "CARGO_BIN_EXE_"];
+
+/// The variables of this process a step gets; every other one is left out.
+///
+/// A step on a runner starts from the runner's environment, not from a
+/// developer's shell, so a variable that steers a tool there
+/// (`CARGO_TERM_COLOR`, `RUSTFLAGS`, `NODE_OPTIONS`, `PYTHONPATH`, `GOFLAGS`,
+/// `RUSTUP_TOOLCHAIN`, …) would change what a block prints here and not in
+/// the gate. Only what a runner step has too is handed on: where the user's
+/// files, toolchains and caches lie, the locale, and how to reach the
+/// network.
+const PASSED_ON: &[&str] = &[
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "TMPDIR",
+    "TZ",
+    "LANG",
+    "LANGUAGE",
+    "CARGO_HOME",
+    "RUSTUP_HOME",
+    "GOPATH",
+    "GOCACHE",
+    "GOMODCACHE",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "all_proxy",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+];
+
+/// Prefixes of the variables of this process a step gets, for the same
+/// reason: the locale and where the user's files lie.
+const PASSED_ON_PREFIXES: &[&str] = &["LC_", "XDG_"];
 
 /// What stands in for an action that runs on Node.js.
 #[derive(Clone, Copy, Debug)]
@@ -208,6 +247,10 @@ pub struct Host {
     pub origin: String,
     /// Where fetched actions are kept during the run.
     pub store: PathBuf,
+    /// Where `cargo install` in a step installs to (`CARGO_INSTALL_ROOT`),
+    /// its `bin` ahead of the inherited `PATH`, so that the cases leave the
+    /// programs the developer installed as they are.
+    pub installs: PathBuf,
     /// `runner.os`.
     pub os: String,
     /// `runner.arch`.
@@ -247,16 +290,31 @@ pub struct Outcome {
     pub log: Vec<String>,
 }
 
-/// The environment of this process, less the variables `cargo run` sets for
-/// the xtask and `RUSTUP_TOOLCHAIN`: handed on, they would make Cargo inside a
-/// step build with the xtask's toolchain and into its target directory.
+/// The environment a step starts from: the variables of this process that
+/// `PASSED_ON` names, and no other: what a runner step has too.
 #[must_use]
 pub fn environment(vars: Vec<(OsString, OsString)>) -> Vec<(OsString, OsString)> {
     vars.into_iter()
         .filter(|(name, _)| {
             let name = name.to_string_lossy();
-            !LEFT_OUT.contains(&name.as_ref())
-                && !LEFT_OUT_PREFIXES
+            PASSED_ON.contains(&name.as_ref())
+                || PASSED_ON_PREFIXES
+                    .iter()
+                    .any(|prefix| name.starts_with(prefix))
+        })
+        .collect()
+}
+
+/// The environment of this process, less the variables `cargo run` sets for
+/// the xtask and `RUSTUP_TOOLCHAIN` (`CARGO_SETS`): what `setup` builds and
+/// starts the tool with on the developer's behalf.
+#[must_use]
+pub fn outside_cargo(vars: Vec<(OsString, OsString)>) -> Vec<(OsString, OsString)> {
+    vars.into_iter()
+        .filter(|(name, _)| {
+            let name = name.to_string_lossy();
+            !CARGO_SETS.contains(&name.as_ref())
+                && !CARGO_SETS_PREFIXES
                     .iter()
                     .any(|prefix| name.starts_with(prefix))
         })
@@ -461,9 +519,17 @@ impl Host {
             .iter()
             .find(|(name, _)| name == "PATH")
             .map(|(_, value)| value.to_string_lossy().into_owned());
-        let path: Vec<String> = job.path.iter().cloned().chain(inherited).collect();
+        let installed = self.installs.join("bin").display().to_string();
+        let path: Vec<String> = job
+            .path
+            .iter()
+            .cloned()
+            .chain(std::iter::once(installed))
+            .chain(inherited)
+            .collect();
         command
             .env("PATH", path.join(":"))
+            .env("CARGO_INSTALL_ROOT", &self.installs)
             .env("CI", "true")
             .env("GITHUB_ACTIONS", "true")
             .env("GITHUB_WORKSPACE", place.workspace)
@@ -569,7 +635,10 @@ impl Host {
     }
 
     /// The directory of the action `owner/repo[/path]` at `version`, fetched
-    /// once per run.
+    /// once per run. `version` is a branch, a tag or a full commit SHA, as a
+    /// workflow may name it: the ref is fetched, which takes all three, where
+    /// `git clone --branch` takes no SHA. A fetch that fails leaves nothing
+    /// behind, so a later step does not take the empty checkout for the action.
     fn fetch(&self, name: &str, version: &str) -> Result<PathBuf, Error> {
         let mut parts = name.splitn(3, '/');
         let (owner, repository) = (parts.next().unwrap_or_default(), parts.next());
@@ -580,19 +649,22 @@ impl Host {
         };
         let checkout = self.store.join(owner).join(repository).join(version);
         if !checkout.is_dir() {
-            crate::quietly(
+            let git = |args: &[&str]| {
+                let mut all: Vec<OsString> = vec!["-C".into(), checkout.clone().into()];
+                all.extend(args.iter().map(OsString::from));
+                crate::quietly(&self.git, &all)
+            };
+            let origin = format!("{}/{owner}/{repository}", self.origin);
+            let fetched = crate::quietly(
                 &self.git,
-                &[
-                    "clone".into(),
-                    "--quiet".into(),
-                    "--depth".into(),
-                    "1".into(),
-                    "--branch".into(),
-                    version.into(),
-                    format!("{}/{owner}/{repository}", self.origin).into(),
-                    checkout.clone().into(),
-                ],
-            )?;
+                &["init".into(), "--quiet".into(), checkout.clone().into()],
+            )
+            .and_then(|()| git(&["fetch", "--quiet", "--depth", "1", &origin, version]))
+            .and_then(|()| git(&["checkout", "--quiet", "FETCH_HEAD"]));
+            if let Err(error) = fetched {
+                let _ = fs::remove_dir_all(&checkout);
+                return Err(error);
+            }
         }
         Ok(parts
             .next()

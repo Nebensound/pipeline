@@ -160,6 +160,7 @@ fn a_step_sees_what_the_runner_hands_it() {
     let mut host = scene.host();
     host.env.push(("CARGO_PKG_NAME".into(), "xtask".into()));
     host.env.push(("RUSTUP_TOOLCHAIN".into(), "1.0.0".into()));
+    host.env.push(("CARGO_TERM_COLOR".into(), "always".into()));
     host.env = runner::environment(host.env);
     let dir = scene.action(
         "main",
@@ -168,7 +169,9 @@ fn a_step_sees_what_the_runner_hands_it() {
              [ \"$(cd \"$GITHUB_WORKSPACE\" && pwd -P)\" = \"$(pwd -P)\" ] && echo workspace\n\
              [ -d \"$RUNNER_TEMP\" ] && echo temp\n\
              [ -f \"$GITHUB_ACTION_PATH/action.yml\" ] && echo action\n\
-             echo \"[${CARGO_PKG_NAME:-}] [${RUSTUP_TOOLCHAIN:-}]\"\n\
+             echo \"[${CARGO_PKG_NAME:-}] [${RUSTUP_TOOLCHAIN:-}] [${CARGO_TERM_COLOR:-}]\"\n\
+             [ \"$CARGO_INSTALL_ROOT\" = \"$(dirname \"$RUNNER_TEMP\")/installs\" ] && echo installs\n\
+             case \"$PATH\" in \"$CARGO_INSTALL_ROOT/bin:\"*) echo installs first;; esac\n\
              echo \"${{ github.workspace }}\" | grep -q workspace && echo github.workspace\n\
              echo \"${{ github.action_path }}\" | grep -q main && echo github.action_path\n\
              echo \"${{ runner.temp }}\" | grep -q temp && echo runner.temp\n\
@@ -184,7 +187,9 @@ fn a_step_sees_what_the_runner_hands_it() {
             "workspace",
             "temp",
             "action",
-            "[] []",
+            "[] [] []",
+            "installs",
+            "installs first",
             "github.workspace",
             "github.action_path",
             "runner.temp",
@@ -411,11 +416,58 @@ fn file_commands_are_read_as_github_writes_them() {
 }
 
 #[test]
-fn the_environment_leaves_out_what_would_steer_cargo() {
+fn a_step_gets_only_what_a_runner_step_has_too() {
     let vars: Vec<(OsString, OsString)> = [
         "PATH",
         "HOME",
         "CARGO_HOME",
+        "RUSTUP_HOME",
+        "LANG",
+        "LC_ALL",
+        "XDG_CACHE_HOME",
+        "https_proxy",
+        "CARGO",
+        "CARGO_MANIFEST_DIR",
+        "CARGO_PKG_VERSION",
+        "CARGO_TARGET_DIR",
+        "CARGO_TERM_COLOR",
+        "CARGO_BUILD_TARGET",
+        "RUSTFLAGS",
+        "RUSTUP_TOOLCHAIN",
+        "NODE_OPTIONS",
+        "PYTHONPATH",
+        "GOFLAGS",
+        "TERM",
+    ]
+    .iter()
+    .map(|name| (OsString::from(name), OsString::from("x")))
+    .collect();
+    let kept: Vec<String> = runner::environment(vars)
+        .into_iter()
+        .map(|(name, _)| name.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        kept,
+        [
+            "PATH",
+            "HOME",
+            "CARGO_HOME",
+            "RUSTUP_HOME",
+            "LANG",
+            "LC_ALL",
+            "XDG_CACHE_HOME",
+            "https_proxy"
+        ]
+    );
+}
+
+#[test]
+fn outside_cargo_leaves_out_what_would_steer_cargo() {
+    let vars: Vec<(OsString, OsString)> = [
+        "PATH",
+        "HOME",
+        "CARGO_HOME",
+        "TERM",
         "CARGO",
         "CARGO_MANIFEST_DIR",
         "CARGO_PKG_VERSION",
@@ -426,11 +478,11 @@ fn the_environment_leaves_out_what_would_steer_cargo() {
     .iter()
     .map(|name| (OsString::from(name), OsString::from("x")))
     .collect();
-    let kept: Vec<String> = runner::environment(vars)
+    let kept: Vec<String> = runner::outside_cargo(vars)
         .into_iter()
         .map(|(name, _)| name.to_string_lossy().into_owned())
         .collect();
-    assert_eq!(kept, ["PATH", "HOME", "CARGO_HOME"]);
+    assert_eq!(kept, ["PATH", "HOME", "CARGO_HOME", "TERM"]);
 }
 
 #[test]
@@ -569,6 +621,87 @@ fn a_composite_action_a_step_calls_is_fetched_and_run() {
     );
     let message = error(scene.run_on(&host, &mut Job::default(), &node, &[], &[]));
     assert!(message.contains("runs on `node24`"), "{message}");
+}
+
+#[test]
+fn an_action_pinned_to_a_commit_is_fetched() {
+    let scene = Scene::new();
+    let origin = scene.path().join("origin");
+    remote(
+        &origin,
+        "pinned",
+        &[(
+            "action.yml",
+            "runs:\n  using: composite\n  steps:\n    - shell: bash\n      run: echo pinned\n",
+        )],
+    );
+    let repository = origin.join("owner/pinned");
+    // GitHub hands out any commit it holds; git over `file://` only when told.
+    git(
+        &repository,
+        &["config", "uploadpack.allowAnySHA1InWant", "true"],
+    );
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&repository)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    let commit = String::from_utf8(output.stdout).unwrap().trim().to_owned();
+    // A later commit on the branch, so that the pinned one is not its tip.
+    support::write(
+        &repository,
+        &[(
+            "action.yml",
+            "runs:\n  using: composite\n  steps:\n    - shell: bash\n      run: echo later\n",
+        )],
+    );
+    git(
+        &repository,
+        &["commit", "--quiet", "--all", "--message", "Later"],
+    );
+
+    let host = support::host(
+        &scene.path().join("store"),
+        &format!("file://{}", origin.display()),
+    );
+    let dir = scene.action(
+        "main",
+        &format!("runs:\n  using: composite\n  steps:\n    - uses: owner/pinned@{commit}\n"),
+    );
+    let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[], &[]));
+    assert!(outcome.success, "{out}");
+    assert_eq!(outcome.log, ["pinned"]);
+}
+
+#[test]
+fn a_fetch_that_fails_leaves_no_checkout_behind() {
+    let scene = Scene::new();
+    let origin = scene.path().join("origin");
+    remote(
+        &origin,
+        "composite",
+        &[(
+            "action.yml",
+            "runs:\n  using: composite\n  steps:\n    - shell: bash\n      run: echo fetched\n",
+        )],
+    );
+    let store = scene.path().join("store");
+    let host = support::host(&store, &format!("file://{}", origin.display()));
+    let dir = scene.action(
+        "main",
+        "runs:\n  using: composite\n  steps:\n    - uses: owner/composite@v2\n",
+    );
+    let message = error(scene.run_on(&host, &mut Job::default(), &dir, &[], &[]));
+    assert!(message.contains("failed"), "{message}");
+    assert!(!store.join("owner/composite/v2").exists());
+
+    // Once the ref exists, the next run fetches it rather than taking an
+    // empty checkout for the action.
+    git(&origin.join("owner/composite"), &["tag", "v2"]);
+    let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[], &[]));
+    assert!(outcome.success, "{out}");
+    assert_eq!(outcome.log, ["fetched"]);
 }
 
 #[test]

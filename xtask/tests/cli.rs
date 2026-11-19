@@ -331,7 +331,7 @@ fn needy(scene: &Scene) -> (PathBuf, PathBuf, Setup) {
     );
     let bin = scene.path().join("bin");
     fs::create_dir_all(&bin).unwrap();
-    let mut setup = setup(&root, scene.path(), "macos");
+    let mut setup = setup(&root, scene.path(), "linux");
     setup
         .env
         .retain(|(name, _)| name != "PATH" && name != "RUSTUP_TOOLCHAIN");
@@ -346,7 +346,11 @@ fn needy(scene: &Scene) -> (PathBuf, PathBuf, Setup) {
 fn provide(bin: &Path) {
     script(&bin.join("node"), "echo v24.3.0");
     script(&bin.join("go"), "echo go version go1.26.2 linux/amd64");
-    script(&bin.join("python3"), "echo Python 3.13.1");
+    script(&bin.join("jq"), "echo jq-1.8.1");
+    script(
+        &bin.join("python3"),
+        "echo pip 25.3 from /usr/lib/python3/dist-packages/pip",
+    );
     script(&bin.join("rustup"), "echo rustup 1.29.0; echo info >&2");
 }
 
@@ -368,8 +372,9 @@ fn setup_calls_the_tool_of_this_commit_with_every_option() {
         "What the test cases need besides:\n\
          go 1.26: on the PATH, go version go1.26.2 linux/amd64\n\
          node 24: on the PATH, v24.3.0\n\
-         python3: on the PATH, Python 3.13.1\n\
-         rustup: on the PATH, rustup 1.29.0\n"
+         jq: found, jq-1.8.1\n\
+         pip: found, pip 25.3 from /usr/lib/python3/dist-packages/pip\n\
+         rustup: found, rustup 1.29.0\n"
     );
     let manifest = root.join("tools/nebensound/Cargo.toml");
     // Cargo starts in the tool's directory, so that rustup takes the
@@ -434,11 +439,16 @@ fn setup_names_what_the_test_cases_need_and_the_machine_lacks() {
     let (_, bin, mut setup) = needy(&scene);
     setup.cargo = fake_cargo(&scene, 0);
 
-    // A Node.js of another version, a Go that prints nothing, and a Python
-    // and a rustup that fail. The PATH ends in the system's directories, so a
-    // Python of the system would be found behind a missing one.
+    // A Node.js of another version, a Go that prints nothing, a jq, a Python
+    // without pip and a rustup that fail. The PATH ends in the system's
+    // directories, so a program of the system would be found behind a missing
+    // one.
     script(&bin.join("node"), "echo v26.13.1");
-    script(&bin.join("python3"), "exit 127");
+    script(&bin.join("jq"), "exit 127");
+    script(
+        &bin.join("python3"),
+        "[ \"$*\" = '-m pip --version' ] && { echo 'No module named pip' >&2; exit 1; }; echo Python 3.13.1",
+    );
     script(&bin.join("go"), "exit 0");
     script(&bin.join("rustup"), "echo rustup 1.29.0; exit 1");
     let (code, out) = call(&["setup"], &setup);
@@ -448,10 +458,33 @@ fn setup_names_what_the_test_cases_need_and_the_machine_lacks() {
         "What the test cases need besides:\n\
          go 1.26: missing, the PATH has none. Put go 1.26 on the PATH.\n\
          node 24: missing, the PATH has v26.13.1. Put node 24 on the PATH.\n\
-         python3: missing. Put python3 on the PATH.\n\
-         rustup: missing. Put rustup on the PATH.\n\
-         4 program(s) the test cases need are missing, each named above.\n"
+         jq: missing, `jq --version` fails on the PATH the steps get.\n\
+         pip: missing, `python3 -m pip --version` fails on the PATH the steps get.\n\
+         rustup: missing, `rustup --version` fails on the PATH the steps get.\n\
+         5 program(s) the test cases need are missing, each named above.\n"
     );
+}
+
+#[test]
+fn elsewhere_than_linux_setup_leaves_out_what_only_the_cases_need() {
+    let scene = Scene::new();
+    let (_, bin, mut setup) = needy(&scene);
+    setup.os = "macos".to_owned();
+    // Nothing the cases need is there, and that fails nothing here.
+    script(&bin.join("node"), "echo v26.13.1");
+    setup.cargo = fake_cargo(&scene, 0);
+    let (code, out) = call(&["setup"], &setup);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(
+        out,
+        "For now the test cases run only on Linux, and this machine runs macos, so what only \
+         they need is not checked here.\n"
+    );
+
+    // The tool's own exit code still counts.
+    setup.cargo = fake_cargo(&scene, 3);
+    let (code, _) = call(&["setup"], &setup);
+    assert_eq!(code, 3);
 }
 
 #[test]

@@ -347,7 +347,8 @@ block's `action.yml` and runs it the way the runner of GitHub Actions does: it
 decides each `if:`, fills in every `${{ … }}`, hands each `run:` to bash and
 reads back what the step writes to `GITHUB_OUTPUT`, `GITHUB_ENV` and
 `GITHUB_PATH`. A composite action a block calls, such as lychee's, is fetched at
-the ref the block names and run the same way. An action that runs on Node.js
+the ref the block names, a branch, a tag or a full commit SHA, and run the same
+way. An action that runs on Node.js
 cannot run like that; for the ones the blocks call, the xtask stands in:
 
 | Action                                                               | What stands in                                                                                |
@@ -361,6 +362,14 @@ on the PATH. One step does not run: `Make room on the runner` of `check-rust`,
 which deletes software of the machine with `sudo`; on a developer's machine,
 that software would be theirs. A step the xtask leaves out has to exist, so
 renaming it fails the xtask instead of letting the step run.
+
+A step gets only the variables a step on a runner has too: `PATH`, `HOME`, the
+user, the locale, where Cargo, rustup and Go keep their files, the proxy and
+certificate settings, and the `XDG_` folders. A variable that steers a tool,
+such as `CARGO_TERM_COLOR`, `RUSTFLAGS` or `NODE_OPTIONS`, would otherwise make
+a block print something else locally than in the gate. What a step installs
+with `cargo install` goes into a folder of the run that comes first on its
+`PATH`, so the cases leave the developer's own programs as they are.
 
 What a step prints stands in the log behind a `|`, so that the findings of a
 failing case do not become annotations of the gate. What the xtask itself
@@ -376,11 +385,14 @@ with the checks that run from the tool (#73, #74).
 `cargo xtask setup` calls `nebensound setup` for this repository with the tool
 of this commit, built from `tools/nebensound/` with the toolchain the tool
 pins, and hands it every option unchanged (`--pinned`, `--with-runtimes`,
-`--check`). Then it checks what only the test cases need: Node.js and Go on the
-`PATH` in the versions the blocks' steps ask for (read from their
-`action.yml`), Python, and rustup. It installs none of these, since they stay
-the machine's, but names each one that is missing or of another version and
-exits with `1` then, so that a machine it passes can run the cases.
+`--check`). Then, on Linux, it checks what only the test cases need: Node.js and
+Go on the `PATH` in the versions the blocks' steps ask for (read from their
+`action.yml`), jq, Python's pip and rustup. It installs none of these, since
+they stay the machine's, but names each one that is missing or of another
+version and exits with `1` then, so that a machine it passes can run the cases.
+`nebensound setup` may have put a jq into its cache, but the steps look for jq
+on the `PATH`. On another system the cases do not run, so `setup` leaves out
+what only they need and says so, and its exit code is the tool's.
 
 The cases are
 taken out of this repository's own checks with `[[exclude]]` and a reason in

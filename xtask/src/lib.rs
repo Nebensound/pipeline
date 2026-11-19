@@ -8,12 +8,13 @@
 //!   `action.yml` ([`runner`]). The central workflow runs
 //!   `cargo xtask check --all` as the last step of `Check repository`.
 //! - `setup` calls `nebensound setup` for this repository, with the tool of
-//!   this commit, to find or install the programs its checks call, and then
-//!   checks what only the test cases need ([`MACHINE`]): Node.js and Go on
-//!   the `PATH` in the versions the blocks' steps ask for, Python and rustup.
-//!   It installs none of them: the blocks fetch their own programs when the
-//!   cases run them, and those four stay the machine's, so it names each one
-//!   that is missing.
+//!   this commit, to find or install the programs its checks call, and then,
+//!   on Linux, checks what only the test cases need ([`MACHINE`]): Node.js
+//!   and Go on the `PATH` in the versions the blocks' steps ask for, jq,
+//!   Python's pip and rustup. It installs none of them: the blocks fetch
+//!   their own programs when the cases run them, and these stay the
+//!   machine's, so it names each one that is missing. Elsewhere the cases do
+//!   not run, so it leaves them out and says why.
 //!
 //! The binary is a few lines. Everything else lives here, so that it can be
 //! checked without starting the process.
@@ -41,11 +42,18 @@ const FOUND: u8 = 1;
 /// The call was wrong.
 const MISUSE: u8 = 2;
 
-/// What the steps of the blocks call on the machine beside the programs the
-/// register pins and the programs [`runner::needs`] finds, each with what
-/// makes it print its version: `check-yaml` runs Python's pip, and the tool
-/// and `check-rust` install toolchains with rustup.
-pub const MACHINE: &[(&str, &str)] = &[("python3", "--version"), ("rustup", "--version")];
+/// What the steps of the blocks call on the machine beside the programs
+/// [`runner::needs`] finds, each with its name and the command that shows it
+/// is there. Phase 0, `check-json`, `check-rust` and `check-toml` run jq;
+/// `nebensound setup` can install a jq of its own, but into its cache and not
+/// onto the `PATH` the steps search. `check-yaml` runs Python's pip, which
+/// some systems ship apart from Python. The tool and `check-rust` install
+/// toolchains with rustup.
+pub const MACHINE: &[(&str, &str, &[&str])] = &[
+    ("jq", "jq", &["--version"]),
+    ("pip", "python3", &["-m", "pip", "--version"]),
+    ("rustup", "rustup", &["--version"]),
+];
 
 /// The options after `setup` that ask the tool for its help, after which
 /// nothing is checked.
@@ -63,9 +71,9 @@ check --all   Holds the building blocks, the register and nebensound.yml to
 setup         Calls `nebensound setup` for this repository, built from this
               commit, to find or install the programs its checks call. Every
               option goes to it unchanged: --pinned, --with-runtimes, --check.
-              Then it checks, and installs nothing, what only the test cases
-              need: Node.js and Go in the versions the blocks ask for, Python
-              and rustup.
+              Then, on Linux, it checks, and installs nothing, what only the
+              test cases need: Node.js and Go in the versions the blocks ask
+              for, jq, Python's pip and rustup.
 ";
 
 /// Why something could not be done, as one sentence.
@@ -257,9 +265,10 @@ fn check(setup: &Setup, out: &mut dyn Write) -> u8 {
 }
 
 /// `setup`: `nebensound setup` for this repository, built from this commit
-/// with the toolchain the tool pins and handed every option unchanged, then
-/// what only the test cases need ([`machine`]). The tool shares the terminal,
-/// so that it can ask before it installs a runtime.
+/// with the toolchain the tool pins and handed every option unchanged, then,
+/// on Linux, what only the test cases need ([`machine`]). The tool shares the
+/// terminal, so that it can ask before it installs a runtime, and gets the
+/// developer's environment less what would steer Cargo.
 ///
 /// Cargo runs in the tool's directory: rustup picks the toolchain from the
 /// directory it is started in, not from `--manifest-path`, so only there does
@@ -277,7 +286,7 @@ fn programs(options: &[String], setup: &Setup, out: &mut dyn Write) -> u8 {
         .args(options)
         .current_dir(&tool)
         .env_clear()
-        .envs(runner::environment(setup.env.clone()))
+        .envs(runner::outside_cargo(setup.env.clone()))
         .status();
     let code = match status {
         Ok(status) => status
@@ -299,14 +308,26 @@ fn programs(options: &[String], setup: &Setup, out: &mut dyn Write) -> u8 {
     if options.iter().any(|option| HELP.contains(&option.as_str())) {
         return code;
     }
-    let machine = machine(setup, out);
+    let machine = if setup.os == "linux" {
+        machine(setup, out)
+    } else {
+        say(
+            out,
+            &format!(
+                "For now the test cases run only on Linux, and this machine runs {}, so what only \
+                 they need is not checked here.\n",
+                setup.os
+            ),
+        );
+        OK
+    };
     if code == OK { machine } else { code }
 }
 
-/// Checks what only the test cases need on the `PATH` and installs nothing:
-/// the programs the blocks' steps expect in a version ([`runner::needs`]),
-/// and [`MACHINE`]. Each is named with what was found; the result is [`FOUND`]
-/// when one is missing.
+/// Checks what only the test cases need and installs nothing: the programs
+/// the blocks' steps expect in a version ([`runner::needs`]), and
+/// [`MACHINE`], each in the environment a step gets. Each is named with what
+/// was found; the result is [`FOUND`] when one is missing.
 fn machine(setup: &Setup, out: &mut dyn Write) -> u8 {
     say(out, "What the test cases need besides:\n");
     let needs = match block_needs(&setup.root) {
@@ -337,9 +358,9 @@ fn machine(setup: &Setup, out: &mut dyn Write) -> u8 {
             }
         }
     }
-    for (program, argument) in MACHINE {
+    for (name, program, args) in MACHINE {
         let found = Command::new(program)
-            .arg(argument)
+            .args(*args)
             .env_clear()
             .envs(env.iter().map(|(name, value)| (name, value)))
             .stdin(Stdio::null())
@@ -356,11 +377,14 @@ fn machine(setup: &Setup, out: &mut dyn Write) -> u8 {
                     .to_owned()
             });
         if let Some(printed) = found {
-            say(out, &format!("{program}: on the PATH, {printed}\n"));
+            say(out, &format!("{name}: found, {printed}\n"));
         } else {
             say(
                 out,
-                &format!("{program}: missing. Put {program} on the PATH.\n"),
+                &format!(
+                    "{name}: missing, `{program} {}` fails on the PATH the steps get.\n",
+                    args.join(" ")
+                ),
             );
             missing += 1;
         }
@@ -401,6 +425,7 @@ fn cases(blocks: &[String], setup: &Setup, out: &mut dyn Write) -> Result<usize,
         env: runner::environment(setup.env.clone()),
         origin: setup.origin.clone(),
         store: scratch.path().join("actions"),
+        installs: scratch.path().join("installs"),
         os: "Linux".to_owned(),
         arch: runner_arch(&setup.arch),
         bash: "bash".into(),

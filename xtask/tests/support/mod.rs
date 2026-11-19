@@ -20,12 +20,14 @@ pub fn write(root: &Path, files: &[(&str, &str)]) {
     }
 }
 
-/// A host on this machine that fetches from `origin`.
+/// A host on this machine that fetches from `origin`, and installs into
+/// `installs` beside `store`.
 pub fn host(store: &Path, origin: &str) -> Host {
     Host {
         env: runner::environment(std::env::vars_os().collect()),
         origin: origin.to_owned(),
         store: store.to_path_buf(),
+        installs: store.with_file_name("installs"),
         os: "Linux".to_owned(),
         arch: "X64".to_owned(),
         bash: "bash".into(),
