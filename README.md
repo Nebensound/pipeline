@@ -161,9 +161,10 @@ away:
   another workspace of the repository needs cannot fail this one, also a
   workspace of its own in a folder below it. The packages are packaged in one
   call and each is tested with the packages of its siblings in place of
-  crates.io, since a version just written is on no registry yet. A local package they depend on that is not packaged
-  with them, a path dependency that is no member or a member an `[[exclude]]`
-  entry takes out, is put in place of crates.io from its folder.
+  crates.io, since a version just written is on no registry yet. A local
+  package they depend on that is not packaged with them, a path dependency
+  that is no member or a member an `[[exclude]]` entry takes out, is put in
+  place of crates.io from its folder.
 
 Rust code is excluded by the package, never by the file. Phase 0 fails on an
 `[[exclude]]` entry that takes a `.rs` file out of a package without taking out
@@ -259,8 +260,8 @@ that version:
 
 - `package.version` in the unit's `Cargo.toml` becomes that version.
 - Every path dependency on the package, wherever in the repository it is
-  written, gets that version as its requirement, in `[dependencies]`, `[dev-dependencies]`,
-  `[build-dependencies]`, their `[target.*]` forms and
+  written, gets that version as its requirement, in `[dependencies]`,
+  `[dev-dependencies]`, `[build-dependencies]`, their `[target.*]` forms and
   `[workspace.dependencies]`: a package whose dependency names no version
   cannot be published. In the manifest of a unit that gets nothing, only the
   entries of its `[workspace.dependencies]` that a member that gets a version
