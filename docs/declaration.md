@@ -77,6 +77,13 @@ Which check covers a file is decided by its extension, compared in lowercase
 (`Dockerfile`). A leading dot does not start an extension: `.gitignore` has
 none. The register lists every check with its extensions and file names.
 
+A lockfile is assigned by its name, never by the extension `.lock`, because
+that extension is shared by formats that have nothing in common: `Cargo.lock`
+and `uv.lock` belong to `toml`, `composer.lock` and `flake.lock` to `json`, and
+`yarn.lock` and `Gemfile.lock` are in a format of their own that no check
+covers, so they stand on the list of what nobody checks. A lockfile has to
+parse; it is not formatted, since the tool that writes it decides its layout.
+
 ### Where a check runs
 
 The checks in force for a file are the base set and the checks of every unit
