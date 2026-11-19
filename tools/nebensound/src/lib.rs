@@ -22,6 +22,7 @@ pub mod repository;
 pub mod terminal;
 #[cfg(feature = "ui")]
 pub mod ui;
+pub mod versions;
 
 use std::ffi::OsString;
 use std::io::Write;
@@ -34,6 +35,7 @@ use thiserror::Error;
 
 use crate::output::Output;
 use crate::repository::{Repository, central_from};
+use crate::versions::PullRequest;
 
 /// Nothing to report.
 const OK: u8 = 0;
@@ -83,6 +85,23 @@ pub enum Command {
     /// Print the Rust packages `[[exclude]]` takes out as a whole, each with
     /// its reason, as JSON: what `check-rust` leaves out of every step.
     ExcludedPackages,
+    /// Print the version of every unit that carries one: its last release, how
+    /// it is released, the version of the commit at hand and how many commits
+    /// wait for the next release.
+    Version {
+        /// Print the table as Markdown, for the summary of a run.
+        #[arg(long)]
+        markdown: bool,
+        /// Read `HEAD` as the merge commit of this pull request: the versions
+        /// are those its squash merge would get, with `-pr.<number>` behind
+        /// them.
+        #[arg(long, value_name = "NUMBER", requires = "message", value_parser = clap::value_parser!(u64).range(1..))]
+        pull_request: Option<u64>,
+        /// The message the squash merge of the pull request would carry: its
+        /// title and description.
+        #[arg(long, requires = "pull_request")]
+        message: Option<String>,
+    },
     // It describes the format, not a repository, so it reads none.
     /// Print the JSON Schema of `.nebensound/repo.toml`, for editors and Taplo.
     Schema,
@@ -242,6 +261,11 @@ enum Job {
     },
     /// Print the packages taken out as a whole.
     ExcludedPackages,
+    /// Print the versions.
+    Version {
+        markdown: bool,
+        pull_request: Option<PullRequest>,
+    },
     /// Open the interface.
     #[cfg(feature = "ui")]
     Ui,
@@ -256,6 +280,16 @@ fn call(cli: &Cli) -> Result<Call, Failure> {
         Some(Command::Tree) => Job::Tree,
         Some(Command::Plan) => Job::Plan,
         Some(Command::ExcludedPackages) => Job::ExcludedPackages,
+        Some(Command::Version {
+            markdown,
+            pull_request,
+            message,
+        }) => Job::Version {
+            markdown: *markdown,
+            pull_request: pull_request
+                .zip(message.clone())
+                .map(|(number, message)| PullRequest { number, message }),
+        },
         #[cfg(feature = "ui")]
         Some(Command::Ui) => Job::Ui,
         Some(Command::Explain { path }) => Job::Explain(path_of(path)?),
@@ -288,7 +322,13 @@ fn execute(
     #[cfg(not(feature = "ui"))]
     let _ = output;
 
-    let repository = Repository::at(&cli.repository);
+    let repository = match job {
+        Job::Version {
+            pull_request: Some(pull_request),
+            ..
+        } => Repository::at(&cli.repository).as_pull_request(pull_request.message.clone()),
+        _ => Repository::at(&cli.repository),
+    };
     let central = central_from(register, defaults)?;
     let analysis = match job {
         // Asked for by the building blocks in a unit job, whose checkout holds
@@ -359,6 +399,33 @@ fn execute(
                 packages::to_json(&repository.excluded_packages(&analysis))
             ),
         ),
+        // The same reason once more: a version read off a declaration with
+        // errors could be one the history does not give. What is printed then
+        // is every finding, so that the job says why it failed.
+        Job::Version { markdown, .. } if analysis.failed() => say(
+            out,
+            &if *markdown {
+                versions::refusal_markdown(&analysis)
+            } else {
+                versions::refusal_text(&analysis)
+            },
+        ),
+        Job::Version {
+            markdown,
+            pull_request,
+        } => {
+            let number = pull_request
+                .as_ref()
+                .map(|pull_request| pull_request.number);
+            say(
+                out,
+                &if *markdown {
+                    versions::markdown(&analysis.versions, number)
+                } else {
+                    versions::text(&analysis.versions, number)
+                },
+            );
+        }
         #[cfg(feature = "ui")]
         Job::Ui => {
             terminal::open(&analysis, output).map_err(|source| Failure::Terminal { source })?;
