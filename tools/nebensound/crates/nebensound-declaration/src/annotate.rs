@@ -226,6 +226,7 @@ pub fn annotate(
             declaration,
             resolution,
             central,
+            tree,
         ),
     }
 }
@@ -236,6 +237,7 @@ fn below(
     declaration: &Declaration,
     resolution: &Resolution,
     central: &Central,
+    tree: &Tree,
 ) -> Vec<Node> {
     let depth = prefix.segments().len();
     let mut nodes = Vec::new();
@@ -257,7 +259,7 @@ fn below(
 
         for file in here {
             let checks = checks_at(file, resolution, central);
-            let coverage = coverage_of(file, &checks, declaration, central);
+            let coverage = coverage_of(file, &checks, declaration, central, tree);
             nodes.push(Node {
                 path: (*file).clone(),
                 units: units_at(file, resolution),
@@ -267,7 +269,7 @@ fn below(
             });
         }
         if !deeper.is_empty() {
-            let children = below(&path, &deeper, declaration, resolution, central);
+            let children = below(&path, &deeper, declaration, resolution, central, tree);
             nodes.push(Node {
                 units: units_at(&path, resolution),
                 checks: checks_at(&path, resolution, central)
@@ -321,8 +323,9 @@ fn coverage_of(
     checks: &BTreeSet<&CheckName>,
     declaration: &Declaration,
     central: &Central,
+    tree: &Tree,
 ) -> Coverage {
-    if let Ruling::Excluded { pattern, reason } = central.ruling(declaration, file) {
+    if let Ruling::Excluded { pattern, reason } = central.ruling(declaration, file, tree) {
         return Coverage::Excluded {
             pattern: pattern.clone(),
             reason: reason.clone(),

@@ -11,7 +11,7 @@ use nebensound_declaration::model::Publish;
 use nebensound_declaration::names::{CheckName, EcosystemName, PresetName, TargetName};
 use nebensound_declaration::path::RelativePath;
 use nebensound_declaration::register::{Register, RegisterError};
-use nebensound_declaration::{Central, Ruling};
+use nebensound_declaration::{Central, Ruling, Tree};
 
 fn refuses(source: &str) -> String {
     match Register::parse(source) {
@@ -394,7 +394,11 @@ fn some_files_are_left_to_nobody_on_purpose() {
     let nothing = Declaration::parse("[repo]\n").expect("a declaration");
     let excluded = |path: &str| {
         matches!(
-            central.ruling(&nothing, &RelativePath::new(path).expect("a path")),
+            central.ruling(
+                &nothing,
+                &RelativePath::new(path).expect("a path"),
+                &Tree::default()
+            ),
             Ruling::Excluded { .. }
         )
     };

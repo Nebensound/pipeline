@@ -186,7 +186,12 @@ fn inclusions_are_used(
         let holds_back = tree
             .files()
             .filter(|file| entry.path.matches(file))
-            .any(|file| matches!(central.ruling(&without, file), Ruling::Excluded { .. }));
+            .any(|file| {
+                matches!(
+                    central.ruling(&without, file, tree),
+                    Ruling::Excluded { .. }
+                )
+            });
 
         if !holds_back {
             findings.push(Finding::warning(

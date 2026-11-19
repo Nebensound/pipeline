@@ -168,3 +168,17 @@ reason = "command list in a syntax of its own; no tool in the organization check
 [[exclude]]
 path   = "**/Makefile"
 reason = "command list in a syntax of its own; no tool in the organization checks it"
+
+# A folder Git would drop for being empty is kept with a marker file. The
+# marker holds nothing, so there is nothing to check; one that holds content is
+# a file like any other, and only-if-empty takes the excuse away from it.
+
+[[exclude]]
+path          = "**/.gitkeep"
+reason        = "an empty marker that keeps a folder"
+only-if-empty = true
+
+[[exclude]]
+path          = "**/.keep"
+reason        = "an empty marker that keeps a folder"
+only-if-empty = true

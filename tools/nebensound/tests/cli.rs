@@ -55,6 +55,30 @@ fn an_error_stops_the_run() {
 }
 
 #[test]
+fn an_empty_marker_keeps_its_folder_without_an_exclusion() {
+    let kept = repository(&[
+        (".nebensound/repo.toml", QUIET),
+        ("README.md", "# x\n"),
+        ("assets/.gitkeep", ""),
+        ("logs/.keep", ""),
+    ]);
+    let (text, code) = call(&["nebensound", "-C", root(&kept), "check"]);
+    assert_eq!(code, 0, "{text}");
+
+    // A marker that holds content is a file like any other, and no check
+    // covers it.
+    let filled = repository(&[
+        (".nebensound/repo.toml", QUIET),
+        ("README.md", "# x\n"),
+        ("assets/.gitkeep", "not empty\n"),
+    ]);
+    let (text, code) = call(&["nebensound", "-C", root(&filled), "check"]);
+    assert_eq!(code, 1, "{text}");
+    assert!(text.contains("language-without-check"), "{text}");
+    assert!(text.contains("assets/.gitkeep"), "{text}");
+}
+
+#[test]
 fn without_a_declaration_it_says_which_file_is_missing() {
     let dir = repository(&[("README.md", "# x\n")]);
     let (text, code) = call(&["nebensound", "-C", root(&dir)]);
