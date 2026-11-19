@@ -337,7 +337,11 @@ on. The repository has no name, so a unit it generates is named like a
 component. Tags are matched strictly: three numbers without a leading zero, and
 `N` a number from 1 without a leading zero. A tag belongs to the unit whose
 prefix it starts with and whose version reads after it; one that reads as no
-unit's release belongs to the unit with the longest prefix it starts with.
+unit's release belongs to the unit with the longest prefix it starts with. A tag
+that reads `<name>-vX.Y.Z` or `<name>-vX.Y.Z-pre.N` is the release of a unit
+named `<name>` even when the declaration names no such unit any more: the old
+tags of a removed component `viewer` are passed over, not taken for the
+repository's because they start with `v`.
 Because a generated unit's prefix carries its parent's name, it can meet another
 unit's prefix (a component `docs-guide` beside the entry `guide` of a component
 `docs`); phase 0 refuses that as `ungeneratable-name`.

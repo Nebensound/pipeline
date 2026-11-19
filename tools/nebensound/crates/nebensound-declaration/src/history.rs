@@ -608,7 +608,12 @@ pub fn versions(units: &[Unit], history: &History, register: &Register) -> Versi
 /// A tag belongs to the unit whose prefix it starts with and whose version
 /// reads after it. A tag that reads as no unit's release belongs to the unit
 /// with the longest prefix it starts with: `v1.0` is the repository's,
-/// `tool-v1` the component `tool`'s.
+/// `tool-v1` the component `tool`'s. One exception: a tag that reads
+/// `<name>-vX.Y.Z` or `<name>-vX.Y.Z-pre.N` is the release of a unit named
+/// `<name>`, such as one the declaration no longer names, and is passed over
+/// like the tags of any other unit that is not here. Otherwise the old tags of
+/// a removed component `viewer` would fall to the repository, whose prefix `v`
+/// they start with.
 ///
 /// A tag that does not count is the warning `unexpected-tag`: one that is no
 /// version, one on something other than a commit, a full release on a commit
@@ -653,6 +658,9 @@ fn count_tags<'h>(
             .about(unit.name.clone())
         };
         let Some(version) = version else {
+            if names_a_release(&tag.name) {
+                continue;
+            }
             findings.push(unexpected(format!(
                 "does not read {prefix}X.Y.Z or {prefix}X.Y.Z-pre.N"
             )));
@@ -705,6 +713,13 @@ fn count_tags<'h>(
         counted[index].push(Counted { version, commit });
     }
     counted
+}
+
+/// Whether a tag reads as the release of a unit named by what comes before its
+/// last `-v`: `<name>-vX.Y.Z` or `<name>-vX.Y.Z-pre.N`.
+fn names_a_release(tag: &str) -> bool {
+    tag.rsplit_once("-v")
+        .is_some_and(|(_, version)| TagVersion::parse(version).is_some())
 }
 
 /// The version of one unit.

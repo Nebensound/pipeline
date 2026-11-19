@@ -987,6 +987,47 @@ fn a_hand_pushed_tag_is_ignored_with_a_warning() {
 }
 
 #[test]
+fn the_tags_of_a_removed_unit_are_passed_over() {
+    let git = Git::new();
+    git.write(&[
+        (
+            ".nebensound/repo.toml",
+            &format!("{QUIET}\n[component.viewer]\npath = \"viewer\"\npipeline = \"none\"\n"),
+        ),
+        ("README.md", "# Viewer\n"),
+        ("viewer/a.md", "# Viewer\n"),
+    ]);
+    let first = git.commit("chore: start");
+    assert_eq!(release(&git, "viewer-v"), "0.0.1");
+    assert_eq!(release(&git, "v"), "0.0.1");
+
+    git.write(&[(".nebensound/repo.toml", QUIET)]);
+    git.remove("viewer/a.md");
+    git.commit("refactor: drop the viewer");
+    // Its tags start with the repository's prefix `v` and still name the
+    // releases of the unit it was, in full and before.
+    git.tag("viewer-v0.0.2-pre.1", &first);
+    // Not the release of any unit, so still the repository's.
+    git.tag("v1.0", &first);
+    git.tag("viewer-v1", &first);
+
+    let analysis = analysed(&git);
+    let unexpected = found(&analysis, Rule::UnexpectedTag);
+    assert_eq!(unexpected.len(), 2, "{unexpected:#?}");
+    for tag in ["v1.0", "viewer-v1"] {
+        assert!(
+            unexpected
+                .iter()
+                .any(|finding| finding.contains(&format!("\"{tag}\""))
+                    && finding.contains("the repository")),
+            "{tag}: {unexpected:#?}"
+        );
+    }
+    assert_eq!(base(&analysis, "v"), "0.0.1");
+    assert_eq!(versions(&analysis)["v"].as_deref(), Some("0.0.2"));
+}
+
+#[test]
 fn a_shallow_clone_is_an_error_and_gets_no_plan() {
     let git = units();
     git.write(&[("README.md", "# Units\n\nMore.\n")]);
