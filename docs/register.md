@@ -86,7 +86,8 @@ place, and needs at least the version of the runtime its package states;
 every other one is a build per platform. Each download is refused unless it
 has the digest the register pins; the addresses and digests stand in
 `register.toml`, each with the release data it was taken from. On a platform
-without a build the program has to be on the computer already.
+without a build only the computer's copy can be used: the default mode of
+`setup` takes it from the `PATH`, and `setup --pinned` fails for the program.
 
 | Program             | Version  | Runtime                     | Builds                                                                                                |
 | ------------------- | -------- | --------------------------- | ----------------------------------------------------------------------------------------------------- |

@@ -531,6 +531,37 @@ fn a_computer_without_a_build_is_told_so() {
 }
 
 #[test]
+fn without_a_build_only_the_default_takes_the_computers_copy() {
+    let fixture = Fixture::new();
+    let register = three(&fixture);
+    fixture.install("gamma", &prints("gamma 3.0.0"));
+    let without_a_build = || {
+        let mut env = fixture.env();
+        env.computer = "plan9-mips".to_owned();
+        env.platform = None;
+        env
+    };
+
+    let (text, code) = run(&register, Mode::Missing, false, &mut without_a_build());
+    assert_eq!(code, 0, "{text}");
+    assert!(!text.contains("was not installed"), "{text}");
+    assert!(text.contains("Nothing is missing.\n"), "{text}");
+
+    let (text, code) = run(&register, Mode::Pinned, false, &mut without_a_build());
+    assert_eq!(code, 1, "{text}");
+    for (name, version) in [("alpha", "1.2.3"), ("beta", "2.0.0"), ("gamma", "3.0.0")] {
+        assert!(
+            text.contains(&format!(
+                "{name} {version} was not installed: the register has no pinned build for \
+                 plan9-mips\n"
+            )),
+            "{text}"
+        );
+    }
+    assert!(!fixture.path("cache/programs").exists());
+}
+
+#[test]
 fn a_download_that_fails_says_why() {
     let fixture = Fixture::new();
     let register = register(

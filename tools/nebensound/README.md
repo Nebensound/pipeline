@@ -179,7 +179,9 @@ repository has errors. A version that differs from the pinned one is said and
 stops nothing.
 
 Not every program has a build for every platform: on Windows on ARM there is
-none of `jq` and `lychee`, which then have to be on the computer already.
+none of `jq` and `lychee`. There the default mode uses the computer's copy,
+which then has to be on the `PATH`, and `--pinned` cannot install them: it says
+so for each and exits with `1`, even when the computer has them.
 
 ### The folder
 

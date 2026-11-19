@@ -302,8 +302,9 @@ manifests         = []
 # the digest its publisher states for it, in the release data named beside it;
 # a download with another digest is refused. `nebensound setup` reads this.
 #
-# A platform without an entry has no pinned build: there the program has to be
-# on the computer already.
+# A platform without an entry has no pinned build: there only the computer's
+# copy can be used. The default mode of `nebensound setup` takes it from the
+# `PATH`; `nebensound setup --pinned` fails for the program.
 #
 # A program on a runtime names the lowest version of the runtime it runs on
 # (`runtime-minimum`), as its package states it: `requires_python` on PyPI,

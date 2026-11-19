@@ -151,7 +151,8 @@ fn programs(register: &Register) -> String {
          every other one is a build per platform. Each download is refused unless it\n\
          has the digest the register pins; the addresses and digests stand in\n\
          `register.toml`, each with the release data it was taken from. On a platform\n\
-         without a build the program has to be on the computer already.",
+         without a build only the computer's copy can be used: the default mode of\n\
+         `setup` takes it from the `PATH`, and `setup --pinned` fails for the program.",
         &["Program", "Version", "Runtime", "Builds"],
         &rows,
     )

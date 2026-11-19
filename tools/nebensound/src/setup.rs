@@ -10,7 +10,8 @@
 //! - With `--pinned` it installs the pinned version of every program into its
 //!   own folder, whatever the computer has, and leaves the computer's programs
 //!   alone. This is the mode the gate is to run in once its blocks call
-//!   `setup` (#73).
+//!   `setup` (#73). A program without a build for this platform cannot be
+//!   installed, so it fails here even when the computer has it.
 //! - With `--check` it changes nothing and says what is missing or differs.
 //!
 //! Pinned copies go into the tool's folder in the user's cache directory, one
