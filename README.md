@@ -291,6 +291,12 @@ Checks that belong to one repository alone run through its xtask, inside
   fails the step.
 - A non-zero exit code fails the step, and with it `nebensound / Check`. What
   the xtask prints stands in the log of that step.
+- Beside `check`, an xtask offers `setup` as its second standard task:
+  `cargo xtask setup` calls `nebensound setup`, which finds or installs the
+  programs the register's checks call
+  ([the tool's README](tools/nebensound/README.md#setting-up-the-programs)), and
+  then adds what only that repository needs, such as a program its own checks
+  call.
 - A repository without `xtask/Cargo.toml` gets the step skipped and nothing
   else.
 - The xtask is Rust code like any other: phase 0 demands a unit that runs the

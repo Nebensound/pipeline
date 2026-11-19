@@ -11,6 +11,7 @@
 
 use std::fmt::Display;
 
+use nebensound_declaration::programs::{Download, Platform};
 use nebensound_declaration::{Central, Publish, Register};
 
 /// What stands above the tables: what the page is and where it comes from.
@@ -51,6 +52,8 @@ pub fn register(central: &Central) -> String {
         base_set(central),
         presets(register),
         checks(register),
+        programs(register),
+        runtimes(register),
         builds(register),
         targets(register),
         version_writers(register),
@@ -116,14 +119,74 @@ fn checks(register: &Register) -> String {
                 code(name),
                 codes(&check.extensions),
                 codes(&check.filenames),
+                codes(&check.programs),
             ]
         })
         .collect();
     section(
         "Checks",
         "A check covers every file with one of its extensions or file names. A file\n\
-         that no check covers has to be excluded.",
-        &["Check", "Extensions", "File names"],
+         that no check covers has to be excluded. The programs are what the check calls\n\
+         (see [Programs](#programs)).",
+        &["Check", "Extensions", "File names", "Programs"],
+        &rows,
+    )
+}
+
+fn programs(register: &Register) -> String {
+    let rows: Vec<Vec<String>> = register
+        .program
+        .iter()
+        .map(|(name, program)| {
+            vec![
+                code(name),
+                code(&program.version),
+                program.runtime.as_ref().map_or_else(none, |runtime| {
+                    let minimum = program.runtime_minimum.as_deref().unwrap_or_default();
+                    format!("{}, {} or later", code(runtime), code(minimum))
+                }),
+                platforms(&program.download),
+            ]
+        })
+        .collect();
+    section(
+        "Programs",
+        "Every program a check calls, pinned to one version. `nebensound setup` finds or\n\
+         installs them (see [the tool](../tools/nebensound/README.md#setting-up-the-programs)).\n\
+         A program on a runtime is one package, which the runtime's installer puts in\n\
+         place, and needs at least the version of the runtime its package states;\n\
+         every other one is a build per platform. Each download is refused unless it\n\
+         has the digest the register pins; the addresses and digests stand in\n\
+         `register.toml`, each with the release data it was taken from. On a platform\n\
+         without a build only the computer's copy can be used: the default mode of\n\
+         `setup` takes it from the `PATH`, and `setup --pinned` fails for the program.",
+        &["Program", "Version", "Runtime", "Builds"],
+        &rows,
+    )
+}
+
+fn runtimes(register: &Register) -> String {
+    let rows: Vec<Vec<String>> = register
+        .runtime
+        .iter()
+        .map(|(name, runtime)| {
+            vec![
+                code(name),
+                cell(&runtime.title),
+                code(&runtime.version),
+                code(&runtime.installer),
+                platforms(&runtime.download),
+            ]
+        })
+        .collect();
+    section(
+        "Runtimes",
+        "What a program on a runtime runs on. A runtime on the computer is used as it is,\n\
+         whatever its version, as long as it prints one and can run the programs on it;\n\
+         one that prints none is passed over, and so is one older than a program on it\n\
+         needs. With none left, the runtime counts as missing. The pinned one is\n\
+         installed only when the runtime is missing and someone agrees.",
+        &["Runtime", "Name", "Version", "Installs with", "Builds"],
         &rows,
     )
 }
@@ -273,6 +336,14 @@ fn codes<T: Display>(names: &[T]) -> String {
 /// An empty cell, said out loud.
 fn none() -> String {
     "none".to_owned()
+}
+
+/// The platforms there is a download for, or that one package serves all.
+fn platforms(downloads: &std::collections::BTreeMap<Platform, Download>) -> String {
+    if downloads.contains_key(&Platform::Any) {
+        return "one package for every platform".to_owned();
+    }
+    codes(&downloads.keys().collect::<Vec<_>>())
 }
 
 /// Where a preset publishes.

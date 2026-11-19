@@ -18,6 +18,7 @@ pub mod plan;
 pub mod reference;
 pub mod report;
 pub mod repository;
+pub mod setup;
 #[cfg(feature = "ui")]
 pub mod terminal;
 #[cfg(feature = "ui")]
@@ -108,6 +109,21 @@ pub enum Command {
     // Like the schema, it describes the format and reads no repository.
     /// Print the register as Markdown, as `docs/register.md` holds it.
     Register,
+    /// Find or install the programs that the checks the declaration starts
+    /// call: by default those on the computer, and the pinned version of what
+    /// is missing.
+    Setup {
+        /// Install the pinned version of every program into the tool's folder
+        /// in the user's cache directory, whatever the computer has.
+        #[arg(long, conflicts_with = "check")]
+        pinned: bool,
+        /// Install a missing runtime without asking.
+        #[arg(long, conflicts_with = "check")]
+        with_runtimes: bool,
+        /// Change nothing; say what is missing or differs.
+        #[arg(long)]
+        check: bool,
+    },
     /// Open the interface. Only in a build with the `ui` feature.
     #[cfg(feature = "ui")]
     Ui,
@@ -266,6 +282,8 @@ enum Job {
         markdown: bool,
         pull_request: Option<PullRequest>,
     },
+    /// Find or install the programs of the checks.
+    Setup(setup::Options),
     /// Open the interface.
     #[cfg(feature = "ui")]
     Ui,
@@ -290,6 +308,18 @@ fn call(cli: &Cli) -> Result<Call, Failure> {
                 .zip(message.clone())
                 .map(|(number, message)| PullRequest { number, message }),
         },
+        Some(Command::Setup {
+            pinned,
+            with_runtimes,
+            check,
+        }) => Job::Setup(setup::Options {
+            mode: match (*check, *pinned) {
+                (true, _) => setup::Mode::Check,
+                (false, true) => setup::Mode::Pinned,
+                (false, false) => setup::Mode::Missing,
+            },
+            with_runtimes: *with_runtimes,
+        }),
         #[cfg(feature = "ui")]
         Some(Command::Ui) => Job::Ui,
         Some(Command::Explain { path }) => Job::Explain(path_of(path)?),
@@ -308,6 +338,18 @@ fn path_of(value: &str) -> Result<RelativePath, Failure> {
     })
 }
 
+/// The repository the call reads: for the versions of a pull request, `HEAD`
+/// as the squash merge of that pull request would put it on its base branch.
+fn repository_of(cli: &Cli, job: &Job) -> Repository {
+    match job {
+        Job::Version {
+            pull_request: Some(pull_request),
+            ..
+        } => Repository::at(&cli.repository).as_pull_request(pull_request.message.clone()),
+        _ => Repository::at(&cli.repository),
+    }
+}
+
 fn execute(
     cli: &Cli,
     job: &Job,
@@ -322,18 +364,17 @@ fn execute(
     #[cfg(not(feature = "ui"))]
     let _ = output;
 
-    let repository = match job {
-        Job::Version {
-            pull_request: Some(pull_request),
-            ..
-        } => Repository::at(&cli.repository).as_pull_request(pull_request.message.clone()),
-        _ => Repository::at(&cli.repository),
-    };
+    let repository = repository_of(cli, job);
     let central = central_from(register, defaults)?;
     let analysis = match job {
         // Asked for by the building blocks in a unit job, whose checkout holds
-        // only the commit at hand: the history is read in Declare.
-        Job::Files { .. } | Job::ExcludedPackages => repository.analyse_files(&central),
+        // only the commit at hand: the history is read in Declare. Which
+        // programs `setup` needs follows from the checks the plan starts,
+        // never from a version, so a question about a release does not keep
+        // anyone from setting up the programs either.
+        Job::Files { .. } | Job::ExcludedPackages | Job::Setup(_) => {
+            repository.analyse_files(&central)
+        }
         _ => repository.analyse(&central),
     }?;
 
@@ -400,31 +441,31 @@ fn execute(
             ),
         ),
         // The same reason once more: a version read off a declaration with
-        // errors could be one the history does not give. What is printed then
-        // is every finding, so that the job says why it failed.
-        Job::Version { markdown, .. } if analysis.failed() => say(
-            out,
-            &if *markdown {
-                versions::refusal_markdown(&analysis)
-            } else {
-                versions::refusal_text(&analysis)
-            },
-        ),
+        // errors could be one the history does not give, so what is printed
+        // then is every finding.
         Job::Version {
             markdown,
             pull_request,
-        } => {
-            let number = pull_request
-                .as_ref()
-                .map(|pull_request| pull_request.number);
-            say(
+        } => say(
+            out,
+            &versions::report(&analysis, *markdown, pull_request.as_ref()),
+        ),
+        // The same reason again: the programs of a declaration with errors
+        // could be those of the wrong checks.
+        Job::Setup(_) if analysis.failed() => say(
+            out,
+            "there is nothing to set up: phase 0 found errors, and `check` says which\n",
+        ),
+        Job::Setup(options) => {
+            let checks = setup::started(&plan::plan(&analysis, &central));
+            let mut environment = setup::Environment::current();
+            return Ok(setup::run(
+                central.register(),
+                &checks,
+                *options,
+                &mut environment,
                 out,
-                &if *markdown {
-                    versions::markdown(&analysis.versions, number)
-                } else {
-                    versions::text(&analysis.versions, number)
-                },
-            );
+            ));
         }
         #[cfg(feature = "ui")]
         Job::Ui => {

@@ -63,6 +63,23 @@ fn row(unit: &UnitVersion, pull_request: Option<u64>) -> [String; 6] {
     ]
 }
 
+/// What `nebensound version` prints: the table as text or as Markdown, for
+/// the pull request if there is one.
+///
+/// A version read off a declaration with errors could be one the history does
+/// not give, so then there is no table but every finding, so that the job says
+/// why it failed.
+#[must_use]
+pub fn report(analysis: &Analysis, markdown: bool, pull_request: Option<&PullRequest>) -> String {
+    let pull_request = pull_request.map(|pull_request| pull_request.number);
+    match (analysis.failed(), markdown) {
+        (true, false) => refusal_text(analysis),
+        (true, true) => refusal_markdown(analysis),
+        (false, false) => text(&analysis.versions, pull_request),
+        (false, true) => self::markdown(&analysis.versions, pull_request),
+    }
+}
+
 /// The versions as an aligned text table.
 #[must_use]
 pub fn text(versions: &[UnitVersion], pull_request: Option<u64>) -> String {

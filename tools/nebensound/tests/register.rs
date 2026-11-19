@@ -93,6 +93,33 @@ fn the_page_names_what_the_register_says() {
             "`dockerfile`",
             "`.dockerfile`",
             "`Dockerfile`, `Containerfile`",
+            "none",
+        ],
+        &[
+            "`json`",
+            "`.json`, `.jsonc`, `.geojson`",
+            "`composer.lock`, `flake.lock`",
+            "`biome`, `jq`, `prettier`",
+        ],
+        &[
+            "`prettier`",
+            "`3.9.6`",
+            "`node`, `14.0.0` or later",
+            "one package for every platform",
+        ],
+        &[
+            "`jq`",
+            "`1.8.1`",
+            "none",
+            "`linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`",
+        ],
+        &[
+            "`python`",
+            "Python",
+            "`3.14.10`",
+            "`pip`",
+            "`linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, \
+             `windows-aarch64`",
         ],
         &["`docker`", "`container`"],
         &["`crates.io`", "`crate`", "`rust`", "`two-stage`"],
