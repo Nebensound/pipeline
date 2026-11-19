@@ -455,6 +455,11 @@ fn a_package_the_workspace_excludes_is_required_by_its_members() {
     );
     cargo(git.path(), &["build", "--locked"]);
     assert_eq!(reported(git.path(), "app"), "0.0.1");
+    // `lib` is no member, so it is not packaged with `app`: the package test
+    // patches it in from its folder, or Cargo would look `lib 0.0.1` up on
+    // crates.io. Its own workspace packages it.
+    package_test(git.path(), &[("app", "0.0.1")], &[("lib", "crates/lib")]);
+    package_test(&git.path().join("crates/lib"), &[("lib", "0.0.1")], &[]);
 }
 
 #[test]
@@ -562,18 +567,38 @@ fn app_changed_after_a_release() -> Git {
 /// What the package test of `check-rust` does with the versions written:
 /// every published package packaged in one call, then each copy tested with
 /// the copies of its siblings patched in for crates.io. `packages` are the
-/// published packages, each with its version.
-fn package_test(root: &Path, packages: &[(&str, &str)]) {
+/// published packages, each with its version. `outside` are the local
+/// packages they depend on that are not packaged with them, each with its
+/// folder in `root`: they are patched in from there, for the packaging and
+/// for each copy. By the path Cargo itself gives the folder, without links:
+/// a patch by another path is a source of its own, which the workspace does
+/// not use, and `--locked` refuses the lockfile change that brings.
+fn package_test(root: &Path, packages: &[(&str, &str)], outside: &[(&str, &str)]) {
     let target = tempfile::tempdir().expect("a target folder");
+    let canonical = root.canonicalize().expect("the fixture exists");
+    let patches: Vec<String> = outside
+        .iter()
+        .flat_map(|(name, folder)| {
+            [
+                "--config".to_owned(),
+                format!(
+                    "patch.crates-io.{name}.path='{}'",
+                    canonical.join(folder).to_str().expect("a path in UTF-8")
+                ),
+            ]
+        })
+        .collect();
     let mut args = vec!["package", "--locked", "--allow-dirty"];
     for (name, _) in packages {
         args.extend(["--package", name]);
     }
+    args.extend(patches.iter().map(String::as_str));
     cargo_into(root, target.path(), &args);
     let copies = target.path().join("package");
     let copy = |name: &str, version: &str| copies.join(format!("{name}-{version}"));
     for (name, version) in packages {
         let mut args = vec!["test".to_owned()];
+        args.extend(patches.iter().cloned());
         for (other, version) in packages.iter().filter(|(other, _)| other != name) {
             args.push("--config".to_owned());
             args.push(format!(
@@ -607,7 +632,7 @@ fn a_dependency_the_commit_does_not_touch_is_required_at_its_last_release_on_mai
         "{app}"
     );
     cargo(git.path(), &["build", "--locked"]);
-    package_test(git.path(), &[("lib", "0.0.1"), ("app", "0.0.2")]);
+    package_test(git.path(), &[("lib", "0.0.1"), ("app", "0.0.2")], &[]);
 }
 
 #[test]
@@ -678,7 +703,7 @@ fn a_dependency_the_commit_does_not_touch_is_required_at_its_last_release_on_a_p
     );
     cargo(git.path(), &["build", "--locked"]);
     assert_eq!(reported(git.path(), "app"), "0.0.2-pr.5");
-    package_test(git.path(), &[("lib", "0.0.1"), ("app", "0.0.2-pr.5")]);
+    package_test(git.path(), &[("lib", "0.0.1"), ("app", "0.0.2-pr.5")], &[]);
 }
 
 #[test]

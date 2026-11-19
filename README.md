@@ -156,7 +156,9 @@ away:
   version is verified here, on a pull request with the version its merge would
   get. The packages are packaged in one call and each is tested with the
   packages of its siblings in place of crates.io, since a version just written
-  is on no registry yet.
+  is on no registry yet. A local package they depend on that is not packaged
+  with them, a path dependency that is no member or a member an `[[exclude]]`
+  entry takes out, is put in place of crates.io from its folder.
 
 Rust code is excluded by the package, never by the file. Phase 0 fails on an
 `[[exclude]]` entry that takes a `.rs` file out of a package without taking out

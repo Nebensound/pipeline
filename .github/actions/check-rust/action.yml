@@ -462,10 +462,38 @@ runs:
         while read -r name version; do
           args+=(--package "$name")
         done <<< "$published"
-        cargo package --locked --allow-dirty "${args[@]}"
+        # A local package they depend on that is not packaged with them is
+        # patched in from its folder, for the same reason: a path dependency
+        # that is no member, or a member an [[exclude]] entry takes out. Only
+        # the ones they reach, directly or through each other, since a patch
+        # the workspace does not use changes its lockfile, and --locked
+        # refuses that.
+        packaged="$(cut -d ' ' -f 1 <<< "$published" | jq -R . | jq -s .)"
+        outside="$(cargo metadata --locked --format-version 1 --all-features \
+          | jq -r --argjson packaged "$packaged" '
+              [ .packages[] | select(.source == null) ] as $local
+              | [ $local[].id ] as $ids
+              | .resolve.nodes as $nodes
+              | def reach($from):
+                  ( $from + [ $nodes[] | select(.id | IN($from[])) | .dependencies[]
+                      | select(IN($ids[])) ] | unique ) as $next
+                  | if ($next | length) == ($from | length) then $from else reach($next) end;
+                reach([ $local[] | select(.name | IN($packaged[])) | .id ]) as $reached
+              | $local[]
+              | select((.id | IN($reached[])) and (.name | IN($packaged[]) | not))
+              | "\(.name) \(.manifest_path | rtrimstr("/Cargo.toml"))"')"
+        patches=()
+        while read -r name dir; do
+          if [ -n "$name" ]; then
+            echo "Patched in from its folder, not packaged here: $name at $dir"
+            patches+=(--config "patch.crates-io.$name.path='$dir'")
+          fi
+        done <<< "$outside"
+        cargo package --locked --allow-dirty "${args[@]}" "${patches[@]}"
         # Each package is copied out, and each copy is tested with the copies
-        # of its siblings patched in for crates.io, for the same reason. A
-        # patch a copy does not need only draws a warning.
+        # of its siblings patched in for crates.io, for the same reason, and
+        # with the local packages patched in as above. A patch a copy does not
+        # need only draws a warning.
         copies=()
         while read -r name version; do
           rm -rf "${RUNNER_TEMP:?}/$name-$version"
@@ -477,13 +505,13 @@ runs:
         toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
         for copy in "${copies[@]}"; do
           read -r name dir <<< "$copy"
-          patches=()
+          siblings=()
           for sibling in "${copies[@]}"; do
             read -r other path <<< "$sibling"
             if [ "$other" != "$name" ]; then
-              patches+=(--config "patch.crates-io.$other.path='$path'")
+              siblings+=(--config "patch.crates-io.$other.path='$path'")
             fi
           done
-          ( cd "$dir" && cargo "+$toolchain" test --all-features "${patches[@]}" )
+          ( cd "$dir" && cargo "+$toolchain" test --all-features "${siblings[@]}" "${patches[@]}" )
         done
         echo "Verified ${#copies[@]} package(s) outside the source tree."
