@@ -683,16 +683,31 @@ fn a_dependency_the_commit_does_not_touch_is_required_at_its_last_release_on_a_p
 
 #[test]
 fn a_dependency_never_released_and_not_touched_is_an_error() {
-    for (dependency, named) in [
-        ("lib = { path = \"../lib\" }", "lib"),
+    let renamed_in_the_workspace = format!(
+        "{WORKSPACE}\n[workspace.dependencies]\nfoo = {{ path = \"crates/lib\", package = \
+         \"lib\" }}\n"
+    );
+    for (workspace, dependency, named) in [
+        (WORKSPACE, "lib = { path = \"../lib\" }", "lib"),
         // Renamed: the package is still `lib`.
-        ("renamed = { path = \"../lib\", package = \"lib\" }", "lib"),
+        (
+            WORKSPACE,
+            "renamed = { path = \"../lib\", package = \"lib\" }",
+            "lib",
+        ),
+        // Renamed in the workspace, where the member does not see it.
+        (
+            renamed_in_the_workspace.as_str(),
+            "foo.workspace = true",
+            "lib",
+        ),
     ] {
         let app = format!(
             "[package]\nname = \"app\"\nedition = \"2024\"\n\n[dependencies]\n{dependency}\n"
         );
         let mut files = two_packages();
-        files.retain(|(path, _)| *path != "crates/app/Cargo.toml");
+        files.retain(|(path, _)| *path != "crates/app/Cargo.toml" && *path != "Cargo.toml");
+        files.push(("Cargo.toml", workspace));
         files.push(("crates/app/Cargo.toml", &app));
         let git = Git::new();
         git.write(&files);

@@ -519,7 +519,9 @@ fn dependency_tables(manifest: &mut DocumentMut) -> Vec<(&'static str, &mut dyn 
 
 /// The folders the `[workspace.dependencies]` of a workspace's manifest name
 /// by path for the dependencies `inherited`, each given by its key and a
-/// label that comes back with its folder.
+/// label that comes back with its folder. A rename with `package = "..."`
+/// lives in the workspace's entry, so when that entry has one, its name comes
+/// back instead of the label.
 fn shared(manifest: &DocumentMut, workspace: &RelativePath, inherited: &Inherited) -> Needs {
     let dependencies = manifest
         .get("workspace")
@@ -530,10 +532,17 @@ fn shared(manifest: &DocumentMut, workspace: &RelativePath, inherited: &Inherite
         .filter_map(|(key, label)| {
             dependencies
                 .and_then(|dependencies| dependencies.get(key))
-                .and_then(|dependency| dependency.get("path"))
-                .and_then(Item::as_str)
-                .and_then(|written| resolve(workspace, written))
-                .map(|path| (path, label.clone()))
+                .and_then(|dependency| {
+                    let name = dependency
+                        .get("package")
+                        .and_then(Item::as_str)
+                        .unwrap_or(label);
+                    dependency
+                        .get("path")
+                        .and_then(Item::as_str)
+                        .and_then(|written| resolve(workspace, written))
+                        .map(|path| (path, name.to_owned()))
+                })
         })
         .collect()
 }
