@@ -15,7 +15,7 @@ use crate::names::{
 use crate::path::RelativePath;
 use crate::register::Register;
 use crate::tree::Tree;
-use crate::version::Version;
+use crate::version::TagVersion;
 
 /// Where a unit came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,7 +133,7 @@ pub enum MinimumVersionSource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedMinimumVersion {
     /// The floor.
-    pub version: Version,
+    pub version: TagVersion,
     /// Where it came from.
     pub source: MinimumVersionSource,
 }
@@ -162,6 +162,18 @@ pub struct Unit {
 }
 
 impl Unit {
+    /// What its tags start with: everything before the version.
+    ///
+    /// `v` for the repository, `<component>-v` for a component, and
+    /// `<component>-<entry>-v` for a unit a component generated. The
+    /// repository has no name, so a unit it generates reads `<entry>-v`, as a
+    /// component does. A full release appends `X.Y.Z`, a pre-release
+    /// `X.Y.Z-pre.N`.
+    #[must_use]
+    pub fn tag_prefix(&self) -> String {
+        prefix_of(&self.name, &self.origin)
+    }
+
     /// Where its version is kept, when it carries one.
     #[must_use]
     pub fn version_file(&self) -> Option<RelativePath> {
@@ -173,6 +185,23 @@ impl Unit {
             UnitName::Repository => base.join("version"),
             UnitName::Component(name) => base.join("versions").join(name.as_str()),
         })
+    }
+}
+
+/// The tag prefix of a unit with this name and origin.
+fn prefix_of(name: &UnitName, origin: &Origin) -> String {
+    let own = match name {
+        UnitName::Repository => return "v".to_owned(),
+        UnitName::Component(own) => own,
+    };
+    match origin {
+        Origin::Generated {
+            by: UnitName::Component(parent),
+        } => format!("{parent}-{own}-v"),
+        Origin::Generated {
+            by: UnitName::Repository,
+        }
+        | Origin::Declared => format!("{own}-v"),
     }
 }
 
@@ -310,7 +339,7 @@ fn release(
     }
 }
 
-fn minimum_version(written: Option<Version>) -> Option<ResolvedMinimumVersion> {
+fn minimum_version(written: Option<TagVersion>) -> Option<ResolvedMinimumVersion> {
     written.map(|version| ResolvedMinimumVersion {
         version,
         source: MinimumVersionSource::Written,
@@ -461,6 +490,10 @@ fn generate_children(declared: &[Unit], tree: &Tree, findings: &mut Vec<Finding>
             UnitName::Repository => None,
         })
         .collect();
+    // Two units with one prefix would share their tags, and with them their
+    // versions. A declared name is unique and so is its prefix; a generated
+    // unit's prefix also carries its parent's name, and can meet another one.
+    let mut prefixes: BTreeSet<String> = declared.iter().map(Unit::tag_prefix).collect();
     let mut generated = Vec::new();
 
     for parent in declared {
@@ -510,43 +543,66 @@ fn generate_children(declared: &[Unit], tree: &Tree, findings: &mut Vec<Finding>
                     .at(child.clone()),
                 ),
                 Some(name) => {
-                    taken.insert(name.clone());
-                    generated.push(Unit {
-                        name: UnitName::Component(name),
-                        path: child,
-                        origin: Origin::Generated {
-                            by: parent.name.clone(),
-                        },
-                        // A generated unit has nowhere to say anything, so it
-                        // inherits everything from the unit that made it: the
-                        // pipeline, the release mode and the minimum version.
-                        pipeline: ResolvedPipeline {
-                            source: PipelineSource::Inherited,
-                            ..parent.pipeline.clone()
-                        },
-                        versioning: Versioning::Own,
-                        carries_version: true,
-                        release: ResolvedRelease {
-                            release: parent.release.release,
-                            source: ReleaseSource::Inherited {
-                                by: parent.name.clone(),
-                            },
-                        },
-                        minimum_version: parent.minimum_version.as_ref().map(|floor| {
-                            ResolvedMinimumVersion {
-                                version: floor.version,
-                                source: MinimumVersionSource::Inherited {
-                                    by: parent.name.clone(),
-                                },
-                            }
-                        }),
-                        allow_unused: parent.allow_unused.clone(),
-                    });
+                    let unit = generated_unit(parent, name.clone(), child);
+                    let prefix = unit.tag_prefix();
+                    if !prefixes.insert(prefix.clone()) {
+                        findings.push(
+                            Finding::error(
+                                Rule::UngeneratableName,
+                                format!(
+                                    "this child's tags would start with {prefix}, and another \
+                                     unit's tags already do; two units cannot share a tag prefix"
+                                ),
+                            )
+                            .about(parent.name.clone())
+                            .at(unit.path),
+                        );
+                        continue;
+                    }
+                    taken.insert(name);
+                    generated.push(unit);
                 }
             }
         }
     }
     generated
+}
+
+/// The unit a parent generates for one child.
+///
+/// A generated unit has nowhere to say anything, so it inherits everything from
+/// the unit that made it: the pipeline, the release mode and the minimum
+/// version.
+fn generated_unit(parent: &Unit, name: ComponentName, path: RelativePath) -> Unit {
+    Unit {
+        name: UnitName::Component(name),
+        path,
+        origin: Origin::Generated {
+            by: parent.name.clone(),
+        },
+        pipeline: ResolvedPipeline {
+            source: PipelineSource::Inherited,
+            ..parent.pipeline.clone()
+        },
+        versioning: Versioning::Own,
+        carries_version: true,
+        release: ResolvedRelease {
+            release: parent.release.release,
+            source: ReleaseSource::Inherited {
+                by: parent.name.clone(),
+            },
+        },
+        minimum_version: parent
+            .minimum_version
+            .as_ref()
+            .map(|floor| ResolvedMinimumVersion {
+                version: floor.version,
+                source: MinimumVersionSource::Inherited {
+                    by: parent.name.clone(),
+                },
+            }),
+        allow_unused: parent.allow_unused.clone(),
+    }
 }
 
 /// The name a generated unit gets: the child's own name without its extension.

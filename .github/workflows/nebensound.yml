@@ -27,9 +27,12 @@ jobs:
       units: ${{ steps.units.outputs.units }}
 
     steps:
+      # The whole history, every branch and every tag: phase 0 reads the
+      # version of every unit from them, and a shallow clone is an error.
       - name: Check out the calling repository
         uses: actions/checkout@v7
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       # `$/` is this repository at the commit that is running. The caller pins

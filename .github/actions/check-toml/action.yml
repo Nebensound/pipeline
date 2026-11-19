@@ -1,17 +1,17 @@
 name: check-toml
 description: >-
-  The TOML check over one unit: every `.toml` and `.lock` file the unit holds
-  passes `taplo lint`, against a schema where one is assigned, and every
-  `.toml` file is formatted the way Taplo writes it.
+  The TOML check over one unit: every `.toml` file and every `Cargo.lock` and
+  `uv.lock` the unit holds passes `taplo lint`, against a schema where one is
+  assigned, and every `.toml` file is formatted the way Taplo writes it.
 
 # One input, and it is not a setting: where the unit is. It comes from the plan
 # of phase 0. The files are the ones `nebensound files` names for the check and
-# the unit: what Git tracks below that path with an extension the register
-# gives the check, less what an `[[exclude]]` entry of the declaration takes
-# out. A file nobody committed is not judged, a committed one is not missed,
-# and no ignore mechanism of a tool takes one out. The calling job checks the
-# repository out and puts the tool on the PATH first (the action `tool`); every
-# step runs at the repository root.
+# the unit: what Git tracks below that path with an extension or a file name
+# the register gives the check, less what an `[[exclude]]` entry of the
+# declaration takes out. A file nobody committed is not judged, a committed
+# one is not missed, and no ignore mechanism of a tool takes one out. The
+# calling job checks the repository out and puts the tool on the PATH first
+# (the action `tool`); every step runs at the repository root.
 # That is where Taplo finds the repository's own `taplo.toml`, which decides
 # how the repository formats `.toml` files. Its `include` and `exclude` take
 # nothing out of this check; see the last step.
@@ -32,8 +32,8 @@ runs:
       run: |
         set -euo pipefail
         list="$RUNNER_TEMP/check-toml-files"
-        # The extensions the register gives `toml`: `.toml`, and `.lock` for
-        # Cargo.lock and the other lockfiles written in TOML.
+        # What the register gives `toml`: the extension `.toml`, and the
+        # lockfiles written in TOML by name, `Cargo.lock` and `uv.lock`.
         # The tool writes a refusal where the list would go: into the log
         # with it, or the step fails without saying why.
         if ! nebensound files -z -- toml "$UNIT" > "$list"; then
@@ -87,13 +87,13 @@ runs:
     #
     # Taplo reads every file from standard input. Given a path, Taplo 0.10.0
     # silently skips a file outside its default `include` of `**/*.toml` —
-    # every `.lock` file — and one the repository's taplo.toml leaves out, and
+    # every lockfile — and one the repository's taplo.toml leaves out, and
     # reports success for both. So a repository's `include` and `exclude` take
     # nothing out of this check: what is not to be checked is not in the list.
     #
     # Formatting: `.toml` files are formatted the way Taplo writes them, with
     # the repository's taplo.toml, and `--stdin-filepath` keeps its per-path
-    # rules working. A `.lock` file is not: the tool that writes it — Cargo,
+    # rules working. A lockfile is not: the tool that writes it — Cargo,
     # uv — decides its layout, and no Cargo.lock matches Taplo's.
     #
     # Lint: every file parses and holds no conflicting keys. It runs without
@@ -175,7 +175,7 @@ runs:
         failed=0
         while IFS= read -r -d '' file; do
           case "$file" in
-            *.lock) ;;
+            */Cargo.lock | Cargo.lock | */uv.lock | uv.lock) ;;
             *)
               if ! "$taplo" format --check --colors never --stdin-filepath "$file" - \
                 < "$file" > "$out" 2>&1; then

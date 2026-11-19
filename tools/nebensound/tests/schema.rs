@@ -215,17 +215,24 @@ fn the_pattern_schema_lets_through_everything_the_parser_accepts() {
 
 #[test]
 fn the_version_pattern_accepts_exactly_what_the_parser_accepts() {
-    use nebensound_declaration::Version;
+    use nebensound_declaration::TagVersion;
 
     // Short strings hold no number beyond `u64`, the one thing the parser
     // refuses that a pattern cannot say.
     let regex = pattern(&committed()["definitions"]["Version"]);
-    for candidate in strings(&['0', '1', '.', 'v', '-'], 6) {
+    let agree = |candidate: &str| {
         assert_eq!(
-            regex.is_match(&candidate),
-            Version::parse(&candidate).is_ok(),
+            regex.is_match(candidate),
+            TagVersion::read(candidate).is_ok(),
             "the schema and the parser disagree on {candidate:?}"
         );
+    };
+    for candidate in strings(&['0', '1', '.', 'v', '-'], 6) {
+        agree(&candidate);
+    }
+    // The pre-release part, behind three numbers that read.
+    for suffix in strings(&['p', 'r', 'e', '.', '0', '1', '-'], 6) {
+        agree(&format!("1.0.0-{suffix}"));
     }
 }
 

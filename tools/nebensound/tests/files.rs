@@ -107,3 +107,28 @@ fn the_list_is_printed_one_path_per_line_or_ended_by_zero_bytes() {
     assert_eq!(render(&list, true), "a.md\0b\nc.md\0");
     assert_eq!(render(&[], false), "");
 }
+
+#[test]
+fn a_lockfile_goes_to_the_check_its_name_assigns() {
+    let lockfiles = &[
+        ".nebensound/repo.toml",
+        "Cargo.lock",
+        "Gemfile.lock",
+        "app/uv.lock",
+        "composer.lock",
+        "flake.lock",
+        "web/yarn.lock",
+    ];
+    let analysis = analysis("[repo]\npipeline = \"none\"\n", lockfiles);
+    assert!(!analysis.failed(), "{:?}", analysis.findings());
+    let central = central();
+    let root = RelativePath::root();
+
+    let toml = files(&analysis, &central, "toml", &root).unwrap();
+    assert_eq!(
+        names(&toml),
+        [".nebensound/repo.toml", "Cargo.lock", "app/uv.lock"]
+    );
+    let json = files(&analysis, &central, "json", &root).unwrap();
+    assert_eq!(names(&json), ["composer.lock", "flake.lock"]);
+}

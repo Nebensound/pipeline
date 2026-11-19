@@ -276,7 +276,11 @@ const COVERAGE_TABLE: &[Coverage] = &[
         &[".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"],
         &[],
     ),
-    ("json", &[".json", ".jsonc", ".geojson"], &[]),
+    (
+        "json",
+        &[".json", ".jsonc", ".geojson"],
+        &["composer.lock", "flake.lock"],
+    ),
     ("markdown", &[".md", ".markdown"], &[]),
     ("php", &[".php"], &[]),
     ("python", &[".py", ".pyi"], &[]),
@@ -285,7 +289,7 @@ const COVERAGE_TABLE: &[Coverage] = &[
     ("rust", &[".rs"], &[]),
     ("shell", &[".sh", ".bash"], &[]),
     ("sql", &[".sql"], &[]),
-    ("toml", &[".toml", ".lock"], &[]),
+    ("toml", &[".toml"], &["Cargo.lock", "uv.lock"]),
     ("typst", &[".typ"], &[]),
     ("yaml", &[".yml", ".yaml"], &[]),
 ];
@@ -368,6 +372,13 @@ fn a_check_is_found_by_extension_or_by_whole_name() {
     );
     assert_eq!(register.check_for("README.md"), Some(&named("markdown")));
     assert_eq!(register.check_for("Cargo.lock"), Some(&named("toml")));
+    assert_eq!(register.check_for("api/uv.lock"), Some(&named("toml")));
+    assert_eq!(register.check_for("composer.lock"), Some(&named("json")));
+    assert_eq!(register.check_for("sub/flake.lock"), Some(&named("json")));
+    // A lockfile is assigned by its name, never by the extension `.lock`.
+    assert_eq!(register.check_for("yarn.lock"), None);
+    assert_eq!(register.check_for("Gemfile.lock"), None);
+    assert_eq!(register.check_for("other.lock"), None);
     assert_eq!(
         register.check_for("deploy/Dockerfile"),
         Some(&named("dockerfile"))
@@ -402,6 +413,12 @@ fn some_files_are_left_to_nobody_on_purpose() {
         "**/ matches everywhere"
     );
     assert!(!excluded("mystery"));
+
+    // Lockfiles in a format no check covers.
+    assert!(excluded("yarn.lock"));
+    assert!(excluded("backend/Gemfile.lock"));
+    assert!(!excluded("Cargo.lock"));
+    assert!(!excluded("composer.lock"));
 }
 
 #[test]

@@ -26,20 +26,21 @@ channel would be a second version that can fall behind.
 ## Calls
 
 ```text
-nebensound [-C <directory>] [check | tree | explain <path> | plan | files [-z] <check> <unit> | excluded-packages | schema | register | ui]
+nebensound [-C <directory>] [check | tree | explain <path> | plan | files [-z] <check> <unit> | excluded-packages | setup [--pinned] [--with-runtimes] [--check] | schema | register | ui]
 ```
 
-| Call                | What it does                                                                                                                                                                                                                                                                                     |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `check`             | Runs phase 0 and prints everything: the resolved configuration, the tree, the findings and a summary line with the counts. The default, and what the composite action under `.github/actions/phase0` calls.                                                                                      |
-| `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                             |
-| `explain <path>`    | What holds for one path and why: which units contain it, how each of them is released, which checks are in force, how its coverage stands.                                                                                                                                                       |
-| `plan`              | Which unit runs which check and builds what, as one line of JSON for a matrix to read.                                                                                                                                                                                                           |
-| `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                         |
-| `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                       |
-| `schema`            | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. `check-toml` assigns the copy committed beside it; [its README](../../.github/actions/check-toml/schemas/README.md#nebensound-declarationjson) says how to write that copy again. |
-| `register`          | The register as Markdown, exactly as [`docs/register.md`](../../docs/register.md) holds it, which a test compares with this output. Reads no repository.                                                                                                                                         |
-| `ui`                | The same result to walk through. Only in a build with the `ui` feature.                                                                                                                                                                                                                          |
+| Call                | What it does                                                                                                                                                                                                                                                                                                                        |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `check`             | Runs phase 0 and prints everything: the resolved configuration, the tree, the findings and a summary line with the counts. The default, and what the composite action under `.github/actions/phase0` calls.                                                                                                                         |
+| `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                                                                |
+| `explain <path>`    | What holds for one path and why: which units contain it, how each of them is released, which checks are in force, how its coverage stands.                                                                                                                                                                                          |
+| `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read.                                                                                                                                                                                                         |
+| `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                                                            |
+| `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                                                          |
+| `setup`             | Finds or installs the programs that the checks the plan starts call, as the register pins them: by default it uses those on the computer and installs the pinned version of what is missing; `--pinned` installs every one into its own folder; `--check` changes nothing. See [Setting up the programs](#setting-up-the-programs). |
+| `schema`            | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. `check-toml` assigns the copy committed beside it; [its README](../../.github/actions/check-toml/schemas/README.md#nebensound-declarationjson) says how to write that copy again.                                    |
+| `register`          | The register as Markdown, exactly as [`docs/register.md`](../../docs/register.md) holds it, which a test compares with this output. Reads no repository.                                                                                                                                                                            |
+| `ui`                | The same result to walk through. Only in a build with the `ui` feature.                                                                                                                                                                                                                                                             |
 
 Exit code: `0` when there is nothing to report; `1` when the repository has a
 problem or cannot be read; `2` when the call itself was wrong. A **warning stops
@@ -75,6 +76,26 @@ a run has to start, and where.
       "name": "tool",
       "path": "tool"
     }
+  ],
+  "versions": [
+    {
+      "base": "0.3.1",
+      "kind": "repository",
+      "name": null,
+      "path": ".",
+      "prefix": "v",
+      "release": "single-stage",
+      "version": "0.3.2"
+    },
+    {
+      "base": "1.4.0",
+      "kind": "component",
+      "name": "tool",
+      "path": "tool",
+      "prefix": "tool-v",
+      "release": "two-stage",
+      "version": "1.5.0-pre.3"
+    }
   ]
 }
 ```
@@ -84,7 +105,15 @@ read, and `checks` shortened. It is written by `serde_json`, so a path holding
 quotes or control characters cannot break the JSON. `units` is
 every unit phase 0 resolved, repository first. `checks` is the same thing flat —
 one entry per check that is started — because a matrix takes a list and cannot
-unfold a list inside one. The repository has no name, as its tag has no prefix.
+unfold a list inside one. The repository has no name; its tags carry only the
+prefix `v`.
+
+`versions` is one entry per unit that carries a version, in the order of
+`units`: `prefix` is what its tags start with, `release` how it is released,
+`base` its last full release (`0.0.0` without one), and `version` the version
+of the commit at hand, `null` when the commit does not touch the unit. How they
+are resolved from tags and history is described in
+[the reference of the declaration](../../docs/declaration.md#versions).
 
 A check runs **once, at the outermost unit it is in force for**. The base set is
 in force everywhere, so it runs at the repository; a check a unit declares
@@ -125,6 +154,106 @@ from the root, the string `check-markdown` hands lychee, and rustfmt's
 `ignore`, which takes effect on a nightly toolchain; run by hand, the tools
 read them all.
 
+## Setting up the programs
+
+The checks call external programs: formatters, linters, a link checker. The
+register pins each of them to one version, with a download per operating system
+and architecture and its digest, and names the runtime a program written in
+JavaScript or Python needs, with the lowest version of it the program runs on
+([Programs](../../docs/register.md#programs)).
+`setup` gets a computer ready to run the checks of a repository:
+
+```bash
+nebensound setup                  # use what the computer has, install what it lacks
+nebensound setup --pinned         # install the pinned version of every program
+nebensound setup --with-runtimes  # the same, and a missing runtime without asking
+nebensound setup --check          # change nothing; say what is missing or differs
+```
+
+It sets up the programs of the checks the plan starts, so it reads the
+repository like `plan` does, and a repository with errors gets nothing set up,
+for the same reason it gets no plan. It does not read the history, though, like
+`files` and `excluded-packages`: which checks the plan starts never depends on a
+version, so a shallow clone or an error about a release does not keep anyone
+from setting up the programs.
+
+- **By default** it uses a program that is on the computer already, found on
+  the `PATH`, and says where its version differs from the pinned one. It
+  installs the pinned version of what is missing, and nothing that is present.
+- **`--pinned`** installs the pinned version of every program into its own
+  folder, whatever the computer has, and leaves the computer's programs alone.
+  This is the mode the gate is to run in once its blocks call `setup` (#73).
+- **`--check`** changes nothing. It lists every program and runtime with where
+  it was found, what is missing, and which version differs from the pinned one.
+
+A download is refused unless it has the digest the register pins, and nothing
+of it is used then. Downloads go through `curl`, which macOS, Linux and Windows
+bring; a program on a runtime is installed by that runtime's installer: npm
+with `--ignore-scripts`, or pip into a virtual environment of its own, taking
+only wheels, so that no build code of a dependency runs.
+
+A **runtime** (Node.js, Python) is never installed unasked. One on the computer
+is used as it is, whatever its version, as long as it prints one and can run
+the programs on it, in every mode. The search goes on past one that prints no
+version (such as the Windows Store's `python3.exe` stand-in) and past one older
+than a program on it needs: the register names the lowest runtime version each
+such program runs on, as its package states it. When none is left, the runtime
+counts as missing, and `setup` says which version the computer has. When one is
+missing, `setup` lists what it would install and asks for a yes or no in a
+terminal; `--with-runtimes` installs it without asking. Without a terminal
+nothing is asked, and without `--with-runtimes` nothing at all is installed
+then: not the runtime, and not the programs that do not need one.
+
+The exit code is `0` when every program and runtime is there afterwards, and
+`1` when one is missing, a download or an installation failed, or the
+repository has errors. A version that differs from the pinned one is said and
+stops nothing.
+
+Not every program has a build for every platform: on Windows on ARM there is
+none of `jq` and `lychee`. There the default mode uses the computer's copy,
+which then has to be on the `PATH`, and `--pinned` cannot install them: it says
+so for each and exits with `1`, even when the computer has them.
+
+### The folder
+
+The pinned copies live in the tool's folder in the user's cache directory:
+
+| Operating system | Folder                                                   |
+| ---------------- | -------------------------------------------------------- |
+| macOS            | `~/Library/Caches/nebensound`                            |
+| Linux            | `$XDG_CACHE_HOME/nebensound`, else `~/.cache/nebensound` |
+| Windows          | `%LOCALAPPDATA%\nebensound`                              |
+
+Inside it, every program and runtime has a folder per version:
+`programs/<name>/<version>/` and `runtimes/<name>/<version>/`. An installation
+counts once its folder holds the file `.nebensound-installed`, which is written
+last; a folder without it is installed again. `downloads/` holds a download
+only while it is checked and unpacked.
+
+Nothing outside the folder is changed: no `PATH`, no shell profile, no program
+of the computer. To remove everything `setup` installed, delete the folder:
+
+```bash
+rm -rf ~/Library/Caches/nebensound                      # macOS
+rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/nebensound"    # Linux
+```
+
+```powershell
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\nebensound"   # Windows
+```
+
+A program installed with pip keeps the Python it was installed with. When that
+Python is gone, `setup` installs the program again; on Windows, where the
+environment keeps a copy of its Python, delete the program's folder and run
+`setup` again.
+
+### For the other calls
+
+A call that runs a check asks where a program is with
+`nebensound::setup::find::locate`: the pinned copy when it exists, else the one
+on the computer, together with the runtime it runs on, found the same way. A
+runtime on the computer that is too old for the program is not given.
+
 ## Excluded packages
 
 Rust code is excluded by the package, never by the file: an `[[exclude]]` entry
@@ -158,6 +287,24 @@ decided by Git. A walk over the file system would count `target/`,
 judge things the repository does not have.
 
 `git add` is enough; a commit is not needed, because `ls-files` reads the index.
+
+The versions come from Git as well: the line of `main` (the first-parent line
+of `HEAD`, or at a merge into `release` that of the commit of `main` it
+merges), the declaration and the files each commit of that line held, the tags
+and the branches `origin/release` and `origin/main`. Where a unit lived and how
+it was released is read at each commit from its own declaration, so a unit
+that moves or switches between one stage and two keeps its earlier releases.
+At a merge into `release`, `origin/main` also tells whether it brings in the tip
+of `main`: only the tip is promoted, and any other merge is the error
+`stale-promotion`. A repository without a commit has no version yet; a shallow clone is an error,
+because the history it lacks could hold the last release. Every option the person's Git configuration could change, such as
+rename detection, is given on the command line, so the answer does not depend
+on who runs it.
+
+Unlike the file list, the versions need a commit. They are resolved for `HEAD`,
+and each commit is read with the declaration it holds, so a change to
+`.nebensound/repo.toml` that is not committed yet reaches them only in part; see
+[what the history must hold](../../docs/declaration.md#what-the-history-must-hold).
 
 ## What the output says
 

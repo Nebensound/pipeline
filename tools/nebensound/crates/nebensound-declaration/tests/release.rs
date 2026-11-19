@@ -13,7 +13,9 @@ use nebensound_declaration::register::Register;
 use nebensound_declaration::resolve::{
     MinimumVersionSource, ReleaseSource, ResolvedMinimumVersion, ResolvedRelease,
 };
-use nebensound_declaration::{Central, Declaration, Release, Tree, Unit, Version, analyse};
+use nebensound_declaration::{
+    Central, Declaration, Release, TagVersion, Tree, Unit, Version, analyse,
+};
 
 fn tree(paths: &[&str]) -> Tree {
     Tree::new(
@@ -192,7 +194,7 @@ pipeline = "rust-library-public"
     assert_eq!(
         unit(&units, &UnitName::Repository).minimum_version,
         Some(ResolvedMinimumVersion {
-            version: Version::new(1, 0, 0),
+            version: TagVersion::stable(Version::new(1, 0, 0)),
             source: MinimumVersionSource::Written,
         })
     );
@@ -230,7 +232,7 @@ minimum-version = "0.1.0"
         assert_eq!(
             child.minimum_version,
             Some(ResolvedMinimumVersion {
-                version: Version::new(0, 1, 0),
+                version: TagVersion::stable(Version::new(0, 1, 0)),
                 source: MinimumVersionSource::Inherited {
                     by: component("docs"),
                 },
@@ -250,6 +252,30 @@ minimum-version = "0.1.0"
 }
 
 #[test]
+fn a_minimum_version_may_name_a_pre_release() {
+    let units = units(
+        r#"
+[repo]
+pipeline = "none"
+
+[component.library]
+path            = "crates/library"
+pipeline        = "rust-library-public"
+minimum-version = "1.0.0-pre.10"
+"#,
+        FILES,
+    );
+
+    assert_eq!(
+        unit(&units, &component("library")).minimum_version,
+        Some(ResolvedMinimumVersion {
+            version: TagVersion::pre(Version::new(1, 0, 0), 10),
+            source: MinimumVersionSource::Written,
+        })
+    );
+}
+
+#[test]
 fn an_invalid_minimum_version_stops_the_reading_at_its_line_and_column() {
     let message = refusal("[repo]\npipeline = \"none\"\nminimum-version = \"v1.0\"\n");
 
@@ -257,9 +283,12 @@ fn an_invalid_minimum_version_stops_the_reading_at_its_line_and_column() {
     assert!(message.contains("X.Y.Z"), "{message}");
     assert!(message.contains("\"v1.0\""), "{message}");
 
+    // A pre-release reads only as pre.N.
     let message =
-        refusal("[repo]\n\n[component.thing]\npath = \".\"\nminimum-version = \"1.0.0-pre.1\"\n");
+        refusal("[repo]\n\n[component.thing]\npath = \".\"\nminimum-version = \"1.0.0-rc.1\"\n");
     assert!(message.contains("line 5"), "{message}");
+    assert!(message.contains("\"rc.1\""), "{message}");
+    assert!(message.contains("pre.N"), "{message}");
 
     let message = refusal("[repo]\nminimum-version = 1\n");
     assert!(message.contains("string"), "{message}");
