@@ -397,11 +397,12 @@ of this commit, built from `tools/nebensound/` with the toolchain the tool
 pins, and hands it every option unchanged (`--pinned`, `--with-runtimes`,
 `--check`). Then, on Linux, it checks what only the test cases need: Node.js and
 Go on the `PATH` in the versions the blocks' steps ask for (read from their
-`action.yml`), jq, Python's pip and rustup. It installs none of these, since
-they stay the machine's, but names each one that is missing or of another
+`action.yml`), jq, npm, Python's pip and rustup. It installs none of these,
+since they stay the machine's, but names each one that is missing or of another
 version and exits with `1` then, so that a machine it passes can run the cases.
 `nebensound setup` may have put a jq into its cache, but the steps look for jq
-on the `PATH`. On another system the cases do not run, so `setup` leaves out
+on the `PATH`. npm is asked for apart from Node.js, since some systems ship it
+as a package of its own. On another system the cases do not run, so `setup` leaves out
 what only they need and says so, and its exit code is the tool's.
 
 The cases are

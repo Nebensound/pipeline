@@ -351,6 +351,7 @@ fn provide(bin: &Path) {
     script(&bin.join("node"), "echo v24.3.0");
     script(&bin.join("go"), "echo go version go1.26.2 linux/amd64");
     script(&bin.join("jq"), "echo jq-1.8.1");
+    script(&bin.join("npm"), "echo 11.6.2");
     script(
         &bin.join("python3"),
         "echo pip 25.3 from /usr/lib/python3/dist-packages/pip",
@@ -377,6 +378,7 @@ fn setup_calls_the_tool_of_this_commit_with_every_option() {
          go 1.26: on the PATH, go version go1.26.2 linux/amd64\n\
          node 24: on the PATH, v24.3.0\n\
          jq: found, jq-1.8.1\n\
+         npm: found, 11.6.2\n\
          pip: found, pip 25.3 from /usr/lib/python3/dist-packages/pip\n\
          rustup: found, rustup 1.29.0\n"
     );
@@ -443,12 +445,13 @@ fn setup_names_what_the_test_cases_need_and_the_machine_lacks() {
     let (_, bin, mut setup) = needy(&scene);
     setup.cargo = fake_cargo(&scene, 0);
 
-    // A Node.js of another version, a Go that prints nothing, a jq, a Python
-    // without pip and a rustup that fail. The PATH ends in the system's
-    // directories, so a program of the system would be found behind a missing
-    // one.
+    // A Node.js of another version, a Go that prints nothing, a jq and an
+    // npm, a Python without pip and a rustup that fail; some systems ship
+    // Node.js without npm. The PATH ends in the system's directories, so a
+    // program of the system would be found behind a missing one.
     script(&bin.join("node"), "echo v26.13.1");
     script(&bin.join("jq"), "exit 127");
+    script(&bin.join("npm"), "exit 127");
     script(
         &bin.join("python3"),
         "[ \"$*\" = '-m pip --version' ] && { echo 'No module named pip' >&2; exit 1; }; echo Python 3.13.1",
@@ -463,9 +466,10 @@ fn setup_names_what_the_test_cases_need_and_the_machine_lacks() {
          go 1.26: missing, the PATH has none. Put go 1.26 on the PATH.\n\
          node 24: missing, the PATH has v26.13.1. Put node 24 on the PATH.\n\
          jq: missing, `jq --version` fails on the PATH the steps get.\n\
+         npm: missing, `npm --version` fails on the PATH the steps get.\n\
          pip: missing, `python3 -m pip --version` fails on the PATH the steps get.\n\
          rustup: missing, `rustup --version` fails on the PATH the steps get.\n\
-         5 program(s) the test cases need are missing, each named above.\n"
+         6 program(s) the test cases need are missing, each named above.\n"
     );
 }
 
