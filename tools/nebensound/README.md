@@ -131,7 +131,8 @@ read them all.
 The checks call external programs: formatters, linters, a link checker. The
 register pins each of them to one version, with a download per operating system
 and architecture and its digest, and names the runtime a program written in
-JavaScript or Python needs ([Programs](../../docs/register.md#programs)).
+JavaScript or Python needs, with the lowest version of it the program runs on
+([Programs](../../docs/register.md#programs)).
 `setup` gets a computer ready to run the checks of a repository:
 
 ```bash
@@ -161,13 +162,16 @@ with `--ignore-scripts`, or pip into a virtual environment of its own, taking
 only wheels, so that no build code of a dependency runs.
 
 A **runtime** (Node.js, Python) is never installed unasked. One on the computer
-is used as it is, whatever its version, as long as it prints one; one that does
-not (such as the Windows Store's `python3.exe` stand-in) is passed over and the
-search goes on. When one is missing, `setup` lists what it would install and
-asks for a yes or no in a terminal; `--with-runtimes` installs it without
-asking. Without a terminal nothing is asked, and without
-`--with-runtimes` nothing at all is installed then: not the runtime, and not the
-programs that do not need one.
+is used as it is, whatever its version, as long as it prints one and can run
+the programs on it, in every mode. The search goes on past one that prints no
+version (such as the Windows Store's `python3.exe` stand-in) and past one older
+than a program on it needs: the register names the lowest runtime version each
+such program runs on, as its package states it. When none is left, the runtime
+counts as missing, and `setup` says which version the computer has. When one is
+missing, `setup` lists what it would install and asks for a yes or no in a
+terminal; `--with-runtimes` installs it without asking. Without a terminal
+nothing is asked, and without `--with-runtimes` nothing at all is installed
+then: not the runtime, and not the programs that do not need one.
 
 The exit code is `0` when every program and runtime is there afterwards, and
 `1` when one is missing, a download or an installation failed, or the
@@ -214,7 +218,8 @@ environment keeps a copy of its Python, delete the program's folder and run
 
 A call that runs a check asks where a program is with
 `nebensound::setup::find::locate`: the pinned copy when it exists, else the one
-on the computer, together with the runtime it runs on, found the same way.
+on the computer, together with the runtime it runs on, found the same way. A
+runtime on the computer that is too old for the program is not given.
 
 ## Excluded packages
 

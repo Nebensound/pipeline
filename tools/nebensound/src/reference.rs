@@ -134,7 +134,10 @@ fn programs(register: &Register) -> String {
             vec![
                 code(name),
                 code(&program.version),
-                program.runtime.as_ref().map_or_else(none, code),
+                program.runtime.as_ref().map_or_else(none, |runtime| {
+                    let minimum = program.runtime_minimum.as_deref().unwrap_or_default();
+                    format!("{}, {} or later", code(runtime), code(minimum))
+                }),
                 platforms(&program.download),
             ]
         })
@@ -144,8 +147,9 @@ fn programs(register: &Register) -> String {
         "Every program a check calls, pinned to one version. `nebensound setup` finds or\n\
          installs them (see [the tool](../tools/nebensound/README.md#setting-up-the-programs)).\n\
          A program on a runtime is one package, which the runtime's installer puts in\n\
-         place; every other one is a build per platform. Each download is refused unless\n\
-         it has the digest the register pins; the addresses and digests stand in\n\
+         place, and needs at least the version of the runtime its package states;\n\
+         every other one is a build per platform. Each download is refused unless it\n\
+         has the digest the register pins; the addresses and digests stand in\n\
          `register.toml`, each with the release data it was taken from. On a platform\n\
          without a build the program has to be on the computer already.",
         &["Program", "Version", "Runtime", "Builds"],
@@ -170,9 +174,10 @@ fn runtimes(register: &Register) -> String {
     section(
         "Runtimes",
         "What a program on a runtime runs on. A runtime on the computer is used as it is,\n\
-         whatever its version, as long as it prints one; one that does not is passed\n\
-         over. The pinned one is installed only when the runtime is missing and someone\n\
-         agrees.",
+         whatever its version, as long as it prints one and can run the programs on it;\n\
+         one that prints none is passed over, and so is one older than a program on it\n\
+         needs. With none left, the runtime counts as missing. The pinned one is\n\
+         installed only when the runtime is missing and someone agrees.",
         &["Runtime", "Name", "Version", "Installs with", "Builds"],
         &rows,
     )

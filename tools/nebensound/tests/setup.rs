@@ -157,10 +157,17 @@ fn native(name: &str, version: &str, url: &str, digest: &str, executable: &str) 
     )
 }
 
-/// A program that is one package for a runtime.
+/// A program that is one package for a runtime, and runs on it from 4.0.0.
 fn packaged(name: &str, runtime: &str, url: &str, digest: &str) -> String {
+    packaged_from(name, runtime, "4.0.0", url, digest)
+}
+
+/// A program that is one package for a runtime, and runs on it from this
+/// version.
+fn packaged_from(name: &str, runtime: &str, minimum: &str, url: &str, digest: &str) -> String {
     format!(
         "[program.{name}]\nversion = \"7.8.9\"\ncommand = \"{name}\"\nruntime = \"{runtime}\"\n\
+         runtime-minimum = \"{minimum}\"\n\
          [program.{name}.download.any]\nurl = \"{url}\"\ndigest = \"{digest}\"\n"
     )
 }
@@ -984,6 +991,191 @@ fn a_runtime_that_prints_no_version_is_passed_over() {
     assert_eq!(found.runtime, Some(rt));
 }
 
+/// Three programs on the runtime `rt`, which run on it from 4.0.0, 4.2.0 and
+/// 4.1.0, and the runtime itself, pinned to 4.5.6.
+fn on_a_runtime_with_minimums(fixture: &Fixture) -> Register {
+    let archive = npm_runtime(NPM);
+    let mut entries = vec![check(&["early", "late", "middle"])];
+    for (name, minimum) in [("early", "4.0.0"), ("late", "4.2.0"), ("middle", "4.1.0")] {
+        let file = format!("{name}.tgz");
+        entries.push(packaged_from(
+            name,
+            "rt",
+            minimum,
+            &fixture.serve(&file, name.as_bytes()),
+            &sha256(name.as_bytes()),
+        ));
+    }
+    entries.push(runtime(
+        "rt",
+        "npm",
+        &fixture.serve("rt.tar.gz", &archive),
+        &sha256(&archive),
+        "rt/bin/rt",
+    ));
+    register(&entries.concat())
+}
+
+#[test]
+fn a_runtime_too_old_for_a_program_on_it_counts_as_missing() {
+    let fixture = Fixture::new();
+    let register = on_a_runtime_with_minimums(&fixture);
+    let old = fixture.install("rt", &prints("rt 4.1.0"));
+    fixture.install("npm", NPM);
+
+    // Too old for `late`, which needs 4.2.0: missing, in every mode.
+    let (text, code) = run(&register, Mode::Check, false, &mut fixture.env());
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains(&format!(
+            "Runtimes\n  rt 4.5.6: on the computer, {}, version 4.1.0, too old: the programs on \
+             it need 4.2.0 or later\n",
+            old.display()
+        )),
+        "{text}"
+    );
+    assert!(text.contains("Missing: rt 4.5.6, early 7.8.9,"), "{text}");
+
+    // The other calls get it only for a program it can run.
+    let early = ProgramName::new("early").expect("a name");
+    let late = ProgramName::new("late").expect("a name");
+    fixture.install("early", &prints("early 7.8.9"));
+    fixture.install("late", &prints("late 7.8.9"));
+    let found = find::locate(&register, &early, &fixture.env()).expect("found");
+    assert_eq!(found.runtime, Some(old.clone()));
+    let found = find::locate(&register, &late, &fixture.env()).expect("found");
+    assert_eq!(found.runtime, None);
+
+    // It is listed and asked for like a missing one, and nothing is installed
+    // without a yes.
+    for mode in [Mode::Missing, Mode::Pinned] {
+        let (text, code) = run(&register, mode, false, &mut fixture.env());
+        assert_eq!(code, 1, "{text}");
+        assert!(
+            text.contains(&format!(
+                "These runtimes are missing, and programs need them:\n  rt 4.5.6 (The rt \
+                 runtime), for early, late, middle: file://{}\n    The computer has 4.1.0 ({}), \
+                 and they need 4.2.0 or later.\nThere is no terminal to ask in",
+                fixture.path("server/rt.tar.gz").display(),
+                old.display()
+            )),
+            "{text}"
+        );
+        assert!(text.ends_with("Nothing was installed.\n"), "{text}");
+        assert!(!fixture.path("cache").join("runtimes").exists());
+    }
+
+    // `--with-runtimes` installs it; the default mode still leaves the
+    // programs on the computer alone.
+    let (text, code) = run(&register, Mode::Missing, true, &mut fixture.env());
+    assert_eq!(code, 0, "{text}");
+    assert!(text.contains("Installing rt 4.5.6 from file://"), "{text}");
+    assert!(!text.contains("Installing early"), "{text}");
+    let pinned = fixture.path("cache/runtimes/rt/4.5.6/rt/bin/rt");
+    assert!(
+        text.contains(&format!("  rt 4.5.6: pinned, {}\n", pinned.display())),
+        "{text}"
+    );
+    let found = find::locate(&register, &late, &fixture.env()).expect("found");
+    assert_eq!(found.runtime, Some(pinned));
+}
+
+#[test]
+fn a_runtime_that_can_run_the_programs_is_used_whatever_its_version() {
+    let fixture = Fixture::new();
+    let register = on_a_runtime_with_minimums(&fixture);
+    // Older than the pinned 4.5.6, and new enough for every program.
+    let rt = fixture.install("rt", &prints("rt 4.2.0"));
+    fixture.install("npm", NPM);
+
+    for (mode, with_runtimes) in [(Mode::Missing, false), (Mode::Pinned, true)] {
+        let (text, code) = run(&register, mode, with_runtimes, &mut fixture.env());
+        assert_eq!(code, 0, "{text}");
+        assert!(!text.contains("Installing rt"), "{text}");
+        assert!(
+            text.contains(&format!(
+                "  rt 4.5.6: on the computer, {}, version 4.2.0\n",
+                rt.display()
+            )),
+            "{text}"
+        );
+        assert!(
+            text.contains("Not the pinned version: rt 4.5.6 (the computer's: 4.2.0).\n"),
+            "{text}"
+        );
+    }
+    assert!(!fixture.path("cache/runtimes").exists());
+}
+
+#[test]
+fn the_search_goes_on_past_a_runtime_that_is_too_old() {
+    let fixture = Fixture::new();
+    let register = on_a_runtime_with_minimums(&fixture);
+    let older = fixture.path("older/rt");
+    executable(&older, prints("rt 3.0.0").as_bytes());
+    let mut env = fixture.env();
+    env.search_path =
+        std::env::join_paths([fixture.path("older"), fixture.path("bin")]).expect("a search path");
+
+    // Two too old: the first is the one named.
+    fixture.install("rt", &prints("rt 4.1.0"));
+    let (text, code) = run(&register, Mode::Check, false, &mut env);
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains(&format!(
+            "  rt 4.5.6: on the computer, {}, version 3.0.0, too old",
+            older.display()
+        )),
+        "{text}"
+    );
+
+    // One behind it that is new enough is used.
+    let rt = fixture.install("rt", &prints("rt 5.0.0"));
+    let (text, _) = run(&register, Mode::Check, false, &mut env);
+    assert!(
+        text.contains(&format!(
+            "  rt 4.5.6: on the computer, {}, version 5.0.0\n",
+            rt.display()
+        )),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_package_on_a_runtime_too_old_and_not_installed_is_not_installed() {
+    let fixture = Fixture::new();
+    let mut entries = on_a_runtime_with_minimums(&fixture);
+    // No build of the runtime for this computer.
+    for runtime in entries.runtime.values_mut() {
+        let build = runtime
+            .download
+            .remove(&Platform::LinuxX86_64)
+            .expect("a build");
+        runtime.download.insert(Platform::WindowsX86_64, build);
+    }
+    fixture.install("rt", &prints("rt 4.1.0"));
+    fixture.install("npm", NPM);
+
+    let (text, code) = run(&entries, Mode::Missing, true, &mut fixture.env());
+
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains("rt 4.5.6 was not installed: the register has no pinned build"),
+        "{text}"
+    );
+    assert!(
+        text.contains("late 7.8.9 was not installed: it needs rt, which is missing\n"),
+        "{text}"
+    );
+    // `early` runs on 4.1.0, so it was installed with the computer's.
+    assert!(
+        fixture
+            .path("cache/programs/early/7.8.9/node_modules/.bin/early")
+            .is_file(),
+        "{text}"
+    );
+}
+
 #[test]
 fn a_runtime_on_the_computer_installs_the_package() {
     let fixture = Fixture::new();
@@ -1332,6 +1524,7 @@ fn windows_keeps_its_programs_elsewhere() {
         command: "tool".to_owned(),
         version_args: vec![],
         runtime: Some(RuntimeName::new("absent").expect("a name")),
+        runtime_minimum: Some("1.0.0".to_owned()),
         download: std::collections::BTreeMap::new(),
     };
     assert_eq!(

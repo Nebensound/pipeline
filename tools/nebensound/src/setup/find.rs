@@ -10,7 +10,7 @@ use std::process::{Command, Stdio};
 
 use nebensound_declaration::Register;
 use nebensound_declaration::names::{ProgramName, RuntimeName};
-use nebensound_declaration::programs::{Installer, Program, Runtime};
+use nebensound_declaration::programs::{Installer, Program, Runtime, at_least};
 
 use super::Environment;
 
@@ -30,8 +30,25 @@ pub enum Found {
         /// The version it prints, three numbers.
         version: Option<String>,
     },
+    /// A runtime on the computer that is older than a program on it needs,
+    /// and none that is new enough. It counts as missing.
+    TooOld {
+        /// Where it is.
+        path: PathBuf,
+        /// The version it prints, three numbers.
+        version: String,
+    },
     /// Neither.
     Missing,
+}
+
+impl Found {
+    /// Whether there is nothing to use: the program or runtime is missing,
+    /// or the runtime on the computer is too old.
+    #[must_use]
+    pub fn missing(&self) -> bool {
+        matches!(self, Self::Missing | Self::TooOld { .. })
+    }
 }
 
 /// Where a program is, for a call that runs it.
@@ -53,9 +70,10 @@ pub struct Location {
 pub fn locate(register: &Register, name: &ProgramName, env: &Environment) -> Option<Location> {
     let program = register.program.get(name)?;
     let runtime = program.runtime.as_ref().and_then(|name| {
-        match runtime(name, register.runtime.get(name)?, env) {
+        let minimum = program.runtime_minimum.as_deref();
+        match runtime(name, register.runtime.get(name)?, minimum, env) {
             Found::Pinned(path) | Found::Computer { path, .. } => Some(path),
-            Found::Missing => None,
+            Found::TooOld { .. } | Found::Missing => None,
         }
     });
     if let Some(executable) = pinned_program(register, name, program, env) {
@@ -90,29 +108,44 @@ pub fn program(
     )
 }
 
-/// What there is of a runtime.
+/// What there is of a runtime that the programs on it need at least
+/// `minimum` of.
 ///
 /// One on the computer counts only when it prints its version, and the
 /// search goes on past one that does not: on Windows the Store puts
 /// `python3.exe` and `python.exe` on the `PATH` of a computer without Python,
-/// and all they print is where to get one.
+/// and all they print is where to get one. The search also goes on past one
+/// older than `minimum`, which cannot run the programs; when no candidate is
+/// new enough, the first that is too old is [`Found::TooOld`]. Whatever its
+/// version beyond that, a runtime that can run the programs is used.
 #[must_use]
-pub fn runtime(name: &RuntimeName, runtime: &Runtime, env: &Environment) -> Found {
+pub fn runtime(
+    name: &RuntimeName,
+    runtime: &Runtime,
+    minimum: Option<&str>,
+    env: &Environment,
+) -> Found {
     if let Some(path) = pinned_runtime(name, runtime, env) {
         return Found::Pinned(path);
     }
-    runtime
+    let mut too_old = None;
+    for path in runtime
         .commands
         .iter()
         .flat_map(|command| candidates(command, &env.search_path, env.windows))
-        .find_map(|path| {
-            let version = version(&path, &runtime.version_args, &env.search_path)?;
-            Some(Found::Computer {
+    {
+        let Some(version) = version(&path, &runtime.version_args, &env.search_path) else {
+            continue;
+        };
+        if minimum.is_none_or(|minimum| at_least(&version, minimum)) {
+            return Found::Computer {
                 path,
                 version: Some(version),
-            })
-        })
-        .unwrap_or(Found::Missing)
+            };
+        }
+        too_old.get_or_insert(Found::TooOld { path, version });
+    }
+    too_old.unwrap_or(Found::Missing)
 }
 
 fn computer(path: Option<PathBuf>, args: &[String], env: &Environment) -> Found {

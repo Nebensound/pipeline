@@ -32,6 +32,13 @@ pub struct Program {
     /// The runtime it runs on and is installed through, if it needs one.
     #[serde(default)]
     pub runtime: Option<RuntimeName>,
+    /// The lowest version of its runtime it runs on, three numbers, as its
+    /// package states it (`requires_python` in the Python Package Index,
+    /// `engines.node` in the npm registry). A program on a runtime names one;
+    /// any other names none. A runtime on the computer below it cannot run
+    /// the program.
+    #[serde(default)]
+    pub runtime_minimum: Option<String>,
     /// Where the pinned version comes from. A program on a runtime has one
     /// package for every platform ([`Platform::Any`]); any other has a build
     /// per platform.
@@ -271,6 +278,29 @@ pub fn is_version(value: &str) -> bool {
         && parts
             .iter()
             .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// Whether `version` is `floor` or later, each three numbers, compared number
+/// by number. A value that is not three numbers that fit in 64 bits is later
+/// than nothing and has nothing later than it.
+#[must_use]
+pub fn at_least(version: &str, floor: &str) -> bool {
+    match (numbers(version), numbers(floor)) {
+        (Some(version), Some(floor)) => version >= floor,
+        _ => false,
+    }
+}
+
+fn numbers(value: &str) -> Option<[u64; 3]> {
+    if !is_version(value) {
+        return None;
+    }
+    let parts: Vec<u64> = value
+        .split('.')
+        .map(str::parse)
+        .collect::<Result<_, _>>()
+        .ok()?;
+    <[u64; 3]>::try_from(parts).ok()
 }
 
 /// What is wrong with the downloads of a program or runtime, if anything.

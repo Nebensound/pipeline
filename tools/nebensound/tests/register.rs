@@ -104,7 +104,7 @@ fn the_page_names_what_the_register_says() {
         &[
             "`prettier`",
             "`3.9.6`",
-            "`node`",
+            "`node`, `14.0.0` or later",
             "one package for every platform",
         ],
         &[

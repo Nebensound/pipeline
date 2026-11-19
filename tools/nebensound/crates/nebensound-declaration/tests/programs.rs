@@ -5,7 +5,7 @@
 
 use nebensound_declaration::names::{CheckName, ProgramName};
 use nebensound_declaration::programs::{
-    Algorithm, Digest, Installer, Platform, Program, is_version,
+    Algorithm, Digest, Installer, Platform, Program, at_least, is_version,
 };
 use nebensound_declaration::register::{Register, RegisterError};
 
@@ -68,19 +68,24 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
         ("actionlint", "1.7.12", None),
         ("biome", "2.5.15", None),
         ("cargo-llvm-cov", "0.9.0", None),
-        ("check-jsonschema", "0.39.0", Some("python")),
+        ("check-jsonschema", "0.39.0", Some(("python", "3.11.0"))),
         ("jq", "1.8.1", None),
         ("lychee", "0.24.2", None),
-        ("markdownlint-cli2", "0.23.2", Some("node")),
-        ("prettier", "3.9.6", Some("node")),
+        ("markdownlint-cli2", "0.23.2", Some(("node", "22.0.0"))),
+        ("prettier", "3.9.6", Some(("node", "14.0.0"))),
         ("taplo", "0.10.0", None),
-        ("yamllint", "1.38.0", Some("python")),
+        ("yamllint", "1.38.0", Some(("python", "3.10.0"))),
     ] {
         let program = &register.program[&ProgramName::new(name).expect("a name")];
         assert_eq!(program.version, version, "{name}");
         assert_eq!(
             program.runtime.as_ref().map(ToString::to_string).as_deref(),
-            runtime,
+            runtime.map(|(runtime, _)| runtime),
+            "{name}"
+        );
+        assert_eq!(
+            program.runtime_minimum.as_deref(),
+            runtime.map(|(_, minimum)| minimum),
             "{name}"
         );
         assert_eq!(program.command, name, "{name}");
@@ -130,6 +135,7 @@ executable = "tool"
 version = "4.5.6"
 command = "package"
 runtime = "rt"
+runtime-minimum = "7.0.0"
 [program.package.download.any]
 url = "https://example.org/package.tgz"
 digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
@@ -304,6 +310,78 @@ fn a_version_is_three_numbers() {
     assert!(!is_version("1.2.3.4"));
     assert!(!is_version("1..3"));
     assert!(!is_version("v1.2.3"));
+    assert!(!is_version("+1.2.3"));
     assert_eq!(Installer::Npm.to_string(), "npm");
     assert_eq!(Installer::Pip.to_string(), "pip");
+}
+
+#[test]
+fn a_version_is_compared_number_by_number() {
+    for (version, floor, later) in [
+        ("3.11.0", "3.11.0", true),
+        ("3.14.10", "3.11.0", true),
+        ("3.9.19", "3.11.0", false),
+        ("3.10.0", "3.9.99", true),
+        ("24.22.3", "22.0.0", true),
+        ("4.1.0", "4.2.0", false),
+        ("4.2.1", "4.2.0", true),
+        ("4.2.0", "4.2.1", false),
+        // Not three numbers that fit in 64 bits: nothing to compare.
+        ("3.11", "3.11.0", false),
+        ("3.11.0", "3.11", false),
+        ("99999999999999999999.0.0", "1.0.0", false),
+        ("1.0.0", "99999999999999999999.0.0", false),
+    ] {
+        assert_eq!(at_least(version, floor), later, "{version} >= {floor}");
+    }
+}
+
+#[test]
+fn a_program_on_a_runtime_names_the_lowest_version_it_runs_on() {
+    for (from, to, problem) in [
+        (
+            "runtime-minimum = \"7.0.0\"\n",
+            "",
+            "package runs on a runtime, so it names the lowest version of it that it runs on \
+             (`runtime-minimum`)"
+                .to_owned(),
+        ),
+        (
+            "command = \"tool\"\n",
+            "command = \"tool\"\nruntime-minimum = \"1.0.0\"\n",
+            "tool names a `runtime-minimum`, and runs on no runtime".to_owned(),
+        ),
+        (
+            "runtime-minimum = \"7.0.0\"",
+            "runtime-minimum = \"8.0.0\"",
+            "package needs rt 8.0.0 or later, and the register pins rt 7.8.9".to_owned(),
+        ),
+        (
+            "runtime-minimum = \"7.0.0\"",
+            "runtime-minimum = \"7.8.10\"",
+            "package needs rt 7.8.10 or later, and the register pins rt 7.8.9".to_owned(),
+        ),
+        (
+            "runtime-minimum = \"7.0.0\"",
+            "runtime-minimum = \"7\"",
+            "the `runtime-minimum` of package pins \"7\", and a version here is three \
+             numbers, such as 1.2.3"
+                .to_owned(),
+        ),
+    ] {
+        assert_eq!(refuses(&SOUND.replace(from, to)), problem);
+    }
+    assert!(matches!(
+        Register::parse(
+            &SOUND.replace("runtime-minimum = \"7.0.0\"", "runtime-minimum = \"9.0.0\"")
+        ),
+        Err(RegisterError::Minimum { .. })
+    ));
+    // The pinned runtime itself is the highest a program may need.
+    assert!(
+        Register::parse(
+            &SOUND.replace("runtime-minimum = \"7.0.0\"", "runtime-minimum = \"7.8.9\"")
+        )
+        .is_ok()
+    );
 }

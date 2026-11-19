@@ -17,7 +17,9 @@
 //! folder per program and version, and are verified by their digest before
 //! anything of them is used. A runtime is installed only when it is missing
 //! and someone agrees: in a terminal by answering yes, otherwise by passing
-//! `--with-runtimes`. Without either, nothing at all is installed.
+//! `--with-runtimes`. Without either, nothing at all is installed. A runtime
+//! on the computer that is too old for a program on it counts as missing; one
+//! that can run the programs is used whatever its version, in every mode.
 
 pub mod fetch;
 pub mod find;
@@ -34,7 +36,7 @@ use std::process::Command;
 
 use nebensound_declaration::Register;
 use nebensound_declaration::names::{CheckName, ProgramName, RuntimeName};
-use nebensound_declaration::programs::{Download, Platform, Program, Runtime};
+use nebensound_declaration::programs::{Download, Platform, Program, Runtime, at_least};
 
 use self::find::{Found, MARK};
 use self::unpack::Packing;
@@ -162,6 +164,8 @@ struct Wanted<'a> {
 struct Needed<'a> {
     name: &'a RuntimeName,
     runtime: &'a Runtime,
+    /// The highest of the lowest versions the programs on it run on.
+    minimum: Option<&'a str>,
     found: Found,
 }
 
@@ -214,13 +218,13 @@ impl<'a> Setup<'a, '_> {
             .iter()
             .filter(|wanted| match options.mode {
                 Mode::Pinned => !matches!(wanted.found, Found::Pinned(_)),
-                _ => wanted.found == Found::Missing,
+                _ => wanted.found.missing(),
             })
             .collect();
         let runtimes: Vec<&Needed> = survey
             .runtimes
             .iter()
-            .filter(|needed| needed.found == Found::Missing)
+            .filter(|needed| needed.found.missing())
             .collect();
         if !runtimes.is_empty() && !self.agreed(&runtimes, &survey, &folder, options) {
             self.say("Nothing was installed.\n");
@@ -280,10 +284,17 @@ impl<'a> Setup<'a, '_> {
         let mut runtimes: Vec<Needed<'a>> = Vec::new();
         for (name, runtime) in programs.iter().filter_map(|wanted| wanted.runtime) {
             if !runtimes.iter().any(|needed| needed.name == name) {
+                let minimum = highest(
+                    programs
+                        .iter()
+                        .filter(|wanted| wanted.runtime.is_some_and(|(on, _)| on == name))
+                        .filter_map(|wanted| wanted.program.runtime_minimum.as_deref()),
+                );
                 runtimes.push(Needed {
                     name,
                     runtime,
-                    found: find::runtime(name, runtime, self.env),
+                    minimum,
+                    found: find::runtime(name, runtime, minimum, self.env),
                 });
             }
         }
@@ -324,6 +335,15 @@ impl<'a> Setup<'a, '_> {
                 needed.runtime.title,
                 list(&users)
             );
+            if let (Found::TooOld { path, version }, Some(minimum)) =
+                (&needed.found, needed.minimum)
+            {
+                let _ = writeln!(
+                    text,
+                    "    The computer has {version} ({}), and they need {minimum} or later.",
+                    path.display()
+                );
+            }
         }
         self.say(&text);
         if options.with_runtimes {
@@ -413,9 +433,12 @@ impl<'a> Setup<'a, '_> {
         dir: &Path,
         staging: &Path,
     ) -> Result<(), String> {
-        let runtime_executable = match find::runtime(runtime, definition, self.env) {
+        let minimum = wanted.program.runtime_minimum.as_deref();
+        let runtime_executable = match find::runtime(runtime, definition, minimum, self.env) {
             Found::Pinned(path) | Found::Computer { path, .. } => path,
-            Found::Missing => return Err(format!("it needs {runtime}, which is missing")),
+            Found::TooOld { .. } | Found::Missing => {
+                return Err(format!("it needs {runtime}, which is missing"));
+            }
         };
         let file = fetch::download(download, staging, self.env)?;
         fresh(dir)?;
@@ -462,11 +485,11 @@ impl<'a> Setup<'a, '_> {
                     &mut missing,
                     &mut differs,
                 );
-                let _ = writeln!(
-                    text,
-                    "  {head}: {}",
-                    state(&needed.found, &needed.runtime.version)
-                );
+                let mut line = state(&needed.found, &needed.runtime.version);
+                if let (Found::TooOld { .. }, Some(minimum)) = (&needed.found, needed.minimum) {
+                    let _ = write!(line, ": the programs on it need {minimum} or later");
+                }
+                let _ = writeln!(text, "  {head}: {line}");
             }
         }
         text.push_str("\nPrograms\n");
@@ -507,7 +530,12 @@ fn complete(survey: &Survey) -> bool {
         .iter()
         .map(|needed| &needed.found)
         .chain(survey.programs.iter().map(|wanted| &wanted.found))
-        .all(|found| *found != Found::Missing)
+        .all(|found| !found.missing())
+}
+
+/// The latest of these versions, if there is any.
+fn highest<'v>(versions: impl Iterator<Item = &'v str>) -> Option<&'v str> {
+    versions.reduce(|kept, next| if at_least(kept, next) { kept } else { next })
 }
 
 /// What was found, in words.
@@ -522,6 +550,12 @@ fn state(found: &Found, pinned: &str) -> String {
                 path.display()
             ),
         },
+        Found::TooOld { path, version } => {
+            format!(
+                "on the computer, {}, version {version}, too old",
+                path.display()
+            )
+        }
         Found::Missing => "missing".to_owned(),
     }
 }
@@ -535,7 +569,7 @@ fn note(
     differs: &mut Vec<String>,
 ) {
     match found {
-        Found::Missing => missing.push(head.to_owned()),
+        Found::Missing | Found::TooOld { .. } => missing.push(head.to_owned()),
         Found::Computer { version, .. } if version.as_deref() != Some(pinned) => {
             differs.push(format!(
                 "{head} (the computer's: {})",

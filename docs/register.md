@@ -82,30 +82,32 @@ that no check covers has to be excluded. The programs are what the check calls
 Every program a check calls, pinned to one version. `nebensound setup` finds or
 installs them (see [the tool](../tools/nebensound/README.md#setting-up-the-programs)).
 A program on a runtime is one package, which the runtime's installer puts in
-place; every other one is a build per platform. Each download is refused unless
-it has the digest the register pins; the addresses and digests stand in
+place, and needs at least the version of the runtime its package states;
+every other one is a build per platform. Each download is refused unless it
+has the digest the register pins; the addresses and digests stand in
 `register.toml`, each with the release data it was taken from. On a platform
 without a build the program has to be on the computer already.
 
-| Program             | Version  | Runtime  | Builds                                                                                                |
-| ------------------- | -------- | -------- | ----------------------------------------------------------------------------------------------------- |
-| `actionlint`        | `1.7.12` | none     | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
-| `biome`             | `2.5.15` | none     | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
-| `cargo-llvm-cov`    | `0.9.0`  | none     | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
-| `check-jsonschema`  | `0.39.0` | `python` | one package for every platform                                                                        |
-| `jq`                | `1.8.1`  | none     | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
-| `lychee`            | `0.24.2` | none     | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
-| `markdownlint-cli2` | `0.23.2` | `node`   | one package for every platform                                                                        |
-| `prettier`          | `3.9.6`  | `node`   | one package for every platform                                                                        |
-| `taplo`             | `0.10.0` | none     | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
-| `yamllint`          | `1.38.0` | `python` | one package for every platform                                                                        |
+| Program             | Version  | Runtime                     | Builds                                                                                                |
+| ------------------- | -------- | --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `actionlint`        | `1.7.12` | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
+| `biome`             | `2.5.15` | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
+| `cargo-llvm-cov`    | `0.9.0`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
+| `check-jsonschema`  | `0.39.0` | `python`, `3.11.0` or later | one package for every platform                                                                        |
+| `jq`                | `1.8.1`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
+| `lychee`            | `0.24.2` | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
+| `markdownlint-cli2` | `0.23.2` | `node`, `22.0.0` or later   | one package for every platform                                                                        |
+| `prettier`          | `3.9.6`  | `node`, `14.0.0` or later   | one package for every platform                                                                        |
+| `taplo`             | `0.10.0` | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
+| `yamllint`          | `1.38.0` | `python`, `3.10.0` or later | one package for every platform                                                                        |
 
 ## Runtimes
 
 What a program on a runtime runs on. A runtime on the computer is used as it is,
-whatever its version, as long as it prints one; one that does not is passed
-over. The pinned one is installed only when the runtime is missing and someone
-agrees.
+whatever its version, as long as it prints one and can run the programs on it;
+one that prints none is passed over, and so is one older than a program on it
+needs. With none left, the runtime counts as missing. The pinned one is
+installed only when the runtime is missing and someone agrees.
 
 | Runtime  | Name    | Version   | Installs with | Builds                                                                                                |
 | -------- | ------- | --------- | ------------- | ----------------------------------------------------------------------------------------------------- |

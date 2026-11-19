@@ -15,7 +15,7 @@ use crate::names::{
     ArtifactKind, BuildName, CheckName, EcosystemName, Extension, PresetName, ProgramName,
     RuntimeName, TargetName, VersionWriterName,
 };
-use crate::programs::{Program, Runtime, download_problem, is_version};
+use crate::programs::{Program, Runtime, at_least, download_problem, is_version};
 
 /// The vocabulary as it stands in `register.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -152,6 +152,46 @@ pub enum RegisterError {
         /// What does not fit.
         problem: &'static str,
     },
+    /// A program's lowest runtime version is missing, stray or above the
+    /// version the register pins for that runtime.
+    #[error("{holder} {problem}")]
+    Minimum {
+        /// The program.
+        holder: String,
+        /// What does not fit.
+        problem: String,
+    },
+}
+
+/// Refuses a program on a runtime that names no lowest version of it, one on
+/// no runtime that names one, and a lowest version above the version the
+/// register pins for the runtime: the pinned runtime could not run it.
+fn minimum(
+    holder: &ProgramName,
+    runtime: Option<(&RuntimeName, &Runtime)>,
+    minimum: Option<&str>,
+) -> Result<(), RegisterError> {
+    let problem = match (runtime, minimum) {
+        (None, None) => return Ok(()),
+        (Some(_), None) => "runs on a runtime, so it names the lowest version of it that it runs \
+                            on (`runtime-minimum`)"
+            .to_owned(),
+        (None, Some(_)) => "names a `runtime-minimum`, and runs on no runtime".to_owned(),
+        (Some((name, runtime)), Some(minimum)) => {
+            pinned(&format!("the `runtime-minimum` of {holder}"), minimum)?;
+            if at_least(&runtime.version, minimum) {
+                return Ok(());
+            }
+            format!(
+                "needs {name} {minimum} or later, and the register pins {name} {}",
+                runtime.version
+            )
+        }
+    };
+    Err(RegisterError::Minimum {
+        holder: holder.to_string(),
+        problem,
+    })
 }
 
 /// Refuses a pinned version that is not three numbers.
@@ -211,20 +251,8 @@ impl Register {
                 }
             }
         }
-        for (name, program) in &self.program {
-            if let Some(runtime) = &program.runtime
-                && !self.runtime.contains_key(runtime)
-            {
-                return Err(dangling(name, "runtime", runtime));
-            }
-            pinned(name, &program.version)?;
-            if let Some(problem) = download_problem(&program.download, program.runtime.is_some()) {
-                return Err(RegisterError::Download {
-                    holder: name.to_string(),
-                    problem,
-                });
-            }
-        }
+        // The runtimes first: a program's lowest runtime version is held
+        // against the version its runtime pins, which has to be one itself.
         for (name, runtime) in &self.runtime {
             pinned(name, &runtime.version)?;
             if let Some(problem) = download_problem(&runtime.download, false) {
@@ -233,6 +261,25 @@ impl Register {
                     problem,
                 });
             }
+        }
+        for (name, program) in &self.program {
+            let runtime = match &program.runtime {
+                Some(runtime) => Some((
+                    runtime,
+                    self.runtime
+                        .get(runtime)
+                        .ok_or_else(|| dangling(name, "runtime", runtime))?,
+                )),
+                None => None,
+            };
+            pinned(name, &program.version)?;
+            if let Some(problem) = download_problem(&program.download, runtime.is_some()) {
+                return Err(RegisterError::Download {
+                    holder: name.to_string(),
+                    problem,
+                });
+            }
+            minimum(name, runtime, program.runtime_minimum.as_deref())?;
         }
         for (name, target) in &self.target {
             if let Some(check) = &target.requires_check

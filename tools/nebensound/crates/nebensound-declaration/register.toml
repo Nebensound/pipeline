@@ -304,6 +304,10 @@ manifests         = []
 #
 # A platform without an entry has no pinned build: there the program has to be
 # on the computer already.
+#
+# A program on a runtime names the lowest version of the runtime it runs on
+# (`runtime-minimum`), as its package states it: `requires_python` on PyPI,
+# `engines.node` on npm. A runtime on the computer below it counts as missing.
 
 # actionlint_1.7.12_checksums.txt of the release; the same digests stand on
 # the release assets. The block builds the same version from its source.
@@ -415,11 +419,12 @@ url        = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0
 digest     = "sha256:da8f270851522e23e01285f99cae30d85050a215929697619ac17b73d20212db"
 executable = "cargo-llvm-cov.exe"
 
-# The digest PyPI states for the wheel.
+# The digest PyPI states for the wheel; `requires_python` is ">=3.11".
 [program.check-jsonschema]
-version = "0.39.0"
-command = "check-jsonschema"
-runtime = "python"
+version         = "0.39.0"
+command         = "check-jsonschema"
+runtime         = "python"
+runtime-minimum = "3.11.0"
 
 [program.check-jsonschema.download.any]
 url    = "https://files.pythonhosted.org/packages/06/e9/644e47c8b929f14cbda2b6779be047caa2098cc06f8bd7e04e8c62416cdc/check_jsonschema-0.39.0-py3-none-any.whl"
@@ -489,23 +494,27 @@ url        = "https://github.com/lycheeverse/lychee/releases/download/lychee-v0.
 digest     = "sha256:32975d1493ee1a975d6bb41e4fb56fe419cb442ded628bb772ba2e614acfacad"
 executable = "lychee-x86_64-pc-windows-msvc/lychee.exe"
 
-# The npm registry's `dist.integrity`, in hexadecimal. The package names its
-# version in the first line of its help; it has no flag for the version alone.
+# The npm registry's `dist.integrity`, in hexadecimal; `engines.node` is
+# ">=22". The package names its version in the first line of its help; it has
+# no flag for the version alone.
 [program.markdownlint-cli2]
-version      = "0.23.2"
-command      = "markdownlint-cli2"
-version-args = ["--help"]
-runtime      = "node"
+version         = "0.23.2"
+command         = "markdownlint-cli2"
+version-args    = ["--help"]
+runtime         = "node"
+runtime-minimum = "22.0.0"
 
 [program.markdownlint-cli2.download.any]
 url    = "https://registry.npmjs.org/markdownlint-cli2/-/markdownlint-cli2-0.23.2.tgz"
 digest = "sha512:79485c9e44a9cd4468fe8e21b52a9cecb3c3b3380e393927854e1e63fb0f1ef3022f19d3098b1cbf5830d7f8ecfe27666993e2b2ff4409510839172596a8d353"
 
-# The npm registry's `dist.integrity`, in hexadecimal.
+# The npm registry's `dist.integrity`, in hexadecimal; `engines.node` is
+# ">=14".
 [program.prettier]
-version = "3.9.6"
-command = "prettier"
-runtime = "node"
+version         = "3.9.6"
+command         = "prettier"
+runtime         = "node"
+runtime-minimum = "14.0.0"
 
 [program.prettier.download.any]
 url    = "https://registry.npmjs.org/prettier/-/prettier-3.9.6.tgz"
@@ -549,18 +558,20 @@ url        = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-wi
 digest     = "sha256:c16a9a1248bdd746fde657b0196bfc47c8bede1e50ae73b7d9d33088a6682180"
 executable = "taplo.exe"
 
-# The digest PyPI states for the wheel.
+# The digest PyPI states for the wheel; `requires_python` is ">=3.10".
 [program.yamllint]
-version = "1.38.0"
-command = "yamllint"
-runtime = "python"
+version         = "1.38.0"
+command         = "yamllint"
+runtime         = "python"
+runtime-minimum = "3.10.0"
 
 [program.yamllint.download.any]
 url    = "https://files.pythonhosted.org/packages/05/92/aed08e68de6e6a3d7c2328ce7388072cd6affc26e2917197430b646aed02/yamllint-1.38.0-py3-none-any.whl"
 digest = "sha256:fc394a5b3be980a4062607b8fdddc0843f4fa394152b6da21722f5d59013c220"
 
 # The runtimes the programs above run on. One is installed only when it is
-# missing and someone agrees; a runtime on the computer is used as it is.
+# missing, or too old on the computer for a program above, and someone agrees;
+# a runtime on the computer that can run the programs is used as it is.
 
 # The newest Node.js 24, the major version the blocks set up; SHASUMS256.txt of
 # the release.
