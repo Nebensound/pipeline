@@ -14,6 +14,13 @@ whatever writes it.
   executes a preset.
 - A check that does not exist yet fails by name instead of being left out. A
   missing check reports nothing and leaves a pull request without a signal.
+- A building block arrives with its test cases: at least one passing and one
+  failing case under `tests/pass/` and `tests/fail/` beside its `action.yml`,
+  each failing case naming the finding it must produce (see
+  [the README](README.md#test-cases-of-the-building-blocks)). The gate runs them
+  on every pull request through `cargo xtask check --all`, so the cases are the
+  proof that a block works; a run linked once in the pull request that adds the
+  block is not needed. A change to what a block finds changes its cases with it.
 
 ## Workflows and actions
 

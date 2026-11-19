@@ -1,0 +1,14 @@
+name: ci
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Say hello
+        run: echo "A workflow that passes actionlint."

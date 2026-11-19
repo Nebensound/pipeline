@@ -132,7 +132,8 @@ jobs:
   #
   # Every step runs after a failing one, so that one run shows every finding of
   # the unit. Each building block adds its step below and its name to the list
-  # in "Not written yet".
+  # in "Not written yet"; `cargo xtask check` fails until the register, the
+  # blocks and these steps agree.
   units:
     name: >-
       ${{ matrix.kind == 'repository' && 'Check repository'

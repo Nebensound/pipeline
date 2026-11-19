@@ -149,8 +149,10 @@ runs:
       run: |
         set -euo pipefail
         status=0
+        # Without colours: on GitHub Actions Prettier colours `warn` and
+        # `error`, and the lines below would no longer match.
         : > "$RUNNER_TEMP/check-yaml-nothing-ignored"
-        xargs -0 "$RUNNER_TEMP/check-yaml-tools/node_modules/.bin/prettier" --check \
+        xargs -0 "$RUNNER_TEMP/check-yaml-tools/node_modules/.bin/prettier" --check --no-color \
           --with-node-modules --ignore-path "$RUNNER_TEMP/check-yaml-nothing-ignored" \
           --no-require-pragma --no-check-ignore-pragma \
           --range-start=0 --range-end=Infinity \
