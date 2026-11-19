@@ -128,7 +128,8 @@ released for it, its newest tag that counts, a pre-release included (`null`
 without one), `version` the version of the commit at hand, `null` when the
 commit does not touch the unit, and `writers` the version writers the unit
 selects. `last` is what the version writer `cargo` requires of a path
-dependency whose unit the commit does not touch. How they are resolved from
+dependency whose unit the commit does not touch, where a package that gets a
+version needs it. How they are resolved from
 tags and history is described in
 [the reference of the declaration](../../docs/declaration.md#versions).
 
@@ -193,27 +194,40 @@ every finding, and exit code `1`, as with the plan.
 `write-versions` is the version writer `cargo`. No manifest in the tree carries
 a version, and Cargo cannot take one from outside, so the version of the plan
 is written into the working tree before something builds with it, and never
-committed. For every unit of the plan with the writer `cargo`, the version is
-the one of the commit at hand, `-pr.<number>` behind it in a plan built for a
-pull request; for a unit the commit does not touch it is `last`, the last
-version released for it. With that version it
-sets `package.version` in the unit's `Cargo.toml`, gives every path dependency
-on that package anywhere in the repository that version as its requirement,
-and sets the package's entry in the workspace's `Cargo.lock`, together with
-every entry that names it with a version. Every other workspace that reaches
-the package through path dependencies, directly or through another package,
-gets its `Cargo.lock` brought in line the same way: one that excludes the
-package, one beside it, or a `fuzz/` folder with a workspace of its own.
-Nothing else changes, and `cargo build --locked` passes afterwards.
+committed. Every unit of the plan with the writer `cargo` that the commit at
+hand touches gets the version of the commit, `-pr.<number>` behind it in a plan
+built for a pull request. A unit the commit does not touch gets `last`, the
+last version released for it, only where a package that gets a version depends
+on it by path, followed through the path dependencies of each unit that gets
+one. With that version it sets `package.version` in the unit's `Cargo.toml`,
+gives every path dependency on that package anywhere in the repository that
+version as its requirement, and sets the package's entry in the workspace's
+`Cargo.lock`, together with every entry that names it with a version. Every
+other workspace that reaches the package through path dependencies, directly or
+through another package, gets its `Cargo.lock` brought in line the same way:
+one that excludes the package, one beside it, or a `fuzz/` folder with a
+workspace of its own. Nothing else changes, and `cargo build --locked` passes
+afterwards.
 
-A unit that is neither touched nor ever released gets nothing written. A
-package that gets a version and depends on such a unit by path, in
-`[dependencies]`, `[dev-dependencies]` or `[build-dependencies]`, also per
-platform or through `workspace = true`, ends the call with exit code `1` and
-both packages named, before anything is written: there is no version it could
-require. `cargo package` would refuse it, or, for a dependency of its tests,
-drop it from the package, so that the packaged tests that use it would not
-compile.
+Any other unit with the writer gets nothing: its `Cargo.toml` stays as it is,
+apart from the `[workspace.dependencies]` it holds as the root of a workspace
+whose members get a version, and without a version the package test of
+`check-rust` does not package it. A unit with commits after its newest tag
+still gets that tag's version where it gets one without being touched; the gap
+closes once a step sets tags at the release.
+
+A package that gets a version and depends by path on a unit that is neither
+touched nor ever released, in `[dependencies]`, `[dev-dependencies]` or
+`[build-dependencies]`, also per platform or through `workspace = true`, ends
+the call with exit code `1` and both packages named, before anything is
+written: there is no version it could require. `cargo package` would refuse
+it, or, for a dependency of its tests, drop it from the package, so that the
+packaged tests that use it would not compile. The error is raised only along
+the path dependencies of what gets a version, so a commit that touches neither
+package passes. A path dependency on a package that carries no version at all,
+a unit with `versioning = "none"` or one that does not select the writer
+`cargo`, is left to Cargo: the call raises nothing of its own, and the package
+test fails with Cargo's message.
 
 The workspace is found the way Cargo finds it: the folder `package.workspace`
 names, else the nearest folder at or above the package whose `Cargo.toml` has
@@ -226,7 +240,7 @@ written: a second call changes nothing.
 ```text
 component lib: the package lib at crates/lib gets 1.4.1 (workspace root: .).
 component app is not touched by this commit: the package app at crates/app gets its last release 1.2.0 (workspace root: .).
-component cli carries no version at this commit and was never released, so none is written for it.
+component cli is not touched by this commit, and no package that gets a version depends on it by path, so nothing is written for it.
 Wrote Cargo.lock.
 Wrote crates/app/Cargo.toml.
 Wrote crates/lib/Cargo.toml.

@@ -6,19 +6,25 @@
 //! hand is written into the checkout of the run, immediately before building,
 //! and never committed.
 //!
-//! For every unit of the plan with the writer `cargo`, the version written is
-//! the one of the commit at hand, `-pr.<number>` behind it on a pull request;
-//! for a unit the commit does not touch, the last version released for it, so
-//! that a package that depends on it by path requires a version that exists.
-//! A unit that is neither touched nor ever released gets nothing written, and
-//! a package that gets a version and depends on such a unit, for its tests
-//! as well, is an error that names both: there is no version it could
-//! require. With the version:
+//! Every unit of the plan with the writer `cargo` that the commit at hand
+//! touches gets the version of the commit, `-pr.<number>` behind it on a pull
+//! request. A unit the commit does not touch gets the last version released
+//! for it only where a package that gets a version depends on it by path,
+//! followed through further path dependencies, so that the requirement names
+//! a version that exists. Any other unit gets nothing: its manifest stays as
+//! it is, and the package test does not package it. A package that gets a
+//! version and depends by path, for its tests as well, on a unit that is
+//! neither touched nor ever released is an error that names both: there is no
+//! version it could require. A path dependency on a package that carries no
+//! version at all, no unit with the writer `cargo`, is left to Cargo, which
+//! refuses to package the dependent. With the version:
 //!
 //! - `package.version` in the unit's `Cargo.toml` becomes that version;
 //! - every path dependency on that package, wherever in the repository the
 //!   manifest that names it lies, gets that version as its requirement, since
-//!   a package whose dependency names no version cannot be published;
+//!   a package whose dependency names no version cannot be published. The
+//!   manifest of a unit that gets nothing is left out, apart from the
+//!   `[workspace.dependencies]` it holds as the root of a workspace;
 //! - the package's entry in the workspace's `Cargo.lock` gets that version,
 //!   and so does every entry that names it together with a version, so that
 //!   `--locked` holds. No other entry changes. The same goes for the
@@ -38,7 +44,7 @@
 //! and the order of keys. A file whose text does not change is not written, so
 //! a second call changes nothing.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 
 use nebensound_declaration::TagVersion;
@@ -254,10 +260,11 @@ pub enum WriteError {
 /// # Errors
 ///
 /// Returns [`WriteError`] for a manifest or a lockfile that cannot be read,
-/// is not TOML or cannot be written back, for a unit whose manifest holds no
-/// package, and for a package that gets a version and depends on a unit that
-/// gets none. Every file is read before the first one is written, so only a
-/// file that cannot be written back leaves the others written.
+/// is not TOML or cannot be written back, for a unit that gets a version and
+/// whose manifest holds no package, and for a package that gets a version and
+/// depends by path on a unit that is neither touched nor ever released. Every
+/// file is read before the first one is written, so only a file that cannot
+/// be written back leaves the others written.
 pub fn write(
     repository: &Repository,
     manifests: &[RelativePath],
@@ -267,43 +274,36 @@ pub fn write(
         repository,
         open: BTreeMap::new(),
     };
-    let mut said = Vec::new();
-    let mut unversioned = Vec::new();
-    let mut versioned = Vec::new();
-    for order in orders
+    let cargo: Vec<&Order> = orders
         .iter()
         .filter(|order| order.writers.iter().any(|writer| writer.as_str() == CARGO))
-    {
-        let (version, touched) = match (&order.version, order.last) {
-            (Some(version), _) => (version.clone(), true),
-            (None, Some(last)) => (last.to_string(), false),
-            (None, None) => {
-                said.push(format!(
-                    "{} carries no version at this commit and was never released, so none is \
-                     written for it.",
-                    order.unit
-                ));
-                unversioned.push(order);
-                continue;
-            }
+        .collect();
+    let chosen = choose(&mut files, &cargo)?;
+    // The manifests of the units that get nothing stay as they are.
+    let unwritten: BTreeSet<RelativePath> = cargo
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !chosen.contains_key(index))
+        .map(|(_, order)| order.path.clone())
+        .collect();
+    let mut said = Vec::new();
+    for (index, order) in cargo.iter().enumerate() {
+        let Some(Chosen {
+            name,
+            version,
+            root,
+            touched,
+            ..
+        }) = chosen.get(&index)
+        else {
+            said.push(format!(
+                "{} is not touched by this commit, and no package that gets a version depends on \
+                 it by path, so nothing is written for it.",
+                order.unit
+            ));
+            continue;
         };
-        let manifest = order.path.join("Cargo.toml");
-        let document = files.strict(&manifest)?;
-        let name = package_version(document, &version).ok_or_else(|| WriteError::NoPackage {
-            unit: order.unit.clone(),
-            path: manifest.to_string(),
-        })?;
-        let (mut needs, inherited) = published(document, &order.path);
-        let root =
-            own_root(document, &order.path).unwrap_or_else(|| files.workspace_above(&order.path));
-        needs.extend(
-            files
-                .lenient(&root.join("Cargo.toml"))
-                .map(|manifest| shared(manifest, &root, &inherited))
-                .unwrap_or_default(),
-        );
-        said.push(announced(order, &name, &version, &root, touched));
-        versioned.push((name.clone(), version.clone(), needs));
+        said.push(announced(order, name, version, root, *touched));
         let mut dependents = Vec::new();
         // A dependent may lie anywhere in the repository: a member of the
         // workspace, a package it excludes, or a workspace of its own beside it.
@@ -315,7 +315,13 @@ pub fn write(
             let Links {
                 mut paths,
                 inherited,
-            } = require(document, &place, &order.path, &version);
+            } = require(
+                document,
+                &place,
+                &order.path,
+                version,
+                !unwritten.contains(&place),
+            );
             let own = own_root(document, &place);
             let workspace = own.unwrap_or_else(|| files.workspace_above(&place));
             paths.extend(
@@ -348,13 +354,12 @@ pub fn write(
         for workspace in workspaces {
             let lockfile = workspace.join("Cargo.lock");
             if fs::symlink_metadata(repository.root().join(lockfile.to_string())).is_ok() {
-                lock(files.strict(&lockfile)?, &name, &version);
+                lock(files.strict(&lockfile)?, name, version);
             } else {
                 said.push(format!("There is no {lockfile} to bring in line."));
             }
         }
     }
-    released(versioned, &unversioned)?;
     let written = files.save()?;
     if written.is_empty() {
         said.push("Nothing to write: every file already holds what it should.".to_owned());
@@ -363,6 +368,69 @@ pub fn write(
         said.push(format!("Wrote {path}."));
     }
     Ok(said.join("\n"))
+}
+
+/// A unit that gets a version, with its package version already set.
+struct Chosen {
+    /// The name of its package.
+    name: String,
+    /// The version it gets.
+    version: String,
+    /// The root of its workspace.
+    root: RelativePath,
+    /// Whether the commit at hand touches it, which gives it the version of
+    /// the commit rather than its last release.
+    touched: bool,
+    /// What it depends on by path where it is published.
+    needs: Needs,
+}
+
+/// Picks the units that get a version, by their place in `cargo`, and sets
+/// the version of each one's package.
+///
+/// Every unit the commit touches gets the version of the commit. A unit it
+/// does not touch gets its last release only where a package that gets a
+/// version depends on it by path, followed through the path dependencies of
+/// each one it gives a version to. A package such a unit cannot give a
+/// version to, never released, is an error that names both. A path
+/// dependency on a package that is no unit with the writer `cargo` is left to
+/// Cargo, which refuses to package a dependent without a version requirement.
+fn choose(files: &mut Files<'_>, cargo: &[&Order]) -> Result<BTreeMap<usize, Chosen>, WriteError> {
+    let mut chosen = BTreeMap::new();
+    // Each package given a version whose path dependencies are still to be
+    // followed: its name, its version and what it depends on.
+    let mut queue = VecDeque::new();
+    for (index, order) in cargo.iter().enumerate() {
+        if let Some(version) = &order.version {
+            let unit = files.chosen(order, version.clone(), true)?;
+            queue.push_back((unit.name.clone(), unit.version.clone(), unit.needs.clone()));
+            chosen.insert(index, unit);
+        }
+    }
+    while let Some((package, version, needs)) = queue.pop_front() {
+        for (path, dependency) in needs {
+            let Some((found, order)) = cargo
+                .iter()
+                .enumerate()
+                .find(|(found, order)| order.path == path && !chosen.contains_key(found))
+            else {
+                continue;
+            };
+            let Some(last) = order.last else {
+                return Err(WriteError::UnreleasedDependency {
+                    package,
+                    version,
+                    dependency,
+                    path: path.to_string(),
+                    unit: order.unit.clone(),
+                });
+            };
+            let unit = files.chosen(order, last.to_string(), false)?;
+            queue.push_back((unit.name.clone(), unit.version.clone(), unit.needs.clone()));
+            chosen.insert(found, unit);
+        }
+    }
+    Ok(chosen)
 }
 
 /// What is said about a unit that gets a version: the one of the commit at
@@ -386,33 +454,6 @@ fn announced(
             order.unit, order.path
         )
     }
-}
-
-/// Refuses a package that gets a version and depends by path on a unit that
-/// gets none. Such a package can be published with its version, and whatever
-/// it depends on by path has to be required at a version too.
-///
-/// `versioned` holds each package that gets a version: its name, the version
-/// and what it depends on by path where it is published, as [`published`]
-/// and [`shared`] name it.
-fn released(
-    versioned: Vec<(String, String, Needs)>,
-    unversioned: &[&Order],
-) -> Result<(), WriteError> {
-    for (package, version, needs) in versioned {
-        for (path, dependency) in needs {
-            if let Some(order) = unversioned.iter().find(|order| order.path == path) {
-                return Err(WriteError::UnreleasedDependency {
-                    package,
-                    version,
-                    dependency,
-                    path: path.to_string(),
-                    unit: order.unit.clone(),
-                });
-            }
-        }
-    }
-    Ok(())
 }
 
 /// Sets `package.version` and returns the name of the package, or [`None`]
@@ -442,17 +483,22 @@ struct Links {
 /// and returns where the manifest's dependencies lead.
 ///
 /// `folder` is where the manifest lies, which its paths are relative to.
+/// `package_too` is false for the manifest of a unit with the writer `cargo`
+/// that gets no version: it stays as it is, apart from the
+/// `[workspace.dependencies]` it holds as the root of a workspace, which the
+/// members that get a version inherit from.
 fn require(
     manifest: &mut DocumentMut,
     folder: &RelativePath,
     target: &RelativePath,
     version: &str,
+    package_too: bool,
 ) -> Links {
     let mut links = Links {
         paths: BTreeSet::new(),
         inherited: Vec::new(),
     };
-    for (_, table) in dependency_tables(manifest) {
+    for (kind, table) in dependency_tables(manifest) {
         for (name, dependency) in table.iter_mut() {
             let Some(dependency) = dependency.as_table_like_mut() else {
                 continue;
@@ -469,7 +515,7 @@ fn require(
             else {
                 continue;
             };
-            if &path == target {
+            if &path == target && (package_too || kind == WORKSPACE) {
                 set(dependency, "version", version);
             }
             links.paths.insert(path);
@@ -739,6 +785,37 @@ impl Files<'_> {
             .or_insert_with(|| open(repository, path).ok())
             .as_mut()
             .map(|opened| &mut opened.document)
+    }
+
+    /// The unit `order` given `version`: its package's version set, and what
+    /// it depends on by path where it is published.
+    fn chosen(
+        &mut self,
+        order: &Order,
+        version: String,
+        touched: bool,
+    ) -> Result<Chosen, WriteError> {
+        let manifest = order.path.join("Cargo.toml");
+        let document = self.strict(&manifest)?;
+        let name = package_version(document, &version).ok_or_else(|| WriteError::NoPackage {
+            unit: order.unit.clone(),
+            path: manifest.to_string(),
+        })?;
+        let (mut needs, inherited) = published(document, &order.path);
+        let root =
+            own_root(document, &order.path).unwrap_or_else(|| self.workspace_above(&order.path));
+        needs.extend(
+            self.lenient(&root.join("Cargo.toml"))
+                .map(|manifest| shared(manifest, &root, &inherited))
+                .unwrap_or_default(),
+        );
+        Ok(Chosen {
+            name,
+            version,
+            root,
+            touched,
+            needs,
+        })
     }
 
     /// The root of the workspace the package at `package` belongs to when its

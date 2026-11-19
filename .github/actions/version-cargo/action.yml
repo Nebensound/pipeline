@@ -1,11 +1,12 @@
 name: version-cargo
 description: >-
-  The version writer cargo: writes the version every unit carries at the
-  commit at hand into its Cargo.toml, as the requirement of every path
+  The version writer cargo: writes the version every unit the commit at hand
+  touches carries into its Cargo.toml, as the requirement of every path
   dependency on it, and into Cargo.lock, in the checkout of the run and never
   committed. On a pull request that is the version its merge would get, with
-  -pr.<number> behind it; a unit the commit does not touch gets its last
-  release.
+  -pr.<number> behind it. A unit the commit does not touch gets its last
+  release where a package that gets a version depends on it by path, and
+  nothing otherwise.
 
 # One input, and it is not a setting: the plan of phase 0, as Declare hands it
 # on. A job after Declare checks out the commit at hand and nothing before it,

@@ -245,12 +245,14 @@ and Cargo cannot take a version from outside. So the version is written into
 the checkout of the run, immediately before something builds with it, and never
 committed. The block hands the plan Declare printed to
 `nebensound write-versions --plan`, since its job checks out no history to
-resolve a version from. For every unit of the plan with the writer `cargo`,
-the version is the one of the commit at hand, on a pull request the one its
-merge would get with `-pr.<number>` behind it (such as `0.4.2-pr.17`). A unit
-the commit does not touch gets the last version released for it, its newest
-tag that counts, a pre-release included, so that a package depending on it by
-path requires a version that exists. With that version:
+resolve a version from. Every unit of the plan with the writer `cargo` that
+the commit at hand touches gets the version of the commit, on a pull request
+the one its merge would get with `-pr.<number>` behind it (such as
+`0.4.2-pr.17`). A unit the commit does not touch gets the last version released
+for it, its newest tag that counts, a pre-release included, only where a
+package that gets a version depends on it by path, followed through further
+path dependencies, so that the requirement names a version that exists. With
+that version:
 
 - `package.version` in the unit's `Cargo.toml` becomes that version.
 - Every path dependency on the package, wherever in the repository it is
@@ -266,16 +268,26 @@ path requires a version that exists. With that version:
   the `fuzz/` folder `cargo fuzz init` creates.
 
 Every change keeps the rest of the file as it is written, and a second call
-changes nothing. A unit that is neither touched nor ever released gets nothing.
-A package that gets a version and depends on such a unit by path, in
-`[dependencies]`, `[dev-dependencies]` or `[build-dependencies]`, fails the
-call with both packages named: there is no version it could require. A
-dependency of its tests counts too: Cargo drops it from the package, and the
-packaged tests that use it would not compile. Only `Cargo.toml` and
-`Cargo.lock` files change. `check-rust` writes the
-versions the same way for its package test; the Build phase that calls the
-block before building is not built yet. A version writer without a building
-block (today `asciidoc`) fails by name in `nebensound / Check`.
+changes nothing. Any other unit with the writer gets nothing: its manifest
+stays as it is, and the package test of `check-rust` does not package it. A
+unit with commits after its newest tag still gets that tag's version where it
+gets one without being touched; the gap closes once a step sets tags at the
+release.
+
+A package that gets a version and depends by path on a unit that is neither
+touched nor ever released, in `[dependencies]`, `[dev-dependencies]` or
+`[build-dependencies]`, fails the call with both packages named: there is no
+version it could require. A dependency of its tests counts too: Cargo drops it
+from the package, and the packaged tests that use it would not compile. The
+error is raised only along the path dependencies of what gets a version, so a
+commit that touches neither package passes. A path dependency on a package
+that carries no version at all (a unit with `versioning = "none"`, or one that
+does not select the writer `cargo`) is left to Cargo: the package test fails
+with Cargo's message. Only `Cargo.toml` and `Cargo.lock` files change.
+`check-rust` writes the versions the same way for its package test; the Build
+phase that calls the block before building is not built yet. A version writer
+without a building block (today `asciidoc`) fails by name in
+`nebensound / Check`.
 
 ### Linter rules
 

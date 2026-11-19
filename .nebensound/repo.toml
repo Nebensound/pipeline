@@ -10,21 +10,26 @@
 [repo]
 pipeline = "none"
 
-# The Cargo workspace of the tool that reads a declaration. It is a unit of its
-# own because Cargo resolves here: the rust check runs here and Dependabot
-# watches the lockfile here. Nothing in it is built or published yet, so it
-# carries no version.
+# The tool that reads a declaration, the root of its Cargo workspace. It is a
+# unit of its own because Cargo resolves here: the rust check runs here and
+# Dependabot watches the lockfile here. It carries a version, which every run
+# writes into its manifest with the version writer cargo before the package
+# test of the rust check: on a pull request the version its merge would get.
+# Nothing publishes it.
 [component.nebensound]
-path       = "tools/nebensound"
-pipeline   = "rust-workspace"
-versioning = "none"
+path = "tools/nebensound"
 
-# The library that understands a declaration, inside that workspace. It carries
-# a version of its own, so that every run writes it into its manifest with the
-# version writer cargo and the package test of the rust check builds and tests
-# it as it would be published: on a pull request with the version its merge
-# would get. The workspace above runs the check and watches the lockfile.
-# Nothing publishes it yet.
+[component.nebensound.pipeline]
+version    = ["cargo"]
+check      = ["rust"]
+publish    = false
+dependabot = ["cargo"]
+
+# The library that understands a declaration, inside that workspace. The tool
+# depends on it by path, so it carries a version of its own as well: a package
+# that gets a version requires one of each path dependency. The package test
+# builds and tests it as it would be published. The workspace above runs the
+# check and watches the lockfile. Nothing publishes it.
 [component.nebensound-declaration]
 path     = "tools/nebensound/crates/nebensound-declaration"
 pipeline = { version = ["cargo"], publish = false }
