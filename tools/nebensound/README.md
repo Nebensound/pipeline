@@ -172,7 +172,10 @@ nebensound setup --check          # change nothing; say what is missing or diffe
 
 It sets up the programs of the checks the plan starts, so it reads the
 repository like `plan` does, and a repository with errors gets nothing set up,
-for the same reason it gets no plan.
+for the same reason it gets no plan. It does not read the history, though, like
+`files` and `excluded-packages`: which checks the plan starts never depends on a
+version, so a shallow clone or an error about a release does not keep anyone
+from setting up the programs.
 
 - **By default** it uses a program that is on the computer already, found on
   the `PATH`, and says where its version differs from the pinned one. It

@@ -27,7 +27,7 @@ use nebensound_declaration::names::{CheckName, ProgramName, RuntimeName};
 use nebensound_declaration::programs::{Algorithm, Installer, Platform};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use sha2::Digest as _;
-use support::{QUIET, call, repository};
+use support::{Git, QUIET, call, repository};
 use tempfile::TempDir;
 
 /// A computer without programs, a folder of downloads, and a cache.
@@ -1729,6 +1729,53 @@ fn the_binary_checks_this_computer() {
     let text = String::from_utf8_lossy(&output.stdout);
     assert_eq!(output.status.code(), Some(1), "{text}");
     assert!(text.contains("there is no cache directory"), "{text}");
+}
+
+#[test]
+fn the_programs_do_not_depend_on_the_history() {
+    // A unit job's checkout holds only the commit at hand: the history is an
+    // error there, and it says nothing about which checks the plan starts.
+    let git = Git::new();
+    git.write(&[(".nebensound/repo.toml", QUIET), ("README.md", "# x\n")]);
+    git.commit("chore: start");
+    git.write(&[("README.md", "# x\n\nMore.\n")]);
+    git.commit("docs: more");
+    let fixture = Fixture::new();
+    let shallow = fixture.path("shallow");
+    git.run(&[
+        "clone",
+        "--quiet",
+        "--depth",
+        "1",
+        &format!("file://{}", git.root()),
+        shallow.to_str().expect("a path in UTF-8"),
+    ]);
+    let root = shallow.to_str().expect("a path in UTF-8");
+    let (text, code) = call(&["nebensound", "-C", root, "check"]);
+    assert_eq!(code, 1, "{text}");
+    assert!(text.contains("error[shallow-clone]"), "{text}");
+
+    let home = fixture.path("home");
+    fs::create_dir_all(&home).expect("a home");
+    let output = Command::new(env!("CARGO_BIN_EXE_nebensound"))
+        .args(["setup", "--check"])
+        .current_dir(&shallow)
+        .env("PATH", only_git(&fixture))
+        .env("HOME", &home)
+        .env_remove("XDG_CACHE_HOME")
+        .output()
+        .expect("the built binary");
+    let text = String::from_utf8_lossy(&output.stdout);
+    // Missing programs, not a refusal.
+    assert_eq!(output.status.code(), Some(1), "{text}");
+    assert!(
+        text.starts_with("Checks: json, markdown, toml, yaml\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("  prettier 3.9.6 (json, markdown, yaml): missing\n"),
+        "{text}"
+    );
 }
 
 /// How long the tool may take to ask.

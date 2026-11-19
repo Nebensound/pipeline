@@ -322,8 +322,13 @@ fn execute(
     let central = central_from(register, defaults)?;
     let analysis = match job {
         // Asked for by the building blocks in a unit job, whose checkout holds
-        // only the commit at hand: the history is read in Declare.
-        Job::Files { .. } | Job::ExcludedPackages => repository.analyse_files(&central),
+        // only the commit at hand: the history is read in Declare. Which
+        // programs `setup` needs follows from the checks the plan starts,
+        // never from a version, so a question about a release does not keep
+        // anyone from setting up the programs either.
+        Job::Files { .. } | Job::ExcludedPackages | Job::Setup(_) => {
+            repository.analyse_files(&central)
+        }
         _ => repository.analyse(&central),
     }?;
 
