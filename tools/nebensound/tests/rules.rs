@@ -10,6 +10,15 @@ use nebensound::rules::{Defaults, MARKDOWNLINT, YAMLLINT, report};
 use nebensound_declaration::path::RelativePath;
 use support::{QUIET, analysis, call, repository};
 
+/// What the report says of a Markdownlint rule the pipeline's file does not
+/// name.
+const MD_UNNAMED: &str = "the pipeline's file does not name it; Markdownlint's own default holds";
+
+/// What it says of such a yamllint rule, beneath which lies yamllint's own
+/// default.
+const YAML_UNNAMED: &str =
+    "the pipeline's file does not name it; what its `extends: default` sets holds";
+
 /// The report for a repository holding these files, read from memory, held
 /// against these defaults.
 fn rules_with(defaults: Defaults<'_>, files: &[(&str, &str)]) -> String {
@@ -84,10 +93,7 @@ fn a_markdownlint_options_file_shows_how_each_rule_stands_to_the_default() {
         after(&text, ".markdownlint-cli2.jsonc"),
         ["laid over the default rule by rule"]
     );
-    assert_eq!(
-        after(&text, "MD041"),
-        ["false (the default does not set it)"]
-    );
+    assert_eq!(after(&text, "MD041"), [format!("false ({MD_UNNAMED})")]);
     assert_eq!(after(&text, "MD013"), ["false (the same as the default)"]);
 }
 
@@ -112,10 +118,7 @@ fn a_change_of_the_default_reaches_a_repository_that_did_not_name_the_rule() {
     let before = rules(&files);
     let after_change = rules_with(changed, &files);
 
-    assert_eq!(
-        after(&before, "MD041"),
-        ["false (the default does not set it)"]
-    );
+    assert_eq!(after(&before, "MD041"), [format!("false ({MD_UNNAMED})")]);
     assert_eq!(
         after(&after_change, "MD041"),
         ["false (the same as the default)"]
@@ -123,7 +126,7 @@ fn a_change_of_the_default_reaches_a_repository_that_did_not_name_the_rule() {
 }
 
 #[test]
-fn every_folder_is_read_the_file_of_rules_first_and_the_options_file_over_it() {
+fn every_folder_is_read_the_file_of_rules_first_and_then_the_options_file() {
     let text = rules(&[
         (
             ".markdownlint.jsonc",
@@ -137,11 +140,15 @@ fn every_folder_is_read_the_file_of_rules_first_and_the_options_file_over_it() {
         (".markdownlint-cli2.yaml", "config:\n  MD002: false\n"),
         ("docs/.markdownlint.yml", "MD033: false\n"),
         (
+            "docs/.markdownlint-cli2.jsonc",
+            "{ \"config\": { \"MD044\": false } }",
+        ),
+        (
             ".github/.markdownlint-cli2.yaml",
             "config:\n  MD041: false\n",
         ),
         ("lib/.markdownlint.cjs", "module.exports = {};\n"),
-        ("lib/.markdownlint-cli2.mjs", "export default {};\n"),
+        ("tools/.markdownlint-cli2.mjs", "export default {};\n"),
     ]);
 
     let files: Vec<&str> = text
@@ -156,21 +163,23 @@ fn every_folder_is_read_the_file_of_rules_first_and_the_options_file_over_it() {
             ".markdownlint-cli2.jsonc",
             ".github/.markdownlint-cli2.yaml",
             "docs/.markdownlint.yml",
+            "docs/.markdownlint-cli2.jsonc",
             "lib/.markdownlint.cjs",
-            "lib/.markdownlint-cli2.mjs",
+            "tools/.markdownlint-cli2.mjs",
         ],
         "{text}"
     );
     assert!(!text.contains("$schema"), "{text}");
     assert!(!text.contains("MD001"), "{text}");
     assert!(!text.contains("MD002"), "{text}");
+    assert!(!text.contains("MD044"), "{text}");
     assert_eq!(
         after(&text, "extends"),
         ["base.json: what it sets lies beneath the rules here"]
     );
     assert_eq!(
         after(&text, "MD007"),
-        ["{\"indent\":4} (the default does not set it)"]
+        [format!("{{\"indent\":4}} ({MD_UNNAMED})")]
     );
     assert_eq!(
         after(&text, ".github/.markdownlint-cli2.yaml"),
@@ -181,12 +190,99 @@ fn every_folder_is_read_the_file_of_rules_first_and_the_options_file_over_it() {
         ["in place of everything above it, the default included"]
     );
     assert_eq!(
+        after(&text, "docs/.markdownlint-cli2.jsonc"),
+        ["its `config` is not read: the file of rules only in its folder takes its place"]
+    );
+    assert_eq!(
         after(&text, "lib/.markdownlint.cjs"),
         ["written in JavaScript, which phase 0 does not run"]
     );
     assert_eq!(
-        after(&text, "lib/.markdownlint-cli2.mjs"),
+        after(&text, "tools/.markdownlint-cli2.mjs"),
         ["written in JavaScript, which phase 0 does not run"]
+    );
+}
+
+#[test]
+fn a_markdownlint_rule_is_found_by_any_of_its_names_and_tags() {
+    let text = rules(&[(
+        ".markdownlint.jsonc",
+        "{ \"line-length\": true, \"md013\": false, \"line_length\": { \"line_length\": 100 }, \
+           \"headings\": false, \"default\": true, \"my-rule\": true }",
+    )]);
+
+    assert_eq!(
+        after(&text, "line-length"),
+        ["true (over the default false)"]
+    );
+    assert_eq!(after(&text, "md013"), ["false (the same as the default)"]);
+    assert_eq!(
+        after(&text, "line_length"),
+        ["{\"line_length\":100} (over the default false)"]
+    );
+    assert_eq!(after(&text, "headings"), [format!("false ({MD_UNNAMED})")]);
+    assert_eq!(after(&text, "default"), [format!("true ({MD_UNNAMED})")]);
+    assert_eq!(after(&text, "my-rule"), [format!("true ({MD_UNNAMED})")]);
+}
+
+#[test]
+fn a_markdownlint_tag_over_rules_the_default_treats_apart_says_so() {
+    let defaults = Defaults {
+        markdownlint: "{ \"MD001\": false, \"heading-style\": false, \"whitespace\": false }",
+        yamllint: YAMLLINT,
+    };
+
+    let text = rules_with(
+        defaults,
+        &[(
+            ".markdownlint.jsonc",
+            "{ \"headings\": false, \"whitespace\": true, \"MD018\": false }",
+        )],
+    );
+
+    assert_eq!(
+        after(&text, "headings"),
+        ["false (the default does not give the rules it covers one value)"]
+    );
+    assert_eq!(
+        after(&text, "whitespace"),
+        ["true (over the default false)"]
+    );
+    assert_eq!(after(&text, "MD018"), [format!("false ({MD_UNNAMED})")]);
+}
+
+#[test]
+fn the_default_of_markdownlint_stands_for_every_rule_it_does_not_name() {
+    let defaults = Defaults {
+        markdownlint: "{ \"Default\": false, \"MD013\": true }",
+        yamllint: YAMLLINT,
+    };
+
+    let text = rules_with(
+        defaults,
+        &[(
+            ".markdownlint.jsonc",
+            "{ \"MD041\": false, \"MD001\": true, \"MD013\": true }",
+        )],
+    );
+
+    assert_eq!(after(&text, "MD041"), ["false (the same as the default)"]);
+    assert_eq!(after(&text, "MD001"), ["true (over the default false)"]);
+    assert_eq!(after(&text, "MD013"), ["true (the same as the default)"]);
+}
+
+#[test]
+fn a_yamllint_default_without_extends_leaves_a_rule_it_does_not_name_off() {
+    let defaults = Defaults {
+        markdownlint: MARKDOWNLINT,
+        yamllint: "rules:\n  comments: enable\n",
+    };
+
+    let text = rules_with(defaults, &[(".yamllint", "rules:\n  hyphens: enable\n")]);
+
+    assert_eq!(
+        after(&text, "hyphens"),
+        ["\"enable\" (the pipeline's file does not name it, so it is off)"]
     );
 }
 
@@ -310,11 +406,11 @@ fn yamllint_lays_the_options_of_a_rule_over_those_of_the_default() {
     );
     assert_eq!(
         after(&text, "key-ordering"),
-        ["\"enable\" (the default does not set it)"]
+        [format!("\"enable\" ({YAML_UNNAMED})")]
     );
     assert_eq!(
         after(&text, "indentation"),
-        ["{\"spaces\":4} (the default does not set it)"]
+        [format!("{{\"spaces\":4}} ({YAML_UNNAMED})")]
     );
 }
 
@@ -328,7 +424,7 @@ fn yamllint_reads_the_first_of_its_files_at_the_root_only() {
 
     assert_eq!(
         after(&text, "key-ordering"),
-        ["\"enable\" (the default does not set it)"]
+        [format!("\"enable\" ({YAML_UNNAMED})")]
     );
     assert!(!text.contains("empty-lines"), "{text}");
     assert!(!text.contains("hyphens"), "{text}");
@@ -348,21 +444,15 @@ fn every_kind_of_yaml_value_is_shown_as_the_json_it_stands_for() {
          \x20 g: { 1: x }\n",
     )]);
 
-    assert_eq!(after(&text, "a"), ["3 (the default does not set it)"]);
-    assert_eq!(after(&text, "b"), ["1.5 (the default does not set it)"]);
-    assert_eq!(
-        after(&text, "c"),
-        ["\".inf\" (the default does not set it)"]
-    );
-    assert_eq!(after(&text, "d"), ["null (the default does not set it)"]);
-    assert_eq!(after(&text, "e"), ["true (the default does not set it)"]);
-    assert_eq!(
-        after(&text, "f"),
-        ["[\"x\",2] (the default does not set it)"]
-    );
+    assert_eq!(after(&text, "a"), [format!("3 ({YAML_UNNAMED})")]);
+    assert_eq!(after(&text, "b"), [format!("1.5 ({YAML_UNNAMED})")]);
+    assert_eq!(after(&text, "c"), [format!("\".inf\" ({YAML_UNNAMED})")]);
+    assert_eq!(after(&text, "d"), [format!("null ({YAML_UNNAMED})")]);
+    assert_eq!(after(&text, "e"), [format!("true ({YAML_UNNAMED})")]);
+    assert_eq!(after(&text, "f"), [format!("[\"x\",2] ({YAML_UNNAMED})")]);
     assert_eq!(
         after(&text, "g"),
-        ["{\"1\":\"x\"} (the default does not set it)"]
+        [format!("{{\"1\":\"x\"}} ({YAML_UNNAMED})")]
     );
 }
 
@@ -424,10 +514,7 @@ fn check_prints_the_rules_after_the_configuration() {
     let rules = text.find("\nRules\n").unwrap();
     let tree = text.find("\nTree\n").unwrap();
     assert!(configuration < rules && rules < tree, "{text}");
-    assert_eq!(
-        after(&text, "MD041"),
-        ["false (the default does not set it)"]
-    );
+    assert_eq!(after(&text, "MD041"), [format!("false ({MD_UNNAMED})")]);
 }
 
 #[test]

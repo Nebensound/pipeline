@@ -333,7 +333,7 @@ Rules
 
   markdown                                              Markdownlint: the default, with these laid over it
       .github/.markdownlint-cli2.jsonc                  laid over the default and what lies above it, rule by rule
-          MD041                                         false (the default does not set it)
+          MD041                                         false (the pipeline's file does not name it; Markdownlint's own default holds)
   yaml                                                  yamllint: the default, with these laid over it
       .yamllint.yaml                                    laid over the default rule by rule
           comments                                      {"require-starting-space":false} (over the default {"min-spaces-from-content":1})
@@ -342,15 +342,25 @@ Rules
 
 A rule the repository sets to what the default already gives it is `the same
 as the default`; any other one stands `over the default`, with the default's
-value, or the default `does not set it`. For yamllint, a rule's options are
-laid over the default's options of that rule, as yamllint does, so writing one
-option of a rule the default sets is a difference only where that option
-differs. Read are, in every folder, the options file and the file of rules only
-that markdownlint-cli2 reads there, and yamllint's configuration at the root. A
+value. A rule the pipeline's file does not name keeps what lies beneath that
+file, which the tool does not compile in: Markdownlint's own default for the
+rule, and for yamllint what the file's `extends` sets, yamllint's own default.
+The report says so (`the pipeline's file does not name it; Markdownlint's own
+default holds`, ``…; what its `extends: default` sets holds``). Markdownlint
+rules are matched by any of their names and tags, in any case, so
+`line-length` stands over the default's `MD013`; a tag over rules the default
+does not give one value says so. For yamllint, a rule's options are laid over
+the default's options of that rule, as yamllint does, so writing one option of
+a rule the default sets is a difference only where that option differs.
+
+Read are, in every folder, the options file and the file of rules only that
+markdownlint-cli2 reads there, and yamllint's configuration at the root. A
 file in JavaScript is named, not read: phase 0 runs no code of the repository.
 What an `extends` names is named, not read. A `.markdownlint.*` file below the
 root is shown `in place of everything above it, the default included`, which
-is how markdownlint-cli2 reads it.
+is how markdownlint-cli2 reads it; the `config` of a `.markdownlint-cli2.*`
+beside it in the same folder is shown as not read, since markdownlint-cli2
+takes the file of rules only instead.
 
 ## Where the file list comes from
 

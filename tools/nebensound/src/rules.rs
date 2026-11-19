@@ -16,13 +16,18 @@
 //!   its `config`, and the first file that holds rules only
 //!   (`.markdownlint.jsonc`, `.json`, `.yaml`, `.yml`, `.cjs`, `.mjs`). The
 //!   block lays the one at the root over the default; one in a folder below
-//!   takes the place of everything above it there, as markdownlint-cli2 reads
-//!   it.
+//!   takes the place of everything above it there, and of the `config` of the
+//!   options file beside it, as markdownlint-cli2 reads it.
 //! - yamllint: `rules` in `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at
 //!   the root, whichever yamllint reads.
 //!
 //! A file written in JavaScript is named, not read: phase 0 runs no code of
 //! the repository. What an `extends` names is named, not read.
+//!
+//! A rule the pipeline's file does not name keeps what lies beneath that file:
+//! Markdownlint's own default for the rule, and for yamllint what the file's
+//! `extends` sets. The report says so rather than comparing with it, since
+//! neither program's own defaults are compiled in.
 
 use std::collections::BTreeSet;
 
@@ -76,6 +81,107 @@ const MARKDOWNLINT_RULES: &[&str] = &[
     ".markdownlint.mjs",
 ];
 
+/// The rules of Markdownlint, each with its names and its tags, as
+/// markdownlint 0.42.0 gives them. A key of a configuration names a rule by
+/// any of its names, or every rule with a tag, in any case.
+const MARKDOWNLINT_NAMES: &[(&[&str], &[&str])] = &[
+    (&["MD001", "heading-increment"], &["headings"]),
+    (&["MD003", "heading-style"], &["headings"]),
+    (&["MD004", "ul-style"], &["bullet", "ul"]),
+    (&["MD005", "list-indent"], &["bullet", "ul", "indentation"]),
+    (&["MD007", "ul-indent"], &["bullet", "ul", "indentation"]),
+    (&["MD009", "no-trailing-spaces"], &["whitespace"]),
+    (&["MD010", "no-hard-tabs"], &["whitespace", "hard_tab"]),
+    (&["MD011", "no-reversed-links"], &["links"]),
+    (
+        &["MD012", "no-multiple-blanks"],
+        &["whitespace", "blank_lines"],
+    ),
+    (&["MD013", "line-length"], &["line_length"]),
+    (&["MD014", "commands-show-output"], &["code"]),
+    (
+        &["MD018", "no-missing-space-atx"],
+        &["headings", "atx", "spaces"],
+    ),
+    (
+        &["MD019", "no-multiple-space-atx"],
+        &["headings", "atx", "spaces"],
+    ),
+    (
+        &["MD020", "no-missing-space-closed-atx"],
+        &["headings", "atx_closed", "spaces"],
+    ),
+    (
+        &["MD021", "no-multiple-space-closed-atx"],
+        &["headings", "atx_closed", "spaces"],
+    ),
+    (
+        &["MD022", "blanks-around-headings"],
+        &["headings", "blank_lines"],
+    ),
+    (&["MD023", "heading-start-left"], &["headings", "spaces"]),
+    (&["MD024", "no-duplicate-heading"], &["headings"]),
+    (&["MD025", "single-title", "single-h1"], &["headings"]),
+    (&["MD026", "no-trailing-punctuation"], &["headings"]),
+    (
+        &["MD027", "no-multiple-space-blockquote"],
+        &["blockquote", "whitespace", "indentation"],
+    ),
+    (
+        &["MD028", "no-blanks-blockquote"],
+        &["blockquote", "whitespace"],
+    ),
+    (&["MD029", "ol-prefix"], &["ol"]),
+    (&["MD030", "list-marker-space"], &["ol", "ul", "whitespace"]),
+    (&["MD031", "blanks-around-fences"], &["code", "blank_lines"]),
+    (
+        &["MD032", "blanks-around-lists"],
+        &["bullet", "ul", "ol", "blank_lines"],
+    ),
+    (&["MD033", "no-inline-html"], &["html"]),
+    (&["MD034", "no-bare-urls"], &["links", "url"]),
+    (&["MD035", "hr-style"], &["hr"]),
+    (
+        &["MD036", "no-emphasis-as-heading"],
+        &["headings", "emphasis"],
+    ),
+    (
+        &["MD037", "no-space-in-emphasis"],
+        &["whitespace", "emphasis"],
+    ),
+    (&["MD038", "no-space-in-code"], &["whitespace", "code"]),
+    (&["MD039", "no-space-in-links"], &["whitespace", "links"]),
+    (&["MD040", "fenced-code-language"], &["code", "language"]),
+    (
+        &["MD041", "first-line-heading", "first-line-h1"],
+        &["headings"],
+    ),
+    (&["MD042", "no-empty-links"], &["links"]),
+    (&["MD043", "required-headings"], &["headings"]),
+    (&["MD044", "proper-names"], &["spelling"]),
+    (&["MD045", "no-alt-text"], &["accessibility", "images"]),
+    (&["MD046", "code-block-style"], &["code"]),
+    (&["MD047", "single-trailing-newline"], &["blank_lines"]),
+    (&["MD048", "code-fence-style"], &["code"]),
+    (&["MD049", "emphasis-style"], &["emphasis"]),
+    (&["MD050", "strong-style"], &["emphasis"]),
+    (&["MD051", "link-fragments"], &["links"]),
+    (&["MD052", "reference-links-images"], &["images", "links"]),
+    (
+        &["MD053", "link-image-reference-definitions"],
+        &["images", "links"],
+    ),
+    (&["MD054", "link-image-style"], &["images", "links"]),
+    (&["MD055", "table-pipe-style"], &["table"]),
+    (&["MD056", "table-column-count"], &["table"]),
+    (&["MD058", "blanks-around-tables"], &["table"]),
+    (
+        &["MD059", "descriptive-link-text"],
+        &["accessibility", "links"],
+    ),
+    (&["MD060", "table-column-style"], &["table"]),
+];
+
 /// The configuration files of yamllint, in the order it looks for them.
 const YAMLLINT_FILES: &[&str] = &[".yamllint", ".yamllint.yaml", ".yamllint.yml"];
 
@@ -111,19 +217,32 @@ impl Program {
         }
     }
 
-    /// How a value the repository writes stands to the default's value of
-    /// the same rule.
-    fn stand(self, value: &Value, default: Option<&Value>) -> Stand {
-        let Some(default) = default else {
-            return Stand::Unset;
-        };
-        let same = match self {
-            // Markdownlint takes a rule's value as a whole.
-            Self::Markdownlint => value == default,
+    /// How the value the repository writes for a rule stands to what the
+    /// default gives that rule.
+    fn stand(self, rule: &str, value: &Value, default: &Config) -> Stand {
+        match self {
+            // Markdownlint takes a rule's value as a whole. A key can name a
+            // rule by an alias, or several rules by a tag; what the default
+            // gives each of them is compared.
+            Self::Markdownlint => {
+                let rules = covered(rule);
+                let defaults: Vec<Option<&Value>> = if rules.is_empty() {
+                    vec![default.rules.get(rule)]
+                } else {
+                    rules
+                        .iter()
+                        .map(|name| markdownlint_default(&default.rules, name))
+                        .collect()
+                };
+                if defaults.windows(2).any(|pair| pair.first() != pair.last()) {
+                    return Stand::Mixed;
+                }
+                standing(defaults.first().copied().flatten(), |under| value == under)
+            }
             // yamllint lays the options of a rule over those of the rule
             // beneath, where both are on.
-            Self::Yamllint => {
-                let base = enabled(default);
+            Self::Yamllint => standing(default.rules.get(rule), |under| {
+                let base = enabled(under);
                 let over = match (enabled(value), base.clone()) {
                     (Value::Object(own), Value::Object(mut under)) => {
                         under.extend(own);
@@ -132,13 +251,64 @@ impl Program {
                     (own, _) => own,
                 };
                 over == base
-            }
-        };
-        if same {
-            Stand::Same
-        } else {
-            Stand::Over(default.clone())
+            }),
         }
+    }
+
+    /// What holds for a rule the pipeline's file does not name.
+    fn unset(self, default: &Config) -> String {
+        const UNNAMED: &str = "the pipeline's file does not name it";
+        match (self, &default.extends) {
+            (Self::Markdownlint, _) => format!("{UNNAMED}; Markdownlint's own default holds"),
+            (Self::Yamllint, Some(extends)) => {
+                format!("{UNNAMED}; what its `extends: {extends}` sets holds")
+            }
+            (Self::Yamllint, None) => format!("{UNNAMED}, so it is off"),
+        }
+    }
+}
+
+/// The rules of Markdownlint a key of its configuration stands for: the one
+/// rule it names, or every rule with the tag it names. None for a key that is
+/// neither, such as `default` or a rule markdownlint does not bring along.
+/// Markdownlint compares keys in upper case.
+fn covered(key: &str) -> Vec<&'static str> {
+    let key = key.to_uppercase();
+    let names = |words: &[&str]| words.iter().any(|word| word.to_ascii_uppercase() == key);
+    if let Some((rule, _)) = MARKDOWNLINT_NAMES.iter().find(|(rule, _)| names(rule)) {
+        return rule.first().copied().into_iter().collect();
+    }
+    MARKDOWNLINT_NAMES
+        .iter()
+        .filter(|(_, tags)| names(tags))
+        .filter_map(|(rule, _)| rule.first().copied())
+        .collect()
+}
+
+/// What the default gives one rule of Markdownlint: the value of a key that
+/// covers it, or else the value of its `default`, which stands for every rule
+/// it does not name. The pipeline's file names each rule once; where several
+/// keys cover it, the one sorted last is taken, as the keys are read in
+/// sorted order.
+fn markdownlint_default<'a>(rules: &'a Map<String, Value>, rule: &str) -> Option<&'a Value> {
+    rules
+        .iter()
+        .rev()
+        .find(|(key, _)| covered(key).contains(&rule))
+        .or_else(|| {
+            rules
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case("default"))
+        })
+        .map(|(_, value)| value)
+}
+
+/// How a value stands to what the default gives the rule, told by `same`.
+fn standing(default: Option<&Value>, same: impl FnOnce(&Value) -> bool) -> Stand {
+    match default {
+        None => Stand::Unset,
+        Some(under) if same(under) => Stand::Same,
+        Some(under) => Stand::Over(under.clone()),
     }
 }
 
@@ -158,8 +328,11 @@ enum Stand {
     Same,
     /// The default gives it this value.
     Over(Value),
-    /// The default does not name the rule.
+    /// The pipeline's file does not name the rule.
     Unset,
+    /// The key covers several rules, which the default does not all give the
+    /// same value.
+    Mixed,
 }
 
 /// What a configuration names.
@@ -288,6 +461,10 @@ enum Place {
     Over,
     /// In place of everything above it, the default included.
     Instead,
+    /// Not in effect: an options file whose folder below the root also holds
+    /// a file of rules only, which markdownlint-cli2 takes in place of its
+    /// `config`.
+    Unread,
 }
 
 /// How a file's rules are read.
@@ -337,8 +514,10 @@ fn first<'a>(
 }
 
 /// The files markdownlint-cli2 reads, folder by folder, the root first; in a
-/// folder, the one that holds rules only before the options file, which lies
-/// over it.
+/// folder, the one that holds rules only before the options file. At the root
+/// the block lays the options file's `config` over the file of rules only; in
+/// a folder below, markdownlint-cli2 takes the file of rules only and leaves
+/// the `config` beside it unread.
 fn markdownlint_layers(files: &[&RelativePath]) -> Vec<Layer> {
     let folders: BTreeSet<RelativePath> = files
         .iter()
@@ -350,21 +529,23 @@ fn markdownlint_layers(files: &[&RelativePath]) -> Vec<Layer> {
         .collect();
     let mut layers = Vec::new();
     for dir in folders {
-        if let Some(file) = first(files, &dir, MARKDOWNLINT_RULES) {
+        let rules = first(files, &dir, MARKDOWNLINT_RULES);
+        let below = !dir.is_root();
+        if let Some(file) = rules {
             layers.push(Layer {
                 file: file.clone(),
-                place: if dir.is_root() {
-                    Place::Over
-                } else {
-                    Place::Instead
-                },
+                place: if below { Place::Instead } else { Place::Over },
                 kind: Kind::MarkdownlintRules,
             });
         }
         if let Some(file) = first(files, &dir, MARKDOWNLINT_OPTIONS) {
             layers.push(Layer {
                 file: file.clone(),
-                place: Place::Over,
+                place: if below && rules.is_some() {
+                    Place::Unread
+                } else {
+                    Place::Over
+                },
                 kind: Kind::MarkdownlintOptions,
             });
         }
@@ -406,6 +587,18 @@ fn section(program: Program, default: &str, layers: &[Layer], read: &Read<'_>) -
     )];
     for layer in layers {
         let file = column(6, &shown(&layer.file.to_string()));
+        let place = match layer.place {
+            Place::Over if folder(&layer.file).is_root() => "laid over the default rule by rule",
+            Place::Over => "laid over the default and what lies above it, rule by rule",
+            Place::Instead => "in place of everything above it, the default included",
+            Place::Unread => {
+                lines.push(format!(
+                    "{file}its `config` is not read: the file of rules only in its folder \
+                     takes its place"
+                ));
+                continue;
+            }
+        };
         let config = match layer.read(read) {
             Ok(Some(config)) => config,
             Ok(None) => {
@@ -418,11 +611,6 @@ fn section(program: Program, default: &str, layers: &[Layer], read: &Read<'_>) -
                 lines.push(format!("{file}cannot be read: {}", shown(&error)));
                 continue;
             }
-        };
-        let place = match layer.place {
-            Place::Over if folder(&layer.file).is_root() => "laid over the default rule by rule",
-            Place::Over => "laid over the default and what lies above it, rule by rule",
-            Place::Instead => "in place of everything above it, the default included",
         };
         if config.extends.is_none() && config.rules.is_empty() {
             lines.push(format!("{file}{place}; it names no rule"));
@@ -437,10 +625,13 @@ fn section(program: Program, default: &str, layers: &[Layer], read: &Read<'_>) -
             ));
         }
         for (rule, value) in &config.rules {
-            let stand = match program.stand(value, default.rules.get(rule)) {
+            let stand = match program.stand(rule, value, &default) {
                 Stand::Same => "the same as the default".to_owned(),
-                Stand::Over(default) => format!("over the default {default}"),
-                Stand::Unset => "the default does not set it".to_owned(),
+                Stand::Over(under) => format!("over the default {under}"),
+                Stand::Unset => program.unset(&default),
+                Stand::Mixed => {
+                    "the default does not give the rules it covers one value".to_owned()
+                }
             };
             lines.push(format!(
                 "{}{}",

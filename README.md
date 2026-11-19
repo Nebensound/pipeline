@@ -261,8 +261,8 @@ folder. A `.markdownlint.*` file, which holds rules only, it takes instead of
 everything above it; the block lays the one at the root over the default all
 the same, and where the root holds both, the options file lies over it. One in
 a folder below the root still takes the place of everything above it in its
-folder, the default included, so the rules of a folder belong in its
-`.markdownlint-cli2.*`.
+folder, the default included, and of the `config` of a `.markdownlint-cli2.*`
+beside it, so the rules of a folder belong in its `.markdownlint-cli2.*`.
 
 A repository that wants a comment to need no space after its `#` writes one
 option of one yamllint rule into `.yamllint.yaml` at its root:
