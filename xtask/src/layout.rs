@@ -7,8 +7,8 @@
 //! directory is the assignment, and no table has to be kept beside it.
 //!
 //! Every block belongs to a register entry and is called from a step of
-//! `nebensound.yml` that is named after the entry and switched on it, with
-//! exactly the condition the workflow documents for it. A check
+//! `nebensound.yml` that is named after the entry and switched on it, in
+//! exactly the form the workflow documents for it. A check
 //! the register knows and nobody has written yet has no directory: the step
 //! `Not written yet` fails for it by name, so that step's list of written
 //! checks names exactly the checks that have a block. Every block brings its
@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
-use yaml_rust2::YamlLoader;
+use yaml_rust2::{Yaml, YamlLoader};
 
 use crate::Error;
 use crate::cases::{self, ACTIONS, Case, Expect};
@@ -37,6 +37,16 @@ pub const WORKFLOW: &str = ".github/workflows/nebensound.yml";
 
 /// The step that fails for every check without a block.
 const NOT_WRITTEN: &str = "Not written yet";
+
+/// The keys of a step that calls a check block, in the form `nebensound.yml`
+/// documents for it. Any other key changes what the check does in the job:
+/// `continue-on-error` keeps the job green whatever the block finds,
+/// `timeout-minutes` cuts it short, `env` steers its tools.
+const CALL_KEYS: &[&str] = &["if", "name", "uses", "with"];
+
+/// The one input a step hands a check block: the unit's own path, so that
+/// every unit is checked where it lies.
+const CALL_WITH: (&str, &str) = ("working-directory", "${{ matrix.path }}");
 
 /// What the comparison found.
 #[derive(Debug)]
@@ -152,6 +162,11 @@ struct Call {
     block: String,
     name: String,
     condition: String,
+    /// Every key of the step, in order; a key that is no text reads empty.
+    keys: Vec<String>,
+    /// What the step hands the block under `with`; a key or value that is no
+    /// text reads empty.
+    with: Vec<(String, String)>,
 }
 
 /// What `nebensound.yml` says about the blocks.
@@ -179,10 +194,23 @@ fn calls(workflow: &str) -> Result<Calls, Error> {
         for step in job["steps"].as_vec().into_iter().flatten() {
             let text = |key: &str| step[key].as_str().unwrap_or_default().to_owned();
             if let Some(block) = text("uses").strip_prefix("$/.github/actions/") {
+                let string = |yaml: &Yaml| yaml.as_str().unwrap_or_default().to_owned();
                 found.push(Call {
                     block: block.to_owned(),
                     name: text("name"),
                     condition: text("if"),
+                    keys: step
+                        .as_hash()
+                        .into_iter()
+                        .flat_map(|hash| hash.keys().map(string))
+                        .collect(),
+                    with: step["with"]
+                        .as_hash()
+                        .into_iter()
+                        .flat_map(|hash| {
+                            hash.iter().map(|(key, value)| (string(key), string(value)))
+                        })
+                        .collect(),
                 });
             }
             if text("name") == NOT_WRITTEN {
@@ -259,25 +287,7 @@ pub fn compare(register: &str, workflow: &str, directories: &[Directory]) -> Res
             ));
             continue;
         }
-        // The whole condition, as nebensound.yml documents it: a substring
-        // would let `!contains(…)` or `contains(…) || true` through.
-        let switch = format!(
-            "${{{{ !cancelled() && contains(matrix.checks, '{}') }}}}",
-            entry.name
-        );
-        if called.is_empty() {
-            problems.push(format!("`{name}` is never called from nebensound.yml"));
-        }
-        if called
-            .iter()
-            .any(|call| call.name != entry.name || call.condition.trim() != switch)
-        {
-            problems.push(format!(
-                "nebensound.yml calls `{name}` from a step that is not named `{}` and switched \
-                 on it with `{switch}`",
-                entry.name
-            ));
-        }
+        problems.extend(check_calls(name, &entry.name, &called));
         if !written.contains(&entry.name) {
             problems.push(format!(
                 "`{name}` exists, but `{NOT_WRITTEN}` still fails for `{}`",
@@ -317,4 +327,48 @@ pub fn compare(register: &str, workflow: &str, directories: &[Directory]) -> Res
         }
     }
     Ok(Layout { blocks, problems })
+}
+
+/// What is wrong with the steps that call the block `name` of the check
+/// `check`: none at all, or one that is not in the form `nebensound.yml`
+/// documents.
+fn check_calls(name: &str, check: &str, called: &[&Call]) -> Vec<String> {
+    let mut problems = Vec::new();
+    // The whole condition, as nebensound.yml documents it: a substring
+    // would let `!contains(…)` or `contains(…) || true` through.
+    let switch = format!("${{{{ !cancelled() && contains(matrix.checks, '{check}') }}}}");
+    if called.is_empty() {
+        problems.push(format!("`{name}` is never called from nebensound.yml"));
+    }
+    if called
+        .iter()
+        .any(|call| call.name != check || call.condition.trim() != switch)
+    {
+        problems.push(format!(
+            "nebensound.yml calls `{name}` from a step that is not named `{check}` and \
+             switched on it with `{switch}`"
+        ));
+    }
+    // The rest of the step as well: a check can be silenced through any
+    // other key just as through its switch, and pointed at the root
+    // instead of the unit through its input.
+    if called.iter().any(|call| {
+        let mut keys: Vec<&str> = call.keys.iter().map(String::as_str).collect();
+        keys.sort_unstable();
+        keys != CALL_KEYS
+            || call
+                .with
+                .iter()
+                .map(|(key, value)| (key.as_str(), value.as_str()))
+                .ne([CALL_WITH])
+    }) {
+        problems.push(format!(
+            "nebensound.yml calls `{name}` from a step with other keys than `{}`, or that \
+             hands it other than `{}: {}`",
+            CALL_KEYS.join("`, `"),
+            CALL_WITH.0,
+            CALL_WITH.1
+        ));
+    }
+    problems
 }

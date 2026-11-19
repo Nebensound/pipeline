@@ -324,7 +324,10 @@ not part of the case's repository.
 - every block is called from a step of `nebensound.yml` that is named after its
   entry and switched on it with exactly the condition
   `${{ !cancelled() && contains(matrix.checks, '<name>') }}`, so that an
-  inverted or widened switch is caught;
+  inverted or widened switch is caught. The step has no other key than `name`,
+  `if`, `uses` and `with`, and hands the block exactly
+  `working-directory: ${{ matrix.path }}`, so that neither
+  `continue-on-error` nor another path silences the check;
 - the step `Not written yet` counts exactly the checks that have a block as
   written;
 - every block has a passing and a failing case. A `.DS_Store` beside the cases

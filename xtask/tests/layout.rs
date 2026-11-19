@@ -71,7 +71,7 @@ fn workflow(written: &str, steps: &str) -> String {
     )
 }
 
-const AGREEING_STEPS: &str = "- name: demo\n  if: ${{ !cancelled() && contains(matrix.checks, 'demo') }}\n  uses: $/.github/actions/check-demo\n- uses: $/.github/actions/phase0\n";
+const AGREEING_STEPS: &str = "- name: demo\n  if: ${{ !cancelled() && contains(matrix.checks, 'demo') }}\n  uses: $/.github/actions/check-demo\n  with:\n    working-directory: ${{ matrix.path }}\n- uses: $/.github/actions/phase0\n  id: phase0\n";
 
 #[test]
 fn agreeing_parts_find_nothing() {
@@ -97,7 +97,7 @@ fn a_switch_that_is_inverted_or_always_true_is_named() {
         "${{ contains(matrix.checks, 'demo') }}",
     ] {
         let steps = format!(
-            "- name: demo\n  if: \"{condition}\"\n  uses: $/.github/actions/check-demo\n- uses: $/.github/actions/phase0\n"
+            "- name: demo\n  if: \"{condition}\"\n  uses: $/.github/actions/check-demo\n  with:\n    working-directory: ${{{{ matrix.path }}}}\n- uses: $/.github/actions/phase0\n"
         );
         let found = layout::compare(
             REGISTER,
@@ -120,8 +120,47 @@ fn a_switch_that_is_inverted_or_always_true_is_named() {
 }
 
 #[test]
+fn a_step_that_silences_its_check_or_moves_it_is_named() {
+    let call = "- name: demo\n  if: ${{ !cancelled() && contains(matrix.checks, 'demo') }}\n  uses: $/.github/actions/check-demo\n";
+    for rest in [
+        // The job stays green whatever the block finds.
+        "  continue-on-error: true\n  with:\n    working-directory: ${{ matrix.path }}\n",
+        "  timeout-minutes: 1\n  with:\n    working-directory: ${{ matrix.path }}\n",
+        // Every unit is checked at the root instead of at its own path.
+        "  with:\n    working-directory: .\n",
+        "  with:\n    working-directory: ${{ matrix.path }}\n    extra: x\n",
+        "",
+        // A key or value that is no text.
+        "  1: x\n  with:\n    working-directory: ${{ matrix.path }}\n",
+        "  with:\n    working-directory: 1\n",
+        "  with: x\n",
+    ] {
+        let found = layout::compare(
+            REGISTER,
+            &workflow(
+                r#"["demo"]"#,
+                &format!("{call}{rest}- uses: $/.github/actions/phase0\n"),
+            ),
+            &[
+                dir("check-demo", true, Ok(both())),
+                dir("phase0", true, Ok(Vec::new())),
+                dir("tool", true, Ok(Vec::new())),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            found.problems,
+            [
+                "nebensound.yml calls `check-demo` from a step with other keys than `if`, `name`, `uses`, `with`, or that hands it other than `working-directory: ${{ matrix.path }}`"
+            ],
+            "{rest}"
+        );
+    }
+}
+
+#[test]
 fn every_disagreement_is_named() {
-    let steps = "- name: wrong\n  if: ${{ contains(matrix.checks, 'demo') }}\n  uses: $/.github/actions/check-demo\n- name: other\n  if: always()\n  uses: $/.github/actions/check-other\n- uses: $/.github/actions/check-gone\n";
+    let steps = "- name: wrong\n  if: ${{ contains(matrix.checks, 'demo') }}\n  uses: $/.github/actions/check-demo\n  with:\n    working-directory: ${{ matrix.path }}\n- name: other\n  if: always()\n  uses: $/.github/actions/check-other\n- uses: $/.github/actions/check-gone\n";
     let found = layout::compare(
         REGISTER,
         &workflow(r#"["demo", "ghost"]"#, steps),
@@ -154,6 +193,7 @@ fn every_disagreement_is_named() {
             "`check-demo` has no failing test case under tests/fail/",
             "`check-other` has no action.yml",
             "nebensound.yml calls `check-other` from a step that is not named `other` and switched on it with `${{ !cancelled() && contains(matrix.checks, 'other') }}`",
+            "nebensound.yml calls `check-other` from a step with other keys than `if`, `name`, `uses`, `with`, or that hands it other than `working-directory: ${{ matrix.path }}`",
             "`check-other` exists, but `Not written yet` still fails for `other`",
             "`check-other` has no passing test case under tests/pass/",
             "`check-preset` belongs to no register entry, and it is no machinery of the workflow (phase0, tool)",

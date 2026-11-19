@@ -48,9 +48,13 @@ jobs:
       - name: demo
         if: ${{ !cancelled() && contains(matrix.checks, 'demo') }}
         uses: $/.github/actions/check-demo
+        with:
+          working-directory: ${{ matrix.path }}
       - name: more
         if: ${{ !cancelled() && contains(matrix.checks, 'more') }}
         uses: $/.github/actions/check-more
+        with:
+          working-directory: ${{ matrix.path }}
 "#;
 
 const TOOL: &str =
