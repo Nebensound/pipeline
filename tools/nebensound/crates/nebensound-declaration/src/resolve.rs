@@ -173,19 +173,6 @@ impl Unit {
     pub fn tag_prefix(&self) -> String {
         prefix_of(&self.name, &self.origin)
     }
-
-    /// Where its version is kept, when it carries one.
-    #[must_use]
-    pub fn version_file(&self) -> Option<RelativePath> {
-        if !self.carries_version {
-            return None;
-        }
-        let base = RelativePath::root().join(".nebensound");
-        Some(match &self.name {
-            UnitName::Repository => base.join("version"),
-            UnitName::Component(name) => base.join("versions").join(name.as_str()),
-        })
-    }
 }
 
 /// The tag prefix of a unit with this name and origin.
