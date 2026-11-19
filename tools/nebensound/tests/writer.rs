@@ -421,6 +421,95 @@ fn a_workspace_reached_only_through_an_untouched_package_gets_its_lockfile_in_li
 }
 
 #[test]
+fn a_package_the_workspace_excludes_is_required_by_its_members() {
+    // `lib` is excluded, so its workspace root is its own folder; `app`, a
+    // member of the workspace above, still depends on it by path and locks it.
+    let git = Git::new();
+    let mut files = two_packages();
+    files.retain(|(path, _)| *path != "Cargo.toml");
+    files.push((
+        "Cargo.toml",
+        "[workspace]\nmembers  = [\"crates/app\"]\nexclude  = [\"crates/lib\"]\nresolver = \
+         \"3\"\n",
+    ));
+    git.write(&files);
+    git.commit("feat: start");
+
+    let (text, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
+
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.contains(
+            "component lib: the package lib at crates/lib gets 0.0.1 (workspace root: crates/lib)."
+        ),
+        "{text}"
+    );
+    let app = read(git.path(), "crates/app/Cargo.toml");
+    assert!(
+        app.contains("lib = { path = \"../lib\", version = \"0.0.1\" } # by path"),
+        "{app}"
+    );
+    assert_eq!(
+        read(git.path(), "Cargo.lock"),
+        LOCKFILE.replace("version = \"0.0.0\"", "version = \"0.0.1\"")
+    );
+    cargo(git.path(), &["build", "--locked"]);
+    assert_eq!(reported(git.path(), "app"), "0.0.1");
+}
+
+#[test]
+fn a_workspace_beside_the_package_gets_its_requirement_and_lockfile_in_line() {
+    // `server` is a workspace of its own next to `shared/lib`, not above it.
+    let git = Git::new();
+    git.write(&[
+        (
+            ".nebensound/repo.toml",
+            "[repo]\npipeline = \"none\"\n\n[component.lib]\npath = \"shared/lib\"\npipeline \
+             = { version = [\"cargo\"], check = [\"rust\"] }\n\n[component.server]\npath = \
+             \"server\"\npipeline = { check = [\"rust\"] }\n",
+        ),
+        (
+            "shared/lib/Cargo.toml",
+            "[package]\nname = \"lib\"\nedition = \"2024\"\n",
+        ),
+        ("shared/lib/src/lib.rs", "//! A library.\n"),
+        (
+            "server/Cargo.toml",
+            "[package]\nname = \"server\"\nedition = \"2024\"\npublish = false\n\n\
+             [dependencies]\nlib = { path = \"../shared/lib\" }\n\n[workspace]\n",
+        ),
+        (
+            "server/Cargo.lock",
+            "version = 4\n\n[[package]]\nname = \"lib\"\nversion = \"0.0.0\"\n\n\
+             [[package]]\nname = \"server\"\nversion = \"0.0.0\"\ndependencies = [\n \
+             \"lib\",\n]\n",
+        ),
+        ("server/src/main.rs", "//! A server.\n\nfn main() {}\n"),
+    ]);
+    git.commit("feat: start");
+
+    let (text, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
+
+    assert_eq!(code, 0, "{text}");
+    assert!(text.contains("Wrote server/Cargo.lock."), "{text}");
+    let server = read(git.path(), "server/Cargo.toml");
+    assert!(
+        server.contains("lib = { path = \"../shared/lib\", version = \"0.0.1\" }"),
+        "{server}"
+    );
+    let lockfile = read(git.path(), "server/Cargo.lock");
+    assert!(
+        lockfile.contains("name = \"lib\"\nversion = \"0.0.1\"\n"),
+        "{lockfile}"
+    );
+    assert!(
+        lockfile.contains("name = \"server\"\nversion = \"0.0.0\"\n"),
+        "{lockfile}"
+    );
+    cargo(&git.path().join("server"), &["build", "--locked"]);
+}
+
+#[test]
 fn a_unit_the_commit_does_not_touch_gets_its_last_release() {
     let git = Git::new();
     git.write(&two_packages());

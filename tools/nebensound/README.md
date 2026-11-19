@@ -191,12 +191,13 @@ the one of the commit at hand, `-pr.<number>` behind it in a plan built for a
 pull request; for a unit the commit does not touch it is `last`, the last
 version released for it. With that version it
 sets `package.version` in the unit's `Cargo.toml`, gives every path dependency
-on that package inside its workspace that version as its requirement, and sets
-the package's entry in the workspace's `Cargo.lock`, together with every entry
-that names it with a version. A workspace of its own below the root, such as
-a `fuzz/` folder, gets its `Cargo.lock` brought in line the same way when it
-reaches the package through path dependencies, directly or through another
-package. Nothing else changes, and `cargo build --locked` passes afterwards.
+on that package anywhere in the repository that version as its requirement,
+and sets the package's entry in the workspace's `Cargo.lock`, together with
+every entry that names it with a version. Every other workspace that reaches
+the package through path dependencies, directly or through another package,
+gets its `Cargo.lock` brought in line the same way: one that excludes the
+package, one beside it, or a `fuzz/` folder with a workspace of its own.
+Nothing else changes, and `cargo build --locked` passes afterwards.
 
 A unit that is neither touched nor ever released gets nothing written. A
 package that gets a version and depends on such a unit by path, in
@@ -209,8 +210,8 @@ since Cargo drops a path dev-dependency without a version from the package.
 The workspace is found the way Cargo finds it: the folder `package.workspace`
 names, else the nearest folder at or above the package whose `Cargo.toml` has
 a `[workspace]` that does not exclude it, else the package's own folder. The
-dependents are the `Cargo.toml` files Git tracks below it; one that is not TOML
-is passed over. Every change goes through `toml_edit`, so comments, blank lines
+dependents are all `Cargo.toml` files Git tracks, inside that workspace or
+outside it; one that is not TOML is passed over. Every change goes through `toml_edit`, so comments, blank lines
 and the order of keys stay, and a file whose text does not change is not
 written: a second call changes nothing.
 

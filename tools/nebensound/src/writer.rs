@@ -16,22 +16,23 @@
 //! require. With the version:
 //!
 //! - `package.version` in the unit's `Cargo.toml` becomes that version;
-//! - every path dependency on that package inside its workspace gets that
-//!   version as its requirement, since a package whose dependency names no
-//!   version cannot be published;
+//! - every path dependency on that package, wherever in the repository the
+//!   manifest that names it lies, gets that version as its requirement, since
+//!   a package whose dependency names no version cannot be published;
 //! - the package's entry in the workspace's `Cargo.lock` gets that version,
 //!   and so does every entry that names it together with a version, so that
 //!   `--locked` holds. No other entry changes. The same goes for the
 //!   `Cargo.lock` of every other workspace that reaches the package through
-//!   path dependencies, directly or through other packages, such as a `fuzz/`
-//!   folder with a `[workspace]` of its own.
+//!   path dependencies, directly or through other packages: one that contains
+//!   it while excluding it, one beside it, or a `fuzz/` folder with a
+//!   `[workspace]` of its own.
 //!
 //! The workspace is found the way Cargo finds it: the folder the manifest
 //! names in `package.workspace`, else the nearest folder at or above the
 //! package whose `Cargo.toml` has a `[workspace]` that does not exclude it,
-//! else the package's own folder. A dependent is any `Cargo.toml` Git tracks
-//! below that folder; one that does not read as TOML is passed over, since it
-//! cannot be a package Cargo builds.
+//! else the package's own folder. A dependent is any `Cargo.toml` Git tracks,
+//! in that workspace or outside it; one that does not read as TOML is passed
+//! over, since it cannot be a package Cargo builds.
 //!
 //! Every change goes through `toml_edit`, which keeps comments, blank lines
 //! and the order of keys. A file whose text does not change is not written, so
@@ -305,7 +306,9 @@ pub fn write(
         said.push(announced(order, &name, &version, &root, touched));
         versioned.push((name.clone(), version.clone(), needs));
         let mut dependents = Vec::new();
-        for dependent in manifests.iter().filter(|manifest| root.contains(manifest)) {
+        // A dependent may lie anywhere in the repository: a member of the
+        // workspace, a package it excludes, or a workspace of its own beside it.
+        for dependent in manifests {
             let place = folder(dependent);
             let Some(document) = files.lenient(dependent) else {
                 continue;

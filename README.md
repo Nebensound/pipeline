@@ -250,17 +250,17 @@ tag that counts, a pre-release included, so that a package depending on it by
 path requires a version that exists. With that version:
 
 - `package.version` in the unit's `Cargo.toml` becomes that version.
-- Every path dependency on the package inside its workspace gets that version
-  as its requirement, in `[dependencies]`, `[dev-dependencies]`,
+- Every path dependency on the package, wherever in the repository it is
+  written, gets that version as its requirement, in `[dependencies]`, `[dev-dependencies]`,
   `[build-dependencies]`, their `[target.*]` forms and
   `[workspace.dependencies]`: a package whose dependency names no version
   cannot be published.
 - The workspace's `Cargo.lock` is brought in line: the package's own entry, and
   every entry that names it with a version. No other entry changes, so
-  `cargo build --locked` passes. The same goes for the `Cargo.lock` of a
-  workspace of its own below it that reaches the package through path
-  dependencies, directly or through another package, such as the `fuzz/`
-  folder `cargo fuzz init` creates.
+  `cargo build --locked` passes. The same goes for the `Cargo.lock` of every
+  other workspace that reaches the package through path dependencies, directly
+  or through another package: one that excludes the package, one beside it, or
+  the `fuzz/` folder `cargo fuzz init` creates.
 
 Every change keeps the rest of the file as it is written, and a second call
 changes nothing. A unit that is neither touched nor ever released gets nothing.
