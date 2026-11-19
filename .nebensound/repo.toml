@@ -18,3 +18,13 @@ pipeline = "none"
 path       = "tools/nebensound"
 pipeline   = "rust-workspace"
 versioning = "none"
+
+# The library that understands a declaration, inside that workspace. It carries
+# a version of its own, so that every run writes it into its manifest with the
+# version writer cargo and the package test of the rust check builds and tests
+# it as it would be published: on a pull request with the version its merge
+# would get. The workspace above runs the check and watches the lockfile.
+# Nothing publishes it yet.
+[component.nebensound-declaration]
+path     = "tools/nebensound/crates/nebensound-declaration"
+pipeline = { version = ["cargo"], publish = false }
