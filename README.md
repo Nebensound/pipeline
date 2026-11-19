@@ -367,9 +367,13 @@ A step gets only the variables a step on a runner has too: `PATH`, `HOME`, the
 user, the locale, where Cargo, rustup and Go keep their files, the proxy and
 certificate settings, and the `XDG_` folders. A variable that steers a tool,
 such as `CARGO_TERM_COLOR`, `RUSTFLAGS` or `NODE_OPTIONS`, would otherwise make
-a block print something else locally than in the gate. What a step installs
-with `cargo install` goes into a folder of the run that comes first on its
-`PATH`, so the cases leave the developer's own programs as they are.
+a block print something else locally than in the gate. Of the variables the
+runner sets for every step, a step gets `CI`, `GITHUB_ACTIONS`, the `RUNNER_`
+and file-command variables, and fixed values for the repository and the run
+(`GITHUB_REPOSITORY`, `GITHUB_RUN_ID` and their kin), which lychee's action
+reads; a case belongs to no repository on GitHub and to no run. What a step
+installs with `cargo install` goes into a folder of the run that comes first on
+its `PATH`, so the cases leave the developer's own programs as they are.
 
 What a step prints stands in the log behind a `|`, so that the findings of a
 failing case do not become annotations of the gate. What the xtask itself

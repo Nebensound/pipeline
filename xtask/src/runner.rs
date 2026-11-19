@@ -91,6 +91,19 @@ const PASSED_ON: &[&str] = &[
 /// reason: the locale and where the user's files lie.
 const PASSED_ON_PREFIXES: &[&str] = &["LC_", "XDG_"];
 
+/// Default variables the runner gives every step and a block's action reads,
+/// set the same way locally and in the gate: lychee's action builds a link
+/// to the run from the repository and the run's ID, under `set -u`. A case
+/// is no repository on GitHub and runs in no workflow run, so these name
+/// none.
+const RUN: &[(&str, &str)] = &[
+    ("GITHUB_REPOSITORY", "xtask/case"),
+    ("GITHUB_REPOSITORY_OWNER", "xtask"),
+    ("GITHUB_RUN_ID", "0"),
+    ("GITHUB_RUN_NUMBER", "0"),
+    ("GITHUB_RUN_ATTEMPT", "1"),
+];
+
 /// What stands in for an action that runs on Node.js.
 #[derive(Clone, Copy, Debug)]
 enum StandIn {
@@ -530,8 +543,10 @@ impl Host {
         command
             .env("PATH", path.join(":"))
             .env("CARGO_INSTALL_ROOT", &self.installs)
+            .envs(RUN.iter().copied())
             .env("CI", "true")
             .env("GITHUB_ACTIONS", "true")
+            .env("GITHUB_SERVER_URL", &self.origin)
             .env("GITHUB_WORKSPACE", place.workspace)
             .env("GITHUB_ACTION_PATH", dir)
             .env("RUNNER_TEMP", place.temp)

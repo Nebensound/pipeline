@@ -161,11 +161,14 @@ fn a_step_sees_what_the_runner_hands_it() {
     host.env.push(("CARGO_PKG_NAME".into(), "xtask".into()));
     host.env.push(("RUSTUP_TOOLCHAIN".into(), "1.0.0".into()));
     host.env.push(("CARGO_TERM_COLOR".into(), "always".into()));
+    host.env
+        .push(("GITHUB_REPOSITORY".into(), "someone/else".into()));
     host.env = runner::environment(host.env);
     let dir = scene.action(
         "main",
         &composite(
             "echo \"$CI $GITHUB_ACTIONS $RUNNER_OS $RUNNER_ARCH\"\n\
+             echo \"$GITHUB_REPOSITORY $GITHUB_REPOSITORY_OWNER $GITHUB_RUN_ID $GITHUB_RUN_NUMBER $GITHUB_RUN_ATTEMPT $GITHUB_SERVER_URL\"\n\
              [ \"$(cd \"$GITHUB_WORKSPACE\" && pwd -P)\" = \"$(pwd -P)\" ] && echo workspace\n\
              [ -d \"$RUNNER_TEMP\" ] && echo temp\n\
              [ -f \"$GITHUB_ACTION_PATH/action.yml\" ] && echo action\n\
@@ -184,6 +187,7 @@ fn a_step_sees_what_the_runner_hands_it() {
         outcome.log,
         [
             "true true Linux X64",
+            "xtask/case xtask 0 0 1 file:///nowhere",
             "workspace",
             "temp",
             "action",
