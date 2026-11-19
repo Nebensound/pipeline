@@ -251,8 +251,10 @@ impl History {
     /// Whether `main` had moved on past such a commit when it was merged is
     /// not in the history: Git keeps no record of where a branch pointed. It
     /// is checked where it can be, at the merge itself and at the pull request
-    /// into `release` ([`History::refusal`]), and the release stage resolves
-    /// there; a refused merge gets no version and so no tag.
+    /// into `release` ([`History::refusal`]). The promoted commit, read on its
+    /// own, is no merge and cannot tell, so the release stage resolves on it
+    /// only once that check passed at the merge; a refused merge then gets no
+    /// version and so no tag.
     ///
     /// The first-parent line of `release` does not end where the branch was
     /// started: below that commit it goes on through `main`'s own history.
@@ -850,8 +852,19 @@ fn resolve_unit(
     if let Some(base) = base {
         entry.base = base.version.version;
     }
+    // The commits the base's release holds: their pre-releases were released
+    // with it, whatever their number.
+    let released = base.map(|base| context.history.contained_in(base.commit));
     if !two_stage
-        && let Some(newest) = counted.iter().max_by_key(|tag| tag.version)
+        && let Some(newest) = counted
+            .iter()
+            .filter(|tag| {
+                !tag.version.is_pre()
+                    || released
+                        .as_ref()
+                        .is_none_or(|released| !released.contains(tag.commit))
+            })
+            .max_by_key(|tag| tag.version)
         && newest.version.is_pre()
     {
         findings.push(
@@ -876,7 +889,6 @@ fn resolve_unit(
     // The touching commits since the base, oldest first, each with its
     // position on the line: those the commit that carries the base does not
     // contain. Each is measured against the unit's path as it declares it.
-    let released = base.map(|base| context.history.contained_in(base.commit));
     let touching: Vec<(usize, &Commit)> = context
         .history
         .line

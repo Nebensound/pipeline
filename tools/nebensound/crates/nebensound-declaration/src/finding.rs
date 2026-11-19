@@ -94,7 +94,8 @@ pub enum Rule {
     ShallowClone,
     /// A unit released in two stages, and no branch `origin/release`.
     MissingReleaseBranch,
-    /// A unit released in one stage whose newest tag is a pre-release.
+    /// A unit released in one stage whose newest tag is a pre-release that its
+    /// last full release does not hold.
     UnreleasedBeforeSwitch,
     /// A version whose field to raise holds the largest number already.
     ExhaustedVersion,

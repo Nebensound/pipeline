@@ -771,6 +771,13 @@ fn a_merge_into_release_of_an_older_commit_of_main_is_refused() {
         git.run(&["update-ref", "refs/remotes/origin/release", &merge]);
     }
 
+    // What the check cannot do: the older commit read on its own is no merge,
+    // and Git keeps no record of where main pointed when it was merged, so it
+    // resolves to the full version with no finding. Only phase 0 at the merge
+    // tells, and the release stage resolves here only once that has passed.
+    git.run(&["checkout", "--quiet", "--detach", &older]);
+    assert_eq!(version(&git, "lib-v").as_deref(), Some("0.0.2"));
+
     // The merge does not count as a promotion: the commits of main go on
     // from the release before, and give no number out again.
     git.run(&["branch", "--force", "release", &merge]);
@@ -1291,6 +1298,61 @@ fn switching_to_one_stage_before_promoting_is_an_error() {
     let analysis = analysed(&git);
     assert!(found(&analysis, Rule::UnreleasedBeforeSwitch).is_empty());
     assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.2"));
+}
+
+#[test]
+fn a_pre_release_the_base_holds_does_not_stop_a_switch_to_one_stage() {
+    let git = units();
+    git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
+    git.commit("fix: lib one");
+    assert_eq!(release(&git, "lib-v"), "0.0.1-pre.2");
+    git.promote();
+    assert_eq!(release(&git, "lib-v"), "0.0.1");
+    // Pushed by hand onto the promoted commit, above every full release.
+    git.tag("lib-v3.0.0-pre.1", &git.head());
+    let single = UNITS.replace("release  = \"two-stage\"\n", "");
+    git.write(&[(".nebensound/repo.toml", &single)]);
+    git.commit("chore: release the library in one stage");
+
+    // The promotion released that commit with every pre-release on it.
+    let analysis = analysed(&git);
+    assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
+    assert_eq!(base(&analysis, "lib-v"), "0.0.1");
+    assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.2"));
+}
+
+#[test]
+fn a_stray_pre_release_after_the_base_is_cleared_by_the_way_out() {
+    let git = units();
+    git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
+    git.commit("fix: lib one");
+    assert_eq!(release(&git, "lib-v"), "0.0.1-pre.2");
+    git.promote();
+    assert_eq!(release(&git, "lib-v"), "0.0.1");
+    // Pushed by hand onto a commit of main after the promotion.
+    git.write(&[("app/a.md", "# App\n\nOne.\n")]);
+    let stray = git.commit("fix: app one");
+    git.tag("lib-v3.0.0-pre.1", &stray);
+    let single = UNITS.replace("release  = \"two-stage\"\n", "");
+    git.write(&[(".nebensound/repo.toml", &single)]);
+    git.commit("chore: release the library in one stage");
+    let analysis = analysed(&git);
+    let switch = found(&analysis, Rule::UnreleasedBeforeSwitch);
+    assert_eq!(switch.len(), 1, "{:?}", analysis.findings());
+    assert!(switch[0].contains("lib-v3.0.0-pre.1"), "{switch:?}");
+
+    // The way out the message names: the promotion of the tip moves the base
+    // past the stray pre-release.
+    git.write(&[(".nebensound/repo.toml", UNITS)]);
+    git.commit("revert: release the library in two stages again");
+    assert_eq!(release(&git, "lib-v"), "0.0.2-pre.2");
+    git.promote();
+    assert_eq!(release(&git, "lib-v"), "0.0.2");
+    git.write(&[(".nebensound/repo.toml", &single)]);
+    git.commit("chore: release the library in one stage");
+    let analysis = analysed(&git);
+    assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
+    assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.3"));
 }
 
 #[test]

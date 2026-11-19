@@ -405,11 +405,14 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
   itself, and resolves no version. The commits of `main` after an older commit
   were given pre-releases counted from the release before; promoting the older
   one would give their numbers out again. Promoting an older commit is not
-  supported. Git keeps no record of where `origin/main` pointed when an
-  earlier merge was made, so the check runs where the release stage resolves,
-  at the merge. Read later, a refused merge that was pushed past the check is
-  taken for a promotion like any other; it got no tag, so the base does not
-  move with it.
+  supported. The check runs only at the merge: Git keeps no record of where
+  `origin/main` pointed when a merge was made, and the promoted commit, read on
+  its own, is no merge, so phase 0 there reports nothing and resolves its full
+  version. The release stage therefore runs phase 0 at the merge and resolves
+  on the promoted commit only when that passed; a run on the promoted commit
+  alone must not get past a refused merge. Read later, a refused merge that
+  was pushed past the check is taken for a promotion like any other; it got no
+  tag, so the base does not move with it.
 
 - **A commit touches a unit** when it changes a file below the unit's path as
   that commit declares it, or `.nebensound/repo.toml`. The repository is
@@ -469,7 +472,8 @@ the merge into `release` and that tag, a commit that lands on `main` would
 still count from the release before. The release stages close this window:
 they share one queue and resolve a version only when a run has its turn, after
 the run before has set its tag. A release stage at a merge into `release`
-resolves on the commit it promotes.
+resolves on the commit it promotes, once phase 0 has passed at the merge itself
+(see the rule on promoting only the tip of `main` above).
 
 ### What the history must hold
 
@@ -680,9 +684,12 @@ it was released in two stages, and its last pre-release never became a full
 release. Only the tip of `main` is promoted
 ([`stale-promotion`](#stale-promotion)), and the tip is the switch, so revert
 the switch, promote the tip of `main` into `release`, and switch again. The
-versions then go on from a full release. A pre-release on a commit where the
-unit was released in one stage does not count
-([`unexpected-tag`](#unexpected-tag)) and does not lead here.
+versions then go on from a full release. A pre-release on a commit that the
+commit carrying the base contains was released with the base, whatever its
+number, and does not lead here: the promotion of the tip moves the base past
+every pre-release before it. A pre-release on a commit where the unit was
+released in one stage does not count ([`unexpected-tag`](#unexpected-tag)) and
+does not lead here either.
 
 ### `exhausted-version`
 
@@ -717,8 +724,9 @@ Error. The commit at hand merges into `release` a commit other than the one
 branch. Only the tip of `main` is promoted. The commits of `main` after an
 older one were already given pre-releases counted from the release before, and
 promoting the older one would give their numbers out again. The merge does not
-count as a promotion and resolves no version, so the release stage tags
-nothing. Promote the tip of `main` with a pull request from `main` into
+count as a promotion and resolves no version. The promoted commit, read on its
+own, is no merge and reports nothing, so the release stage resolves on it only
+once phase 0 has passed at the merge, and tags nothing here. Promote the tip of `main` with a pull request from `main` into
 `release`. Phase 0 tells a merge into `release` by its first parent, which lies
 on the first-parent line of `origin/release`; without `origin/main` it cannot
 tell the tip, and reports nothing.
