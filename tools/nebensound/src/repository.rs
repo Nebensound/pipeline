@@ -29,6 +29,14 @@ const RELEASE_BRANCH: &str = "refs/remotes/origin/release";
 /// Where every version is given out.
 const MAIN_BRANCH: &str = "refs/remotes/origin/main";
 
+/// The object an empty file holds, under each hash Git can use: SHA-1 and
+/// SHA-256. Fixed by the empty content, so a repository of either kind names
+/// it the same way.
+const EMPTY_BLOBS: [&[u8]; 2] = [
+    b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    b"473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813",
+];
+
 /// [`DECLARATION`] as a path in the repository.
 fn declaration_path() -> RelativePath {
     RelativePath::root().join(".nebensound").join("repo.toml")
@@ -188,34 +196,61 @@ impl Repository {
     /// inside the repository.
     pub fn tree(&self) -> Result<Tree, Error> {
         // -z: git quotes unusual names otherwise, and the quotes would be read
-        // as part of the path.
-        self.tree_of(&self.git_output(&["ls-files", "-z"])?)
+        // as part of the path. --stage: each entry names the object it holds,
+        // which tells an empty file without reading the working tree.
+        self.tree_of(&self.git_output(&["ls-files", "-z", "--stage"])?)
     }
 
-    /// The same tree from a listing that is already at hand, entries separated
-    /// by a zero byte.
+    /// The same tree from a listing that is already at hand, as
+    /// `git ls-files -z --stage` prints it: `<mode> <object> <stage>`, a tab
+    /// and the path, entries separated by a zero byte.
     ///
     /// Raw bytes, not text: git hands out the path as it stands on disk, and
     /// replacing what is not UTF-8 would rename a file quietly — or make two
     /// different names collapse into one.
     ///
+    /// A file is empty when it holds the empty blob. A file in conflict is
+    /// listed once for each side, and counts as empty only when every side is.
+    ///
     /// # Errors
     ///
-    /// Returns [`Error::NotUtf8`] when an entry is not text, and
-    /// [`Error::Listing`] when it is not a path inside the repository.
+    /// Returns [`Error::Git`] when an entry does not carry its object,
+    /// [`Error::NotUtf8`] when a path is not text, and [`Error::Listing`] when
+    /// it is not a path inside the repository.
     pub fn tree_of(&self, listing: &[u8]) -> Result<Tree, Error> {
-        let mut files = Vec::new();
+        let mut files: BTreeMap<RelativePath, bool> = BTreeMap::new();
         for entry in listing.split(|byte| *byte == 0).filter(|e| !e.is_empty()) {
-            let text = std::str::from_utf8(entry).map_err(|_| Error::NotUtf8 {
-                shown: String::from_utf8_lossy(entry).into_owned(),
+            let unstaged = || Error::Git {
+                root: self.root.display().to_string(),
+                message: format!(
+                    "{:?} is not an entry of `git ls-files --stage`",
+                    String::from_utf8_lossy(entry)
+                ),
+            };
+            let tab = entry
+                .iter()
+                .position(|byte| *byte == b'\t')
+                .ok_or_else(unstaged)?;
+            let (stage, name) = (&entry[..tab], &entry[tab + 1..]);
+            let object = stage
+                .split(|byte| *byte == b' ')
+                .nth(1)
+                .ok_or_else(unstaged)?;
+            let text = std::str::from_utf8(name).map_err(|_| Error::NotUtf8 {
+                shown: String::from_utf8_lossy(name).into_owned(),
             })?;
             let path = RelativePath::new(text).map_err(|source| Error::Listing {
                 value: text.to_owned(),
                 source,
             })?;
-            files.push(path);
+            *files.entry(path).or_insert(true) &= EMPTY_BLOBS.contains(&object);
         }
-        Ok(Tree::new(files))
+        let empty: Vec<RelativePath> = files
+            .iter()
+            .filter(|(_, empty)| **empty)
+            .map(|(path, _)| path.clone())
+            .collect();
+        Ok(Tree::new(files.into_keys()).with_empty(empty))
     }
 
     /// The declaration as it is written.

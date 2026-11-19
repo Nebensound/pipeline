@@ -8,6 +8,7 @@ mod support;
 use std::fs;
 
 use nebensound::repository::{Repository, central, central_from};
+use nebensound_declaration::path::RelativePath;
 use support::{Git, QUIET, directory, repository};
 
 #[test]
@@ -36,7 +37,7 @@ fn without_a_git_program_it_says_so() {
 #[test]
 fn an_entry_that_is_not_a_path_is_reported() {
     let error = Repository::at(".")
-        .tree_of(b"good.md\0/absolute\0")
+        .tree_of(b"100644 4b82 0\tgood.md\x00100644 4b82 0\t/absolute\0")
         .expect_err("an absolute path is not one inside the repository");
 
     assert!(error.to_string().contains("/absolute"), "{error}");
@@ -45,10 +46,53 @@ fn an_entry_that_is_not_a_path_is_reported() {
 #[test]
 fn a_listing_becomes_a_tree() {
     let tree = Repository::at(".")
-        .tree_of(b"README.md\0doc/a.md\0")
+        .tree_of(b"100644 4b82 0\tREADME.md\x00100644 4b82 0\tdoc/a.md\0")
         .expect("both are paths");
 
     assert_eq!(tree.files().count(), 2);
+}
+
+/// A path as the tree holds it.
+fn path(value: &str) -> RelativePath {
+    RelativePath::new(value).expect("a path")
+}
+
+#[test]
+fn a_file_that_holds_the_empty_blob_is_empty() {
+    // The empty blob under SHA-1 and under SHA-256; anything else holds
+    // content. A file in conflict is listed once for each side, and is empty
+    // only when every side is.
+    let tree = Repository::at(".")
+        .tree_of(
+            b"100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0\ta/.gitkeep\0\
+              100644 473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813 0\tb/.gitkeep\0\
+              100644 4b825dc642cb6eb9a060e54bf8d69288fbee4904 0\tc/.gitkeep\0\
+              100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 2\td/.gitkeep\0\
+              100644 4b825dc642cb6eb9a060e54bf8d69288fbee4904 3\td/.gitkeep\0",
+        )
+        .expect("all of them are paths");
+
+    assert_eq!(tree.files().count(), 4);
+    assert!(tree.is_empty_file(&path("a/.gitkeep")));
+    assert!(tree.is_empty_file(&path("b/.gitkeep")));
+    assert!(!tree.is_empty_file(&path("c/.gitkeep")));
+    assert!(!tree.is_empty_file(&path("d/.gitkeep")));
+}
+
+#[test]
+fn an_entry_without_its_object_is_reported() {
+    for listing in [&b"README.md\0"[..], &b"100644\tREADME.md\0"[..]] {
+        let error = Repository::at(".")
+            .tree_of(listing)
+            .expect_err("the entry names no object");
+
+        assert!(
+            error
+                .to_string()
+                .contains("is not an entry of `git ls-files --stage`"),
+            "{error}"
+        );
+    }
 }
 
 #[test]
@@ -57,7 +101,7 @@ fn an_entry_that_is_not_text_is_reported() {
     // would rename the file quietly, and two different names could collapse
     // into one.
     let error = Repository::at(".")
-        .tree_of(b"good.md\0bad\xff.md\0")
+        .tree_of(b"100644 4b82 0\tgood.md\x00100644 4b82 0\tbad\xff.md\0")
         .expect_err("that is not text");
 
     assert!(error.to_string().contains("not UTF-8"), "{error}");

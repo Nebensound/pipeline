@@ -6,7 +6,7 @@
 use nebensound_declaration::names::{Extension, Reason};
 use nebensound_declaration::path::RelativePath;
 use nebensound_declaration::pattern::{Pattern, PatternError};
-use nebensound_declaration::{Central, Declaration, Ruling};
+use nebensound_declaration::{Central, Declaration, Ruling, Tree};
 
 fn path(value: &str) -> RelativePath {
     RelativePath::new(value).expect("a path")
@@ -104,7 +104,7 @@ fn the_more_specific_entry_wins_and_on_a_tie_the_inclusion() {
     // Excused centrally, nothing said locally.
     let quiet = Declaration::parse("[repo]\n").expect("a declaration");
     assert!(matches!(
-        central.ruling(&quiet, &path("design/logo.png")),
+        central.ruling(&quiet, &path("design/logo.png"), &Tree::default()),
         Ruling::Excluded { .. }
     ));
 
@@ -112,7 +112,7 @@ fn the_more_specific_entry_wins_and_on_a_tie_the_inclusion() {
     let taken_back =
         Declaration::parse("[[include]]\npath = \"*.png\"\n\n[repo]\n").expect("a declaration");
     assert_eq!(
-        central.ruling(&taken_back, &path("design/logo.png")),
+        central.ruling(&taken_back, &path("design/logo.png"), &Tree::default()),
         Ruling::Checked
     );
 
@@ -122,13 +122,16 @@ fn the_more_specific_entry_wins_and_on_a_tie_the_inclusion() {
     )
     .expect("a declaration");
     assert!(matches!(
-        central.ruling(&deeper, &path("design/logo.png")),
+        central.ruling(&deeper, &path("design/logo.png"), &Tree::default()),
         Ruling::Excluded { pattern, reason }
             if pattern.to_string() == "design" && reason.as_str() == "design material"
     ));
 
     // And what nobody names is checked.
-    assert_eq!(central.ruling(&quiet, &path("src/lib.rs")), Ruling::Checked);
+    assert_eq!(
+        central.ruling(&quiet, &path("src/lib.rs"), &Tree::default()),
+        Ruling::Checked
+    );
 }
 
 #[test]
@@ -151,6 +154,27 @@ fn a_repository_may_add_a_pattern_but_not_excuse_one() {
         .is_ok(),
         "centrally, work may be excused"
     );
+}
+
+#[test]
+fn only_the_central_list_may_excuse_a_file_while_it_is_empty() {
+    let refused = Declaration::parse(
+        "[repo]\n\n[[exclude]]\npath = \"keep/.gitkeep\"\nreason = \"a marker\"\n\
+         only-if-empty = true\n",
+    )
+    .expect_err("a repository may not set only-if-empty");
+    let message = refused.to_string();
+    assert!(
+        message.contains("keep/.gitkeep sets only-if-empty"),
+        "{message}"
+    );
+
+    let central = Declaration::parse_central(
+        "[repo]\npipeline = { check = [] }\n\n[[exclude]]\npath = \"**/.gitkeep\"\n\
+         reason = \"a marker\"\nonly-if-empty = true\n",
+    )
+    .expect("centrally, an exclusion may depend on the file being empty");
+    assert!(central.exclude[0].only_if_empty);
 }
 
 #[test]
@@ -280,7 +304,14 @@ const UNCHECKED_TABLE: &[(&str, &str)] = &[
     ("**/Gemfile.lock", LOCKFILE),
     ("**/justfile", COMMANDS),
     ("**/Makefile", COMMANDS),
+    ("**/.gitkeep", MARKER),
+    ("**/.keep", MARKER),
 ];
+
+const MARKER: &str = "an empty marker that keeps a folder";
+
+/// The entries of the table that hold only while the file is empty.
+const ONLY_IF_EMPTY: &[&str] = &["**/.gitkeep", "**/.keep"];
 
 #[test]
 fn what_nobody_checks_is_exactly_the_unchecked_table() {
@@ -302,6 +333,53 @@ fn what_nobody_checks_is_exactly_the_unchecked_table() {
     pinned.sort();
 
     assert_eq!(excused, pinned);
+
+    // An entry that holds only for an empty file excuses less than one that
+    // holds always; the wrong flag on either side changes what is excused.
+    let conditional = central
+        .defaults()
+        .exclude
+        .iter()
+        .filter(|entry| entry.only_if_empty)
+        .map(|entry| entry.path.to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(conditional, ONLY_IF_EMPTY);
+}
+
+#[test]
+fn a_marker_that_keeps_a_folder_is_excused_only_while_empty() {
+    let central = Central::builtin().expect("what is compiled in");
+    let plain = Declaration::parse("[repo]\n").expect("a declaration");
+    let empty = Tree::new([path("assets/.gitkeep"), path("logs/.keep")])
+        .with_empty([path("assets/.gitkeep"), path("logs/.keep")]);
+    let filled = Tree::new([path("assets/.gitkeep"), path("logs/.keep")]);
+
+    for marker in ["assets/.gitkeep", "logs/.keep"] {
+        assert!(
+            matches!(
+                central.ruling(&plain, &path(marker), &empty),
+                Ruling::Excluded { reason, .. } if reason.as_str() == MARKER
+            ),
+            "{marker} is empty"
+        );
+        // With content, or with nothing known about its content, it is a
+        // file like any other.
+        assert_eq!(
+            central.ruling(&plain, &path(marker), &filled),
+            Ruling::Checked,
+            "{marker} holds content"
+        );
+    }
+}
+
+#[test]
+fn a_tree_knows_only_its_own_files_as_empty() {
+    let tree = Tree::new([path("assets/.gitkeep")])
+        .with_empty([path("assets/.gitkeep"), path("elsewhere/.gitkeep")]);
+
+    assert!(tree.is_empty_file(&path("assets/.gitkeep")));
+    assert!(!tree.is_empty_file(&path("elsewhere/.gitkeep")));
+    assert!(!Tree::default().is_empty_file(&path("assets/.gitkeep")));
 }
 
 #[test]
@@ -314,12 +392,12 @@ fn an_ada_specification_is_not_excused_as_a_drawing() {
     let plain = Declaration::parse("[repo]\n").expect("a declaration");
 
     assert!(matches!(
-        central.ruling(&plain, &path("src/buffers.ads")),
+        central.ruling(&plain, &path("src/buffers.ads"), &Tree::default()),
         Ruling::Checked
     ));
     // The neighbours stay excused, so the entry was removed and not the list.
     assert!(matches!(
-        central.ruling(&plain, &path("data/inventory.db")),
+        central.ruling(&plain, &path("data/inventory.db"), &Tree::default()),
         Ruling::Excluded { .. }
     ));
 }

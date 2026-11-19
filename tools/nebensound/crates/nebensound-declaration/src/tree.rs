@@ -11,6 +11,10 @@ use crate::path::RelativePath;
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Tree {
     files: BTreeSet<RelativePath>,
+    /// The files known to be empty. What is not named here may hold content,
+    /// so a tree that is told nothing about content treats every file as
+    /// holding some.
+    empty: BTreeSet<RelativePath>,
 }
 
 impl Tree {
@@ -19,7 +23,25 @@ impl Tree {
     pub fn new(files: impl IntoIterator<Item = RelativePath>) -> Self {
         Self {
             files: files.into_iter().filter(|f| !f.is_root()).collect(),
+            empty: BTreeSet::new(),
         }
+    }
+
+    /// The same tree, told which of its files are empty. A path it does not
+    /// hold as a file is passed over.
+    #[must_use]
+    pub fn with_empty(mut self, empty: impl IntoIterator<Item = RelativePath>) -> Self {
+        self.empty = empty
+            .into_iter()
+            .filter(|file| self.files.contains(file))
+            .collect();
+        self
+    }
+
+    /// Whether this is a file of the tree that is known to be empty.
+    #[must_use]
+    pub fn is_empty_file(&self, path: &RelativePath) -> bool {
+        self.empty.contains(path)
     }
 
     /// Every file, in path order.

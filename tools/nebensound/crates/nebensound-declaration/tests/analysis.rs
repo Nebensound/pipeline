@@ -332,6 +332,18 @@ fn a_language_the_register_knows_nothing_about_reports_rather_than_hides() {
 }
 
 #[test]
+fn an_empty_marker_keeps_a_folder_and_one_with_content_is_a_gap() {
+    let paths = ["README.md", "assets/.gitkeep"];
+    let empty = tree(&paths).with_empty([RelativePath::new("assets/.gitkeep").expect("a path")]);
+
+    let kept = analyse(&declaration("[repo]\n"), &central(), &empty);
+    assert!(kept.findings().is_empty(), "{:?}", kept.findings());
+
+    let filled = run("[repo]\n", &paths);
+    assert_eq!(codes(&filled), ["language-without-check"]);
+}
+
+#[test]
 fn an_exclusion_excuses_a_path_and_has_to_be_used() {
     let excused = run(
         "[repo]\n\n[[exclude]]\npath = \"vendor\"\nreason = \"third-party code, taken as it is\"\n",

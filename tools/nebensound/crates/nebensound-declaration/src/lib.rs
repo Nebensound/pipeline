@@ -64,6 +64,15 @@ pub enum ReadError {
         /// The rejected pattern.
         pattern: String,
     },
+    /// A repository made an exclusion depend on the file being empty.
+    #[error(
+        "{path} sets only-if-empty, which only the central list of what nobody checks may set. \
+         Here an exclusion takes its path out as it stands — leave the field out"
+    )]
+    ConditionalExclusion {
+        /// The path of the rejected entry.
+        path: String,
+    },
 }
 
 impl Declaration {
@@ -72,17 +81,21 @@ impl Declaration {
     /// # Errors
     ///
     /// Returns [`ReadError`] when the TOML does not read, carries a field the
-    /// shape does not have, or writes an exclusion as a pattern.
+    /// shape does not have, writes an exclusion as a pattern, or makes one
+    /// depend on the file being empty.
     pub fn parse(source: &str) -> Result<Self, ReadError> {
         let declaration = Self::parse_central(source)?;
-        if let Some(entry) = declaration
-            .exclude
-            .iter()
-            .find(|entry| entry.path.is_wildcard())
-        {
-            return Err(ReadError::WildcardExclusion {
-                pattern: entry.path.to_string(),
-            });
+        for entry in &declaration.exclude {
+            if entry.path.is_wildcard() {
+                return Err(ReadError::WildcardExclusion {
+                    pattern: entry.path.to_string(),
+                });
+            }
+            if entry.only_if_empty {
+                return Err(ReadError::ConditionalExclusion {
+                    path: entry.path.to_string(),
+                });
+            }
         }
         Ok(declaration)
     }
