@@ -10,6 +10,7 @@ CI: two ways would be two answers to one question.
 tools/nebensound/            the tool — Cargo.toml, src/, tests/
   crates/
     nebensound-declaration/  the library, which can be published on its own
+  rules/                     the pipeline's defaults for Markdownlint and yamllint
 ```
 
 The tool **is** the root of the workspace, not a package among equals. Below
@@ -18,6 +19,12 @@ separately — today exactly one thing: the library that understands the format.
 It deliberately has no input and no output; it is handed a declaration, the
 vocabulary and a list of paths, and answers with a tree. Everything that finds
 that tree and shows it lives up here.
+
+`rules/` holds the defaults that `check-markdown` and `check-yaml` lay a
+repository's own linter configuration over. The blocks read them from there,
+and the tool compiles them in to show how a repository's rules stand to them
+([The rules](#the-rules)), so both speak of the same files, and a change to
+one of them is a change to the tool, which builds it again.
 
 The tool itself is not to be published: whoever needs it is to get it through
 the composite action under `.github/actions/phase0`. A second distribution
@@ -31,7 +38,7 @@ nebensound [-C <directory>] [check | tree | explain <path> | plan | version [--m
 
 | Call                | What it does                                                                                                                                                                                                                                                                                                                        |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `check`             | Runs phase 0 and prints everything: the resolved configuration, the tree, the findings and a summary line with the counts. The default, and what the composite action under `.github/actions/phase0` calls.                                                                                                                         |
+| `check`             | Runs phase 0 and prints everything: the resolved configuration, the rules the repository sets over the pipeline's linter defaults, the tree, the findings and a summary line with the counts. The default, and what the composite action under `.github/actions/phase0` calls.                                                      |
 | `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                                                                |
 | `explain <path>`    | What holds for one path and why: which units contain it, how each of them is released, which checks are in force, how its coverage stands.                                                                                                                                                                                          |
 | `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read.                                                                                                                                                                                                         |
@@ -312,6 +319,38 @@ Printed as one line, in path order. It names every such package of the
 repository, inside a Rust unit or not, so that a path dependency outside the
 workspace is listed as well. A repository with errors gets no list, only a
 sentence and exit code `1`, for the same reason it gets no plan.
+
+## The rules
+
+Markdownlint and yamllint run with a default of the pipeline, which their
+blocks lay a repository's own configuration over rule by rule (see
+[Linter rules](../../README.md#linter-rules)). `check` shows, per check, every
+file that is laid over the default and every rule it sets, with how the rule
+stands to the default:
+
+```text
+Rules
+
+  markdown                                              Markdownlint: the default, with these laid over it
+      .github/.markdownlint-cli2.jsonc                  laid over the default and what lies above it, rule by rule
+          MD041                                         false (the default does not set it)
+  yaml                                                  yamllint: the default, with these laid over it
+      .yamllint.yaml                                    laid over the default rule by rule
+          comments                                      {"require-starting-space":false} (over the default {"min-spaces-from-content":1})
+          line-length                                   "disable" (the same as the default)
+```
+
+A rule the repository sets to what the default already gives it is `the same
+as the default`; any other one stands `over the default`, with the default's
+value, or the default `does not set it`. For yamllint, a rule's options are
+laid over the default's options of that rule, as yamllint does, so writing one
+option of a rule the default sets is a difference only where that option
+differs. Read are, in every folder, the options file and the file of rules only
+that markdownlint-cli2 reads there, and yamllint's configuration at the root. A
+file in JavaScript is named, not read: phase 0 runs no code of the repository.
+What an `extends` names is named, not read. A `.markdownlint.*` file below the
+root is shown `in place of everything above it, the default included`, which
+is how markdownlint-cli2 reads it.
 
 ## Where the file list comes from
 

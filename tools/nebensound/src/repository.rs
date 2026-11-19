@@ -511,7 +511,7 @@ impl Repository {
 
     /// [`Self::read`] as the readers of the tools' settings and the
     /// manifests take it.
-    fn reader(&self) -> impl Fn(&RelativePath) -> Result<String, String> + '_ {
+    pub(crate) fn reader(&self) -> impl Fn(&RelativePath) -> Result<String, String> + '_ {
         |path: &RelativePath| self.read(&path.to_string()).map_err(|e| e.to_string())
     }
 
