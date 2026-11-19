@@ -227,6 +227,19 @@ runs:
 }
 
 #[test]
+fn a_case_is_no_pull_request() {
+    // As on a push to `main`: phase 0 reads the pull request's number to
+    // build the plan for its merge, and finds none.
+    let scene = Scene::new();
+    let (outcome, out) = ok(scene.run(
+        "runs:\n  using: composite\n  steps:\n    - shell: bash\n      env:\n        NUMBER: ${{ github.event.pull_request.number }}\n      run: echo \"[$NUMBER] [${{ github.event.pull_request.title }}]\"\n",
+        &[],
+    ));
+    assert!(outcome.success, "{out}");
+    assert_eq!(outcome.log, ["[] []"]);
+}
+
+#[test]
 fn a_step_runs_in_its_working_directory() {
     let scene = Scene::new();
     fs::create_dir_all(scene.workspace().join("sub/dir")).unwrap();
