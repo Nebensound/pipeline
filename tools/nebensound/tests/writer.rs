@@ -286,21 +286,37 @@ fn packages_that_depend_on_each_other_package_together() {
 #[test]
 fn a_workspace_of_its_own_below_the_root_gets_its_lockfile_in_line() {
     // The shape `cargo fuzz init` leaves: a folder inside the package with a
-    // workspace and a lockfile of its own, and a path dependency back up.
+    // workspace and a lockfile of its own, and a path dependency back up. The
+    // package in turn takes `lib` from the workspace above it, so the fuzz
+    // workspace locks `lib` too, two steps away.
     let git = Git::new();
     git.write(&[
         (
             ".nebensound/repo.toml",
-            "[repo]\npipeline = \"none\"\n\n[component.thing]\npath = \"thing\"\npipeline \
-             = { version = [\"cargo\"], check = [\"rust\"] }\n",
+            "[repo]\npipeline = \"none\"\n\n[component.lib]\npath = \"lib\"\npipeline = { \
+             version = [\"cargo\"], check = [\"rust\"] }\n\n[component.thing]\npath = \
+             \"thing\"\npipeline = { version = [\"cargo\"], check = [\"rust\"] }\n",
         ),
+        (
+            "Cargo.toml",
+            "[workspace]\nmembers = [\"lib\", \"thing\"]\nresolver = \"3\"\n\n\
+             [workspace.dependencies]\nlib = { path = \"lib\" }\n",
+        ),
+        (
+            "Cargo.lock",
+            "version = 4\n\n[[package]]\nname = \"lib\"\nversion = \"0.0.0\"\n\n\
+             [[package]]\nname = \"thing\"\nversion = \"0.0.0\"\ndependencies = [\n \
+             \"lib\",\n]\n",
+        ),
+        (
+            "lib/Cargo.toml",
+            "[package]\nname = \"lib\"\nedition = \"2024\"\n",
+        ),
+        ("lib/src/lib.rs", "//! A library.\n"),
         (
             "thing/Cargo.toml",
-            "[package]\nname = \"thing\"\nedition = \"2024\"\n",
-        ),
-        (
-            "thing/Cargo.lock",
-            "version = 4\n\n[[package]]\nname = \"thing\"\nversion = \"0.0.0\"\n",
+            "[package]\nname = \"thing\"\nedition = \"2024\"\n\n[dependencies]\nlib.workspace \
+             = true\n",
         ),
         ("thing/src/lib.rs", "//! A thing.\n"),
         (
@@ -310,9 +326,10 @@ fn a_workspace_of_its_own_below_the_root_gets_its_lockfile_in_line() {
         ),
         (
             "thing/fuzz/Cargo.lock",
-            "version = 4\n\n[[package]]\nname = \"thing\"\nversion = \"0.0.0\"\n\n\
-             [[package]]\nname = \"thing-fuzz\"\nversion = \"0.0.0\"\ndependencies = [\n \
-             \"thing\",\n]\n",
+            "version = 4\n\n[[package]]\nname = \"lib\"\nversion = \"0.0.0\"\n\n\
+             [[package]]\nname = \"thing\"\nversion = \"0.0.0\"\ndependencies = [\n \
+             \"lib\",\n]\n\n[[package]]\nname = \"thing-fuzz\"\nversion = \
+             \"0.0.0\"\ndependencies = [\n \"thing\",\n]\n",
         ),
         ("thing/fuzz/src/main.rs", "//! Fuzzing.\n\nfn main() {}\n"),
     ]);
@@ -322,11 +339,81 @@ fn a_workspace_of_its_own_below_the_root_gets_its_lockfile_in_line() {
 
     assert_eq!(code, 0, "{text}");
     assert!(text.contains("Wrote thing/fuzz/Cargo.lock."), "{text}");
+    let fuzz = read(git.path(), "thing/fuzz/Cargo.lock");
     assert!(
-        read(git.path(), "thing/fuzz/Cargo.lock")
-            .contains("name = \"thing\"\nversion = \"0.0.1\"\n"),
+        fuzz.contains("name = \"lib\"\nversion = \"0.0.1\"\n"),
+        "{fuzz}"
     );
-    cargo(&git.path().join("thing"), &["build", "--locked"]);
+    assert!(
+        fuzz.contains("name = \"thing\"\nversion = \"0.0.1\"\n"),
+        "{fuzz}"
+    );
+    cargo(git.path(), &["build", "--locked", "--workspace"]);
+    cargo(&git.path().join("thing/fuzz"), &["build", "--locked"]);
+}
+
+#[test]
+fn a_workspace_reached_only_through_an_untouched_package_gets_its_lockfile_in_line() {
+    // Only `lib` carries a version: the fuzz workspace of `thing`, which does
+    // not, still locks `lib` and so has its entry raised.
+    let git = Git::new();
+    git.write(&[
+        (
+            ".nebensound/repo.toml",
+            "[repo]\npipeline = \"none\"\n\n[component.lib]\npath = \"lib\"\npipeline = { \
+             version = [\"cargo\"], check = [\"rust\"] }\n\n[component.thing]\npath = \
+             \"thing\"\npipeline = { check = [\"rust\"] }\n",
+        ),
+        (
+            "Cargo.toml",
+            "[workspace]\nmembers = [\"lib\", \"thing\"]\nresolver = \"3\"\n",
+        ),
+        (
+            "Cargo.lock",
+            "version = 4\n\n[[package]]\nname = \"lib\"\nversion = \"0.0.0\"\n\n\
+             [[package]]\nname = \"thing\"\nversion = \"0.0.0\"\ndependencies = [\n \
+             \"lib\",\n]\n",
+        ),
+        (
+            "lib/Cargo.toml",
+            "[package]\nname = \"lib\"\nedition = \"2024\"\n",
+        ),
+        ("lib/src/lib.rs", "//! A library.\n"),
+        (
+            "thing/Cargo.toml",
+            "[package]\nname = \"thing\"\nedition = \"2024\"\n\n[dependencies]\nlib = { path \
+             = \"../lib\" }\n",
+        ),
+        ("thing/src/lib.rs", "//! A thing.\n"),
+        (
+            "thing/fuzz/Cargo.toml",
+            "[package]\nname = \"thing-fuzz\"\nedition = \"2024\"\npublish = false\n\n\
+             [dependencies]\nthing = { path = \"..\" }\n\n[workspace]\nmembers = [\".\"]\n",
+        ),
+        (
+            "thing/fuzz/Cargo.lock",
+            "version = 4\n\n[[package]]\nname = \"lib\"\nversion = \"0.0.0\"\n\n\
+             [[package]]\nname = \"thing\"\nversion = \"0.0.0\"\ndependencies = [\n \
+             \"lib\",\n]\n\n[[package]]\nname = \"thing-fuzz\"\nversion = \
+             \"0.0.0\"\ndependencies = [\n \"thing\",\n]\n",
+        ),
+        ("thing/fuzz/src/main.rs", "//! Fuzzing.\n\nfn main() {}\n"),
+    ]);
+    git.commit("feat: start");
+
+    let (text, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
+
+    assert_eq!(code, 0, "{text}");
+    let fuzz = read(git.path(), "thing/fuzz/Cargo.lock");
+    assert!(
+        fuzz.contains("name = \"lib\"\nversion = \"0.0.1\"\n"),
+        "{fuzz}"
+    );
+    assert!(
+        fuzz.contains("name = \"thing\"\nversion = \"0.0.0\"\n"),
+        "{fuzz}"
+    );
+    cargo(git.path(), &["build", "--locked", "--workspace"]);
     cargo(&git.path().join("thing/fuzz"), &["build", "--locked"]);
 }
 

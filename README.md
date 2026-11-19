@@ -251,8 +251,9 @@ writer `cargo`:
 - The workspace's `Cargo.lock` is brought in line: the package's own entry, and
   every entry that names it with a version. No other entry changes, so
   `cargo build --locked` passes. The same goes for the `Cargo.lock` of a
-  workspace of its own below it that depends on the package by path, such as
-  the `fuzz/` folder `cargo fuzz init` creates.
+  workspace of its own below it that reaches the package through path
+  dependencies, directly or through another package, such as the `fuzz/`
+  folder `cargo fuzz init` creates.
 
 Every change keeps the rest of the file as it is written, and a second call
 changes nothing. A unit the commit does not touch carries no version and gets

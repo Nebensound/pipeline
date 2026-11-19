@@ -15,8 +15,9 @@
 //! - the package's entry in the workspace's `Cargo.lock` gets that version,
 //!   and so does every entry that names it together with a version, so that
 //!   `--locked` holds. No other entry changes. The same goes for the
-//!   `Cargo.lock` of every other workspace a dependent belongs to, such as a
-//!   `fuzz/` folder with a `[workspace]` of its own.
+//!   `Cargo.lock` of every other workspace that reaches the package through
+//!   path dependencies, directly or through other packages, such as a `fuzz/`
+//!   folder with a `[workspace]` of its own.
 //!
 //! The workspace is found the way Cargo finds it: the folder the manifest
 //! names in `package.workspace`, else the nearest folder at or above the
@@ -205,17 +206,41 @@ pub fn write(
             "{}: the package {name} at {} gets {version} (workspace root: {root}).",
             order.unit, order.path
         ));
-        let mut workspaces = BTreeSet::from([root.clone()]);
+        let mut dependents = Vec::new();
         for dependent in manifests.iter().filter(|manifest| root.contains(manifest)) {
             let place = folder(dependent);
             let Some(document) = files.lenient(dependent) else {
                 continue;
             };
-            if require(document, &place, &order.path, &version) {
-                // A workspace of its own below the root, such as the `fuzz/`
-                // folder `cargo fuzz init` creates, locks the package too.
-                let own = own_root(document, &place);
-                workspaces.insert(own.unwrap_or_else(|| files.workspace_above(&place)));
+            let Links {
+                mut paths,
+                inherited,
+            } = require(document, &place, &order.path, &version);
+            let own = own_root(document, &place);
+            let workspace = own.unwrap_or_else(|| files.workspace_above(&place));
+            paths.extend(
+                files
+                    .lenient(&workspace.join("Cargo.toml"))
+                    .map(|manifest| shared(manifest, &workspace, &inherited))
+                    .unwrap_or_default(),
+            );
+            dependents.push((place, workspace, paths));
+        }
+        // Every workspace that reaches the package through path dependencies,
+        // however many steps away, locks it. Such as the `fuzz/` folder `cargo
+        // fuzz init` creates, with its own workspace and a path back up to a
+        // package that depends on this one.
+        let mut workspaces = BTreeSet::from([root.clone()]);
+        let mut reached = BTreeSet::from([order.path.clone()]);
+        loop {
+            let before = reached.len();
+            for (place, workspace, paths) in &dependents {
+                if !paths.is_disjoint(&reached) && reached.insert(place.clone()) {
+                    workspaces.insert(workspace.clone());
+                }
+            }
+            if reached.len() == before {
+                break;
             }
         }
         for workspace in workspaces {
@@ -251,8 +276,17 @@ fn package_version(manifest: &mut DocumentMut, version: &str) -> Option<String> 
     Some(name)
 }
 
+/// Where the dependencies of a manifest lead.
+struct Links {
+    /// The folders its path dependencies name.
+    paths: BTreeSet<RelativePath>,
+    /// The names of the dependencies it takes from its workspace with
+    /// `workspace = true`.
+    inherited: Vec<String>,
+}
+
 /// Gives every path dependency on `target` the version as its requirement,
-/// and says whether the manifest has one.
+/// and returns where the manifest's dependencies lead.
 ///
 /// `folder` is where the manifest lies, which its paths are relative to.
 fn require(
@@ -260,7 +294,7 @@ fn require(
     folder: &RelativePath,
     target: &RelativePath,
     version: &str,
-) -> bool {
+) -> Links {
     let mut tables: Vec<&mut dyn TableLike> = Vec::new();
     let tables_in = manifest
         .iter_mut()
@@ -295,23 +329,55 @@ fn require(
             _ => {}
         }
     }
-    let mut found = false;
+    let mut links = Links {
+        paths: BTreeSet::new(),
+        inherited: Vec::new(),
+    };
     for table in tables {
-        for (_, dependency) in table.iter_mut() {
-            if let Some(dependency) = dependency.as_table_like_mut()
-                && dependency
-                    .get("path")
-                    .and_then(Item::as_str)
-                    .and_then(|path| resolve(folder, path))
-                    .as_ref()
-                    == Some(target)
-            {
-                set(dependency, "version", version);
-                found = true;
+        for (name, dependency) in table.iter_mut() {
+            let Some(dependency) = dependency.as_table_like_mut() else {
+                continue;
+            };
+            if dependency.get("workspace").and_then(Item::as_bool) == Some(true) {
+                links.inherited.push(name.get().to_owned());
             }
+            let Some(path) = dependency
+                .get("path")
+                .and_then(Item::as_str)
+                .and_then(|path| resolve(folder, path))
+            else {
+                continue;
+            };
+            if &path == target {
+                set(dependency, "version", version);
+            }
+            links.paths.insert(path);
         }
     }
-    found
+    links
+}
+
+/// The folders the `[workspace.dependencies]` of a workspace's manifest name
+/// by path for the dependencies `inherited`.
+fn shared(
+    manifest: &DocumentMut,
+    workspace: &RelativePath,
+    inherited: &[String],
+) -> Vec<RelativePath> {
+    let dependencies = manifest
+        .get("workspace")
+        .and_then(|table| table.get("dependencies"))
+        .and_then(Item::as_table_like);
+    inherited
+        .iter()
+        .filter_map(|name| {
+            dependencies
+                .and_then(|dependencies| dependencies.get(name))
+                .and_then(|dependency| dependency.get("path"))
+                .and_then(Item::as_str)
+        })
+        .filter_map(|written| resolve(workspace, written))
+        .collect()
 }
 
 /// Gives the package's entry in a lockfile the version, and every entry that
