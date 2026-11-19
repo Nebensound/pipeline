@@ -16,6 +16,7 @@ pub mod model;
 pub mod names;
 pub mod path;
 pub mod pattern;
+pub mod programs;
 pub mod register;
 pub mod resolve;
 #[cfg(feature = "json-schema")]
