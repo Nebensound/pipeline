@@ -164,8 +164,9 @@ struct Wanted<'a> {
 struct Needed<'a> {
     name: &'a RuntimeName,
     runtime: &'a Runtime,
-    /// The highest of the lowest versions the programs on it run on.
-    minimum: Option<&'a str>,
+    /// The highest of the lowest versions the programs on it run on, with
+    /// the first program that needs it.
+    minimum: Option<(&'a ProgramName, &'a str)>,
     found: Found,
 }
 
@@ -288,13 +289,17 @@ impl<'a> Setup<'a, '_> {
                     programs
                         .iter()
                         .filter(|wanted| wanted.runtime.is_some_and(|(on, _)| on == name))
-                        .filter_map(|wanted| wanted.program.runtime_minimum.as_deref()),
+                        .filter_map(|wanted| {
+                            let minimum = wanted.program.runtime_minimum.as_deref();
+                            minimum.map(|minimum| (wanted.name, minimum))
+                        }),
                 );
+                let version = minimum.map(|(_, version)| version);
                 runtimes.push(Needed {
                     name,
                     runtime,
                     minimum,
-                    found: find::runtime(name, runtime, minimum, self.env),
+                    found: find::runtime(name, runtime, version, self.env),
                 });
             }
         }
@@ -335,12 +340,12 @@ impl<'a> Setup<'a, '_> {
                 needed.runtime.title,
                 list(&users)
             );
-            if let (Found::TooOld { path, version }, Some(minimum)) =
+            if let (Found::TooOld { path, version }, Some((program, minimum))) =
                 (&needed.found, needed.minimum)
             {
                 let _ = writeln!(
                     text,
-                    "    The computer has {version} ({}), and they need {minimum} or later.",
+                    "    The computer has {version} ({}); {program} needs {minimum} or later.",
                     path.display()
                 );
             }
@@ -436,9 +441,14 @@ impl<'a> Setup<'a, '_> {
         let minimum = wanted.program.runtime_minimum.as_deref();
         let runtime_executable = match find::runtime(runtime, definition, minimum, self.env) {
             Found::Pinned(path) | Found::Computer { path, .. } => path,
-            Found::TooOld { .. } | Found::Missing => {
-                return Err(format!("it needs {runtime}, which is missing"));
+            // Only a minimum makes a runtime too old.
+            Found::TooOld { version, .. } => {
+                return Err(format!(
+                    "it needs {runtime} {} or later, and the computer's is {version}",
+                    minimum.unwrap_or_default()
+                ));
             }
+            Found::Missing => return Err(format!("it needs {runtime}, which is missing")),
         };
         let file = fetch::download(download, staging, self.env)?;
         fresh(dir)?;
@@ -486,8 +496,10 @@ impl<'a> Setup<'a, '_> {
                     &mut differs,
                 );
                 let mut line = state(&needed.found, &needed.runtime.version);
-                if let (Found::TooOld { .. }, Some(minimum)) = (&needed.found, needed.minimum) {
-                    let _ = write!(line, ": the programs on it need {minimum} or later");
+                if let (Found::TooOld { .. }, Some((program, minimum))) =
+                    (&needed.found, needed.minimum)
+                {
+                    let _ = write!(line, ": {program} needs {minimum} or later");
                 }
                 let _ = writeln!(text, "  {head}: {line}");
             }
@@ -533,9 +545,14 @@ fn complete(survey: &Survey) -> bool {
         .all(|found| !found.missing())
 }
 
-/// The latest of these versions, if there is any.
-fn highest<'v>(versions: impl Iterator<Item = &'v str>) -> Option<&'v str> {
-    versions.reduce(|kept, next| if at_least(kept, next) { kept } else { next })
+/// The latest of these versions, each with what needs it, if there is any;
+/// of equal ones the first.
+fn highest<'v, T>(versions: impl Iterator<Item = (T, &'v str)>) -> Option<(T, &'v str)> {
+    versions.reduce(
+        |kept, next| {
+            if at_least(kept.1, next.1) { kept } else { next }
+        },
+    )
 }
 
 /// What was found, in words.

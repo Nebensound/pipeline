@@ -1028,8 +1028,8 @@ fn a_runtime_too_old_for_a_program_on_it_counts_as_missing() {
     assert_eq!(code, 1, "{text}");
     assert!(
         text.contains(&format!(
-            "Runtimes\n  rt 4.5.6: on the computer, {}, version 4.1.0, too old: the programs on \
-             it need 4.2.0 or later\n",
+            "Runtimes\n  rt 4.5.6: on the computer, {}, version 4.1.0, too old: late needs \
+             4.2.0 or later\n",
             old.display()
         )),
         "{text}"
@@ -1054,8 +1054,8 @@ fn a_runtime_too_old_for_a_program_on_it_counts_as_missing() {
         assert!(
             text.contains(&format!(
                 "These runtimes are missing, and programs need them:\n  rt 4.5.6 (The rt \
-                 runtime), for early, late, middle: file://{}\n    The computer has 4.1.0 ({}), \
-                 and they need 4.2.0 or later.\nThere is no terminal to ask in",
+                 runtime), for early, late, middle: file://{}\n    The computer has 4.1.0 ({}); \
+                 late needs 4.2.0 or later.\nThere is no terminal to ask in",
                 fixture.path("server/rt.tar.gz").display(),
                 old.display()
             )),
@@ -1164,7 +1164,10 @@ fn a_package_on_a_runtime_too_old_and_not_installed_is_not_installed() {
         "{text}"
     );
     assert!(
-        text.contains("late 7.8.9 was not installed: it needs rt, which is missing\n"),
+        text.contains(
+            "late 7.8.9 was not installed: it needs rt 4.2.0 or later, and the computer's is \
+             4.1.0\n"
+        ),
         "{text}"
     );
     // `early` runs on 4.1.0, so it was installed with the computer's.
