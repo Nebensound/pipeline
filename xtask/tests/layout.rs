@@ -70,11 +70,31 @@ fn workflow(written: &str, steps: &str) -> String {
 
 /// The same with a list of written version writers.
 fn workflow_with(written: &str, writers: &str, steps: &str) -> String {
+    workflow_all(written, writers, "[]", steps)
+}
+
+/// The same with a list of written builds.
+fn workflow_all(written: &str, writers: &str, builds: &str, steps: &str) -> String {
+    workflow_jobs(written, writers, builds, steps, "")
+}
+
+/// The same with the steps of the build job, below its `Not written yet`.
+fn workflow_jobs(
+    written: &str,
+    writers: &str,
+    builds: &str,
+    steps: &str,
+    building: &str,
+) -> String {
     format!(
-        "jobs:\n  declare:\n    steps:\n      - uses: $/.github/actions/tool\n      - uses: actions/checkout@v7\n      - run: echo\n  units:\n    steps:\n      - name: Not written yet\n        env:\n          WRITTEN: '{written}'\n{}      - name: Version writers not written yet\n        env:\n          WRITTEN: '{writers}'\n",
-        support::indent(steps, 6)
+        "jobs:\n  declare:\n    steps:\n      - uses: $/.github/actions/tool\n      - uses: actions/checkout@v7\n      - run: echo\n  units:\n    strategy:\n      matrix:\n        include: ${{{{ fromJSON(needs.declare.outputs.units) }}}}\n    steps:\n      - name: Not written yet\n        env:\n          WRITTEN_CHECKS: '{written}'\n{}      - name: Version writers not written yet\n        env:\n          WRITTEN: '{writers}'\n  builds:\n    strategy:\n      matrix:\n        include: ${{{{ fromJSON(needs.declare.outputs.builds) }}}}\n    steps:\n      - name: Not written yet\n        env:\n          WRITTEN_BUILDS: '{builds}'\n{}",
+        support::indent(steps, 6),
+        support::indent(building, 6)
     )
 }
+
+/// What a step that hands a check block other keys or inputs is told.
+const CHECK_FORM: &str = "other keys than `if`, `name`, `uses`, `with`, or that hands it other than `working-directory: ${{ matrix.path }}`, or `plan: ${{ needs.declare.outputs.plan }}` and `working-directory: ${{ matrix.path }}`";
 
 const AGREEING_STEPS: &str = "- name: demo\n  if: ${{ !cancelled() && contains(matrix.checks, 'demo') }}\n  uses: $/.github/actions/check-demo\n  with:\n    working-directory: ${{ matrix.path }}\n- uses: $/.github/actions/phase0\n  id: phase0\n";
 
@@ -158,9 +178,9 @@ fn a_step_that_silences_its_check_or_moves_it_is_named() {
         .unwrap();
         assert_eq!(
             found.problems,
-            [
-                "nebensound.yml calls `check-demo` from a step with other keys than `if`, `name`, `uses`, `with`, or that hands it other than `working-directory: ${{ matrix.path }}`, and `plan: ${{ needs.declare.outputs.plan }}` beside it at most"
-            ],
+            [format!(
+                "nebensound.yml calls `check-demo` from a step with {CHECK_FORM}"
+            )],
             "{rest}"
         );
     }
@@ -182,6 +202,14 @@ fn a_check_may_take_the_plan_of_phase_0_beside_its_path() {
     assert_eq!(found.problems, Vec::<String>::new());
 }
 
+/// The step that calls the version writer `cargo`, as `nebensound.yml`
+/// documents it.
+const WRITER_STEP: &str = "- name: cargo\n  if: ${{ contains(matrix.writers, 'cargo') }}\n  uses: $/.github/actions/version-cargo\n  with:\n    plan: ${{ needs.declare.outputs.plan }}\n";
+
+/// The step that calls the build `cargo-package`, as `nebensound.yml`
+/// documents it.
+const BUILD_STEP: &str = "- name: cargo-package\n  if: ${{ matrix.build == 'cargo-package' }}\n  uses: $/.github/actions/build-cargo-package\n  with:\n    working-directory: ${{ matrix.path }}\n";
+
 #[test]
 fn a_version_writer_is_held_to_its_list_and_its_cases() {
     let blocks = |cases: Vec<Case>| {
@@ -194,7 +222,13 @@ fn a_version_writer_is_held_to_its_list_and_its_cases() {
     };
     let found = layout::compare(
         REGISTER,
-        &workflow_with(r#"["demo"]"#, r#"["cargo"]"#, AGREEING_STEPS),
+        &workflow_jobs(
+            r#"["demo"]"#,
+            r#"["cargo"]"#,
+            "[]",
+            AGREEING_STEPS,
+            WRITER_STEP,
+        ),
         &blocks(both()),
     )
     .unwrap();
@@ -210,6 +244,7 @@ fn a_version_writer_is_held_to_its_list_and_its_cases() {
     assert_eq!(
         found.problems,
         [
+            "`version-cargo` is never called from nebensound.yml",
             "`version-cargo` exists, but `Version writers not written yet` still fails for `cargo`",
             "`version-cargo` has no failing test case under tests/fail/",
         ]
@@ -217,7 +252,13 @@ fn a_version_writer_is_held_to_its_list_and_its_cases() {
 
     let found = layout::compare(
         REGISTER,
-        &workflow_with(r#"["demo"]"#, r#"["cargo", "ghost"]"#, AGREEING_STEPS),
+        &workflow_jobs(
+            r#"["demo"]"#,
+            r#"["cargo", "ghost"]"#,
+            "[]",
+            AGREEING_STEPS,
+            WRITER_STEP,
+        ),
         &blocks(both()),
     )
     .unwrap();
@@ -228,13 +269,328 @@ fn a_version_writer_is_held_to_its_list_and_its_cases() {
 }
 
 #[test]
+fn a_version_writer_is_called_only_in_its_form() {
+    for step in [
+        // Switched on the build, or with the check's own condition.
+        WRITER_STEP.replace(
+            "contains(matrix.writers, 'cargo')",
+            "matrix.build == 'cargo'",
+        ),
+        WRITER_STEP.replace("${{ contains", "${{ !cancelled() && contains"),
+        WRITER_STEP.replace("name: cargo", "name: write"),
+    ] {
+        let found = layout::compare(
+            REGISTER,
+            &workflow_jobs(r#"["demo"]"#, r#"["cargo"]"#, "[]", AGREEING_STEPS, &step),
+            &[
+                dir("check-demo", true, Ok(both())),
+                dir("phase0", true, Ok(Vec::new())),
+                dir("tool", true, Ok(Vec::new())),
+                dir("version-cargo", true, Ok(both())),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            found.problems,
+            [
+                "nebensound.yml calls `version-cargo` from a step that is not named `cargo` and switched on it with `${{ contains(matrix.writers, 'cargo') }}`"
+            ],
+            "{step}"
+        );
+    }
+    for step in [
+        // The path instead of the plan, or both.
+        WRITER_STEP.replace(
+            "plan: ${{ needs.declare.outputs.plan }}",
+            "working-directory: ${{ matrix.path }}",
+        ),
+        format!("{WRITER_STEP}    working-directory: ${{{{ matrix.path }}}}\n"),
+        format!("{WRITER_STEP}  continue-on-error: true\n"),
+    ] {
+        let found = layout::compare(
+            REGISTER,
+            &workflow_jobs(r#"["demo"]"#, r#"["cargo"]"#, "[]", AGREEING_STEPS, &step),
+            &[
+                dir("check-demo", true, Ok(both())),
+                dir("phase0", true, Ok(Vec::new())),
+                dir("tool", true, Ok(Vec::new())),
+                dir("version-cargo", true, Ok(both())),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            found.problems,
+            [
+                "nebensound.yml calls `version-cargo` from a step with other keys than `if`, `name`, `uses`, `with`, or that hands it other than `plan: ${{ needs.declare.outputs.plan }}`"
+            ],
+            "{step}"
+        );
+    }
+}
+
+#[test]
+fn a_build_is_held_to_its_list_its_form_and_its_cases() {
+    let blocks = |cases: Vec<Case>| {
+        vec![
+            dir("build-cargo-package", true, Ok(cases)),
+            dir("check-demo", true, Ok(both())),
+            dir("phase0", true, Ok(Vec::new())),
+            dir("tool", true, Ok(Vec::new())),
+        ]
+    };
+    let found = layout::compare(
+        REGISTER,
+        &workflow_jobs(
+            r#"["demo"]"#,
+            "[]",
+            r#"["cargo-package"]"#,
+            AGREEING_STEPS,
+            BUILD_STEP,
+        ),
+        &blocks(both()),
+    )
+    .unwrap();
+    assert_eq!(found.problems, Vec::<String>::new());
+    assert_eq!(found.blocks, ["build-cargo-package", "check-demo"]);
+
+    let found = layout::compare(
+        REGISTER,
+        &workflow_all(r#"["demo"]"#, "[]", r#"["ghost"]"#, AGREEING_STEPS),
+        &blocks(vec![case(Expect::Fail(vec!["x".to_owned()]))]),
+    )
+    .unwrap();
+    assert_eq!(
+        found.problems,
+        [
+            "`build-cargo-package` is never called from nebensound.yml",
+            "`build-cargo-package` exists, but `Not written yet` still fails for `cargo-package`",
+            "`build-cargo-package` has no passing test case under tests/pass/",
+            "`Not written yet` counts the build `ghost` as written, but it has no block",
+        ]
+    );
+
+    for (step, problem) in [
+        // A build that runs after a step that failed, or switched on another.
+        (
+            BUILD_STEP.replace("${{ matrix.build", "${{ !cancelled() && matrix.build"),
+            "a step that is not named `cargo-package` and switched on it with `${{ matrix.build == 'cargo-package' }}`",
+        ),
+        (
+            BUILD_STEP.replace("== 'cargo-package'", "!= ''"),
+            "a step that is not named `cargo-package` and switched on it with `${{ matrix.build == 'cargo-package' }}`",
+        ),
+        // The plan beside the path, or the root instead of the unit.
+        (
+            format!("{BUILD_STEP}    plan: ${{{{ needs.declare.outputs.plan }}}}\n"),
+            "a step with other keys than `if`, `name`, `uses`, `with`, or that hands it other than `working-directory: ${{ matrix.path }}`",
+        ),
+        (
+            BUILD_STEP.replace("${{ matrix.path }}", "."),
+            "a step with other keys than `if`, `name`, `uses`, `with`, or that hands it other than `working-directory: ${{ matrix.path }}`",
+        ),
+    ] {
+        let found = layout::compare(
+            REGISTER,
+            &workflow_jobs(
+                r#"["demo"]"#,
+                "[]",
+                r#"["cargo-package"]"#,
+                AGREEING_STEPS,
+                &step,
+            ),
+            &blocks(both()),
+        )
+        .unwrap();
+        assert_eq!(
+            found.problems,
+            [format!(
+                "nebensound.yml calls `build-cargo-package` from {problem}"
+            )],
+            "{step}"
+        );
+    }
+}
+
+/// The blocks of a check, a version writer and a build, each with its cases.
+fn every_kind() -> Vec<Directory> {
+    vec![
+        dir("build-cargo-package", true, Ok(both())),
+        dir("check-demo", true, Ok(both())),
+        dir("phase0", true, Ok(Vec::new())),
+        dir("tool", true, Ok(Vec::new())),
+        dir("version-cargo", true, Ok(both())),
+    ]
+}
+
+#[test]
+fn a_writer_and_a_build_in_their_job_and_order_find_nothing() {
+    let found = layout::compare(
+        REGISTER,
+        &workflow_jobs(
+            r#"["demo"]"#,
+            r#"["cargo"]"#,
+            r#"["cargo-package"]"#,
+            AGREEING_STEPS,
+            &format!("{WRITER_STEP}{BUILD_STEP}"),
+        ),
+        &every_kind(),
+    )
+    .unwrap();
+    assert_eq!(found.problems, Vec::<String>::new());
+}
+
+#[test]
+fn a_version_writer_below_a_build_is_named() {
+    // The build would package the manifest Git holds, not the version of the
+    // run.
+    let found = layout::compare(
+        REGISTER,
+        &workflow_jobs(
+            r#"["demo"]"#,
+            r#"["cargo"]"#,
+            r#"["cargo-package"]"#,
+            AGREEING_STEPS,
+            &format!("{BUILD_STEP}{WRITER_STEP}"),
+        ),
+        &every_kind(),
+    )
+    .unwrap();
+    assert_eq!(
+        found.problems,
+        [
+            "nebensound.yml calls `version-cargo` below `build-cargo-package` in the job `builds`: every version writer stands before every build"
+        ]
+    );
+}
+
+#[test]
+fn a_block_called_from_the_job_of_another_kind_is_named() {
+    let units = "${{ fromJSON(needs.declare.outputs.units) }}";
+    let builds = "${{ fromJSON(needs.declare.outputs.builds) }}";
+    for (checks, building, problems) in [
+        // A copy of the build in the check job: it would build in every check
+        // job, before Check passed and without any writer. Above the writer,
+        // but in another job, so no order is broken.
+        (
+            format!("{AGREEING_STEPS}{BUILD_STEP}"),
+            format!("{WRITER_STEP}{BUILD_STEP}"),
+            vec![format!(
+                "nebensound.yml calls `build-cargo-package` from a job whose matrix is not `{builds}`"
+            )],
+        ),
+        // A version writer in the check job only.
+        (
+            format!("{AGREEING_STEPS}{WRITER_STEP}"),
+            BUILD_STEP.to_owned(),
+            vec![format!(
+                "nebensound.yml calls `version-cargo` from a job whose matrix is not `{builds}`"
+            )],
+        ),
+        // A check in the build job.
+        (
+            "- uses: $/.github/actions/phase0\n".to_owned(),
+            format!(
+                "{}{WRITER_STEP}{BUILD_STEP}",
+                AGREEING_STEPS.replace("- uses: $/.github/actions/phase0\n  id: phase0\n", "")
+            ),
+            vec![format!(
+                "nebensound.yml calls `check-demo` from a job whose matrix is not `{units}`"
+            )],
+        ),
+    ] {
+        let found = layout::compare(
+            REGISTER,
+            &workflow_jobs(
+                r#"["demo"]"#,
+                r#"["cargo"]"#,
+                r#"["cargo-package"]"#,
+                &checks,
+                &building,
+            ),
+            &every_kind(),
+        )
+        .unwrap();
+        assert_eq!(found.problems, problems, "{checks}\n{building}");
+    }
+
+    // A job without a matrix, or one that is no text.
+    for matrix in ["", "    strategy:\n      matrix:\n        include: [1]\n"] {
+        let workflow = format!(
+            "jobs:\n  units:\n    strategy:\n      matrix:\n        include: {units}\n    steps:\n      - name: Not written yet\n        env:\n          WRITTEN_CHECKS: '[]'\n      - name: Version writers not written yet\n        env:\n          WRITTEN: '[\"cargo\"]'\n  builds:\n{matrix}    steps:\n      - name: Not written yet\n        env:\n          WRITTEN_BUILDS: '[]'\n{}",
+            support::indent(WRITER_STEP, 6)
+        );
+        let found = layout::compare(
+            REGISTER,
+            &workflow,
+            &[dir("version-cargo", true, Ok(both()))],
+        )
+        .unwrap();
+        assert_eq!(
+            found.problems,
+            [
+                format!(
+                    "nebensound.yml lists the written builds in `Not written yet` of a job whose matrix is not `{builds}`: the units that run the builds would not fail for one without a block"
+                ),
+                format!(
+                    "nebensound.yml calls `version-cargo` from a job whose matrix is not `{builds}`"
+                ),
+            ],
+            "{matrix}"
+        );
+    }
+}
+
+#[test]
+fn a_list_of_written_blocks_outside_the_job_of_its_kind_is_named() {
+    let agreeing = workflow_jobs(
+        r#"["demo"]"#,
+        r#"["cargo"]"#,
+        r#"["cargo-package"]"#,
+        AGREEING_STEPS,
+        &format!("{WRITER_STEP}{BUILD_STEP}"),
+    );
+    let step = "      - name: Not written yet\n        env:\n";
+    let checks = "          WRITTEN_CHECKS: '[\"demo\"]'\n";
+    let builds = "          WRITTEN_BUILDS: '[\"cargo-package\"]'\n";
+    for (workflow, what, job) in [
+        // The written builds in the step of the check job, and the build job
+        // without its own: a build without a block would pass there.
+        (
+            agreeing
+                .replace(&format!("{step}{builds}"), "")
+                .replace(checks, &format!("{checks}{builds}")),
+            "builds",
+            "${{ fromJSON(needs.declare.outputs.builds) }}",
+        ),
+        // The written checks in the step of the build job, and the check job
+        // without its own.
+        (
+            agreeing
+                .replace(&format!("{step}{checks}"), "")
+                .replace(builds, &format!("{checks}{builds}")),
+            "checks",
+            "${{ fromJSON(needs.declare.outputs.units) }}",
+        ),
+    ] {
+        assert_ne!(workflow, agreeing);
+        let found = layout::compare(REGISTER, &workflow, &every_kind()).unwrap();
+        assert_eq!(
+            found.problems,
+            [format!(
+                "nebensound.yml lists the written {what} in `Not written yet` of a job whose matrix is not `{job}`: the units that run the {what} would not fail for one without a block"
+            )],
+            "{workflow}"
+        );
+    }
+}
+
+#[test]
 fn every_disagreement_is_named() {
     let steps = "- name: wrong\n  if: ${{ contains(matrix.checks, 'demo') }}\n  uses: $/.github/actions/check-demo\n  with:\n    working-directory: ${{ matrix.path }}\n- name: other\n  if: always()\n  uses: $/.github/actions/check-other\n- uses: $/.github/actions/check-gone\n";
     let found = layout::compare(
         REGISTER,
         &workflow(r#"["demo", "ghost"]"#, steps),
         &[
-            dir("build-cargo-package", true, Ok(both())),
             dir("check-cases", true, Ok(both())),
             dir("check-demo", true, Ok(vec![case(Expect::Pass)])),
             dir(
@@ -249,6 +605,7 @@ fn every_disagreement_is_named() {
                 Err(Error::new("a broken case".to_owned())),
             ),
             dir("phase0", true, Ok(Vec::new())),
+            dir("publish-crates-io", true, Ok(both())),
             dir("tool", true, Ok(Vec::new())),
         ],
     )
@@ -256,13 +613,12 @@ fn every_disagreement_is_named() {
     assert_eq!(
         found.problems,
         [
-            "`build-cargo-package` is a block for the build `cargo-package`, and the xtask knows only how a check and a version writer are called and tested; it has to learn the other kind first",
             "`check-cases` belongs to no register entry, and it is no machinery of the workflow (phase0, tool)",
             "nebensound.yml calls `check-demo` from a step that is not named `demo` and switched on it with `${{ !cancelled() && contains(matrix.checks, 'demo') }}`",
             "`check-demo` has no failing test case under tests/fail/",
             "`check-other` has no action.yml",
             "nebensound.yml calls `check-other` from a step that is not named `other` and switched on it with `${{ !cancelled() && contains(matrix.checks, 'other') }}`",
-            "nebensound.yml calls `check-other` from a step with other keys than `if`, `name`, `uses`, `with`, or that hands it other than `working-directory: ${{ matrix.path }}`, and `plan: ${{ needs.declare.outputs.plan }}` beside it at most",
+            &format!("nebensound.yml calls `check-other` from a step with {CHECK_FORM}"),
             "`check-other` exists, but `Not written yet` still fails for `other`",
             "`check-other` has no passing test case under tests/pass/",
             "`check-preset` belongs to no register entry, and it is no machinery of the workflow (phase0, tool)",
@@ -270,6 +626,7 @@ fn every_disagreement_is_named() {
             "`check-unwritten` exists, but `Not written yet` still fails for `unwritten`",
             "a broken case",
             "`phase0` is never called from nebensound.yml",
+            "`publish-crates-io` is a block for the target `crates.io`, and the xtask knows only how a check, a version writer and a build are called and tested; it has to learn the other kind first",
             "nebensound.yml calls `check-gone`, which does not exist",
             "`Not written yet` counts `ghost` as written, but it has no block",
         ]
@@ -277,10 +634,10 @@ fn every_disagreement_is_named() {
     assert_eq!(
         found.blocks,
         [
-            "build-cargo-package",
             "check-demo",
             "check-other",
-            "check-unwritten"
+            "check-unwritten",
+            "publish-crates-io"
         ]
     );
 }
@@ -301,18 +658,35 @@ fn entries_that_share_a_block_name_are_named() {
 
 #[test]
 fn the_lists_of_written_blocks_have_to_be_there_once_and_readable() {
-    let twice = "- name: Not written yet\n  env:\n    WRITTEN: '[]'\n";
+    let twice = "- name: Not written yet\n  env:\n    WRITTEN_CHECKS: '[]'\n";
+    let builds_twice = "- name: Not written yet\n  env:\n    WRITTEN_BUILDS: '[]'\n";
+    let neither = "jobs:\n  a:\n    steps:\n      - name: Not written yet\n        env:\n          OTHER: '[]'\n";
     let writers_twice = "- name: Version writers not written yet\n  env:\n    WRITTEN: '[]'\n";
     for (workflow, message) in [
         (
             "jobs:\n  a:\n    steps: []\n".to_owned(),
-            "has 0 steps named `Not written yet`",
+            "has 0 steps named `Not written yet` that list the written checks in `WRITTEN_CHECKS`",
         ),
         (
             "jobs:\n  a:\n    steps: []\n".to_owned(),
-            "has 0 steps named `Version writers not written yet`",
+            "has 0 steps named `Not written yet` that list the written builds in `WRITTEN_BUILDS`",
         ),
-        (workflow("[]", twice), "has 2 steps named `Not written yet`"),
+        (
+            workflow("[]", builds_twice),
+            "has 2 steps named `Not written yet` that list the written builds",
+        ),
+        (
+            neither.to_owned(),
+            "has 0 steps named `Not written yet` that list the written checks",
+        ),
+        (
+            "jobs:\n  a:\n    steps: []\n".to_owned(),
+            "has 0 steps named `Version writers not written yet` that list the written version writers in `WRITTEN`",
+        ),
+        (
+            workflow("[]", twice),
+            "has 2 steps named `Not written yet` that list the written checks",
+        ),
         (
             workflow("[]", writers_twice),
             "has 2 steps named `Version writers not written yet`",
@@ -324,6 +698,10 @@ fn the_lists_of_written_blocks_have_to_be_there_once_and_readable() {
         (
             workflow_with("[]", "not json", ""),
             "the list of written version writers in `Version writers not written yet` is no JSON list of names",
+        ),
+        (
+            workflow_all("[]", "[]", "not json", ""),
+            "the list of written builds in `Not written yet` is no JSON list of names",
         ),
     ] {
         let found = layout::compare(REGISTER, &workflow, &[]).unwrap();

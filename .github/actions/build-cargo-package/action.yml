@@ -1,0 +1,199 @@
+name: build-cargo-package
+description: >-
+  The build cargo-package for one unit: the one Cargo package whose manifest
+  stands at the unit's path, packaged once with `cargo package --locked`, the
+  packaged file tested from its own contents outside the source tree, and
+  handed on as an artifact of the run.
+
+# One input, and it is not a setting: where the unit is, as the plan of phase 0
+# names it, never the calling repository. The package is the one whose
+# Cargo.toml stands at that path; the toolchain is the one its workspace pins in
+# its rust-toolchain.toml, read here rather than handed in.
+#
+# The version writer runs before this block in the same job (`version-cargo`),
+# so the manifest carries the version of the run: on a pull request the one its
+# merge would get, with -pr.<number> behind it. Git does not have that change,
+# which is why `cargo package` runs with `--allow-dirty`; nothing else in the
+# checkout is changed.
+#
+# The artifact is named after the unit's path, its version and the commit it was
+# built from: `crate-<path>@<version>@<sha>`, the path percent-encoded as jq's
+# `@uri` writes it (`.` for the repository itself, `tools%2Ffoo` for
+# tools/foo). The encoding is reversible and never writes an `@`, so two units
+# cannot share a name, whoever takes the crate on finds a unit's artifact from
+# the same plan with the pattern `crate-<path>@*`, and every character an
+# artifact name forbids stays out. It holds exactly one file,
+# `<package>-<version>.crate`.
+#
+# No cache. What is built here is the artifact a release hands on, and a cache
+# that a pull request can write has no business in it.
+
+inputs:
+  working-directory:
+    description: >-
+      The directory of the unit, as the plan names it. A Cargo package must
+      stand there, a member of a workspace or a workspace of its own.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install the toolchain the workspace pins
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        rustup toolchain install
+        rustc --version
+
+    # The unit is one package: the one whose manifest is the unit's own
+    # Cargo.toml. A virtual workspace there has none, and packaging all of its
+    # members would hand on artifacts that belong to other units.
+    #
+    # The commit is the one the checkout holds: `github.sha`, which on a pull
+    # request is the merge commit GitHub builds for it.
+    - name: Find the package of the unit
+      id: package
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        UNIT: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        if [ ! -f Cargo.toml ]; then
+          echo "::error::'$UNIT' builds cargo-package but holds no Cargo.toml."
+          exit 1
+        fi
+        manifest="$(pwd -P)/Cargo.toml"
+        metadata="$(cargo metadata --locked --format-version 1 --no-deps)"
+        package="$(jq --compact-output --arg manifest "$manifest" \
+          '[.packages[] | select(.manifest_path == $manifest)] | first // empty' <<< "$metadata")"
+        if [ -z "$package" ]; then
+          echo "::error::The Cargo.toml of '$UNIT' is a workspace without a package of its own, so there is no one crate to build."
+          exit 1
+        fi
+        name="$(jq --raw-output '.name' <<< "$package")"
+        version="$(jq --raw-output '.version' <<< "$package")"
+        target="$(jq --raw-output '.target_directory' <<< "$metadata")"
+        sha="$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
+        artifact="$(jq --raw-output --null-input \
+          --arg path "$UNIT" --arg version "$version" --arg sha "$sha" \
+          '"crate-" + ($path | @uri) + "@" + $version + "@" + $sha')"
+        echo "'$UNIT' is the package $name $version; its artifact is '$artifact'."
+        {
+          echo "name=$name"
+          echo "version=$version"
+          echo "crate=$target/package/$name-$version.crate"
+          echo "artifact=$artifact"
+        } >> "$GITHUB_OUTPUT"
+
+    # The local packages the package depends on, directly or through each
+    # other, with all features: a path dependency is packaged as a dependency
+    # on the version the writer gave it, and that version is on no registry
+    # yet. Each is patched in from its folder for crates.io, so that Cargo
+    # finds it there and a stranger's crate of the same name cannot stand in
+    # for it. Only the ones it reaches, since a patch the workspace does not
+    # use changes its lockfile, and --locked refuses that.
+    - name: Find the local packages it depends on
+      id: patches
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PACKAGE: ${{ steps.package.outputs.name }}
+      run: |
+        set -euo pipefail
+        patches="$RUNNER_TEMP/build-cargo-package-patches"
+        cargo metadata --locked --format-version 1 --all-features \
+          | jq -r --arg package "$PACKAGE" '
+              [ .packages[] | select(.source == null) ] as $local
+              | [ $local[].id ] as $ids
+              | .resolve.nodes as $nodes
+              | def reach($from):
+                  ( $from + [ $nodes[] | select(.id | IN($from[])) | .dependencies[]
+                      | select(IN($ids[])) ] | unique ) as $next
+                  | if ($next | length) == ($from | length) then $from else reach($next) end;
+                reach([ $local[] | select(.name == $package) | .id ]) as $reached
+              | $local[]
+              | select((.id | IN($reached[])) and .name != $package)
+              | "\(.name)\t\(.manifest_path | rtrimstr("/Cargo.toml"))"' > "$patches"
+        if [ -s "$patches" ]; then
+          while IFS=$'\t' read -r name dir; do
+            echo "Patched in from its folder: $name at $dir"
+          done < "$patches"
+        else
+          echo "It depends on no other local package."
+        fi
+        echo "list=$patches" >> "$GITHUB_OUTPUT"
+
+    # Without --no-verify: Cargo unpacks what it packed and builds that, so a
+    # file the package leaves out that the build needs fails here.
+    - name: Package the crate
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PACKAGE: ${{ steps.package.outputs.name }}
+        CRATE: ${{ steps.package.outputs.crate }}
+        PATCHES: ${{ steps.patches.outputs.list }}
+      run: |
+        set -euo pipefail
+        patches=()
+        while IFS=$'\t' read -r name dir; do
+          patches+=(--config "patch.crates-io.$name.path='$dir'")
+        done < "$PATCHES"
+        cargo package --locked --allow-dirty --package "$PACKAGE" "${patches[@]}"
+        if [ ! -f "$CRATE" ]; then
+          echo "::error::cargo package passed, but '$CRATE' is not there."
+          exit 1
+        fi
+        sha256sum "$CRATE"
+
+    # The test of the artifact: the very file that is handed on, unpacked
+    # outside the source tree, where neither the workspace nor its
+    # rust-toolchain.toml reaches, and tested from what it holds. A file the
+    # package leaves out that a test needs fails here, and so does a
+    # dev-dependency without a version, which `cargo package` drops from the
+    # manifest. The toolchain is named, since the workspace's
+    # rust-toolchain.toml no longer applies.
+    - name: Test the crate from its own contents
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PACKAGE: ${{ steps.package.outputs.name }}
+        VERSION: ${{ steps.package.outputs.version }}
+        CRATE: ${{ steps.package.outputs.crate }}
+        PATCHES: ${{ steps.patches.outputs.list }}
+      run: |
+        set -euo pipefail
+        toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
+        patches=()
+        while IFS=$'\t' read -r name dir; do
+          patches+=(--config "patch.crates-io.$name.path='$dir'")
+        done < "$PATCHES"
+        destination="$RUNNER_TEMP/build-cargo-package"
+        rm -rf "$destination"
+        mkdir -p "$destination"
+        tar -xzf "$CRATE" -C "$destination"
+        unpacked="$destination/$PACKAGE-$VERSION"
+        if [ ! -f "$unpacked/Cargo.toml" ]; then
+          echo "::error::'$CRATE' does not unpack to $PACKAGE-$VERSION/Cargo.toml."
+          exit 1
+        fi
+        echo "The packaged manifest names $(grep -m 1 '^version = ' "$unpacked/Cargo.toml")."
+        cd "$unpacked"
+        if ! cargo "+$toolchain" test --all-features "${patches[@]}"; then
+          echo "::error::The crate $PACKAGE $VERSION fails its tests from its own contents. A file its tests need may be left out of the package, or a dev-dependency may have no version, which cargo package drops."
+          exit 1
+        fi
+
+    # Overwrite: a name is unique per unit, version and commit, so the only
+    # artifact this can replace is the one an earlier attempt of the same job
+    # left in this run, and a re-run must not fail on it.
+    - name: Hand the crate on
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ steps.package.outputs.artifact }}
+        path: ${{ steps.package.outputs.crate }}
+        if-no-files-found: error
+        retention-days: 7
+        compression-level: 0
+        overwrite: true

@@ -17,7 +17,7 @@ use std::io::{Cursor, Read as _, Write as _};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::mpsc;
+use std::sync::{Mutex, MutexGuard, PoisonError, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -78,6 +78,24 @@ impl Fixture {
     }
 }
 
+/// Held by every test of this file for as long as it runs.
+///
+/// These tests write programs from this process and then start them: the
+/// helper [`executable`] does, and so does `setup::run` when it unpacks a
+/// download. A process another test starts while such a file is open for
+/// writing inherits it until it has started its own program, and Linux then
+/// refuses to run the file as busy ("Text file busy"). With one test at a time
+/// no other test starts a process during a write.
+static ALONE: Mutex<()> = Mutex::new(());
+
+/// Waits until no other test of this file runs. A test that failed while it
+/// held the lock leaves nothing behind that the next one would trip over, so
+/// its poison is ignored.
+fn alone() -> MutexGuard<'static, ()> {
+    ALONE.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Puts an executable file with these bytes at `file`.
 fn executable(file: &Path, bytes: &[u8]) {
     if let Some(parent) = file.parent() {
         fs::create_dir_all(parent).expect("a folder");
@@ -253,6 +271,7 @@ fn three(fixture: &Fixture) -> Register {
 
 #[test]
 fn check_says_what_the_computer_has_and_changes_nothing() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = three(&fixture);
 
@@ -287,6 +306,7 @@ fn check_says_what_the_computer_has_and_changes_nothing() {
 
 #[test]
 fn the_default_installs_only_what_is_missing() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = three(&fixture);
 
@@ -317,6 +337,7 @@ fn the_default_installs_only_what_is_missing() {
 
 #[test]
 fn pinned_installs_every_program_and_leaves_the_computers_alone() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = three(&fixture);
 
@@ -358,6 +379,7 @@ fn pinned_installs_every_program_and_leaves_the_computers_alone() {
 
 #[test]
 fn a_download_with_another_digest_is_refused() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let bytes = prints("delta 1.0.0");
     let register = register(
@@ -394,6 +416,7 @@ fn a_download_with_another_digest_is_refused() {
 
 #[test]
 fn every_packing_is_unpacked() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let program = |name: &str| prints(&format!("{name} 1.0.0"));
     let zipped = zip(&[("inner/zipped", program("zipped").as_bytes())]);
@@ -430,6 +453,7 @@ fn every_packing_is_unpacked() {
 
 #[test]
 fn a_download_that_is_not_what_it_says_is_refused() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let without = tar_gz(&[("other", b"x")]);
     let broken_zip = b"not a zip".to_vec();
@@ -504,6 +528,7 @@ fn a_download_that_is_not_what_it_says_is_refused() {
 
 #[test]
 fn a_computer_without_a_build_is_told_so() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = three(&fixture);
     let mut env = fixture.env();
@@ -532,6 +557,7 @@ fn a_computer_without_a_build_is_told_so() {
 
 #[test]
 fn without_a_build_only_the_default_takes_the_computers_copy() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = three(&fixture);
     fixture.install("gamma", &prints("gamma 3.0.0"));
@@ -563,6 +589,7 @@ fn without_a_build_only_the_default_takes_the_computers_copy() {
 
 #[test]
 fn a_download_that_fails_says_why() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = register(
         &[
@@ -599,6 +626,7 @@ fn a_download_that_fails_says_why() {
 
 #[test]
 fn a_download_over_a_protocol_not_allowed_is_not_made() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = three(&fixture);
     let mut env = fixture.env();
@@ -615,6 +643,7 @@ fn a_download_over_a_protocol_not_allowed_is_not_made() {
 
 #[test]
 fn without_a_cache_directory_nothing_is_done() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = three(&fixture);
     let mut env = fixture.env();
@@ -632,6 +661,7 @@ fn without_a_cache_directory_nothing_is_done() {
 
 #[test]
 fn checks_that_call_no_program_need_nothing() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = register(&check(&[]));
     let mut out = Vec::new();
@@ -675,6 +705,7 @@ fn checks_that_call_no_program_need_nothing() {
 
 #[test]
 fn an_installation_that_broke_off_is_done_again() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = three(&fixture);
     let left = fixture.path("cache/programs/gamma/3.0.0");
@@ -695,6 +726,7 @@ fn an_installation_that_broke_off_is_done_again() {
 
 #[test]
 fn a_folder_that_cannot_be_written_stops_the_installation() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = three(&fixture);
 
@@ -726,6 +758,7 @@ fn a_folder_that_cannot_be_written_stops_the_installation() {
 
 #[test]
 fn an_archive_that_takes_the_place_of_the_mark_is_refused() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let archive = tar_gz(&[
         ("tool", prints("odd 1.0.0").as_bytes()),
@@ -835,6 +868,7 @@ fn on_a_runtime(fixture: &Fixture, npm: &str) -> Register {
 
 #[test]
 fn without_a_terminal_and_without_permission_no_runtime_and_nothing_else_is_installed() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = on_a_runtime(&fixture, NPM);
 
@@ -861,6 +895,7 @@ fn without_a_terminal_and_without_permission_no_runtime_and_nothing_else_is_inst
 
 #[test]
 fn in_a_terminal_a_runtime_is_installed_on_a_yes_only() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = on_a_runtime(&fixture, NPM);
 
@@ -924,6 +959,7 @@ fn on_python(fixture: &Fixture) -> Register {
 
 #[test]
 fn with_runtimes_installs_without_asking_and_pip_gets_an_environment_of_its_own() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = on_python(&fixture);
 
@@ -941,6 +977,7 @@ fn with_runtimes_installs_without_asking_and_pip_gets_an_environment_of_its_own(
 
 #[test]
 fn a_virtual_environment_whose_python_is_gone_is_installed_again() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = on_python(&fixture);
     let (text, code) = run(&register, Mode::Pinned, true, &mut fixture.env());
@@ -962,6 +999,7 @@ fn a_virtual_environment_whose_python_is_gone_is_installed_again() {
 
 #[test]
 fn pip_takes_wheels_only() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let runtime = fixture.path("runtime/bin/python3");
     // A Python whose virtual environment's Python writes its arguments down.
@@ -990,6 +1028,7 @@ printf '%s\n' '#!/bin/sh' 'echo "$*" > "${0%/*}/arguments"' > "$3/bin/python"
 
 #[test]
 fn a_runtime_that_prints_no_version_is_passed_over() {
+    let _alone = alone();
     // On Windows the Store puts `python3.exe` and `python.exe` on the PATH of
     // a computer without Python, which print only where to get one.
     let fixture = Fixture::new();
@@ -1049,6 +1088,7 @@ fn on_a_runtime_with_minimums(fixture: &Fixture) -> Register {
 
 #[test]
 fn a_runtime_too_old_for_a_program_on_it_counts_as_missing() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = on_a_runtime_with_minimums(&fixture);
     let old = fixture.install("rt", &prints("rt 4.1.0"));
@@ -1113,6 +1153,7 @@ fn a_runtime_too_old_for_a_program_on_it_counts_as_missing() {
 
 #[test]
 fn a_runtime_that_can_run_the_programs_is_used_whatever_its_version() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = on_a_runtime_with_minimums(&fixture);
     // Older than the pinned 4.5.6, and new enough for every program.
@@ -1140,6 +1181,7 @@ fn a_runtime_that_can_run_the_programs_is_used_whatever_its_version() {
 
 #[test]
 fn the_search_goes_on_past_a_runtime_that_is_too_old() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = on_a_runtime_with_minimums(&fixture);
     let older = fixture.path("older/rt");
@@ -1174,6 +1216,7 @@ fn the_search_goes_on_past_a_runtime_that_is_too_old() {
 
 #[test]
 fn a_package_on_a_runtime_too_old_and_not_installed_is_not_installed() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let mut entries = on_a_runtime_with_minimums(&fixture);
     // No build of the runtime for this computer.
@@ -1212,6 +1255,7 @@ fn a_package_on_a_runtime_too_old_and_not_installed_is_not_installed() {
 
 #[test]
 fn a_runtime_on_the_computer_installs_the_package() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = on_a_runtime(&fixture, NPM);
     fixture.install("rt", &prints("rt 5.0.0"));
@@ -1234,6 +1278,7 @@ fn a_runtime_on_the_computer_installs_the_package() {
 
 #[test]
 fn an_installer_that_fails_or_leaves_nothing_is_reported() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let failing = on_a_runtime(&fixture, "#!/bin/sh\necho 'no registry here' >&2\nexit 1\n");
     let (text, code) = run(&failing, Mode::Missing, true, &mut fixture.env());
@@ -1287,6 +1332,7 @@ fn an_installer_that_fails_or_leaves_nothing_is_reported() {
 
 #[test]
 fn a_package_needs_its_runtime_and_its_digest() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let archive = npm_runtime(NPM);
     // A runtime with no build for this computer cannot be installed, and so
@@ -1352,6 +1398,7 @@ fn a_package_needs_its_runtime_and_its_digest() {
 
 #[test]
 fn a_virtual_environment_that_cannot_be_made_is_reported() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let python = tar_gz(&[("py/bin/py", b"#!/bin/sh\necho 'no venv' >&2\nexit 2\n")]);
     let register = register(
@@ -1387,6 +1434,7 @@ fn a_virtual_environment_that_cannot_be_made_is_reported() {
 
 #[test]
 fn locate_prefers_the_pinned_copy() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = on_a_runtime(&fixture, NPM);
     let pkg = ProgramName::new("pkg").expect("a name");
@@ -1423,6 +1471,7 @@ fn locate_prefers_the_pinned_copy() {
 
 #[test]
 fn a_program_is_found_only_where_it_can_be_run() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let bin = fixture.path("bin");
     fs::write(bin.join("readable"), "#!/bin/sh\n").expect("a file");
@@ -1450,6 +1499,7 @@ fn a_program_is_found_only_where_it_can_be_run() {
 
 #[test]
 fn a_version_is_three_numbers() {
+    let _alone = alone();
     for (text, version) in [
         ("prettier 3.9.6\n", Some("3.9.6")),
         ("v24.22.3", Some("24.22.3")),
@@ -1470,6 +1520,7 @@ fn a_version_is_three_numbers() {
 
 #[test]
 fn a_program_that_prints_no_version_is_said_to() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = register(
         &[
@@ -1498,6 +1549,7 @@ fn a_program_that_prints_no_version_is_said_to() {
 
 #[test]
 fn the_cache_directory_follows_each_operating_system() {
+    let _alone = alone();
     let vars = |name: &str| -> Option<OsString> {
         match name {
             "HOME" => Some("/home/someone".into()),
@@ -1530,6 +1582,7 @@ fn the_cache_directory_follows_each_operating_system() {
 
 #[test]
 fn windows_keeps_its_programs_elsewhere() {
+    let _alone = alone();
     let dir = Path::new("/pinned");
     assert_eq!(
         find::installed_by(Installer::Npm, dir, "prettier", true),
@@ -1569,6 +1622,7 @@ fn windows_keeps_its_programs_elsewhere() {
 
 #[test]
 fn installers_find_their_runtime_first_on_the_path() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let runtime = fixture.path("runtime/bin/node");
     executable(&runtime, prints("v1.0.0").as_bytes());
@@ -1607,6 +1661,7 @@ fn installers_find_their_runtime_first_on_the_path() {
 
 #[test]
 fn a_download_is_saved_under_a_safe_name_and_packed_as_its_name_says() {
+    let _alone = alone();
     for (url, name) in [
         (
             "https://example.org/a/tool-1.0.0.tar.gz",
@@ -1635,6 +1690,7 @@ fn a_download_is_saved_under_a_safe_name_and_packed_as_its_name_says() {
 
 #[test]
 fn a_file_that_cannot_be_read_has_no_digest() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let nothing = fixture.path("nothing");
     assert!(fetch::digest_of(&nothing, Algorithm::Sha256).is_err());
@@ -1645,6 +1701,7 @@ fn a_file_that_cannot_be_read_has_no_digest() {
 
 #[test]
 fn the_checks_of_a_plan_are_named_once() {
+    let _alone = alone();
     let analysis = support::analysis(
         "[repo]\npipeline = \"rust-workspace\"\n",
         &["README.md", "src/lib.rs"],
@@ -1659,6 +1716,7 @@ fn the_checks_of_a_plan_are_named_once() {
 
 #[test]
 fn the_call_refuses_a_contradiction_and_a_broken_declaration() {
+    let _alone = alone();
     let (text, code) = call(&["nebensound", "setup", "--check", "--pinned"]);
     assert_eq!(code, 2, "{text}");
     let (text, code) = call(&["nebensound", "setup", "--check", "--with-runtimes"]);
@@ -1689,6 +1747,7 @@ fn only_git(fixture: &Fixture) -> PathBuf {
 
 #[test]
 fn the_binary_checks_this_computer() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let repo = repository(&[(".nebensound/repo.toml", QUIET), ("README.md", "# x\n")]);
     let home = fixture.path("home");
@@ -1733,6 +1792,7 @@ fn the_binary_checks_this_computer() {
 
 #[test]
 fn the_programs_do_not_depend_on_the_history() {
+    let _alone = alone();
     // A unit job's checkout holds only the commit at hand: the history is an
     // error there, and it says nothing about which checks the plan starts.
     let git = Git::new();
@@ -1783,6 +1843,7 @@ const PATIENCE: Duration = Duration::from_secs(30);
 
 #[test]
 fn in_a_terminal_the_binary_asks_before_it_installs_a_runtime() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let repo = repository(&[(".nebensound/repo.toml", QUIET), ("README.md", "# x\n")]);
     let home = fixture.path("home");
@@ -1853,6 +1914,7 @@ fn wait_for(receiver: &mpsc::Receiver<Vec<u8>>, wanted: &str) -> String {
 
 #[test]
 fn a_package_whose_folder_cannot_be_made_is_reported() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let register = on_a_runtime(&fixture, NPM);
     fs::write(fixture.path("cache/programs"), "").expect("a file");
@@ -1867,6 +1929,7 @@ fn a_package_whose_folder_cannot_be_made_is_reported() {
 
 #[test]
 fn a_file_that_cannot_be_read_is_not_verified() {
+    let _alone = alone();
     let fixture = Fixture::new();
     // A folder opens on Unix, and fails on the first read.
     let folder = fixture.path("server");
@@ -1880,6 +1943,7 @@ fn a_file_that_cannot_be_read_is_not_verified() {
 
 #[test]
 fn locate_answers_without_a_cache_and_without_the_runtime_in_the_register() {
+    let _alone = alone();
     let fixture = Fixture::new();
     let mut register = on_a_runtime(&fixture, NPM);
     let pkg = ProgramName::new("pkg").expect("a name");
@@ -1906,6 +1970,7 @@ fn locate_answers_without_a_cache_and_without_the_runtime_in_the_register() {
 
 #[test]
 fn setup_pinned_is_a_call_of_its_own() {
+    let _alone = alone();
     let dir = repository(&[
         (".nebensound/repo.toml", QUIET),
         ("src/main.rs", "fn main() {}\n"),

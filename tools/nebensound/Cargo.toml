@@ -20,9 +20,15 @@ rust-version.workspace = true
 license.workspace      = true
 repository.workspace   = true
 
-# Not a package. Whoever needs the tool gets it through the composite action; a
+# Not published. Whoever needs the tool gets it through the composite action; a
 # second distribution channel would be a second version that can fall behind.
 publish = false
+
+# The crate the Build phase packages and tests from its own contents leaves out
+# the tests that hold this repository's documents in line with the tool: they
+# read files outside the package (docs/, the committed schema, the library's
+# sources), so they are tests of the source and run in the Check phase.
+exclude = ["tests/declaration.rs", "tests/register.rs", "tests/schema.rs"]
 
 # What `setup` needs to put a pinned program in place: sha2 holds a download
 # against its digest, flate2 and tar unpack a .gz or .tar.gz build, zip a .zip

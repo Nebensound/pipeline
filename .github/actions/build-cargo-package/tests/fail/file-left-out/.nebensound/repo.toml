@@ -1,0 +1,8 @@
+# A package whose test needs a module the package leaves out. The packaged crate
+# builds, so `cargo package` passes, and its tests fail from its own contents.
+[repo]
+pipeline = "rust-workspace"
+
+[component.lib]
+path     = "lib"
+pipeline = { version = ["cargo"], build = "cargo-package" }

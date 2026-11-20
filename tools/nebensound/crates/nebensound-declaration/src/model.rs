@@ -293,6 +293,10 @@ pub struct ExplicitPipeline {
     /// Checks beyond the base set every repository runs.
     pub check: Vec<CheckName>,
     /// The build that produces the artifact.
+    ///
+    /// It runs in every run that gives the unit a version, the run of a
+    /// commit that touches the unit; a run that does not builds nothing for
+    /// it.
     pub build: Option<BuildName>,
     /// Where the artifact goes.
     pub publish: Option<Publish>,

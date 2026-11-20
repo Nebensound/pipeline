@@ -12,9 +12,10 @@ and what runs on a pull request and on a push.
 | Declare | `nebensound / Declare`                                                                          |
 | Version | `nebensound / Version`                                                                          |
 | Check   | `nebensound / Check repository`, `nebensound / Check component <name>` and `nebensound / Check` |
+| Build   | `nebensound / Build repository`, `nebensound / Build component <name>` and `nebensound / Build` |
 
-The workflow does not build, publish or deploy anything yet, and it reports
-versions without tagging or releasing them. Those phases arrive one at a time,
+The workflow does not publish or deploy anything yet, and it reports versions
+without tagging or releasing them. Those phases arrive one at a time,
 each when it does something: a job that only existed to be green would report
 success for work nobody did. Until a phase is built, no job stands in for it,
 and this page does not describe it.
@@ -44,11 +45,14 @@ hands the result on:
    selects. On a pull request the plan is built the way the job Version reads it
    (see below): each version is the one the merge would get, with `-pr.<number>`
    behind it. The units that start at least one check go on to the Check phase,
-   and the whole plan is handed on with them: a later job checks out no history,
-   so a version writer takes the versions from the plan.
+   the units whose build is not `null` and that the plan gives a version of
+   this run go on to the Build phase, each with the version writers it selects,
+   and the whole plan is handed on with them: a later job checks out no
+   history, so a version writer takes the versions from the plan.
 
-An error ends the phase here: there is no plan, no check runs, and
-`nebensound / Check` fails. A warning stops nothing.
+An error ends the phase here: there is no plan, no check runs, nothing is
+built, and `nebensound / Check` and `nebensound / Build` fail. A warning stops
+nothing.
 
 ## Version
 
@@ -140,6 +144,47 @@ writer belongs to a unit that carries a version, which need not run a check,
 so it is named here. The writers written today are listed in
 [the README](../README.md#version-cargo).
 
+## Build
+
+### One job per unit that builds in this run
+
+Every unit whose build the plan names and that the plan gives a version of
+this run gets a job of its own, named `nebensound / Build repository` for the
+repository and `nebensound / Build component <name>` for a component. The plan
+names the build of a unit that carries a version of its own and generates no
+children (see [the declaration](declaration.md#versions)), and gives a unit a
+version of the run when the commit touches it. A unit the commit does not touch
+has no new artifact to hand on and gets no build job, also where a version
+writer writes its last or pending version for a package that depends on it. A
+build job starts only when Declare and `nebensound / Check` passed: nothing is
+built from a tree whose checks failed. It checks the repository out, takes the
+tool from the cache Declare filled, and runs its steps:
+
+1. **Not written yet.** It fails, by name, when the unit's build has no
+   building block yet, so that a pull request says what is missing. The builds
+   written today are listed in [the README](../README.md#build-cargo-package).
+2. **One step per version writer** the unit selects, each the building block
+   `version-<writer>` with the plan, so that the manifest carries the version
+   of the run. A version writer without a building block has already failed
+   `nebensound / Check`, so no build starts without its version.
+3. **The build**, the building block `build-<name>` over the unit's path. It
+   builds the artifact once, tests the artifact itself and uploads it as an
+   artifact of the run.
+
+A step does not run after one that failed: an artifact built from versions that
+were not written would be the wrong one. Tests of the source belong to Check;
+the build tests what it hands on.
+
+### The summary of the builds
+
+`nebensound / Build` runs after Declare, `nebensound / Check` and every build
+job, whatever their result, so it reports on every run. It fails when phase 0
+did not pass, since then nothing is known about the builds. When nothing builds
+in this run it passes with a sentence that says so, whatever Check found.
+Otherwise it fails when Check did not pass, since then nothing was built, and
+when any build job did not pass, and it passes when every build the plan
+started passed.
+
 ## Check names
 
 Every job reports under a name in two parts, `nebensound / Check`: GitHub names
@@ -152,11 +197,13 @@ called workflow.
 - **The second part** is the job in the central workflow. The pipeline fixes it.
 
 A ruleset requires a name in both parts. Of the names a run reports today, it
-requires `nebensound / Version` and `nebensound / Check`, and only those: the
-unit jobs change with the repository, so a ruleset that required one would
-block a pull request when the unit goes away or is renamed, and Declare is part
-of what `Check` sums up. Of the reported jobs, only `Check` is meant for a
-ruleset to require for the checks. Further required names arrive with the phases that are not built yet.
+requires `nebensound / Version`, `nebensound / Check` and `nebensound / Build`,
+and only those: the unit jobs change with the repository, so a ruleset that
+required one would block a pull request when the unit goes away or is renamed,
+and Declare is part of what `Check` and `Build` sum up. Of the reported jobs,
+only `Check` is meant for a ruleset to require for the checks, and only `Build`
+for the builds. Further required names arrive with the phases that are not
+built yet.
 
 ## Pull request and push
 
@@ -171,11 +218,11 @@ on:
       - main
 ```
 
-Today both run the same jobs, Declare, Version and Check, with the same steps.
-Only the versions depend on the event: on a pull request `Version` shows the
-version the merge would get with `-pr.<number>` behind it, and the plan carries
-the same versions, which the package test of `check-rust` writes and builds
-with. A newer run for the same branch or pull request cancels the one still
+Today both run the same jobs, Declare, Version, Check and Build, with the same
+steps. Only the versions depend on the event: on a pull request `Version` shows
+the version the merge would get with `-pr.<number>` behind it, and the plan
+carries the same versions, which the package test of `check-rust` and the build
+jobs write and build with. A newer run for the same branch or pull request cancels the one still
 running. The permissions are read-only: the workflow reads the repository and
 writes nothing back.
 
