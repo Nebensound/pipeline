@@ -4,6 +4,8 @@ Callers pin an exact version of this repository, so a tag that can be moved or
 a release that can be changed would change what every caller runs. These are
 the settings of `Nebensound/pipeline` that protect it. Each entry gives the
 setting, why it is set, and the `gh api` call that reads it back.
+The last part lists the settings that every repository of the organization
+carries, with the calls that read them back across the organization.
 
 Organization rulesets, the repository custom property and organization secrets
 are not repository settings and are not described here. They get their own
