@@ -5,11 +5,11 @@ description: >-
   links into the repository lead somewhere.
 
 # One input, and it is not a setting: where the unit is. It comes from the plan
-# of phase 0. The files are the ones `nebensound files` names for the check and
-# the unit: what Git tracks below that path with an extension the register
+# of phase 0. The files are the ones `nebensound-repo files` names for the check
+# and the unit: what Git tracks below that path with an extension the register
 # gives the check, less what an `[[exclude]]` entry of the declaration takes
-# out. A file nobody committed is not judged, a committed one is not missed,
-# and no ignore mechanism of a tool takes one out. The calling job checks the
+# out. A file nobody committed is not judged, a committed one is not missed, and
+# no ignore mechanism of a tool takes one out. The calling job checks the
 # repository out and puts the tool on the PATH first (the action `tool`); every
 # step runs at the repository root.
 
@@ -34,7 +34,7 @@ runs:
         list="$RUNNER_TEMP/check-markdown-files"
         # The tool writes a refusal where the list would go: into the log
         # with it, or the step fails without saying why.
-        if ! nebensound files -z -- markdown "$UNIT" > "$list"; then
+        if ! nebensound-repo files -z -- markdown "$UNIT" > "$list"; then
           cat "$list" >&2
           exit 1
         fi
@@ -154,7 +154,7 @@ runs:
         done < "$RUNNER_TEMP/check-markdown-prettier"
         exit "$status"
 
-    # The pipeline's default (`tools/nebensound/rules/markdownlint.jsonc`,
+    # The pipeline's default (`tools/nebensound-repo/rules/markdownlint.jsonc`,
     # from the same commit as this file) lies beneath every configuration of
     # the repository, which is laid over it rule by rule: a rule the
     # repository does not name keeps the default's value, so its file names
@@ -194,7 +194,7 @@ runs:
         prefix="$(realpath --relative-to="$base" "$PWD")/"
         status=0
         TOOLS="$RUNNER_TEMP/check-markdown-tools" BASE="$base" \
-          DEFAULT="$GITHUB_ACTION_PATH/../../../tools/nebensound/rules/markdownlint.jsonc" \
+          DEFAULT="$GITHUB_ACTION_PATH/../../../tools/nebensound-repo/rules/markdownlint.jsonc" \
           node --input-type=module --eval '
             import fs from "node:fs";
             import { basename, join, resolve } from "node:path";
@@ -227,7 +227,7 @@ runs:
               config = { ...config, ...(await rules(own)) };
             }
             // What lies over the default at the root, for the log; what lies
-            // over it in a folder below, `nebensound check` names.
+            // over it in a folder below, `nebensound-repo check` names.
             const options = [
               ".markdownlint-cli2.jsonc", ".markdownlint-cli2.yaml",
               ".markdownlint-cli2.cjs", ".markdownlint-cli2.mjs",

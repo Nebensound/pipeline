@@ -105,10 +105,7 @@ fn repository(scene: &Scene) -> PathBuf {
     write(
         &root,
         &[
-            (
-                "tools/nebensound/crates/nebensound-declaration/register.toml",
-                REGISTER,
-            ),
+            ("tools/nebensound-repo/register.toml", REGISTER),
             (".github/workflows/nebensound.yml", WORKFLOW),
             (".github/actions/tool/action.yml", TOOL),
             (".github/actions/phase0/action.yml", PHASE0),
@@ -342,7 +339,7 @@ fn needy(scene: &Scene) -> (PathBuf, PathBuf, Setup) {
     write(
         &root,
         &[
-            ("tools/nebensound/Cargo.toml", ""),
+            ("tools/nebensound-repo/Cargo.toml", ""),
             (".github/actions/check-a/action.yml", NEEDY),
             (".github/actions/check-b/action.yml", NEEDY),
             (
@@ -402,7 +399,7 @@ fn setup_calls_the_tool_of_this_commit_with_every_option() {
          pip: found, pip 25.3 from /usr/lib/python3/dist-packages/pip\n\
          rustup: found, rustup 1.29.0\n"
     );
-    let manifest = root.join("tools/nebensound/Cargo.toml");
+    let manifest = root.join("tools/nebensound-repo/Cargo.toml");
     // Cargo starts in the tool's directory, so that rustup takes the
     // toolchain the tool pins, and without the xtask's RUSTUP_TOOLCHAIN.
     let expected = [
@@ -417,7 +414,7 @@ fn setup_calls_the_tool_of_this_commit_with_every_option() {
         "setup",
         "--pinned",
         "--with-runtimes",
-        &root.join("tools/nebensound").to_string_lossy(),
+        &root.join("tools/nebensound-repo").to_string_lossy(),
         "toolchain=unset",
     ]
     .join("\n");
@@ -453,7 +450,7 @@ fn setup_calls_the_tool_of_this_commit_with_every_option() {
         out.starts_with("::error::cannot start `")
             && out.contains(&format!(
                 "no-cargo` in {} to build the tool",
-                root.join("tools/nebensound").display()
+                root.join("tools/nebensound-repo").display()
             )),
         "{out}"
     );
@@ -548,7 +545,7 @@ fn setup_killed_by_a_signal_is_a_failure() {
     let mut permissions = fs::metadata(&script).unwrap().permissions();
     std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
     fs::set_permissions(&script, permissions).unwrap();
-    fs::create_dir_all(scene.path().join("tools/nebensound")).unwrap();
+    fs::create_dir_all(scene.path().join("tools/nebensound-repo")).unwrap();
     let mut setup = setup(scene.path(), scene.path(), "linux");
     setup.cargo = script.into();
     let (code, out) = call(&["setup"], &setup);

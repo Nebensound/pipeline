@@ -4,11 +4,10 @@ The vocabulary of the declaration: every name a `pipeline` may use, and what the
 pipeline adds to every repository without being asked. The fields that use these
 names are described in [the reference of the declaration](declaration.md).
 
-This page is generated. `nebensound register` prints it from the register and
-the defaults compiled into the tool, and a test of the tool fails when the
+This page is generated. `nebensound-repo register` prints it from the register
+and the defaults compiled into the tool, and a test of the tool fails when the
 committed page differs. To change it, change `register.toml` or `defaults.toml`
-beside the library in `tools/nebensound/crates/nebensound-declaration/`, then
-write the page again from `tools/nebensound/`:
+in `tools/nebensound-repo/`, then write the page again from there:
 
 ```sh
 cargo run --quiet -- register > ../../docs/register.md
@@ -86,8 +85,9 @@ that no check covers has to be excluded. The programs are what the check calls
 
 ## Programs
 
-Every program a check calls, pinned to one version. `nebensound setup` finds or
-installs them (see [the tool](../tools/nebensound/README.md#setting-up-the-programs)).
+Every program a check calls, pinned to one version. `nebensound-repo setup`
+finds or installs them (see
+[the tool](../tools/nebensound-repo/README.md#setting-up-the-programs)).
 A program on a runtime is one package, which the runtime's installer puts in
 place, and needs at least the version of the runtime its package states;
 every other one is a build per platform. Each download is refused unless it

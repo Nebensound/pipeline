@@ -6,11 +6,11 @@ description: >-
   configuration among them matches the Dependabot schema.
 
 # One input, and it is not a setting: where the unit is. It comes from the plan
-# of phase 0. The files are the ones `nebensound files` names for the check and
-# the unit: what Git tracks below that path with an extension the register
+# of phase 0. The files are the ones `nebensound-repo files` names for the check
+# and the unit: what Git tracks below that path with an extension the register
 # gives the check, less what an `[[exclude]]` entry of the declaration takes
-# out. A file nobody committed is not judged, a committed one is not missed,
-# and no ignore mechanism of a tool takes one out. The calling job checks the
+# out. A file nobody committed is not judged, a committed one is not missed, and
+# no ignore mechanism of a tool takes one out. The calling job checks the
 # repository out and puts the tool on the PATH first (the action `tool`); every
 # step runs at the repository root.
 
@@ -36,7 +36,7 @@ runs:
         workflows="$RUNNER_TEMP/check-yaml-workflows"
         # The tool writes a refusal where the list would go: into the log
         # with it, or the step fails without saying why.
-        if ! nebensound files -z -- yaml "$UNIT" > "$list"; then
+        if ! nebensound-repo files -z -- yaml "$UNIT" > "$list"; then
           cat "$list" >&2
           exit 1
         fi
@@ -178,14 +178,14 @@ runs:
         done < "$RUNNER_TEMP/check-yaml-prettier"
         exit "$status"
 
-    # The pipeline's default (`tools/nebensound/rules/yamllint.yaml`, from the
-    # same commit as this file) lies beneath the repository's own yamllint
+    # The pipeline's default (`tools/nebensound-repo/rules/yamllint.yaml`, from
+    # the same commit as this file) lies beneath the repository's own yamllint
     # configuration at its root, which is laid over it rule by rule, the way
-    # yamllint lays a configuration over the one its `extends` names: a rule
-    # the repository does not name keeps the default's value, and an option
-    # it does not name keeps the default's option of that rule. So its file
-    # names only what differs, and a change of the default reaches it. What
-    # its own `extends` names comes along with it, over the default as well.
+    # yamllint lays a configuration over the one its `extends` names: a rule the
+    # repository does not name keeps the default's value, and an option it does
+    # not name keeps the default's option of that rule. So its file names only
+    # what differs, and a change of the default reaches it. What its own
+    # `extends` names comes along with it, over the default as well.
     #
     # Its rules hold, but its `ignore` and `ignore-from-file` take nothing out:
     # yamllint would skip what they name even when the file is named to it, so
@@ -212,7 +212,7 @@ runs:
         fi
         # Every finding is written as an annotation on its line. A warning
         # fails nothing, an error fails the step, as on the command line.
-        DEFAULT="$GITHUB_ACTION_PATH/../../../tools/nebensound/rules/yamllint.yaml" OWN="$own" \
+        DEFAULT="$GITHUB_ACTION_PATH/../../../tools/nebensound-repo/rules/yamllint.yaml" OWN="$own" \
           PYTHONPATH="$RUNNER_TEMP/check-yaml-tools/python" python3 -c '
         import locale
         import os

@@ -17,7 +17,7 @@ which name, is described in [the phases](phases.md).
 pipeline = "none"
 
 [component.tool]
-path       = "tools/nebensound"
+path       = "tools/nebensound-repo"
 pipeline   = "rust-workspace"
 versioning = "none"
 
@@ -207,8 +207,8 @@ only once.
 | `reason` | string | required | Why nobody looks there. It must say something: a blank reason is an error. |
 
 An exclusion takes the file out of phase 0 and out of its check alike: every
-building block checks exactly the files `nebensound files <check> <unit>` names,
-and those are the unit's files less what `[[exclude]]` takes out.
+building block checks exactly the files `nebensound-repo files <check> <unit>`
+names, and those are the unit's files less what `[[exclude]]` takes out.
 
 Rust code is excluded by the package, never by the file. An entry that takes a
 `.rs` file out of a package without taking out the whole package, the folder
@@ -324,7 +324,7 @@ A repository that moves to the pipeline with releases made elsewhere sets
 included, so that no version is given out twice.
 
 A generated unit takes both from the unit that generated it. The report of phase
-0 and `nebensound explain` show for every unit how it is released and its
+0 and `nebensound-repo explain` show for every unit how it is released and its
 minimum version, each with where it came from: written on the unit, the default
 of its publish targets, or inherited from the unit that generated it.
 
@@ -335,11 +335,12 @@ under [Versions](#versions). Nothing is tagged or released yet.
 
 Tags are the truth, and no version is stored in the tree. Phase 0 resolves for
 every unit that carries a version which version the commit at hand has, from
-Git alone, and `nebensound plan` lists them under `versions` (see
-[the tool's README](../tools/nebensound/README.md#the-plan)).
-`nebensound version` shows them as a table, with the number of commits waiting
-for each unit's next release, and the job `nebensound / Version` writes the same
-table into the summary of every run (see [the phases](phases.md#version)).
+Git alone, and `nebensound-repo plan` lists them under `versions` (see
+[the tool's README](../tools/nebensound-repo/README.md#the-plan)).
+`nebensound-repo version` shows them as a table, with the number of commits
+waiting for each unit's next release, and the job `nebensound / Version` writes
+the same table into the summary of every run (see
+[the phases](phases.md#version)).
 
 ### Tag names
 
@@ -815,7 +816,7 @@ sentence that names the file and the mistake, and fails:
 ## Trying it locally
 
 The same tool that runs phase 0 in the workflow runs on a checkout. From
-`tools/nebensound/` in a checkout of this repository:
+`tools/nebensound-repo/` in a checkout of this repository:
 
 ```sh
 cargo run --quiet -- -C <repository> check                 # the whole report
@@ -826,4 +827,4 @@ cargo run --quiet -- -C <repository> excluded-packages     # the Rust packages t
 cargo run --quiet -- -C <repository> setup                 # find or install the programs its checks call
 ```
 
-[The tool's README](../tools/nebensound/README.md) describes every call.
+[The tool's README](../tools/nebensound-repo/README.md) describes every call.

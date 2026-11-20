@@ -124,7 +124,7 @@ jobs:
           BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
-          call=(nebensound -C "$GITHUB_WORKSPACE" version)
+          call=(nebensound-repo -C "$GITHUB_WORKSPACE" version)
           if [ -n "$NUMBER" ]; then
             message="$TITLE"
             if [ -n "$BODY" ]; then

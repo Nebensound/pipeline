@@ -1,7 +1,7 @@
 name: tool
 description: >-
-  Puts the tool `nebensound` on the PATH of the calling job: restored from the
-  cache when this exact tool was built before, built from source otherwise.
+  Puts the tool `nebensound-repo` on the PATH of the calling job: restored from
+  the cache when this exact tool was built before, built from source otherwise.
 
 # No inputs. The tool comes from the same commit as this file. GitHub fetches
 # the whole repository when it resolves an action, so the source lies three
@@ -15,7 +15,7 @@ description: >-
 outputs:
   path:
     description: The tool, as an absolute path.
-    value: ${{ steps.tool.outputs.home }}/nebensound
+    value: ${{ steps.tool.outputs.home }}/nebensound-repo
 
 runs:
   using: composite
@@ -27,7 +27,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        source_dir="$(cd "$GITHUB_ACTION_PATH/../../../tools/nebensound" && pwd)"
+        source_dir="$(cd "$GITHUB_ACTION_PATH/../../../tools/nebensound-repo" && pwd)"
         fingerprint="$(
           cd "$source_dir"
           find . -type f -not -path './target/*' -print0 \
@@ -38,8 +38,8 @@ runs:
         )"
         {
           echo "source=$source_dir"
-          echo "home=$RUNNER_TEMP/nebensound"
-          echo "key=nebensound-$RUNNER_OS-$RUNNER_ARCH-$fingerprint"
+          echo "home=$RUNNER_TEMP/nebensound-repo"
+          echo "key=nebensound-repo-$RUNNER_OS-$RUNNER_ARCH-$fingerprint"
         } >> "$GITHUB_OUTPUT"
 
     - name: Look for a build of exactly this tool
@@ -49,9 +49,10 @@ runs:
         path: ${{ steps.tool.outputs.home }}
         key: ${{ steps.tool.outputs.key }}
 
-    # Without features: the interface is one, and a log needs no terminal
-    # library. The toolchain is the one the tool pins, taken from its own
-    # rust-toolchain.toml rather than repeated here.
+    # With the default features alone, which make the program: the interface
+    # is not among them, and a log needs no terminal library. The toolchain is
+    # the one the tool pins, taken from its own rust-toolchain.toml rather than
+    # repeated here.
     - name: Build the tool
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
@@ -63,7 +64,7 @@ runs:
         rustup toolchain install
         cargo build --release --locked
         mkdir -p "$TOOL_HOME"
-        cp target/release/nebensound "$TOOL_HOME/nebensound"
+        cp target/release/nebensound-repo "$TOOL_HOME/nebensound-repo"
 
     # Several unit jobs can miss at once; the first to finish keeps its build,
     # and the others are told the key is taken, which fails nothing.
@@ -80,5 +81,5 @@ runs:
         TOOL_HOME: ${{ steps.tool.outputs.home }}
       run: |
         set -euo pipefail
-        "$TOOL_HOME/nebensound" --version
+        "$TOOL_HOME/nebensound-repo" --version
         echo "$TOOL_HOME" >> "$GITHUB_PATH"

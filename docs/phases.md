@@ -23,32 +23,32 @@ and this page does not describe it.
 ## Declare
 
 Phase 0. The job `nebensound / Declare` checks the calling repository out with
-its whole history and every branch and tag, runs the tool `nebensound` on it and
-hands the result on:
+its whole history and every branch and tag, runs the tool `nebensound-repo` on
+it and hands the result on:
 
 1. The tool is built from the same commit of this repository as the workflow,
    and kept in the cache under a fingerprint of its sources, so two runs of the
    same tool share one build, and every unit job of the run takes it from there
    ([`.github/actions/tool`](../.github/actions/tool)).
-2. `nebensound check` reads `.nebensound/repo.toml`, resolves it against the
-   register and checks it against what Git tracks, and resolves the version of
-   every unit from the tags and the history. It prints the resolved
+2. `nebensound-repo check` reads `.nebensound/repo.toml`, resolves it against
+   the register and checks it against what Git tracks, and resolves the version
+   of every unit from the tags and the history. It prints the resolved
    configuration, the annotated tree, the findings and a summary line.
    [The reference of the declaration](declaration.md) describes every field and
    every finding.
 3. When phase 0 found no error, every Rust package `[[exclude]]` takes out as a
-   whole (`nebensound excluded-packages`) is named in the summary of the run
-   with its reason, as a notice.
-4. Then `nebensound plan` prints the plan: every unit, with the checks started
-   for it and the build it names, and the version of every unit that carries
-   one, its last release, its pending version and the version writers it
+   whole (`nebensound-repo excluded-packages`) is named in the summary of the
+   run with its reason, as a notice.
+4. Then `nebensound-repo plan` prints the plan: every unit, with the checks
+   started for it and the build it names, and the version of every unit that
+   carries one, its last release, its pending version and the version writers it
    selects. On a pull request the plan is built the way the job Version reads it
    (see below): each version is the one the merge would get, with `-pr.<number>`
    behind it. The units that start at least one check go on to the Check phase,
-   the units whose build is not `null` and that the plan gives a version of
-   this run go on to the Build phase, each with the version writers it selects,
-   and the whole plan is handed on with them: a later job checks out no
-   history, so a version writer takes the versions from the plan.
+   the units whose build is not `null` and that the plan gives a version of this
+   run go on to the Build phase, each with the version writers it selects, and
+   the whole plan is handed on with them: a later job checks out no history, so
+   a version writer takes the versions from the plan.
 
 An error ends the phase here: there is no plan, no check runs, nothing is
 built, and `nebensound / Check` and `nebensound / Build` fail. A warning stops
@@ -59,9 +59,9 @@ nothing.
 The job `nebensound / Version` reports which version every unit carries. It
 writes nothing and tags nothing. It checks the repository out the way Declare
 does, with its whole history and every branch and tag, takes the tool from the
-cache Declare filled and runs `nebensound version`: the text table goes into the
-log, and the same table as Markdown into the summary of the run, one row per
-unit that carries a version:
+cache Declare filled and runs `nebensound-repo version`: the text table goes
+into the log, and the same table as Markdown into the summary of the run, one
+row per unit that carries a version:
 
 | Column       | What it says                                                                         |
 | ------------ | ------------------------------------------------------------------------------------ |
@@ -107,7 +107,7 @@ builds it only when the cache misses. Then its steps:
    The building blocks written today are listed in
    [the README](../README.md#building-blocks).
 2. **One step per check** of the unit, each the building block
-   `check-<name>` over exactly the files `nebensound files <check> <unit>`
+   `check-<name>` over exactly the files `nebensound-repo files <check> <unit>`
    names: the unit's files that the check covers, less what `[[exclude]]` takes
    out. Every step runs even when one before it failed, so one run shows every
    finding of the unit.

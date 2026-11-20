@@ -87,11 +87,11 @@ that references a further one brings that one along.
 
 ## `nebensound-declaration.json`
 
-Not taken from anywhere: `nebensound schema` derives it from the types phase 0
-reads `.nebensound/repo.toml` with. A test in `tools/nebensound` fails when it
-differs from what the types describe, so a change to the declaration format
-carries its schema in the same commit. To write it again, run in
-`tools/nebensound`:
+Not taken from anywhere: `nebensound-repo schema` derives it from the types
+phase 0 reads `.nebensound/repo.toml` with. A test in `tools/nebensound-repo`
+fails when it differs from what the types describe, so a change to the
+declaration format carries its schema in the same commit. To write it again, run
+in `tools/nebensound-repo`:
 
 ```sh
 cargo run --quiet -- schema > ../../.github/actions/check-toml/schemas/nebensound-declaration.json

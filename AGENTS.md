@@ -1,7 +1,7 @@
 # Contribution Rules
 
 This repository is Nebensound's central pipeline: one reusable workflow, its
-building blocks, and the tool `nebensound` that reads a repository's
+building blocks, and the tool `nebensound-repo` that reads a repository's
 declaration. Every repository that calls it runs its code, so a change here
 changes what every caller runs. These rules apply to every change, whoever or
 whatever writes it.
@@ -21,6 +21,13 @@ whatever writes it.
   on every pull request through `cargo xtask check --all`, so the cases are the
   proof that a block works; a run linked once in the pull request that adds the
   block is not needed. A change to what a block finds changes its cases with it.
+
+## The tool
+
+The commands of `nebensound-repo` are limited to the tasks of a repository. The
+tool has no external subcommands and never starts a program because a
+subcommand's name matched it: the programs it starts are those of the register,
+Git, curl and Cargo.
 
 ## Workflows and actions
 

@@ -11,34 +11,15 @@
 [repo]
 pipeline = "none"
 
-# The tool that reads a declaration, the root of its Cargo workspace. It is a
-# unit of its own because Cargo resolves here: the rust check runs here and
-# Dependabot watches the lockfile here. It carries a version, which every run
-# writes into its manifest with the version writer cargo before the package
-# test of the rust check and before its build: on a pull request the version
-# its merge would get. A run that touches it builds its crate with
-# cargo-package and hands it on as an artifact of the run. Nothing publishes
-# it.
-[component.nebensound]
-path = "tools/nebensound"
-
-[component.nebensound.pipeline]
-version    = ["cargo"]
-check      = ["rust"]
-build      = "cargo-package"
-publish    = false
-dependabot = ["cargo"]
-
-# The library that understands a declaration, inside that workspace. The tool
-# depends on it by path, so it carries a version of its own as well: a package
-# that gets a version requires one of each path dependency. The package test
-# builds and tests it as it would be published, and a run that touches it
-# builds its crate with cargo-package and hands it on as an artifact of the
-# run. The workspace above runs the check and watches the lockfile. Nothing
-# publishes it.
-[component.nebensound-declaration]
-path     = "tools/nebensound/crates/nebensound-declaration"
-pipeline = { version = ["cargo"], build = "cargo-package", publish = false }
+# The tool that reads a declaration, nebensound-repo: one package, a library
+# and the program, and the root of its own Cargo workspace. It is a unit of its
+# own because Cargo resolves here: the rust check runs here and Dependabot
+# watches the lockfile here. It carries no version and builds nothing; the
+# repository's tags are the only ones. Nothing publishes it.
+[component.nebensound-repo]
+path       = "tools/nebensound-repo"
+pipeline   = "rust-workspace"
+versioning = "none"
 
 # The xtask of this repository, a Cargo workspace of its own for the same
 # reason. Phase 0 demands that it runs the rust check like any other Rust code.

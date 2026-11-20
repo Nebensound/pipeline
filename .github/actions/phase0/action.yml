@@ -14,7 +14,7 @@ description: >-
 outputs:
   plan:
     description: >-
-      Which unit runs which check, as one line of JSON (`nebensound plan`),
+      Which unit runs which check, as one line of JSON (`nebensound-repo plan`),
       with the versions a pull request's merge would get on a pull request.
       Empty when phase 0 found errors: then nothing is to be started.
     value: ${{ steps.plan.outputs.plan }}
@@ -26,7 +26,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        nebensound -C "$GITHUB_WORKSPACE" check
+        nebensound-repo -C "$GITHUB_WORKSPACE" check
 
     # Only reached when phase 0 passed. Every Rust package `[[exclude]]` takes
     # out as a whole is named in the summary of the run, with its reason: a
@@ -39,7 +39,7 @@ runs:
         set -euo pipefail
         # The tool writes a refusal where the list would go: into the log
         # with it, or the step fails without saying why.
-        if ! list="$(nebensound -C "$GITHUB_WORKSPACE" excluded-packages)"; then
+        if ! list="$(nebensound-repo -C "$GITHUB_WORKSPACE" excluded-packages)"; then
           echo "$list" >&2
           exit 1
         fi
@@ -69,7 +69,7 @@ runs:
         BODY: ${{ github.event.pull_request.body }}
       run: |
         set -euo pipefail
-        call=(nebensound -C "$GITHUB_WORKSPACE" plan)
+        call=(nebensound-repo -C "$GITHUB_WORKSPACE" plan)
         if [ -n "$NUMBER" ]; then
           message="$TITLE"
           if [ -n "$BODY" ]; then

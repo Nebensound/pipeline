@@ -5,13 +5,13 @@ description: >-
   `composer.lock` and `flake.lock` parses.
 
 # One input, and it is not a setting: where the unit is. It comes from the plan
-# of phase 0. The files are the ones `nebensound files` names for the check and
-# the unit: what Git tracks below that path with an extension or a file name
+# of phase 0. The files are the ones `nebensound-repo files` names for the check
+# and the unit: what Git tracks below that path with an extension or a file name
 # the register gives the check, less what an `[[exclude]]` entry of the
-# declaration takes out. A file nobody committed is not judged, a committed
-# one is not missed, and no ignore mechanism of a tool takes one out. The
-# calling job checks the repository out and puts the tool on the PATH first
-# (the action `tool`); every step runs at the repository root.
+# declaration takes out. A file nobody committed is not judged, a committed one
+# is not missed, and no ignore mechanism of a tool takes one out. The calling
+# job checks the repository out and puts the tool on the PATH first (the action
+# `tool`); every step runs at the repository root.
 
 inputs:
   working-directory:
@@ -34,7 +34,7 @@ runs:
         list="$RUNNER_TEMP/check-json-files"
         # The tool writes a refusal where the list would go: into the log
         # with it, or the step fails without saying why.
-        if ! nebensound files -z -- json "$UNIT" > "$list"; then
+        if ! nebensound-repo files -z -- json "$UNIT" > "$list"; then
           cat "$list" >&2
           exit 1
         fi
