@@ -968,6 +968,13 @@ fn with_runtimes_installs_without_asking_and_pip_gets_an_environment_of_its_own(
 
     assert_eq!(code, 0, "{text}");
     assert!(!text.contains("[y/N]"), "{text}");
+    // The runtime this run installed for the program stays in the report,
+    // although the program installed with pip no longer needs it.
+    let py = fixture.path("cache/runtimes/py/4.5.6/py/bin/py");
+    assert!(
+        text.contains(&format!("Runtimes\n  py 4.5.6: pinned, {}\n", py.display())),
+        "{text}"
+    );
     let tool = fixture.path("cache/programs/wheel-tool/7.8.9/bin/wheel-tool");
     let output = Command::new(&tool).output().expect("the tool runs");
     assert_eq!(
@@ -996,6 +1003,39 @@ fn a_virtual_environment_whose_python_is_gone_is_installed_again() {
     let (text, code) = run(&register, Mode::Missing, false, &mut fixture.env());
     assert_eq!(code, 0, "{text}");
     assert!(python.is_file(), "{text}");
+}
+
+#[test]
+fn a_windows_environment_starts_only_while_its_python_is_there() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    let dir = fixture.path("environment");
+    let base = fixture.path("python");
+    fs::create_dir_all(&base).expect("a folder");
+    let config = dir.join("pyvenv.cfg");
+
+    // No launcher.
+    assert!(!find::environment_starts(&dir, true));
+    executable(&dir.join("Scripts/python.exe"), b"a launcher");
+    // A launcher, but no pyvenv.cfg.
+    assert!(!find::environment_starts(&dir, true));
+    // A pyvenv.cfg that names no home.
+    fs::write(&config, "include-system-site-packages = false\n").expect("a file");
+    assert!(!find::environment_starts(&dir, true));
+    let named = format!(
+        "\nversion = 3.12.0\nhome = {}\ninclude-system-site-packages = false\n",
+        base.display()
+    );
+    fs::write(&config, named).expect("a file");
+    // The Python it names is gone.
+    assert!(!find::environment_starts(&dir, true));
+    executable(&base.join("python.exe"), b"python");
+    assert!(find::environment_starts(&dir, true));
+
+    // On Linux and macOS the environment's Python alone tells.
+    assert!(!find::environment_starts(&dir, false));
+    executable(&dir.join("bin/python"), b"python");
+    assert!(find::environment_starts(&dir, false));
 }
 
 #[test]
@@ -1043,23 +1083,26 @@ fn a_runtime_that_prints_no_version_is_passed_over() {
     env.search_path =
         std::env::join_paths([fixture.path("stub"), fixture.path("bin")]).expect("a search path");
     let pkg = ProgramName::new("pkg").expect("a name");
-    fixture.install("pkg", &prints("pkg 7.8.9"));
 
+    // `pkg` is missing, so the run would install it and needs the runtime.
     let (text, code) = run(&register, Mode::Check, false, &mut env);
     assert_eq!(code, 1, "{text}");
     assert!(text.contains("Runtimes\n  rt 4.5.6: missing\n"), "{text}");
+    let computer = fixture.install("pkg", &prints("pkg 7.8.9"));
     let found = find::locate(&register, &pkg, &env).expect("found");
     assert_eq!(found.runtime, None);
 
     let rt = fixture.install("rt", &prints("rt 4.5.6"));
+    let found = find::locate(&register, &pkg, &env).expect("found");
+    assert_eq!(found.runtime, Some(rt.clone()));
+    fs::remove_file(computer).expect("the computer's pkg");
     let (text, code) = run(&register, Mode::Check, false, &mut env);
-    assert_eq!(code, 0, "{text}");
+    assert_eq!(code, 1, "{text}");
     assert!(
         text.contains(&format!("  rt 4.5.6: on the computer, {}\n", rt.display())),
         "{text}"
     );
-    let found = find::locate(&register, &pkg, &env).expect("found");
-    assert_eq!(found.runtime, Some(rt));
+    assert!(text.contains("Missing: pkg 7.8.9.\n"), "{text}");
 }
 
 /// Three programs on the runtime `rt`, which run on it from 4.0.0, 4.2.0 and
@@ -1108,16 +1151,6 @@ fn a_runtime_too_old_for_a_program_on_it_counts_as_missing() {
     );
     assert!(text.contains("Missing: rt 4.5.6, early 7.8.9,"), "{text}");
 
-    // The other calls get it only for a program it can run.
-    let early = ProgramName::new("early").expect("a name");
-    let late = ProgramName::new("late").expect("a name");
-    fixture.install("early", &prints("early 7.8.9"));
-    fixture.install("late", &prints("late 7.8.9"));
-    let found = find::locate(&register, &early, &fixture.env()).expect("found");
-    assert_eq!(found.runtime, Some(old.clone()));
-    let found = find::locate(&register, &late, &fixture.env()).expect("found");
-    assert_eq!(found.runtime, None);
-
     // It is listed and asked for like a missing one, and nothing is installed
     // without a yes.
     for mode in [Mode::Missing, Mode::Pinned] {
@@ -1137,12 +1170,24 @@ fn a_runtime_too_old_for_a_program_on_it_counts_as_missing() {
         assert!(!fixture.path("cache").join("runtimes").exists());
     }
 
-    // `--with-runtimes` installs it; the default mode still leaves the
-    // programs on the computer alone.
-    let (text, code) = run(&register, Mode::Missing, true, &mut fixture.env());
+    // The other calls get it only for a program it can run.
+    let early = ProgramName::new("early").expect("a name");
+    let late = ProgramName::new("late").expect("a name");
+    fixture.install("early", &prints("early 7.8.9"));
+    fixture.install("late", &prints("late 7.8.9"));
+    let found = find::locate(&register, &early, &fixture.env()).expect("found");
+    assert_eq!(found.runtime, Some(old.clone()));
+    let found = find::locate(&register, &late, &fixture.env()).expect("found");
+    assert_eq!(found.runtime, None);
+
+    // `--with-runtimes` installs it, for `--pinned`, which installs `late`.
+    let (text, code) = run(&register, Mode::Pinned, true, &mut fixture.env());
     assert_eq!(code, 0, "{text}");
     assert!(text.contains("Installing rt 4.5.6 from file://"), "{text}");
-    assert!(!text.contains("Installing early"), "{text}");
+    assert!(
+        text.contains("Installing late 7.8.9 from file://"),
+        "{text}"
+    );
     let pinned = fixture.path("cache/runtimes/rt/4.5.6/rt/bin/rt");
     assert!(
         text.contains(&format!("  rt 4.5.6: pinned, {}\n", pinned.display())),
@@ -1150,6 +1195,118 @@ fn a_runtime_too_old_for_a_program_on_it_counts_as_missing() {
     );
     let found = find::locate(&register, &late, &fixture.env()).expect("found");
     assert_eq!(found.runtime, Some(pinned));
+}
+
+#[test]
+fn a_runtime_is_held_only_against_the_programs_the_run_installs() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    let register = on_a_runtime_with_minimums(&fixture);
+    let old = fixture.install("rt", &prints("rt 4.1.0"));
+    fixture.install("npm", NPM);
+    // `late`, which needs 4.2.0, is on the computer; `middle` and `early`,
+    // which run on 4.1.0, are not.
+    fixture.install("late", &prints("late 7.8.9"));
+
+    let (text, code) = run(&register, Mode::Check, false, &mut fixture.env());
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains(&format!(
+            "Runtimes\n  rt 4.5.6: on the computer, {}, version 4.1.0\n",
+            old.display()
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains("Missing: early 7.8.9, middle 7.8.9.\n"),
+        "{text}"
+    );
+
+    let (text, code) = run(&register, Mode::Missing, false, &mut fixture.env());
+    assert_eq!(code, 0, "{text}");
+    assert!(!text.contains("[y/N]"), "{text}");
+    assert!(!text.contains("These runtimes are missing"), "{text}");
+    assert!(!text.contains("Installing rt"), "{text}");
+    assert!(!text.contains("Installing late"), "{text}");
+    assert!(
+        text.contains("Installing middle 7.8.9 from file://"),
+        "{text}"
+    );
+    assert!(text.contains("Nothing is missing.\n"), "{text}");
+    assert!(!fixture.path("cache/runtimes").exists());
+}
+
+#[test]
+fn programs_on_the_computer_need_no_runtime_in_the_default_mode() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    let register = on_a_runtime_with_minimums(&fixture);
+    // No runtime at all, and every program on it on the computer.
+    for name in ["early", "late", "middle"] {
+        fixture.install(name, &prints(&format!("{name} 7.8.9")));
+    }
+    let mut env = fixture.env();
+    env.answers = Some(Box::new(Cursor::new(b"n\n".to_vec())));
+
+    for mode in [Mode::Check, Mode::Missing] {
+        let (text, code) = run(&register, mode, false, &mut env);
+        assert_eq!(code, 0, "{text}");
+        assert!(!text.contains("[y/N]"), "{text}");
+        assert!(!text.contains("Runtimes"), "{text}");
+        assert!(text.contains("Nothing is missing.\n"), "{text}");
+    }
+    assert!(!fixture.path("cache").join("runtimes").exists());
+
+    // `--pinned` installs them, and that needs the runtime.
+    let (text, code) = run(&register, Mode::Pinned, false, &mut env);
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains("These runtimes are missing, and programs need them:\n  rt 4.5.6"),
+        "{text}"
+    );
+    assert!(text.ends_with("[y/N] Nothing was installed.\n"), "{text}");
+}
+
+#[test]
+fn pinned_programs_installed_with_pip_need_no_runtime() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    let register = on_python(&fixture);
+    // Installed with a Python of the computer's that the `PATH` then loses,
+    // while the environment keeps it.
+    executable(&fixture.path("elsewhere/py"), PYTHON.as_bytes());
+    let mut env = fixture.env();
+    env.search_path = std::env::join_paths([fixture.path("elsewhere"), fixture.path("bin")])
+        .expect("a search path");
+    let (text, code) = run(&register, Mode::Missing, false, &mut env);
+    assert_eq!(code, 0, "{text}");
+    assert!(!fixture.path("cache/runtimes").exists(), "{text}");
+    let mut env = fixture.env();
+    env.answers = Some(Box::new(Cursor::new(b"n\n".to_vec())));
+
+    for mode in [Mode::Check, Mode::Missing, Mode::Pinned] {
+        let (text, code) = run(&register, mode, false, &mut env);
+        assert_eq!(code, 0, "{text}");
+        assert!(!text.contains("[y/N]"), "{text}");
+        assert!(!text.contains("Runtimes"), "{text}");
+        assert!(text.contains("Nothing is missing.\n"), "{text}");
+        assert!(!text.contains("Installing"), "{text}");
+    }
+}
+
+#[test]
+fn pinned_programs_installed_with_npm_start_through_their_runtime() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    let register = on_a_runtime(&fixture, NPM);
+    let (text, code) = run(&register, Mode::Pinned, true, &mut fixture.env());
+    assert_eq!(code, 0, "{text}");
+    fs::remove_dir_all(fixture.path("cache/runtimes")).expect("the pinned runtime");
+
+    let (text, code) = run(&register, Mode::Check, false, &mut fixture.env());
+    assert_eq!(code, 1, "{text}");
+    assert!(text.contains("Runtimes\n  rt 4.5.6: missing\n"), "{text}");
+    assert!(text.contains("Missing: rt 4.5.6.\n"), "{text}");
 }
 
 #[test]

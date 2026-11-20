@@ -333,8 +333,9 @@ from setting up the programs.
 - **`--pinned`** installs the pinned version of every program into its own
   folder, whatever the computer has, and leaves the computer's programs alone.
   This is the mode the gate is to run in once its blocks call `setup` (#73).
-- **`--check`** changes nothing. It lists every program and runtime with where
-  it was found, what is missing, and which version differs from the pinned one.
+- **`--check`** changes nothing. It lists every program, and every runtime the
+  default mode would need, with where it was found, what is missing, and which
+  version differs from the pinned one.
 
 A download is refused unless it has the digest the register pins, and nothing
 of it is used then. Downloads go through `curl`, which macOS, Linux and Windows
@@ -342,22 +343,30 @@ bring; a program on a runtime is installed by that runtime's installer: npm
 with `--ignore-scripts`, or pip into a virtual environment of its own, taking
 only wheels, so that no build code of a dependency runs.
 
-A **runtime** (Node.js, Python) is never installed unasked. One on the computer
-is used as it is, whatever its version, as long as it prints one and can run
-the programs on it, in every mode. The search goes on past one that prints no
-version (such as the Windows Store's `python3.exe` stand-in) and past one older
-than a program on it needs: the register names the lowest runtime version each
-such program runs on, as its package states it. When none is left, the runtime
-counts as missing, and `setup` says which version the computer has. When one is
-missing, `setup` lists what it would install and asks for a yes or no in a
-terminal; `--with-runtimes` installs it without asking. Without a terminal
-nothing is asked, and without `--with-runtimes` nothing at all is installed
-then: not the runtime, and not the programs that do not need one.
+A **runtime** (Node.js, Python) is needed only for the programs the run
+installs on it or starts through it: a program that is to be installed, since
+the runtime's installer puts it in place, and a pinned copy installed with npm,
+whose command is a script that calls the runtime. A pinned copy installed with
+pip starts with the Python of its own environment, and a program on the
+computer that the default mode leaves as it is starts the way it was installed;
+for neither of them does `setup` look for the runtime or ask for it.
 
-The exit code is `0` when every program and runtime is there afterwards, and
-`1` when one is missing, a download or an installation failed, or the
-repository has errors. A version that differs from the pinned one is said and
-stops nothing.
+A runtime is never installed unasked. One on the computer is used as it is,
+whatever its version, as long as it prints one and can run the programs that
+need it, in every mode. The search goes on past one that prints no version
+(such as the Windows Store's `python3.exe` stand-in) and past one older than one
+of those programs needs: the register names the lowest runtime version each
+program on a runtime runs on, as its package states it. When none is left, the
+runtime counts as missing, and `setup` says which version the computer has.
+When one is missing, `setup` lists what it would install and asks for a yes or
+no in a terminal; `--with-runtimes` installs it without asking. Without a
+terminal nothing is asked, and without `--with-runtimes` nothing at all is
+installed then: not the runtime, and not the programs that do not need one.
+
+The exit code is `0` when every program, and every runtime they need, is there
+afterwards, and `1` when one is missing, a download or an installation failed,
+or the repository has errors. A version that differs from the pinned one is
+said and stops nothing.
 
 Not every program has a build for every platform: on Windows on ARM there is
 none of `jq` and `lychee`. There the default mode uses the computer's copy,
@@ -397,9 +406,9 @@ Before the tool was called `nebensound-repo`, the folder was called
 same way.
 
 A program installed with pip keeps the Python it was installed with. When that
-Python is gone, `setup` installs the program again; on Windows, where the
-environment keeps a copy of its Python, delete the program's folder and run
-`setup` again.
+Python is gone, `setup` installs the program again. On Windows, where the
+environment holds a launcher that starts that Python, `setup` reads which one
+it is from the environment's `pyvenv.cfg`.
 
 ### For the other calls
 
