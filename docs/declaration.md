@@ -725,8 +725,8 @@ Error. A unit is or was released in two stages, at the commit at hand or at any
 commit of the line of `main` that counts for it, and there is no branch
 `origin/release`. Its full releases are the commits promoted there, so neither
 its base nor its next version can be told, and a deleted branch must not move a
-version. Create the branch and fetch it. A unit released in one stage from its
-first commit on needs no branch.
+version. Create the branch and fetch it. Only a unit released in one stage at
+every commit that counts for it needs no branch.
 
 ### `unreleased-before-switch`
 
