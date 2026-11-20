@@ -427,10 +427,10 @@ jobs:
         with:
           working-directory: ${{ matrix.path }}
 
-  # The one name a ruleset can require for the builds, gathered like Check. It
-  # passes only when Check passed: a build that never started because a check
-  # failed is no success. When nothing builds in this run it is green and says
-  # so.
+  # The one name a ruleset can require for the builds, gathered like Check. When
+  # nothing builds in this run it is green and says so, whatever Check found.
+  # Otherwise it passes only when Check passed: a build that never started
+  # because a check failed is no success.
   build:
     name: Build
     needs:
@@ -454,6 +454,10 @@ jobs:
             echo "::error::Phase 0 did not pass ($DECLARE), so nothing was built."
             exit 1
           fi
+          if [ "$PLANNED" = "[]" ]; then
+            echo "Nothing builds in this run: no unit that builds has a version of this run."
+            exit 0
+          fi
           if [ "$CHECK" != "success" ]; then
             echo "::error::Check did not pass ($CHECK), so nothing was built."
             exit 1
@@ -463,11 +467,8 @@ jobs:
               echo "Every build the plan started passed."
               ;;
             skipped)
-              if [ "$PLANNED" != "[]" ]; then
-                echo "::error::The plan names builds, and none of them ran."
-                exit 1
-              fi
-              echo "Nothing builds in this run: no unit that builds has a version of this run."
+              echo "::error::The plan names builds, and none of them ran."
+              exit 1
               ;;
             *)
               echo "::error::At least one build did not pass ($BUILDS)."

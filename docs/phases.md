@@ -179,9 +179,11 @@ the build tests what it hands on.
 
 `nebensound / Build` runs after Declare, `nebensound / Check` and every build
 job, whatever their result, so it reports on every run. It fails when phase 0
-or Check did not pass, since then nothing was built, and when any build job did
-not pass. It passes when every build the plan started passed, or, with a
-sentence that says so, when nothing builds in this run.
+did not pass, since then nothing is known about the builds. When nothing builds
+in this run it passes with a sentence that says so, whatever Check found.
+Otherwise it fails when Check did not pass, since then nothing was built, and
+when any build job did not pass, and it passes when every build the plan
+started passed.
 
 ## Check names
 
