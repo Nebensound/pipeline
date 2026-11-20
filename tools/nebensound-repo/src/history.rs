@@ -22,9 +22,9 @@
 //!   whether it is released in one stage or in two there. A unit is
 //!   recognised across commits by its name. Only a commit whose declaration
 //!   names the unit and gives it a version **counts** for it, so the count
-//!   starts at the first such commit, from `0.0.0`; a commit whose declaration
-//!   does not read counts with the path and the mode the commit at hand gives
-//!   the unit.
+//!   starts at the first such commit, from `0.0.0`. A commit whose declaration
+//!   does not read takes the path and the mode, and whether it counts, from
+//!   the nearest commit after it on the line whose declaration reads.
 //! - The **released commits** carry the releases. In one stage every commit
 //!   that touches the unit and that the history gives a version is a full
 //!   release. In two stages the commit a merge into `release` promotes is the
@@ -608,27 +608,47 @@ impl Context<'_> {
     /// version, with the path, the mode and the floor it declares, so a
     /// unit's count starts at the first such commit. A commit without a
     /// declaration, or whose declaration names the unit without a version or
-    /// not at all, does not count. A commit whose declaration does not read
-    /// counts as one that names the unit with the path and the mode the
-    /// commit at hand gives it, and without a floor.
+    /// not at all, does not count.
+    ///
+    /// A commit whose declaration does not read takes the path and the mode,
+    /// and whether it counts at all, from the nearest commit after it on the
+    /// line whose declaration reads, and has no floor. What it counts for is
+    /// thereby fixed once such a commit exists: a later move of the unit or a
+    /// later switch of its mode does not count it again in another way, so
+    /// no version is given twice. Where none follows, the declaration at hand
+    /// stands in for it.
     fn places<'a>(&'a self, unit: &'a Unit) -> Vec<Option<Place<'a>>> {
+        let declared = |view: &'a View| {
+            view.get(&unit.name)
+                .filter(|declared| declared.carries_version)
+        };
+        // The line runs from the commit at hand back, so the nearest readable
+        // declaration after a commit is the last one met before it.
+        let mut later: Option<&'a View> = None;
         self.views
             .iter()
             .map(|at| match at {
                 At::Absent => None,
-                At::Unreadable => Some(Place {
-                    path: &unit.path,
-                    release: unit.release.release,
-                    floor: None,
-                }),
-                At::Read(view) => view
-                    .get(&unit.name)
-                    .filter(|declared| declared.carries_version)
-                    .map(|declared| Place {
+                At::Unreadable => match later {
+                    Some(view) => declared(view).map(|declared| Place {
+                        path: &declared.path,
+                        release: declared.release,
+                        floor: None,
+                    }),
+                    None => Some(Place {
+                        path: &unit.path,
+                        release: unit.release.release,
+                        floor: None,
+                    }),
+                },
+                At::Read(view) => {
+                    later = Some(view);
+                    declared(view).map(|declared| Place {
                         path: &declared.path,
                         release: declared.release,
                         floor: declared.floor,
-                    }),
+                    })
+                }
             })
             .collect()
     }

@@ -536,26 +536,41 @@ fn a_tag_is_held_against_the_version_at_the_commit_at_hand() {
 }
 
 #[test]
-fn a_commit_whose_declaration_does_not_read_takes_what_the_commit_at_hand_says() {
+fn a_commit_whose_declaration_does_not_read_takes_what_the_next_readable_one_says() {
     // The first commits hold a declaration this reader cannot read, as one
     // written for another reader would be: a field it does not know.
     let git = units_declared(&single_stage().replace("[repo]\n", "[repo]\nlegacy-field = true\n"));
-    git.tag("lib-v0.0.1", &git.head());
     git.write(&[("app/a.md", "# App\n\nOne.\n")]);
     git.commit("fix: app only");
     git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
     git.commit("fix: lib one");
-    git.write(&[(".nebensound/repo.toml", &single_stage())]);
-    git.commit("chore: drop the field");
 
-    // Measured against the path of the commit at hand, `fix: lib one`
-    // touches the library and `fix: app only` does not; in the mode of the
-    // commit at hand, one stage, the first commit is 0.0.1, as its tag
-    // records.
+    // No readable declaration follows them yet, so the one at hand stands in:
+    // here the checkout's, not yet committed. Measured against its path,
+    // `fix: lib one` touches the library and `fix: app only` does not.
+    git.write(&[(".nebensound/repo.toml", &single_stage())]);
+    let analysis = analysed(&git);
+    assert!(!analysis.failed(), "{:?}", analysis.findings());
+    assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.2"));
+    assert_eq!(current(&analysis, "app-v").as_deref(), Some("0.0.2"));
+
+    git.commit("chore: drop the field");
     let analysis = analysed(&git);
     assert!(!analysis.failed(), "{:?}", analysis.findings());
     assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.3"));
     assert_eq!(versions(&analysis)["app-v"].as_deref(), Some("0.0.3"));
+
+    // From now on those commits count with the path the readable declaration
+    // after them gives, `lib`: the move does not count them again at `libs`,
+    // where `fix: lib one` would not touch the library, and the library goes
+    // on from 0.0.3 instead of giving it out again.
+    git.run(&["mv", "lib", "libs"]);
+    git.write(&[(
+        ".nebensound/repo.toml",
+        &single_stage().replace("path     = \"lib\"\n", "path     = \"libs\"\n"),
+    )]);
+    git.commit("refactor: move the library");
+    assert_eq!(version(&git, "lib-v").as_deref(), Some("0.0.4"));
 }
 
 #[test]

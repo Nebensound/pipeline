@@ -271,8 +271,8 @@ fn a_history_in_one_stage() {
     history.write(&[(".nebensound/repo.toml", &with_tool)]);
     history.commit("feat: the tool is a unit again");
 
-    // A declaration that does not read counts with what the commit at hand
-    // says, for every unit it declares.
+    // A declaration that does not read counts with what the next readable
+    // one says, for every unit that one gives a version.
     history.write(&[(".nebensound/repo.toml", "[repo\n")]);
     history.commit("chore: a declaration that does not read");
     history.write(&[(".nebensound/repo.toml", &with_tool)]);
@@ -413,6 +413,116 @@ const RECORDED_TWO_STAGES: &str = concat!(
     "revert: release the library in two stages                   | repo 0.0.13, lib 2.0.3-pre.3\n",
     "(promoted)                                                  | repo 0.0.13, lib 2.0.3\n",
     "chore: release the library in one stage after the promotion | repo 0.0.14, lib 2.0.4\n",
+);
+
+/// The repository and a component `lib`, both released in one stage.
+const LIB: &str =
+    "[repo]\npipeline = \"none\"\n\n[component.lib]\npath     = \"lib\"\npipeline = \"none\"\n";
+
+/// A history whose first commits hold a declaration this reader cannot read,
+/// as one written for another reader would be, until one that reads follows.
+/// With `release`, the branch `release` exists from the first commit on.
+fn adopted(history: &mut Recorder, release: bool) {
+    let legacy = LIB.replace("[repo]\n", "[repo]\nlegacy-field = true\n");
+    history.write(&[
+        (".nebensound/repo.toml", &legacy),
+        ("README.md", "# Adopted\n"),
+        ("lib/b.md", "# Lib\n"),
+    ]);
+    let first = "chore: a declaration for another reader";
+    history.git.commit(first);
+    if release {
+        history.git(&["branch", "release"]).git(&[
+            "update-ref",
+            "refs/remotes/origin/release",
+            "release",
+        ]);
+    }
+    history.note(first);
+    history.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
+    history.commit("fix(lib): one");
+    history.write(&[("README.md", "# Adopted\n\nWords.\n")]);
+    history.commit("docs: the readme only");
+    history.write(&[("lib/b.md", "# Lib\n\nTwo.\n")]);
+    history.commit("fix(lib): two");
+    // From here on the commits before count with what this declaration
+    // says: the library at `lib`, in one stage.
+    history.write(&[(".nebensound/repo.toml", LIB)]);
+    history.commit("chore: adopt the declaration");
+    history.write(&[("lib/b.md", "# Lib\n\nThree.\n")]);
+    history.commit("fix(lib): after the adoption");
+}
+
+#[test]
+fn a_history_that_starts_with_declarations_that_do_not_read_then_moves() {
+    let moved = LIB.replace("path     = \"lib\"\n", "path     = \"libs\"\n");
+    let mut history = Recorder::new();
+    adopted(&mut history, false);
+
+    // The library moves: the commits whose declaration does not read are not
+    // counted again at `libs`, where only the first of them would touch it.
+    history.git(&["mv", "lib", "libs"]);
+    history.write(&[(".nebensound/repo.toml", &moved)]);
+    history.commit("refactor(lib): move the library to libs");
+
+    // They do not count for a unit the readable declaration after them does
+    // not name, although the first of them changed the declaration's file.
+    history.write(&[
+        (
+            ".nebensound/repo.toml",
+            &format!("{moved}\n[component.tool]\npath     = \"tool\"\npipeline = \"none\"\n"),
+        ),
+        ("tool/t.md", "# Tool\n"),
+    ]);
+    history.commit("feat: declare the tool");
+
+    holds(&history.finish(), RECORDED_ADOPTED_THEN_MOVED);
+}
+
+/// What every run of
+/// [`a_history_that_starts_with_declarations_that_do_not_read_then_moves`]
+/// showed.
+const RECORDED_ADOPTED_THEN_MOVED: &str = concat!(
+    "chore: a declaration for another reader | does not read\n",
+    "fix(lib): one                           | does not read\n",
+    "docs: the readme only                   | does not read\n",
+    "fix(lib): two                           | does not read\n",
+    "chore: adopt the declaration            | repo 0.0.5, lib 0.0.4\n",
+    "fix(lib): after the adoption            | repo 0.0.6, lib 0.0.5\n",
+    "refactor(lib): move the library to libs | repo 0.0.7, lib 0.0.6\n",
+    "feat: declare the tool                  | repo 0.0.8, lib 0.0.7, tool 0.0.1\n",
+);
+
+#[test]
+fn a_history_that_starts_with_declarations_that_do_not_read_then_switches() {
+    let mut history = Recorder::new();
+    adopted(&mut history, true);
+
+    // The library switches to two stages: the commits whose declaration does
+    // not read stay releases of one stage, and its first target goes on from
+    // the release before the switch.
+    history.write(&[(
+        ".nebensound/repo.toml",
+        &format!("{LIB}release  = \"two-stage\"\n"),
+    )]);
+    history.commit("feat: release the library in two stages");
+    history.promote();
+
+    holds(&history.finish(), RECORDED_ADOPTED_THEN_SWITCHED);
+}
+
+/// What every run of
+/// [`a_history_that_starts_with_declarations_that_do_not_read_then_switches`]
+/// showed.
+const RECORDED_ADOPTED_THEN_SWITCHED: &str = concat!(
+    "chore: a declaration for another reader | does not read\n",
+    "fix(lib): one                           | does not read\n",
+    "docs: the readme only                   | does not read\n",
+    "fix(lib): two                           | does not read\n",
+    "chore: adopt the declaration            | repo 0.0.5, lib 0.0.4, [pointless-release-branch]\n",
+    "fix(lib): after the adoption            | repo 0.0.6, lib 0.0.5, [pointless-release-branch]\n",
+    "feat: release the library in two stages | repo 0.0.7, lib 0.0.6-pre.1\n",
+    "(promoted)                              | repo 0.0.7, lib 0.0.6\n",
 );
 
 /// The repository and a component `docs` that generates a unit per folder.

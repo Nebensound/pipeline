@@ -397,8 +397,13 @@ would write both units' records under the same names.
   a version; a unit that is removed and comes back goes on from where it was,
   and the commits in between do not count. The count never restarts, so no
   version is given twice. A commit without a declaration does not count. A
-  commit whose declaration cannot be read counts with the path and the mode of
-  the unit at the commit at hand.
+  commit whose declaration cannot be read takes a unit's path and mode from
+  the nearest commit after it on the line whose declaration can be read, not
+  from the commit at hand, and counts for the units that declaration gives a
+  version. What such a commit counts for is thereby fixed once that later
+  commit exists: a later move of the unit or a later switch of its mode does
+  not count it again in a different way. Until a readable declaration follows
+  it, the declaration at hand stands in for it.
 - **Earlier declarations are read in their edition** (see
   [Editions](#editions)), with the tool that runs: its reader and its
   register. A declaration it cannot read falls under the rule above. A
