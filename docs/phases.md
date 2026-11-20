@@ -38,15 +38,14 @@ hands the result on:
 3. When phase 0 found no error, every Rust package `[[exclude]]` takes out as a
    whole (`nebensound excluded-packages`) is named in the summary of the run
    with its reason, as a notice.
-4. Then `nebensound plan` prints the plan: every unit,
-   with the checks started for it and the build it names, and the version of
-   every unit that carries one, its last release, its pending version and
-   the version writers it selects. On a pull request the plan is built the
-   way the job Version reads it (see below): each version is the one the
-   merge would get, with `-pr.<number>` behind it. The units that start at least one check go on to
-   the Check phase, and the whole plan is handed on with them: a later job
-   checks out no history, so a version writer takes the versions from the
-   plan.
+4. Then `nebensound plan` prints the plan: every unit, with the checks started
+   for it and the build it names, and the version of every unit that carries
+   one, its last release, its pending version and the version writers it
+   selects. On a pull request the plan is built the way the job Version reads it
+   (see below): each version is the one the merge would get, with `-pr.<number>`
+   behind it. The units that start at least one check go on to the Check phase,
+   and the whole plan is handed on with them: a later job checks out no history,
+   so a version writer takes the versions from the plan.
 
 An error ends the phase here: there is no plan, no check runs, and
 `nebensound / Check` fails. A warning stops nothing.

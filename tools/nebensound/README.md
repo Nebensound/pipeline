@@ -139,11 +139,11 @@ from tags and history is described in
 [the reference of the declaration](../../docs/declaration.md#versions).
 
 `--pull-request <number> --message <message>` builds the plan for a pull
-request, reading `HEAD` the way [`version`](#the-versions) does: every
-`version` is then the one the squash merge would get, with `-pr.<number>`
-behind it, such as `1.5.0-pre.3-pr.17`, and every `pending` carries the same
-suffix. `base` and `last` stay versions that were released. Declare builds the plan this way on a pull request, so that the
-version writers write what a merge would publish.
+request, reading `HEAD` the way [`version`](#the-versions) does: every `version`
+is then the one the squash merge would get, with `-pr.<number>` behind it, such
+as `1.5.0-pre.3-pr.17`, and every `pending` carries the same suffix. `base` and
+`last` stay versions that were released. Declare builds the plan this way on a
+pull request, so that the version writers write what a merge would publish.
 
 A check runs **once, at the outermost unit it is in force for**. The base set is
 in force everywhere, so it runs at the repository; a check a unit declares
@@ -197,24 +197,24 @@ every finding, and exit code `1`, as with the plan.
 ## Writing the versions
 
 `write-versions` is the version writer `cargo`. No manifest in the tree carries
-a version, and Cargo cannot take one from outside, so the version of the plan
-is written into the working tree before something builds with it, and never
+a version, and Cargo cannot take one from outside, so the version of the plan is
+written into the working tree before something builds with it, and never
 committed. Every unit of the plan with the writer `cargo` that the commit at
 hand touches gets the version of the commit, `-pr.<number>` behind it in a plan
 built for a pull request. A unit the commit does not touch gets a version only
 where a package that gets one depends on it by path, followed through the path
 dependencies of each unit that gets one: `last`, the last version released for
 it, or `pending`, the version the commits waiting for it come to, when it was
-never released. A repository without any tag therefore gets its versions
-written from its first commit on. With that version it sets `package.version` in the unit's `Cargo.toml`,
-gives every path dependency on that package anywhere in the repository that
-version as its requirement, and sets the package's entry in the workspace's
-`Cargo.lock`, together with every entry that names it with a version. Every
-other workspace that reaches the package through path dependencies, directly or
-through another package, gets its `Cargo.lock` brought in line the same way:
-one that excludes the package, one beside it, or a `fuzz/` folder with a
-workspace of its own. Nothing else changes, and `cargo build --locked` passes
-afterwards.
+never released. A repository without any tag therefore gets its versions written
+from its first commit on. With that version it sets `package.version` in the
+unit's `Cargo.toml`, gives every path dependency on that package anywhere in the
+repository that version as its requirement, and sets the package's entry in the
+workspace's `Cargo.lock`, together with every entry that names it with a
+version. Every other workspace that reaches the package through path
+dependencies, directly or through another package, gets its `Cargo.lock` brought
+in line the same way: one that excludes the package, one beside it, or a `fuzz/`
+folder with a workspace of its own. Nothing else changes, and
+`cargo build --locked` passes afterwards.
 
 Any other unit with the writer gets nothing: its `Cargo.toml` stays as it is,
 apart from the entries of the `[workspace.dependencies]` it holds as the root
@@ -237,12 +237,12 @@ written.
 With `--workspace <path>`, only a touched unit that belongs to the workspace
 Cargo finds at that path gets the version of the commit on its own account. A
 workspace of its own in a folder below, one the workspace excludes or never
-names, does not belong to it. Their path dependencies are followed wherever
-they lie: a unit they reach gets the version of the commit when the commit
-touches it, else its last release, else its pending version. The package test of `check-rust`
-starts from its workspace this way, so that what another workspace of the
-repository needs cannot fail it. A path that is not one
-inside the repository ends the call with exit code `2`.
+names, does not belong to it. Their path dependencies are followed wherever they
+lie: a unit they reach gets the version of the commit when the commit touches
+it, else its last release, else its pending version. The package test of
+`check-rust` starts from its workspace this way, so that what another workspace
+of the repository needs cannot fail it. A path that is not one inside the
+repository ends the call with exit code `2`.
 
 The workspace is found the way Cargo finds it: the folder `package.workspace`
 names, else the nearest folder at or above the package whose `Cargo.toml` has
