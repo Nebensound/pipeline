@@ -3,9 +3,9 @@ name: nebensound
 # The one workflow a repository calls. No inputs: what the repository is stands
 # in its .nebensound/repo.toml.
 #
-# Phase 0 (Declare), the versions (Version) and the checks (Check) so far.
-# Build and Publish arrive one by one, each when it does something: a job that
-# only exists to be green reports success for work nobody did.
+# Phase 0 (Declare), the versions (Version), the checks (Check) and the builds
+# (Build) so far. Publish arrives when it does something: a job that only exists
+# to be green reports success for work nobody did.
 
 on:
   workflow_call:
@@ -25,6 +25,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       units: ${{ steps.units.outputs.units }}
+      builds: ${{ steps.builds.outputs.builds }}
       # The whole plan, for what needs the versions in a job whose checkout
       # holds no history: the version writers.
       plan: ${{ steps.phase0.outputs.plan }}
@@ -63,6 +64,25 @@ jobs:
           units="$(jq --compact-output '[.units[] | select(.checks | length > 0)]' <<< "$PLAN")"
           jq . <<< "$units"
           echo "units=$units" >> "$GITHUB_OUTPUT"
+
+      # The same for the builds: only the units that build go on, each with
+      # the version writers it selects, which write its version before it
+      # builds. A unit that builds carries a version, so it stands under
+      # `versions` as well.
+      - name: Name the units that build
+        id: builds
+        env:
+          PLAN: ${{ steps.phase0.outputs.plan }}
+        run: |
+          set -euo pipefail
+          builds="$(jq --compact-output '
+            .versions as $versions
+            | [ .units[] | select(.build != null) | . as $unit
+                | . + { writers: (first($versions[]
+                    | select(.kind == $unit.kind and .name == $unit.name)
+                    | .writers) // []) } ]' <<< "$PLAN")"
+          jq . <<< "$builds"
+          echo "builds=$builds" >> "$GITHUB_OUTPUT"
 
   # The version of every unit that carries one, as a table in the summary of
   # the run. It writes nothing and tags nothing: it reports. It runs whatever
@@ -135,8 +155,8 @@ jobs:
   #
   # Every step runs after a failing one, so that one run shows every finding of
   # the unit. Each building block adds its step below and its name to the list
-  # in "Not written yet"; `cargo xtask check` fails until the register, the
-  # blocks and these steps agree.
+  # `WRITTEN_CHECKS` in "Not written yet"; `cargo xtask check` fails until the
+  # register, the blocks and these steps agree.
   units:
     name: >-
       ${{ matrix.kind == 'repository' && 'Check repository'
@@ -167,12 +187,12 @@ jobs:
       - name: Not written yet
         env:
           CHECKS: ${{ toJSON(matrix.checks) }}
-          WRITTEN: '["json", "markdown", "rust", "toml", "yaml"]'
+          WRITTEN_CHECKS: '["json", "markdown", "rust", "toml", "yaml"]'
           UNIT_PATH: ${{ matrix.path }}
         run: |
           set -euo pipefail
           missing="$(jq --raw-output --null-input \
-            --argjson checks "$CHECKS" --argjson written "$WRITTEN" \
+            --argjson checks "$CHECKS" --argjson written "$WRITTEN_CHECKS" \
             '($checks - $written)[]')"
           if [ -z "$missing" ]; then
             echo "Every check of '$UNIT_PATH' has a building block."
@@ -315,3 +335,137 @@ jobs:
             echo "::error::The version writer '$writer' has no building block yet, so the version of $unit is not written. It is to be written under .github/actions/version-$writer."
           done <<< "$missing"
           exit 1
+
+  # One job per unit that builds, as the plan of phase 0 names them. Each starts
+  # only when Check passed: nothing is built from a tree that failed. The
+  # condition names the results itself, since the implicit success() would
+  # also skip the builds when `units` was skipped because no unit runs a check.
+  #
+  # The job first writes the unit's version with each version writer it
+  # selects, and then builds. A unit starts one build, so one of the build steps
+  # runs, switched by the build it implements. `uses:` takes no expression, so
+  # every building block is named here:
+  #
+  #   - name: <writer>
+  #     if: ${{ contains(matrix.writers, '<writer>') }}
+  #     uses: $/.github/actions/version-<writer>
+  #     with:
+  #       plan: ${{ needs.declare.outputs.plan }}
+  #
+  #   - name: <build>
+  #     if: ${{ matrix.build == '<build>' }}
+  #     uses: $/.github/actions/build-<build>
+  #     with:
+  #       working-directory: ${{ matrix.path }}
+  #
+  # Neither runs after a step that failed: a build from versions that were not
+  # written would hand on the wrong artifact. Each build block adds its step
+  # below and its name to the list `WRITTEN_BUILDS` in "Not written yet"; a
+  # version writer is held by "Version writers not written yet" in Check, which
+  # fails before any build starts. `cargo xtask check` fails until the
+  # register, the blocks and these steps agree.
+  builds:
+    name: >-
+      ${{ matrix.kind == 'repository' && 'Build repository'
+      || format('Build component {0}', matrix.name) }}
+    needs:
+      - declare
+      - check
+    if: >-
+      ${{ !cancelled()
+      && needs.declare.result == 'success'
+      && needs.check.result == 'success'
+      && needs.declare.outputs.builds != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.declare.outputs.builds) }}
+
+    steps:
+      - name: Check out the calling repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # From the cache `Declare` filled; the version writers call it.
+      - name: Get the tool
+        uses: $/.github/actions/tool
+
+      # A build the register knows and nobody has written yet fails by name, as
+      # a check does, so that a pull request says what is missing.
+      - name: Not written yet
+        env:
+          BUILD: ${{ matrix.build }}
+          WRITTEN_BUILDS: '["cargo-package"]'
+          UNIT_PATH: ${{ matrix.path }}
+        run: |
+          set -euo pipefail
+          if jq --exit-status --null-input \
+            --arg build "$BUILD" --argjson written "$WRITTEN_BUILDS" \
+            '$written | index($build) != null' > /dev/null; then
+            echo "The build '$BUILD' of '$UNIT_PATH' has a building block."
+            exit 0
+          fi
+          echo "::error::The build '$BUILD' has no building block yet, so '$UNIT_PATH' is not built. It is to be written under .github/actions/build-$BUILD."
+          exit 1
+
+      - name: cargo
+        if: ${{ contains(matrix.writers, 'cargo') }}
+        uses: $/.github/actions/version-cargo
+        with:
+          plan: ${{ needs.declare.outputs.plan }}
+
+      - name: cargo-package
+        if: ${{ matrix.build == 'cargo-package' }}
+        uses: $/.github/actions/build-cargo-package
+        with:
+          working-directory: ${{ matrix.path }}
+
+  # The one name a ruleset can require for the builds, gathered like Check. It
+  # passes only when Check passed: a build that never started because a check
+  # failed is no success. On a plan without builds it is green and says so.
+  build:
+    name: Build
+    needs:
+      - declare
+      - check
+      - builds
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Gather the builds
+        env:
+          DECLARE: ${{ needs.declare.result }}
+          CHECK: ${{ needs.check.result }}
+          BUILDS: ${{ needs.builds.result }}
+          PLANNED: ${{ needs.declare.outputs.builds }}
+        run: |
+          set -euo pipefail
+          if [ "$DECLARE" != "success" ]; then
+            echo "::error::Phase 0 did not pass ($DECLARE), so nothing was built."
+            exit 1
+          fi
+          if [ "$CHECK" != "success" ]; then
+            echo "::error::Check did not pass ($CHECK), so nothing was built."
+            exit 1
+          fi
+          case "$BUILDS" in
+            success)
+              echo "Every build the plan started passed."
+              ;;
+            skipped)
+              if [ "$PLANNED" != "[]" ]; then
+                echo "::error::The plan names builds, and none of them ran."
+                exit 1
+              fi
+              echo "The plan starts no build here; there was nothing to build."
+              ;;
+            *)
+              echo "::error::At least one build did not pass ($BUILDS)."
+              exit 1
+              ;;
+          esac

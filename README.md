@@ -67,12 +67,14 @@ of a commit on `main` and raised by hand; from then on to a release tag such as
 A run reports as `nebensound / Declare` (phase 0: the declaration read and
 checked against the tree), `nebensound / Version` (the version of every unit,
 as a table in the summary of the run), one job per unit that runs a check
-(`nebensound / Check repository`, `nebensound / Check component <name>`) and
-`nebensound / Check`, which sums the units up. A ruleset requires
-`nebensound / Version` and `nebensound / Check`. A check the register knows but
-that has no building block yet fails by name in the step `Not written yet` of
-its unit, and a version writer without one in the step
-`Version writers not written yet` of `nebensound / Check`.
+(`nebensound / Check repository`, `nebensound / Check component <name>`),
+`nebensound / Check`, which sums the units up, one job per unit that builds
+(`nebensound / Build repository`, `nebensound / Build component <name>`) and
+`nebensound / Build`, which sums the builds up. A ruleset requires
+`nebensound / Version`, `nebensound / Check` and `nebensound / Build`. A check
+or a build the register knows but that has no building block yet fails by name
+in the step `Not written yet` of its unit's job, and a version writer without
+one in the step `Version writers not written yet` of `nebensound / Check`.
 
 This repository calls the workflow the same way, with one difference: its own
 [`gate.yml`](.github/workflows/gate.yml) calls the workflow at the commit that
@@ -80,11 +82,13 @@ is running, so a change to the pipeline is checked by the pipeline it changes.
 
 ## Building blocks
 
-Every block checks one unit, and exactly the files `nebensound files <check>
-<unit path>` names: the files Git tracks below the unit's path whose extension
-the register gives that check, less what an `[[exclude]]` entry of the
-declaration takes out. A file nobody committed is not judged, and a committed
-one is not missed. Each finding is an annotation on its file.
+Every check block checks one unit, and exactly the files `nebensound files
+<check> <unit path>` names: the files Git tracks below the unit's path whose
+extension the register gives that check, less what an `[[exclude]]` entry of
+the declaration takes out. A file nobody committed is not judged, and a
+committed one is not missed. Each finding is an annotation on its file. A
+version writer writes the versions of the plan, and a build block builds one
+unit (see [`build-cargo-package`](#build-cargo-package)).
 
 The unit job gets the tool the same way `Declare` does, from the cache phase 0
 fills ([`.github/actions/tool`](.github/actions/tool)); it builds the tool
@@ -294,9 +298,42 @@ with Cargo's message. That a release must not publish a package that requires
 a version never released belongs to the release stage, not to the writer.
 Only `Cargo.toml` and `Cargo.lock` files change. `check-rust` writes the
 versions the same way for its package test, starting from the units of its
-workspace (`--workspace`); the Build phase that calls the block before building
-is not built yet. A version writer without a building block (today `asciidoc`)
-fails by name in `nebensound / Check`.
+workspace (`--workspace`). The Build phase calls the block in the job of every
+unit that builds and selects the writer, before it builds. A version writer
+without a building block (today `asciidoc`) fails by name in
+`nebensound / Check`.
+
+### `build-cargo-package`
+
+[`.github/actions/build-cargo-package`](.github/actions/build-cargo-package) is
+the build `cargo-package`. It builds one unit, the one Cargo package whose
+`Cargo.toml` stands at the unit's path, a member of a workspace or a workspace
+of its own, and runs in the unit's job of the Build phase after `version-cargo`
+has written the version of the run into the manifest: on a pull request the
+one its merge would get, with `-pr.<number>` behind it.
+
+- The toolchain is the one the workspace pins in its `rust-toolchain.toml`.
+- A unit path without a `Cargo.toml`, or one whose `Cargo.toml` is a workspace
+  without a package of its own, fails: there is no one crate to build.
+- `cargo package --locked` packages the crate once, with `--allow-dirty` for
+  the version Git does not have, and builds what it packed, so a file the
+  package leaves out that the build needs fails here.
+- A local package it depends on by path, directly or through another one, is
+  patched in from its folder for crates.io: its dependency names the version
+  the writer gave it, which is on no registry yet.
+- The `.crate` is unpacked outside the source tree, where neither the workspace
+  nor its `rust-toolchain.toml` reaches, and its tests run there with all
+  features, with the same toolchain and the same patches. A file the package
+  leaves out that a test needs fails the build.
+- The `.crate` is uploaded as an artifact of the run named
+  `crate-<path>@<version>@<sha>`: the unit's path percent-encoded (`.` for the
+  repository itself, `tools%2Ffoo` for `tools/foo`), the version the package
+  carries and the commit the checkout holds. The artifact holds exactly the
+  file `<package>-<version>.crate`. A second attempt of the same job replaces
+  it.
+
+Nothing is cached: the artifact is built from nothing in every run, so that
+nothing a pull request left in a cache reaches it.
 
 ### Linter rules
 
@@ -463,17 +500,24 @@ not part of the case's repository.
   may hand `plan: ${{ needs.declare.outputs.plan }}`, the plan of phase 0, to a
   check that writes the versions before it tests a package, as `check-rust`
   does;
-- the step `Not written yet` counts exactly the checks that have a block as
-  written, and the step `Version writers not written yet` exactly the version
-  writers. No step calls a `version-<writer>` block yet: the Build phase that
-  runs it before building brings that call;
+- every version writer's block is called from a step named after its entry
+  and switched on it with exactly `${{ contains(matrix.writers, '<writer>') }}`,
+  and every build block from a step named after its entry and switched on it
+  with exactly `${{ matrix.build == '<name>' }}`, both in the build job. Neither
+  condition holds `!cancelled()`, so that nothing is built after a step that
+  failed. The step has no other key than `name`, `if`, `uses` and `with`; it
+  hands a version writer exactly `plan: ${{ needs.declare.outputs.plan }}` and
+  a build exactly `working-directory: ${{ matrix.path }}`;
+- the step `Not written yet` of the check job counts exactly the checks that
+  have a block as written (`WRITTEN_CHECKS`), the step `Not written yet` of
+  the build job exactly the builds (`WRITTEN_BUILDS`), and the step
+  `Version writers not written yet` exactly the version writers;
 - every block has a passing and a failing case. A `.DS_Store` beside the cases
   is passed over: Git ignores it, so the gate never sees it.
 
-For now the xtask knows only how a check and a version writer are called and
-tested, so a block of another category is reported until the xtask learns that
-kind. The first `build-` or `publish-` block teaches it, together with its
-cases.
+For now the xtask knows only how a check, a version writer and a build are
+called and tested, so a `publish-` block is reported until the xtask learns
+that kind. The first one teaches it, together with its cases.
 
 Then it runs every block against its cases. It builds the tool through
 [`.github/actions/tool`](.github/actions/tool), copies each case into a fresh
@@ -481,9 +525,12 @@ Git repository, runs [`.github/actions/phase0`](.github/actions/phase0) on it,
 and runs a check block once for every unit the plan starts the block's check
 for, just as a unit job does, with the plan when the block takes one. A version
 writer's block runs once with the plan, provided a unit of the plan selects the
-writer. A passing case needs the block to succeed everywhere. A
-failing case needs it to fail and to print every finding the case names, so a
-block that fails for another reason does not count.
+writer. A build block runs once for every unit the plan starts the build for,
+just as a build job does: first the block of every version writer the unit
+selects, with the plan, and the build block only when they passed. A passing
+case needs the block to succeed everywhere. A failing case needs it to fail
+and to print every finding the case names, so a block that fails for another
+reason does not count.
 
 The xtask keeps no copy of what a block does. It reads every step from the
 block's `action.yml` and runs it the way the runner of GitHub Actions does: it
@@ -494,10 +541,11 @@ the ref the block names, a branch, a tag or a full commit SHA, and run the same
 way. An action that runs on Node.js
 cannot run like that; for the ones the blocks call, the xtask stands in:
 
-| Action                                                               | What stands in                                                                                |
-| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `actions/setup-node`, `actions/setup-go`                             | The tool already on the PATH, in the version the step asks for; anything else fails the step. |
-| `Swatinem/rust-cache`, `actions/cache/restore`, `actions/cache/save` | Nothing: a cache changes how fast a step runs, not what it finds.                             |
+| Action                                                               | What stands in                                                                                                 |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `actions/setup-node`, `actions/setup-go`                             | The tool already on the PATH, in the version the step asks for; anything else fails the step.                  |
+| `Swatinem/rust-cache`, `actions/cache/restore`, `actions/cache/save` | Nothing: a cache changes how fast a step runs, not what it finds.                                              |
+| `actions/upload-artifact`                                            | Nothing leaves the machine, but every path the step names has to exist, as `if-no-files-found: error` demands. |
 
 Any other such action fails the xtask until it has a stand-in. In the gate, the
 blocks that ran before the xtask in `Check repository` have put Node.js and Go

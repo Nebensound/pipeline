@@ -1,0 +1,14 @@
+# A workspace of two packages, app depending on lib by path, each a unit with
+# the version writer cargo and the build cargo-package. Each is packaged on its
+# own with the version the writer gave it, and tested from its own contents;
+# app finds lib, whose version is on no registry, patched in from its folder.
+[repo]
+pipeline = "rust-workspace"
+
+[component.app]
+path     = "app"
+pipeline = { version = ["cargo"], build = "cargo-package" }
+
+[component.lib]
+path     = "lib"
+pipeline = { version = ["cargo"], build = "cargo-package" }

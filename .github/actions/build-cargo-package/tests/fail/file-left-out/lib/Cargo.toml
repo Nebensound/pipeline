@@ -1,0 +1,6 @@
+[package]
+name        = "lib"
+edition     = "2024"
+description = "A crate for a test case of build-cargo-package."
+license     = "MIT"
+exclude     = ["tests/support"]

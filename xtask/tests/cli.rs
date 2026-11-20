@@ -44,7 +44,7 @@ jobs:
     steps:
       - name: Not written yet
         env:
-          WRITTEN: '["demo", "more"]'
+          WRITTEN_CHECKS: '["demo", "more"]'
       - name: demo
         if: ${{ !cancelled() && contains(matrix.checks, 'demo') }}
         uses: $/.github/actions/check-demo
@@ -58,6 +58,11 @@ jobs:
       - name: Version writers not written yet
         env:
           WRITTEN: '[]'
+  builds:
+    steps:
+      - name: Not written yet
+        env:
+          WRITTEN_BUILDS: '[]'
 "#;
 
 const TOOL: &str =

@@ -43,8 +43,13 @@ versioning = "none"
 
 # The test cases of the building blocks. Each is a small repository of its own
 # that `cargo xtask check` hands to its block; a failing case is wrong on
-# purpose, and a passing one is judged by its block alone. Each check-rust case
-# is a whole Cargo package, the only way Rust code can be excluded.
+# purpose, and a passing one is judged by its block alone. Each check-rust and
+# build-cargo-package case is a whole Cargo package, the only way Rust code can
+# be excluded.
+[[exclude]]
+path   = ".github/actions/build-cargo-package/tests"
+reason = "test cases of build-cargo-package, whole Cargo packages judged by that block through the xtask; the failing ones are wrong on purpose"
+
 [[exclude]]
 path   = ".github/actions/check-json/tests"
 reason = "test cases of check-json, judged by that block through the xtask; the failing ones are wrong on purpose"

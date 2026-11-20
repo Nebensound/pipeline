@@ -132,6 +132,11 @@ enum StandIn {
         /// What stands before the version in what the tool prints.
         prefix: &'static str,
     },
+    /// The action would upload the files its input `path` names as an
+    /// artifact of the run. Here nothing leaves the machine; each line of the
+    /// input has to name a file or folder that exists, as the action with
+    /// `if-no-files-found: error` demands.
+    Upload,
 }
 
 /// The actions on Node.js the blocks call, each with what stands in for it.
@@ -166,6 +171,7 @@ const STAND_INS: &[(&str, StandIn)] = &[
         "actions/cache/save",
         StandIn::Nothing("a cache: nothing is kept for a later run"),
     ),
+    ("actions/upload-artifact", StandIn::Upload),
 ];
 
 /// A program a block's step expects on the `PATH` in a version, where on
@@ -755,6 +761,45 @@ impl Host {
                             if printed.is_empty() { "none" } else { &printed }
                         ),
                         false,
+                    )
+                }
+            }
+            StandIn::Upload => {
+                let name = inputs.get("name").cloned().unwrap_or_default();
+                let paths: Vec<&str> = inputs
+                    .get("path")
+                    .map(String::as_str)
+                    .unwrap_or_default()
+                    .lines()
+                    .map(str::trim)
+                    .filter(|path| !path.is_empty())
+                    .collect();
+                let missing: Vec<&str> = paths
+                    .iter()
+                    .copied()
+                    .filter(|path| !frame.place.workspace.join(path).exists())
+                    .collect();
+                if paths.is_empty() || !missing.is_empty() {
+                    line(
+                        format!(
+                            "{reference} would upload the artifact `{name}`, and finds no file \
+                             at {}",
+                            if paths.is_empty() {
+                                "all: no path is named".to_owned()
+                            } else {
+                                missing.join(", ")
+                            }
+                        ),
+                        false,
+                    )
+                } else {
+                    line(
+                        format!(
+                            "{reference} would upload the artifact `{name}`: {}; here it stays \
+                             on this machine",
+                            paths.join(", ")
+                        ),
+                        true,
                     )
                 }
             }

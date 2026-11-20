@@ -194,9 +194,12 @@ runs:
       run: |
         checks='["demo", "rust", "short", "missing", "planned"]'
         writers='["demo"]'
-        if [ -f no-units ]; then checks='[]'; writers='[]'; fi
+        build='"demo"'
+        if [ -f no-units ]; then checks='[]'; writers='[]'; build=null; fi
+        if [ -f ghost-writer ]; then writers='["ghost"]'; fi
         if [ -f no-plan ]; then echo "plan=nothing" >> "$GITHUB_OUTPUT"; exit 0; fi
-        echo "plan={\"units\":[{\"path\":\".\",\"checks\":$checks},{\"path\":\"sub\",\"checks\":$checks}],\"versions\":[{\"path\":\"sub\",\"writers\":$writers}]}" >> "$GITHUB_OUTPUT"
+        sub='"kind":"component","name":"sub","path":"sub"'
+        echo "plan={\"units\":[{\"kind\":\"repository\",\"name\":null,\"path\":\".\",\"checks\":$checks,\"build\":null},{$sub,\"checks\":$checks,\"build\":$build}],\"versions\":[{$sub,\"writers\":$writers}]}" >> "$GITHUB_OUTPUT"
 "#;
 
 /// A version writer's block: it gets the plan and no path.
@@ -213,7 +216,25 @@ runs:
       run: |
         case "$PLAN" in *'"versions"'*) ;; *) echo "no plan"; exit 1 ;; esac
         if [ -f sub/bad ]; then echo "::error file=sub/bad::wrong"; exit 1; fi
+        touch sub/written
         echo "written once"
+"#;
+
+/// A build block: it gets the path, and builds only what the writer wrote.
+const BUILD: &str = r#"
+inputs:
+  working-directory:
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+      run: |
+        if [ ! -f "$UNIT/written" ]; then echo "$UNIT has no version"; exit 1; fi
+        if [ -f "$UNIT/unbuildable" ]; then echo "::error file=$UNIT/unbuildable::wrong"; exit 1; fi
+        echo "$UNIT built"
 "#;
 
 /// A check block that takes the plan beside its path.
@@ -253,7 +274,8 @@ runs:
 
 /// A root with phase 0, the block `check-demo` and its copy `check-rust`,
 /// `check-planned` that takes the plan, the version writer `version-demo`,
-/// and the cases `good`, `bad`, `phase0-fails`, `no-units` and `no-plan`.
+/// the build `build-demo`, and the cases `good`, `bad`, `unbuildable`,
+/// `ghost-writer`, `phase0-fails`, `no-units` and `no-plan`.
 fn root(scene: &Scene) -> std::path::PathBuf {
     let root = scene.path().join("root");
     write(
@@ -271,7 +293,14 @@ fn root(scene: &Scene) -> std::path::PathBuf {
             (".github/actions/check-short/action.yml", "inputs:\n  working-directory: {}\nruns:\n  using: composite\n  steps: []\n"),
             (".github/actions/check-planned/action.yml", PLANNED),
             (".github/actions/version-demo/action.yml", WRITER),
+            (".github/actions/build-demo/action.yml", BUILD),
             ("cases/good/sub/file", ""),
+            ("cases/unbuildable/sub/unbuildable", ""),
+            (
+                "cases/unbuildable/expected-finding",
+                "::error file=sub/unbuildable::wrong\n",
+            ),
+            ("cases/ghost-writer/ghost-writer", ""),
             ("cases/good/file", ""),
             ("cases/bad/sub/bad", ""),
             ("cases/bad/expected-finding", "::error file=sub/bad::wrong\n"),
@@ -392,6 +421,99 @@ fn a_version_writer_runs_once_with_the_plan() {
 }
 
 #[test]
+fn a_build_runs_for_each_of_its_units_after_their_version_writers() {
+    let scene = Scene::new();
+    root(&scene);
+    let (verdict, out) = run(&scene, "build-demo", "good", Expect::Pass);
+    assert_eq!(verdict.unwrap(), None, "{out}");
+    assert_eq!(out.matches("    | written once").count(), 1, "{out}");
+    assert_eq!(out.matches("    | sub built").count(), 1, "{out}");
+    assert!(
+        out.find("written once") < out.find("sub built"),
+        "the writer runs first: {out}"
+    );
+
+    let unbuildable = Expect::Fail(vec!["::error file=sub/unbuildable::wrong".to_owned()]);
+    let (verdict, out) = run(&scene, "build-demo", "unbuildable", unbuildable);
+    assert_eq!(verdict.unwrap(), None, "{out}");
+
+    // A writer that fails keeps the build from running, and its finding
+    // counts.
+    let (verdict, out) = run(&scene, "build-demo", "bad", finding());
+    assert_eq!(verdict.unwrap(), None, "{out}");
+    assert!(!out.contains("has no version"), "{out}");
+
+    let (verdict, out) = run(&scene, "build-demo", "no-units", Expect::Pass);
+    assert!(
+        verdict
+            .unwrap()
+            .unwrap()
+            .contains("no unit of the case starts the build `demo`"),
+        "{out}"
+    );
+
+    let (verdict, out) = run(&scene, "build-demo", "ghost-writer", Expect::Pass);
+    assert!(
+        verdict.unwrap_err().to_string().contains("version-ghost"),
+        "{out}"
+    );
+    let (verdict, out) = run(&scene, "build-demo", "no-plan", Expect::Pass);
+    assert!(
+        verdict.unwrap_err().to_string().contains("no JSON"),
+        "{out}"
+    );
+}
+
+#[test]
+fn the_plan_names_the_units_of_a_build_with_their_writers() {
+    let plan = r#"{"units":[
+        {"kind":"repository","name":null,"path":".","build":"demo"},
+        {"kind":"component","name":"lib","path":"lib","build":"demo"},
+        {"kind":"component","name":"doc","path":"doc","build":"demo"},
+        {"kind":"component","name":"odd","path":"odd","build":"demo"},
+        {"kind":"component","name":"other","path":"other","build":"other"},
+        {"kind":"component","name":"none","path":"none","build":null},
+        {"kind":"component","name":"lost","build":"demo"}
+    ],"versions":[
+        {"kind":"repository","name":null,"writers":[]},
+        {"kind":"component","name":"lib","writers":["cargo"]},
+        {"kind":"component","name":"odd","writers":[1, "cargo"]},
+        {"kind":"component","name":"other","writers":["cargo"]},
+        {"kind":"component","name":"doc"}
+    ]}"#;
+    let built = |path: &str, writers: &[&str]| cases::Built {
+        path: path.to_owned(),
+        writers: writers.iter().map(|writer| (*writer).to_owned()).collect(),
+    };
+    assert_eq!(
+        cases::builds(plan, "demo").unwrap(),
+        [
+            built(".", &[]),
+            built("lib", &["cargo"]),
+            built("doc", &[]),
+            built("odd", &["cargo"]),
+        ]
+    );
+    assert_eq!(
+        cases::builds(r#"{"units":[{"path":"x","build":"demo"}]}"#, "demo").unwrap(),
+        [built("x", &[])]
+    );
+    assert!(cases::builds(plan, "absent").unwrap().is_empty());
+    assert!(
+        cases::builds("not json", "demo")
+            .unwrap_err()
+            .to_string()
+            .contains("no JSON")
+    );
+    assert!(
+        cases::builds("{}", "demo")
+            .unwrap_err()
+            .to_string()
+            .contains("names no units")
+    );
+}
+
+#[test]
 fn a_step_the_xtask_leaves_out_does_not_run() {
     let scene = Scene::new();
     root(&scene);
@@ -431,7 +553,7 @@ fn a_case_that_cannot_run_is_an_error() {
     let root = root(&scene);
     let scratch = scene.path().join("scratch");
     for (block, case, message) in [
-        ("build-demo", "good", "neither a check nor a version writer"),
+        ("publish-demo", "good", "no check, version writer or build"),
         ("version-demo", "no-plan", "no JSON"),
         ("check-demo", "missing", "`cp -R"),
         ("check-demo", "no-plan", "no JSON"),
