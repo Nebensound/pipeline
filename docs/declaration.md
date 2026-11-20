@@ -660,7 +660,9 @@ the sources hold instead of the one the run gives the unit. The register names
 the writers each build needs (see [Builds](register.md#builds)). Add the writer
 to the unit's `version` list, or choose a preset that selects it. A unit that
 generates children is reported once, for its own declaration, which the
-children inherit.
+children inherit. A unit that carries no version of its own and generates no
+children is not reported: it gets no build job, so nothing it builds can carry
+a wrong version.
 
 ### `unwatched-manifest`
 

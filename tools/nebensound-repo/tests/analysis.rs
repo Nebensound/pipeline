@@ -615,6 +615,25 @@ fn a_generator_without_the_writer_its_build_needs_is_reported_once() {
 }
 
 #[test]
+fn a_unit_that_is_never_built_needs_no_writer_for_its_build() {
+    // Without a version of its own and without children, the unit gets no
+    // build job, so nothing it builds could carry a wrong version; and the
+    // writer would be refused there as having nothing to copy.
+    let analysis = run(
+        "[repo]\npipeline = { dependabot = [\"cargo\"] }\n\n\
+         [component.thing]\npath = \"crates/thing\"\nversioning = \"none\"\n\
+         pipeline = { check = [\"rust\"], build = \"cargo-package\" }\n",
+        CRATE_FILES,
+    );
+    assert!(!unit(&analysis, "thing").carries_version);
+    assert!(
+        !codes(&analysis).contains(&"build-without-version-writer"),
+        "{:?}",
+        analysis.findings()
+    );
+}
+
+#[test]
 fn every_preset_that_builds_passes_with_the_writers_it_selects() {
     let central = central();
     let mut seen = 0;

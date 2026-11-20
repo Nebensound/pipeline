@@ -308,14 +308,18 @@ fn version_writers_have_a_version(resolution: &Resolution, findings: &mut Vec<Fi
 /// sources hold. The register names, per build, the writers it needs.
 ///
 /// A generated unit inherits its pipeline from the unit that generated it, so
-/// the mistake is that unit's and is reported once, there.
+/// the mistake is that unit's and is reported once, there. A unit that carries
+/// no version and generates no children is never built (see the plan), so no
+/// artifact of it can carry a wrong version.
 fn builds_have_their_version_writers(
     resolution: &Resolution,
     central: &Central,
     findings: &mut Vec<Finding>,
 ) {
     for unit in &resolution.units {
-        if matches!(unit.origin, Origin::Generated { .. }) {
+        if matches!(unit.origin, Origin::Generated { .. })
+            || (!unit.carries_version && !unit.versioning.generates_children())
+        {
             continue;
         }
         // An unknown build is reported when the pipeline is resolved.
