@@ -122,8 +122,10 @@ tag: `v*` for the repository and `*-v*` for a component or a generated unit
 no update and no deletion, for anyone, administrators included. A tag that only
 looks like those, such as `vendor-drop`, is held as well.
 
-Tags are records. No version is read from a tag; the versions come from the
-history. What a tag holds is what a caller pins and what the release stage
+Tags are records once #98 is in: no version is read from a tag; the versions
+come from the history. Until then, [the declaration](../declaration.md#versions)
+still resolves versions from tags, and moving a tag would change a version.
+Either way, what a tag holds is what a caller pins and what the release stage
 wrote, and this ruleset keeps both where they were set. Measured on the test
 repository: moving `v0.0.1` and `tool-v0.0.1` was refused with "Cannot update
 this protected ref", deleting them with "Cannot delete this tag", and a tag
@@ -154,8 +156,10 @@ It is not enforced when the branch is created (`do_not_enforce_on_create`), so
 that a new repository, which carries `central` from its creation, can be
 created at all. The intended behaviour: the first push into an empty repository
 creates the default branch and goes through, and every pull request afterwards
-needs the three checks. The repository's first pull request, the one that adds
-the caller, reports them itself. **Not yet measured**: both halves still have to
+needs the three checks to have passed. The repository's first pull request, the
+one that adds the caller, reports them itself, but it can merge only once they
+pass (see [Properties](#properties) for a repository the pipeline cannot pass
+yet). **Not yet measured**: both halves still have to
 be measured on a fresh, empty test repository, together with the question
 whether the existing ruleset refuses that first push to a creator who is not an
 administrator. `release-guard` keeps the rule on creation, so `release`
@@ -220,14 +224,33 @@ before the branch existed:
   `always`.
 
 So a person with Maintain or Admin creates `release` at the tip of `main`, once
-the push run of that commit has reported the three checks:
+the push run of that commit has passed the three checks:
 
 ```sh
 git fetch origin
 git push origin origin/main:refs/heads/release
 ```
 
-No owner step is needed for it.
+No owner step is needed for it, as long as some commit of `main` has passed the
+three checks. That fails for a repository that is bound while a unit of it is
+released in two stages and `release` does not exist yet: phase 0 reports
+`missing-release-branch` (see [the declaration](../declaration.md#missing-release-branch)),
+`nebensound / Check` fails on every run, no commit passes, and `release-guard`
+refuses to create `release` anywhere while `required-checks` refuses every
+merge into the default branch. A repository that switches avoids it by creating
+`release` before the property is set (see
+[the day a repository switches](#the-day-a-repository-switches)). A new
+repository carries `central` from its creation, so for it the owner takes the
+step:
+
+1. Set the repository's property `pipeline` to `legacy`, which takes it out of
+   the four rulesets.
+2. Create `release` at the tip of `main`, as above, and re-run the failed push
+   run of `main` until the three checks pass.
+3. Set the property back to `central`.
+4. Read back the rules of `release` and of the default branch, as in step 7 of
+   [the day a repository switches](#the-day-a-repository-switches), with
+   `release` as the branch as well.
 
 ## Properties
 
@@ -248,17 +271,27 @@ Two properties remain for that:
 
 For whom a repository is meant is declared in the repository (#101), not as a
 property. The properties `language` and `kind` repeat what the declaration and
-the files already say, and no ruleset targets them; once a repository has
-switched, the owner removes them.
+the files already say, and no ruleset targets them. Once the first repository
+has switched, the owner deletes both properties; that removes them from every
+repository of the organization at once, the `legacy` ones included.
 
 The default of `pipeline` is `central`, so a new repository is bound from the
 start: the four rulesets hold for it before it has a caller. It can still be
 created, because `required-checks` is not enforced on creation (still to be
 measured, see [`required-checks`](#required-checks)), and its first pull
-request adds the caller, which reports the three checks.
+request adds the caller, which reports the three checks; it merges once they
+have passed.
 
 What follows from it:
 
+- A new repository can merge into its default branch only once the pipeline
+  passes for it. One that the pipeline cannot pass yet stays blocked until the
+  owner sets it to `legacy`: a check the pipeline has not written yet fails by
+  name, and a kind of file that no check covers is `language-without-check`
+  (see [the declaration](../declaration.md#language-without-check)). One whose
+  unit is released in two stages needs `release` first, which only the owner's
+  step in [How `release` comes into being](#how-release-comes-into-being)
+  creates.
 - A fork of someone else's project carries `central` as well and is bound by
   the four rulesets until the owner sets it to `legacy`. A ruleset condition
   cannot tell a fork apart.
@@ -376,7 +409,7 @@ diff <(gh api orgs/Nebensound/properties/schema/pipeline |
 ## The day a repository switches
 
 In this order, so that the required checks never bind a repository that cannot
-report them:
+pass them:
 
 1. **Merge the caller**, pinned to a version of the pipeline that reports all
    three checks, and wait until the push run on the default branch has reported
@@ -385,7 +418,17 @@ report them:
    (`allow_merge_commit`) if a unit of it is released in two stages; a pull
    request into `release` is merged with a merge commit, and GitHub offers only
    the methods that both the settings and the rulesets allow.
-3. **Set the property** `pipeline` to `central`:
+3. **Create `release`** at the tip of `main` if a unit is released in two
+   stages and the branch does not exist yet, before the property is set.
+   Without the branch, phase 0 reports `missing-release-branch` and the push
+   run of step 1 fails; once `release-guard` binds, `release` can be created
+   only at a commit that passed the three checks, so no commit ever would.
+   Create it as in [How `release` comes into being](#how-release-comes-into-being)
+   and re-run the push run of step 1.
+4. **Wait until the three checks have passed** on the tip of the default
+   branch, not only been reported. If they fail, fix that first: with the
+   property set while they fail, nothing can merge into the default branch.
+5. **Set the property** `pipeline` to `central`:
 
    ```sh
    gh api -X PATCH orgs/Nebensound/properties/values --input - <<'EOF'
@@ -396,7 +439,7 @@ report them:
    EOF
    ```
 
-4. **Delete the local ruleset**: a ruleset of the repository itself that the
+6. **Delete the local ruleset**: a ruleset of the repository itself that the
    organization rulesets now replace, such as one that required checks.
 
    ```sh
@@ -405,7 +448,7 @@ report them:
    gh api -X DELETE repos/Nebensound/<repository>/rulesets/<id>
    ```
 
-5. **Read back** the rules of the default branch: the required checks of
+7. **Read back** the rules of the default branch: the required checks of
    `required-checks` are among them.
 
    ```sh
@@ -424,7 +467,9 @@ report them:
   [the steps above](#the-day-a-repository-switches). Its default branch already
   reports the three checks, it allows merge commits, and it has no local
   ruleset.
-- Once a repository has switched, remove the properties `language` and `kind`:
+- Once the first repository has switched, delete the properties `language` and
+  `kind`, once for the whole organization (each call removes the property from
+  every repository):
 
   ```sh
   gh api -X DELETE orgs/Nebensound/properties/schema/language
