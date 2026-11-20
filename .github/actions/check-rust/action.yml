@@ -15,16 +15,16 @@ description: >-
 # One step runs elsewhere: coverage is measured on a nightly toolchain pinned
 # below, because only there does `#[coverage(off)]` take effect.
 #
-# The files are the ones `nebensound files` names for the check and the unit:
-# the `.rs` files Git tracks below the workspace, less what an `[[exclude]]`
-# entry of the declaration takes out. Rust code is excluded by the package,
-# never by the file; phase 0 fails on an entry that takes out part of a
-# package. A package `nebensound excluded-packages` names is out of every step:
-# not formatted, not linted, not tested, not documented, not counted for
-# coverage. It is only compiled where another package depends on it, and
-# rustc still prints its own warnings for it then, which fail nothing. That
-# holds for a workspace member and for a path dependency outside the workspace
-# alike. The calling job puts the tool on the PATH first (the action `tool`).
+# The files are the ones `nebensound-repo files` names for the check and the
+# unit: the `.rs` files Git tracks below the workspace, less what an
+# `[[exclude]]` entry of the declaration takes out. Rust code is excluded by the
+# package, never by the file; phase 0 fails on an entry that takes out part of a
+# package. A package `nebensound-repo excluded-packages` names is out of every
+# step: not formatted, not linted, not tested, not documented, not counted for
+# coverage. It is only compiled where another package depends on it, and rustc
+# still prints its own warnings for it then, which fail nothing. That holds for
+# a workspace member and for a path dependency outside the workspace alike. The
+# calling job puts the tool on the PATH first (the action `tool`).
 
 inputs:
   working-directory:
@@ -32,8 +32,9 @@ inputs:
     required: true
   plan:
     description: >-
-      The plan of phase 0 (`nebensound plan`), as Declare hands it on. Without
-      it no version is written, and a package without one is not verified.
+      The plan of phase 0 (`nebensound-repo plan`), as Declare hands it on.
+      Without it no version is written, and a package without one is not
+      verified.
     required: false
     default: ""
 
@@ -52,11 +53,11 @@ runs:
         excluded="$RUNNER_TEMP/check-rust-excluded.json"
         # The tool writes a refusal where the list would go: into the log
         # with it, or the step fails without saying why.
-        if ! nebensound files -z -- rust "$UNIT" > "$list"; then
+        if ! nebensound-repo files -z -- rust "$UNIT" > "$list"; then
           cat "$list" >&2
           exit 1
         fi
-        if ! nebensound excluded-packages > "$excluded"; then
+        if ! nebensound-repo excluded-packages > "$excluded"; then
           cat "$excluded" >&2
           exit 1
         fi
@@ -444,7 +445,7 @@ runs:
         if [ -n "$PLAN" ]; then
           plan="$RUNNER_TEMP/check-rust-plan.json"
           printf '%s\n' "$PLAN" > "$plan"
-          nebensound -C "$root" write-versions --plan "$plan" --workspace "$UNIT"
+          nebensound-repo -C "$root" write-versions --plan "$plan" --workspace "$UNIT"
         else
           echo "No plan was handed in, so no version is written."
         fi

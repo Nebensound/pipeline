@@ -3,7 +3,7 @@
 # its test cases and holds the building blocks, the register and nebensound.yml to
 # each other. The central workflow runs `cargo xtask check --all` as the last step
 # of `Check repository`, as it does for every repository with an xtask. Its
-# `setup` task calls `nebensound setup` for this repository.
+# `setup` task calls `nebensound-repo setup` for this repository.
 #
 # A workspace of its own and not a member of the tool's: Cargo resolves the xtask
 # from here, and nothing in it is built or published.

@@ -7,12 +7,12 @@
 //!   cases ([`cases`]) by running the block's own steps, read from its
 //!   `action.yml` ([`runner`]). The central workflow runs
 //!   `cargo xtask check --all` as the last step of `Check repository`.
-//! - `setup` calls `nebensound setup` for this repository, with the tool of
-//!   this commit, to find or install the programs its checks call, and then,
-//!   on Linux, checks what only the test cases need ([`MACHINE`]): Node.js
-//!   and Go on the `PATH` in the versions the blocks' steps ask for, jq, npm,
-//!   Python's pip and rustup. It installs none of them: the blocks fetch
-//!   their own programs when the cases run them, and these stay the
+//! - `setup` calls `nebensound-repo setup` for this repository, with the tool
+//!   of this commit, to find or install the programs its checks call, and
+//!   then, on Linux, checks what only the test cases need ([`MACHINE`]):
+//!   Node.js and Go on the `PATH` in the versions the blocks' steps ask for,
+//!   jq, npm, Python's pip and rustup. It installs none of them: the blocks
+//!   fetch their own programs when the cases run them, and these stay the
 //!   machine's, so it names each one that is missing. Elsewhere the cases do
 //!   not run, so it leaves them out and says why.
 //!
@@ -45,8 +45,8 @@ const MISUSE: u8 = 2;
 /// What the steps of the blocks call on the machine beside the programs
 /// [`runner::needs`] finds, each with its name and the command that shows it
 /// is there. Phase 0, `check-json`, `check-rust` and `check-toml` run jq;
-/// `nebensound setup` can install a jq of its own, but into its cache and not
-/// onto the `PATH` the steps search. `check-json`, `check-markdown` and
+/// `nebensound-repo setup` can install a jq of its own, but into its cache and
+/// not onto the `PATH` the steps search. `check-json`, `check-markdown` and
 /// `check-yaml` install their programs with npm, which `actions/setup-node`
 /// puts beside Node.js on GitHub, and which some systems ship apart from
 /// Node.js. `check-yaml` runs Python's pip, which some systems ship apart
@@ -71,9 +71,10 @@ check --all   Holds the building blocks, the register and nebensound.yml to
               in tests/pass/ and tests/fail/. The cases run the blocks' own
               steps, which are written for the Linux runners of GitHub Actions,
               so for now they run on Linux only.
-setup         Calls `nebensound setup` for this repository, built from this
-              commit, to find or install the programs its checks call. Every
-              option goes to it unchanged: --pinned, --with-runtimes, --check.
+setup         Calls `nebensound-repo setup` for this repository, built from
+              this commit, to find or install the programs its checks call.
+              Every option goes to it unchanged: --pinned, --with-runtimes,
+              --check.
               Then, on Linux, it checks, and installs nothing, what only the
               test cases need: Node.js and Go in the versions the blocks ask
               for, jq, npm, Python's pip and rustup.
@@ -205,7 +206,7 @@ fn parse(args: &[String]) -> Result<Call<'_>, String> {
 
 /// Runs one call and returns the exit code: 0 when there is nothing to report,
 /// 1 when a check found something, 2 when the call itself was wrong. `setup`
-/// returns the exit code of `nebensound setup`.
+/// returns the exit code of `nebensound-repo setup`.
 pub fn run(args: &[String], setup: &Setup, out: &mut dyn Write) -> u8 {
     match parse(args) {
         Ok(Call::Help) => {
@@ -267,17 +268,17 @@ fn check(setup: &Setup, out: &mut dyn Write) -> u8 {
     }
 }
 
-/// `setup`: `nebensound setup` for this repository, built from this commit
-/// with the toolchain the tool pins and handed every option unchanged, then,
-/// on Linux, what only the test cases need ([`machine`]). The tool shares the
-/// terminal, so that it can ask before it installs a runtime, and gets the
+/// `setup`: `nebensound-repo setup` for this repository, built from this
+/// commit with the toolchain the tool pins and handed every option unchanged,
+/// then, on Linux, what only the test cases need ([`machine`]). The tool shares
+/// the terminal, so that it can ask before it installs a runtime, and gets the
 /// developer's environment less what would steer Cargo.
 ///
 /// Cargo runs in the tool's directory: rustup picks the toolchain from the
 /// directory it is started in, not from `--manifest-path`, so only there does
 /// the tool's `rust-toolchain.toml` count.
 fn programs(options: &[String], setup: &Setup, out: &mut dyn Write) -> u8 {
-    let tool = setup.root.join("tools/nebensound");
+    let tool = setup.root.join("tools/nebensound-repo");
     let manifest = tool.join("Cargo.toml");
     let status = Command::new(&setup.cargo)
         .args(["run", "--quiet", "--locked", "--manifest-path"])
@@ -437,7 +438,7 @@ fn cases(blocks: &[String], setup: &Setup, out: &mut dyn Write) -> Result<usize,
     let mut job = Job::default();
 
     // The tool, the way every unit job gets it, so that each case runs the
-    // `nebensound` of this commit.
+    // `nebensound-repo` of this commit.
     say(out, "::group::The tool\n");
     let tool = host.run(
         &mut job,

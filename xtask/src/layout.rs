@@ -37,7 +37,7 @@ use crate::cases::{self, ACTIONS, Case, Expect};
 pub const MACHINERY: &[&str] = &["phase0", "tool"];
 
 /// The register, from the repository root.
-pub const REGISTER: &str = "tools/nebensound/crates/nebensound-declaration/register.toml";
+pub const REGISTER: &str = "tools/nebensound-repo/register.toml";
 
 /// The central workflow, from the repository root.
 pub const WORKFLOW: &str = ".github/workflows/nebensound.yml";

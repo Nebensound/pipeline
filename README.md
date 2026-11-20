@@ -10,9 +10,14 @@ publishes what that declaration says.
 - **Its building blocks.** Each block performs one step and is named after its
   entry in the register, with the category in front: `version-<writer>`,
   `check-<name>`, `build-<name>`, `publish-<target>`.
-- **The tool `nebensound`.** It reads a repository's declaration, checks it
-  against the tree and tells the workflow which blocks to run for which part of
-  the repository.
+- **The tool `nebensound-repo`.** It reads a repository's declaration, checks
+  it against the tree and tells the workflow which blocks to run for which part
+  of the repository.
+
+The commands of `nebensound-repo` are limited to the tasks of a repository. The
+tool has no external subcommands and never starts a program because a
+subcommand's name matched it: the programs it starts are those of the register,
+Git, curl and Cargo.
 
 ## Status
 
@@ -80,14 +85,14 @@ one in the step `Version writers not written yet` of `nebensound / Check`.
 This repository calls the workflow the same way, with one difference: its own
 [`gate.yml`](.github/workflows/gate.yml) calls the workflow at the commit that
 is running, so a change to the pipeline is checked by the pipeline it changes.
-Its declaration builds the tool `nebensound` and the library
-`nebensound-declaration` with `cargo-package` and publishes neither, so a pull
-request that touches one of them runs the Build phase here with the real
-upload.
+Its declaration gives the tool `nebensound-repo` neither a version nor a build,
+so the repository's own tags `vX.Y.Z` are the only ones, and its Build phase has
+nothing to build. The version writer `cargo` and the build `cargo-package` are
+held to their test cases instead.
 
 ## Building blocks
 
-Every check block checks one unit, and exactly the files `nebensound files
+Every check block checks one unit, and exactly the files `nebensound-repo files
 <check> <unit path>` names: the files Git tracks below the unit's path whose
 extension the register gives that check, less what an `[[exclude]]` entry of
 the declaration takes out. A file nobody committed is not judged, and a
@@ -218,7 +223,7 @@ release binary pinned by SHA-256:
   instead of being skipped.
 - `.nebensound/repo.toml` is always checked against the schema of the
   declaration that lies beside the action, the one of the same pipeline
-  version as phase 0, directive or not. `nebensound schema` derives it from
+  version as phase 0, directive or not. `nebensound-repo schema` derives it from
   the types phase 0 reads the file with, so an unknown key fails with its line
   and column. The schema is looser than phase 0, never stricter.
 
@@ -258,7 +263,7 @@ writer `cargo`. No manifest in the tree carries a version: tags are the truth,
 and Cargo cannot take a version from outside. So the version is written into
 the checkout of the run, immediately before something builds with it, and never
 committed. The block hands the plan Declare printed to
-`nebensound write-versions --plan`, since its job checks out no history to
+`nebensound-repo write-versions --plan`, since its job checks out no history to
 resolve a version from. Every unit of the plan with the writer `cargo` that
 the commit at hand touches gets the version of the commit, on a pull request
 the one its merge would get with `-pr.<number>` behind it (such as
@@ -345,17 +350,17 @@ nothing a pull request left in a cache reaches it.
 ### Linter rules
 
 Markdownlint and yamllint run with a default of the pipeline:
-[`tools/nebensound/rules/markdownlint.jsonc`](tools/nebensound/rules/markdownlint.jsonc)
+[`tools/nebensound-repo/rules/markdownlint.jsonc`](tools/nebensound-repo/rules/markdownlint.jsonc)
 (`MD013` off, since Prettier does not wrap prose) and
-[`tools/nebensound/rules/yamllint.yaml`](tools/nebensound/rules/yamllint.yaml)
+[`tools/nebensound-repo/rules/yamllint.yaml`](tools/nebensound-repo/rules/yamllint.yaml)
 (yamllint's defaults, less what contradicts Prettier or GitHub Actions). The
 block reads it from the pipeline version that runs. A repository's own
 configuration is laid over that default rule by rule: its file names only the
-rules it wants different, every rule it does not name keeps the default's
-value, and a later change of the default reaches it without a change of its
-own. `nebensound check` shows, per check, every rule the repository sets and
-how it stands to the default (see
-[the tool's README](tools/nebensound/README.md#the-rules)).
+rules it wants different, every rule it does not name keeps the default's value,
+and a later change of the default reaches it without a change of its own.
+`nebensound-repo check` shows, per check, every rule the repository sets and how
+it stands to the default (see
+[the tool's README](tools/nebensound-repo/README.md#the-rules)).
 
 A repository whose pull request template begins on a second-level heading
 needs one Markdownlint rule changed, for that folder only. Instead of an inline
@@ -404,9 +409,9 @@ and held against the declaration by phase 0 (see [Exclusions](#exclusions)).
 ### Exclusions
 
 `.nebensound/repo.toml` is the only place where a repository takes a file out
-of a check, with an `[[exclude]]` entry and its reason. `nebensound tree` shows
-such a file as excluded, with the reason. Rust code is excluded only as a whole
-package (see [`check-rust`](#check-rust)).
+of a check, with an `[[exclude]]` entry and its reason. `nebensound-repo tree`
+shows such a file as excluded, with the reason. Rust code is excluded only as a
+whole package (see [`check-rust`](#check-rust)).
 
 No block lets a tool's own way of leaving files out take a file out: an ignore
 file needs no reason and can turn a check green that checked nothing.
@@ -466,11 +471,11 @@ Checks that belong to one repository alone run through its xtask, inside
 - A non-zero exit code fails the step, and with it `nebensound / Check`. What
   the xtask prints stands in the log of that step.
 - Beside `check`, an xtask offers `setup` as its second standard task:
-  `cargo xtask setup` calls `nebensound setup`, which finds or installs the
+  `cargo xtask setup` calls `nebensound-repo setup`, which finds or installs the
   programs the register's checks call
-  ([the tool's README](tools/nebensound/README.md#setting-up-the-programs)), and
-  then adds what only that repository needs, such as a program its own checks
-  call.
+  ([the tool's README](tools/nebensound-repo/README.md#setting-up-the-programs)),
+  and then adds what only that repository needs, such as a program its own
+  checks call.
 - A repository without `xtask/Cargo.toml` gets the step skipped and nothing
   else.
 - The xtask is Rust code like any other: phase 0 demands a unit that runs the
@@ -592,18 +597,18 @@ to each other, says in one sentence that the cases run only on Linux for now,
 and exits with `1`, since the cases did not run. Running them on macOS comes
 with the checks that run from the tool (#73, #74).
 
-`cargo xtask setup` calls `nebensound setup` for this repository with the tool
-of this commit, built from `tools/nebensound/` with the toolchain the tool
-pins, and hands it every option unchanged (`--pinned`, `--with-runtimes`,
+`cargo xtask setup` calls `nebensound-repo setup` for this repository with the
+tool of this commit, built from `tools/nebensound-repo/` with the toolchain the
+tool pins, and hands it every option unchanged (`--pinned`, `--with-runtimes`,
 `--check`). Then, on Linux, it checks what only the test cases need: Node.js and
 Go on the `PATH` in the versions the blocks' steps ask for (read from their
 `action.yml`), jq, npm, Python's pip and rustup. It installs none of these,
 since they stay the machine's, but names each one that is missing or of another
 version and exits with `1` then, so that a machine it passes can run the cases.
-`nebensound setup` may have put a jq into its cache, but the steps look for jq
-on the `PATH`. npm is asked for apart from Node.js, since some systems ship it
-as a package of its own. On another system the cases do not run, so `setup` leaves out
-what only they need and says so, and its exit code is the tool's.
+`nebensound-repo setup` may have put a jq into its cache, but the steps look for
+jq on the `PATH`. npm is asked for apart from Node.js, since some systems ship
+it as a package of its own. On another system the cases do not run, so `setup`
+leaves out what only they need and says so, and its exit code is the tool's.
 
 The cases are
 taken out of this repository's own checks with `[[exclude]]` and a reason in
