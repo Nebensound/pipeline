@@ -62,8 +62,8 @@ pub struct Plan {
     pub units: Vec<Planned>,
     /// The version of every unit that carries one, in the same order.
     pub versions: Vec<Versioned>,
-    /// The pull request the plan is built for, if any: every `version` of
-    /// [`Plan::to_json`] then carries `-pr.<number>` behind it.
+    /// The pull request the plan is built for, if any: every `version` and
+    /// `pending` of [`Plan::to_json`] then carries `-pr.<number>` behind it.
     pub pull_request: Option<u64>,
 }
 
@@ -154,9 +154,11 @@ impl Plan {
     /// last version released for it as `last` (its newest counted tag, a
     /// pre-release included, null when it was never released), the `version`
     /// of the commit at hand, null when the commit does not touch the unit,
-    /// and the `writers` that copy it into the unit's files. For a pull
-    /// request `version` is the one its squash merge would get, with
-    /// `-pr.<number>` behind it.
+    /// the `pending` version, that of the newest commit waiting for the unit
+    /// (the `version` of the commit at hand where it has one, null when no
+    /// commit waits), and the `writers` that copy it into the unit's files.
+    /// For a pull request `version` and `pending` carry `-pr.<number>` behind
+    /// them, `version` being the one its squash merge would get.
     ///
     /// One line, so that it can be handed on as a step output as it is. Keys
     /// stand in alphabetical order; nothing that reads JSON depends on it.
@@ -192,12 +194,14 @@ impl Plan {
                 entry["release"] = json!(unit.release.as_str());
                 entry["base"] = json!(unit.base.to_string());
                 entry["last"] = json!(unit.last.as_ref().map(TagVersion::to_string));
-                entry["version"] = json!(unit.version.as_ref().map(|version| {
+                let written = |version: &TagVersion| {
                     self.pull_request.map_or_else(
                         || version.to_string(),
                         |number| of_pull_request(version, number),
                     )
-                }));
+                };
+                entry["version"] = json!(unit.version.as_ref().map(written));
+                entry["pending"] = json!(unit.pending.as_ref().map(written));
                 entry["writers"] = writers.iter().map(VersionWriterName::as_str).collect();
                 entry
             })

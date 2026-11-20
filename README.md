@@ -252,10 +252,13 @@ committed. The block hands the plan Declare printed to
 resolve a version from. Every unit of the plan with the writer `cargo` that
 the commit at hand touches gets the version of the commit, on a pull request
 the one its merge would get with `-pr.<number>` behind it (such as
-`0.4.2-pr.17`). A unit the commit does not touch gets the last version released
-for it, its newest tag that counts, a pre-release included, only where a
-package that gets a version depends on it by path, followed through further
-path dependencies, so that the requirement names a version that exists. With
+`0.4.2-pr.17`). A unit the commit does not touch gets a version only where a
+package that gets one depends on it by path, followed through further path
+dependencies: the last version released for it, its newest tag that counts, a
+pre-release included, so that the requirement names a version that exists. A
+unit that was never released gets its pending version instead, the one the
+commits waiting for it come to, on a pull request with `-pr.<number>` behind
+it, so that a repository without any tag passes from its first commit on. With
 that version:
 
 - `package.version` in the unit's `Cargo.toml` becomes that version.
@@ -280,19 +283,18 @@ unit with commits after its newest tag still gets that tag's version where it
 gets one without being touched; the gap closes once a step sets tags at the
 release.
 
-A package that gets a version and depends by path on a unit that is neither
-touched nor ever released, in `[dependencies]`, `[dev-dependencies]` or
-`[build-dependencies]`, fails the call with both packages named: there is no
-version it could require. A dependency of its tests counts too: Cargo drops it
-from the package, and the packaged tests that use it would not compile. The
-error is raised only along the path dependencies of what gets a version, so a
-commit that touches neither package passes. A path dependency on a package
+The path dependencies followed are those in `[dependencies]`,
+`[dev-dependencies]` and `[build-dependencies]`. A dependency of the tests
+counts too: Cargo drops one without a version from the package, and the
+packaged tests that use it would not compile. A path dependency on a package
 that carries no version at all (a unit with `versioning = "none"`, or one that
 does not select the writer `cargo`) is left to Cargo: the package test fails
-with Cargo's message. Only `Cargo.toml` and `Cargo.lock` files change.
-`check-rust` writes the versions the same way for its package test, starting
-from the units of its workspace (`--workspace`); the Build
-phase that calls the block before building is not built yet. A version writer
+with Cargo's message. That a release must not publish a package that requires
+a version never released belongs to the release stage, not to the writer.
+Only `Cargo.toml` and `Cargo.lock` files change. `check-rust` writes the
+versions the same way for its package test, starting from the units of its
+workspace (`--workspace`); the Build phase that calls the block before
+building is not built yet. A version writer
 without a building block (today `asciidoc`) fails by name in
 `nebensound / Check`.
 

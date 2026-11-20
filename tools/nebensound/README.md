@@ -93,6 +93,7 @@ a run has to start, and where.
       "last": "0.3.1",
       "name": null,
       "path": ".",
+      "pending": "0.3.2",
       "prefix": "v",
       "release": "single-stage",
       "version": "0.3.2",
@@ -104,6 +105,7 @@ a run has to start, and where.
       "last": "1.5.0-pre.2",
       "name": "tool",
       "path": "tool",
+      "pending": "1.5.0-pre.3",
       "prefix": "tool-v",
       "release": "two-stage",
       "version": "1.5.0-pre.3",
@@ -126,18 +128,21 @@ prefix `v`.
 `base` its last full release (`0.0.0` without one), `last` the last version
 released for it, its newest tag that counts, a pre-release included (`null`
 without one), `version` the version of the commit at hand, `null` when the
-commit does not touch the unit, and `writers` the version writers the unit
-selects. `last` is what the version writer `cargo` requires of a path
-dependency whose unit the commit does not touch, where a package that gets a
-version needs it. How they are resolved from
-tags and history is described in
+commit does not touch the unit, `pending` the version of the newest commit
+that waits for the unit, as that commit resolves when it is the commit at
+hand (`version` where there is one, `null` when no commit waits), and
+`writers` the version writers the unit selects. `last` is what the version
+writer `cargo` requires of a path dependency whose unit the commit does not
+touch, where a package that gets a version needs it; `pending` is what it
+writes instead for such a unit that was never released. How they are resolved
+from tags and history is described in
 [the reference of the declaration](../../docs/declaration.md#versions).
 
 `--pull-request <number> --message <message>` builds the plan for a pull
 request, reading `HEAD` the way [`version`](#the-versions) does: every
 `version` is then the one the squash merge would get, with `-pr.<number>`
-behind it, such as `1.5.0-pre.3-pr.17`. `base` and `last` stay versions that
-were released. Declare builds the plan this way on a pull request, so that the
+behind it, such as `1.5.0-pre.3-pr.17`, and every `pending` carries the same
+suffix. `base` and `last` stay versions that were released. Declare builds the plan this way on a pull request, so that the
 version writers write what a merge would publish.
 
 A check runs **once, at the outermost unit it is in force for**. The base set is
@@ -196,10 +201,12 @@ a version, and Cargo cannot take one from outside, so the version of the plan
 is written into the working tree before something builds with it, and never
 committed. Every unit of the plan with the writer `cargo` that the commit at
 hand touches gets the version of the commit, `-pr.<number>` behind it in a plan
-built for a pull request. A unit the commit does not touch gets `last`, the
-last version released for it, only where a package that gets a version depends
-on it by path, followed through the path dependencies of each unit that gets
-one. With that version it sets `package.version` in the unit's `Cargo.toml`,
+built for a pull request. A unit the commit does not touch gets a version only
+where a package that gets one depends on it by path, followed through the path
+dependencies of each unit that gets one: `last`, the last version released for
+it, or `pending`, the version the commits waiting for it come to, when it was
+never released. A repository without any tag therefore gets its versions
+written from its first commit on. With that version it sets `package.version` in the unit's `Cargo.toml`,
 gives every path dependency on that package anywhere in the repository that
 version as its requirement, and sets the package's entry in the workspace's
 `Cargo.lock`, together with every entry that names it with a version. Every
@@ -216,25 +223,23 @@ version the package test of `check-rust` does not package it. A unit with
 commits after its newest tag still gets that tag's version where it gets one
 without being touched; the gap closes once a step sets tags at the release.
 
-A package that gets a version and depends by path on a unit that is neither
-touched nor ever released, in `[dependencies]`, `[dev-dependencies]` or
-`[build-dependencies]`, also per platform or through `workspace = true`, ends
-the call with exit code `1` and both packages named, before anything is
-written: there is no version it could require. `cargo package` would refuse
-it, or, for a dependency of its tests, drop it from the package, so that the
-packaged tests that use it would not compile. The error is raised only along
-the path dependencies of what gets a version, so a commit that touches neither
-package passes. A path dependency on a package that carries no version at all,
-a unit with `versioning = "none"` or one that does not select the writer
-`cargo`, is left to Cargo: the call raises nothing of its own, and the package
-test fails with Cargo's message.
+The path dependencies followed are those in `[dependencies]`,
+`[dev-dependencies]` and `[build-dependencies]`, also per platform or through
+`workspace = true`: `cargo package` refuses a dependency without a version, or,
+for a dependency of its tests, drops it from the package, so that the packaged
+tests that use it would not compile. A path dependency on a package that
+carries no version at all, a unit with `versioning = "none"` or one that does
+not select the writer `cargo`, is left to Cargo: the call raises nothing of its
+own, and the package test fails with Cargo's message. So is one on a unit that
+was never released and that no commit waits for, which has no version to be
+written.
 
 With `--workspace <path>`, only a touched unit that belongs to the workspace
 Cargo finds at that path gets the version of the commit on its own account. A
 workspace of its own in a folder below, one the workspace excludes or never
 names, does not belong to it. Their path dependencies are followed wherever
 they lie: a unit they reach gets the version of the commit when the commit
-touches it and its last release otherwise. The package test of `check-rust`
+touches it, else its last release, else its pending version. The package test of `check-rust`
 starts from its workspace this way, so that what another workspace of the
 repository needs cannot fail it. A path that is not one
 inside the repository ends the call with exit code `2`.
@@ -250,10 +255,12 @@ whose text does not change is not written: a second call changes nothing.
 ```text
 component app: the package app at crates/app gets 1.4.1 (workspace root: .).
 component lib is not touched by this commit: the package lib at crates/lib gets its last release 1.2.0 (workspace root: .).
+component log is not touched by this commit and was never released: the package log at crates/log gets 0.0.3, the version the commits waiting for it come to (workspace root: .).
 component cli is not touched by this commit, and no package that gets a version depends on it by path, so nothing is written for it.
 Wrote Cargo.lock.
 Wrote crates/app/Cargo.toml.
 Wrote crates/lib/Cargo.toml.
+Wrote crates/log/Cargo.toml.
 ```
 
 Without `--plan` the versions are resolved from the history, as `plan` resolves

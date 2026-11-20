@@ -40,10 +40,10 @@ hands the result on:
    with its reason, as a notice.
 4. Then `nebensound plan` prints the plan: every unit,
    with the checks started for it and the build it names, and the version of
-   every unit that carries one, its last release and the version writers it
-   selects. On a pull request the plan is built the way the job Version reads
-   it (see below): each version is the one the merge would get, with
-   `-pr.<number>` behind it. The units that start at least one check go on to
+   every unit that carries one, its last release, its pending version and
+   the version writers it selects. On a pull request the plan is built the
+   way the job Version reads it (see below): each version is the one the
+   merge would get, with `-pr.<number>` behind it. The units that start at least one check go on to
    the Check phase, and the whole plan is handed on with them: a later job
    checks out no history, so a version writer takes the versions from the
    plan.

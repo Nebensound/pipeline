@@ -659,23 +659,49 @@ fn a_dependency_is_followed_through_further_path_dependencies() {
 }
 
 #[test]
-fn a_dependency_two_steps_away_never_released_is_an_error() {
+fn a_dependency_two_steps_away_never_released_gets_its_pending_version() {
+    // `app` and `mid` are released, `lib` never was and changed since the
+    // start: two commits wait for it, so it gets 0.0.2, followed from `app`
+    // through `mid`.
     let git = three_packages();
     git.tag("crates-app-v0.0.1", &git.head());
     git.tag("crates-mid-v0.0.1", &git.head());
+    git.write(&[(
+        "crates/lib/src/lib.rs",
+        "//! A library, changed.\n\n/// One.\n#[must_use]\npub fn one() -> u8 {\n    1\n}\n",
+    )]);
+    git.commit("fix: change the library");
     change_the_app(&git);
 
     let (text, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
 
-    assert_eq!(code, 1, "{text}");
+    assert_eq!(code, 0, "{text}");
     assert!(
         text.contains(
-            "the package mid gets 0.0.1 and depends by path on the package lib at crates/lib, \
-             and component lib is neither touched by this commit nor ever released"
+            "component mid is not touched by this commit: the package mid at crates/mid gets its \
+             last release 0.0.1"
         ),
         "{text}"
     );
-    assert_eq!(read(git.path(), "crates/lib/Cargo.toml"), LIB);
+    assert!(
+        text.contains(
+            "component lib is not touched by this commit and was never released: the package lib \
+             at crates/lib gets 0.0.2, the version the commits waiting for it come to (workspace \
+             root: .)."
+        ),
+        "{text}"
+    );
+    let mid = read(git.path(), "crates/mid/Cargo.toml");
+    assert!(
+        mid.contains("lib = { path = \"../lib\", version = \"0.0.2\" }"),
+        "{mid}"
+    );
+    cargo(git.path(), &["build", "--locked"]);
+    package_test(
+        git.path(),
+        &[("lib", "0.0.2"), ("mid", "0.0.1"), ("app", "0.0.2")],
+        &[],
+    );
 }
 
 #[test]
@@ -902,11 +928,14 @@ fn two_workspaces(b_needs: &str) -> Git {
     git
 }
 
+/// A manifest that names no package: a writer error for the unit it is.
+const NAMELESS: &str = "[package]\nedition = \"2024\"\n";
+
 #[test]
 fn a_call_for_one_workspace_is_not_failed_by_another() {
-    // `app` was released, `lib` never was, and the commit touches `a/app` and
-    // `b`. The whole repository cannot be written, since `app` needs a
-    // version of `lib`; the workspace `b` can.
+    // The commit touches `a/app`, `b` and `a/lib`, whose manifest it leaves
+    // without a name. The whole repository cannot be written, since `lib`
+    // has no package to give a version to; the workspace `b` can.
     let git = two_workspaces("");
     git.tag("a-app-v0.0.1", &git.head());
     git.write(&[
@@ -914,6 +943,7 @@ fn a_call_for_one_workspace_is_not_failed_by_another() {
             "a/app/src/main.rs",
             "//! An app, changed.\n\nfn main() {\n    println!(\"{}\", lib::one());\n}\n",
         ),
+        ("a/lib/Cargo.toml", NAMELESS),
         ("b/src/lib.rs", "//! Another workspace, changed.\n"),
     ]);
     git.commit("fix: change both");
@@ -921,7 +951,7 @@ fn a_call_for_one_workspace_is_not_failed_by_another() {
     let (whole, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
     assert_eq!(code, 1, "{whole}");
     assert!(
-        whole.contains("the package app gets 0.0.2 and depends by path on the package lib"),
+        whole.contains("component lib selects the version writer cargo, and a/lib/Cargo.toml"),
         "{whole}"
     );
 
@@ -947,11 +977,11 @@ fn a_call_for_one_workspace_is_not_failed_by_another() {
         "{text}"
     );
     assert!(
-        text.contains("component lib is not touched by this commit"),
+        text.contains("component lib lies outside the workspace at b"),
         "{text}"
     );
     assert_eq!(read(git.path(), "a/app/Cargo.toml"), APP);
-    assert_eq!(read(git.path(), "a/lib/Cargo.toml"), LIB);
+    assert_eq!(read(git.path(), "a/lib/Cargo.toml"), NAMELESS);
     assert_eq!(read(git.path(), "a/Cargo.lock"), LOCKFILE);
     cargo(&git.path().join("b"), &["build", "--locked"]);
     assert_eq!(reported(&git.path().join("b"), "b"), "0.0.2");
@@ -1026,7 +1056,8 @@ fn a_call_for_a_path_that_is_none_is_refused() {
 
 /// A package at the repository root, the repository unit, whose workspace
 /// excludes `b`: a workspace of its own below it, in which `app` depends by
-/// path on `lib`. The root and `app` were released, `lib` never was.
+/// path on `lib`. The root and `app` were released, and the commit at hand
+/// touches the root, `app` and `lib`, whose manifest it leaves without a name.
 fn a_workspace_inside_another() -> Git {
     let git = Git::new();
     git.write(&[
@@ -1066,6 +1097,7 @@ fn a_workspace_inside_another() -> Git {
             "b/app/src/main.rs",
             "//! An app, changed.\n\nfn main() {\n    println!(\"{}\", lib::one());\n}\n",
         ),
+        ("b/lib/Cargo.toml", NAMELESS),
     ]);
     git.commit("fix: change both");
     git
@@ -1077,15 +1109,15 @@ const ROOT: &str =
 
 #[test]
 fn a_call_for_one_workspace_is_not_failed_by_a_workspace_of_its_own_below_it() {
-    // The commit touches the root and `b/app`. The whole repository cannot be
-    // written, since `app` needs a version of `lib`; the workspace at the
-    // root, which never builds `b`, can.
+    // The commit touches the root and `b`. The whole repository cannot be
+    // written, since `lib` has no package to give a version to; the workspace
+    // at the root, which never builds `b`, can.
     let git = a_workspace_inside_another();
 
     let (whole, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
     assert_eq!(code, 1, "{whole}");
     assert!(
-        whole.contains("the package app gets 0.0.2 and depends by path on the package lib"),
+        whole.contains("component lib selects the version writer cargo, and b/lib/Cargo.toml"),
         "{whole}"
     );
 
@@ -1111,7 +1143,7 @@ fn a_call_for_one_workspace_is_not_failed_by_a_workspace_of_its_own_below_it() {
         "{text}"
     );
     assert_eq!(read(git.path(), "b/app/Cargo.toml"), APP);
-    assert_eq!(read(git.path(), "b/lib/Cargo.toml"), LIB);
+    assert_eq!(read(git.path(), "b/lib/Cargo.toml"), NAMELESS);
     assert_eq!(read(git.path(), "b/Cargo.lock"), LOCKFILE);
     assert_eq!(reported(git.path(), "root"), "0.0.2");
 }
@@ -1310,24 +1342,33 @@ fn a_dependency_the_commit_does_not_touch_is_required_at_its_last_release_on_a_p
 }
 
 #[test]
-fn a_dependency_never_released_and_not_touched_is_an_error() {
+fn a_dependency_never_released_and_not_touched_gets_its_pending_version() {
+    // No tag at all: the repository passes from its first commits on. `lib`
+    // is waited for by the first commit alone, so it gets 0.0.1.
     let renamed_in_the_workspace = format!(
         "{WORKSPACE}\n[workspace.dependencies]\nfoo = {{ path = \"crates/lib\", package = \
          \"lib\" }}\n"
     );
-    for (workspace, dependency, named) in [
-        (WORKSPACE, "lib = { path = \"../lib\" }", "lib"),
+    for (workspace, dependency, required_in, requirement) in [
+        (
+            WORKSPACE,
+            "lib = { path = \"../lib\" }",
+            "crates/app/Cargo.toml",
+            "lib = { path = \"../lib\", version = \"0.0.1\" }",
+        ),
         // Renamed: the package is still `lib`.
         (
             WORKSPACE,
             "renamed = { path = \"../lib\", package = \"lib\" }",
-            "lib",
+            "crates/app/Cargo.toml",
+            "renamed = { path = \"../lib\", package = \"lib\", version = \"0.0.1\" }",
         ),
         // Renamed in the workspace, where the member does not see it.
         (
             renamed_in_the_workspace.as_str(),
             "foo.workspace = true",
-            "lib",
+            "Cargo.toml",
+            "foo = { path = \"crates/lib\", package = \"lib\", version = \"0.0.1\" }",
         ),
     ] {
         let app = format!(
@@ -1348,24 +1389,35 @@ fn a_dependency_never_released_and_not_touched_is_an_error() {
 
         let (text, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
 
-        assert_eq!(code, 1, "{text}");
+        assert_eq!(code, 0, "{text}");
         assert!(
-            text.contains(&format!(
-                "the package app gets 0.0.2 and depends by path on the package {named} at \
-                 crates/lib, and component lib is neither touched by this commit nor ever \
-                 released: there is no version of {named} that app could require."
-            )),
+            text.contains("component app: the package app at crates/app gets 0.0.2"),
             "{text}"
         );
-        assert_eq!(read(git.path(), "crates/app/Cargo.toml"), app);
-        assert_eq!(read(git.path(), "crates/lib/Cargo.toml"), LIB);
+        assert!(
+            text.contains(
+                "component lib is not touched by this commit and was never released: the package \
+                 lib at crates/lib gets 0.0.1"
+            ),
+            "{text}"
+        );
+        assert!(
+            read(git.path(), required_in).contains(requirement),
+            "{}",
+            read(git.path(), required_in)
+        );
+        cargo(git.path(), &["build", "--locked"]);
+        assert_eq!(reported(git.path(), "lib"), "0.0.1");
+        assert_eq!(reported(git.path(), "app"), "0.0.2");
     }
 }
 
 #[test]
-fn a_dependency_of_the_tests_alone_needs_a_release_as_well() {
+fn a_dependency_of_the_tests_alone_gets_a_version_as_well() {
     // Cargo drops a path dev-dependency without a version from the package,
-    // and the tests of the packaged copy that use it would not compile.
+    // and the tests of the packaged copy that use it would not compile. A
+    // never-released `lib` gets its pending version, and the packaged tests
+    // pass.
     let app = "[package]\nname = \"app\"\nedition = \"2024\"\n\n[dev-dependencies]\nlib = { path \
                = \"../lib\" }\n";
     let mut files = two_packages();
@@ -1387,18 +1439,125 @@ fn a_dependency_of_the_tests_alone_needs_a_release_as_well() {
 
     let (text, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
 
-    assert_eq!(code, 1, "{text}");
+    assert_eq!(code, 0, "{text}");
+    let written = read(git.path(), "crates/app/Cargo.toml");
+    assert!(
+        written.contains("lib = { path = \"../lib\", version = \"0.0.1\" }"),
+        "{written}"
+    );
+    package_test(git.path(), &[("lib", "0.0.1"), ("app", "0.0.2")], &[]);
+}
+
+#[test]
+fn a_never_released_dependency_gets_its_pending_version_on_a_pull_request() {
+    // No tag at all, and a pull request that touches `app` alone: `lib` gets
+    // the version the first commit gives it, with the number of the pull
+    // request behind it.
+    let git = Git::new();
+    git.write(&two_packages());
+    git.commit("feat: start");
+    git.run(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    git.run(&["checkout", "--quiet", "-b", "topic"]);
+    change_the_app_of_two(&git);
+    git.run(&["checkout", "--quiet", "--detach", "main"]);
+    git.run(&[
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "--message",
+        "Merge topic",
+        "topic",
+    ]);
+
+    let (plan, code) = call(&[
+        "nebensound",
+        "-C",
+        git.root(),
+        "plan",
+        "--pull-request",
+        "7",
+        "--message",
+        "fix: change the app",
+    ]);
+    assert_eq!(code, 0, "{plan}");
+    let parsed: serde_json::Value = serde_json::from_str(&plan).expect("valid JSON");
+    let versions = &parsed["versions"];
+    assert_eq!(versions[1]["path"], "crates/app");
+    assert_eq!(versions[1]["version"], "0.0.2-pr.7");
+    assert_eq!(versions[1]["pending"], "0.0.2-pr.7");
+    assert_eq!(versions[2]["path"], "crates/lib");
+    assert_eq!(versions[2]["version"], serde_json::Value::Null);
+    assert_eq!(versions[2]["last"], serde_json::Value::Null);
+    assert_eq!(versions[2]["pending"], "0.0.1-pr.7");
+    let handed = tempfile::tempdir().expect("a folder for the plan");
+    let file = handed.path().join("plan.json");
+    fs::write(&file, &plan).expect("the plan is written");
+
+    let (text, code) = call(&[
+        "nebensound",
+        "-C",
+        git.root(),
+        "write-versions",
+        "--plan",
+        file.to_str().expect("a path in UTF-8"),
+    ]);
+
+    assert_eq!(code, 0, "{text}");
+    let app = read(git.path(), "crates/app/Cargo.toml");
+    assert!(
+        app.contains("lib = { path = \"../lib\", version = \"0.0.1-pr.7\" }"),
+        "{app}"
+    );
+    cargo(git.path(), &["build", "--locked"]);
+    assert_eq!(reported(git.path(), "lib"), "0.0.1-pr.7");
+    package_test(
+        git.path(),
+        &[("lib", "0.0.1-pr.7"), ("app", "0.0.2-pr.7")],
+        &[],
+    );
+}
+
+#[test]
+fn a_dependency_with_no_version_at_all_is_left_to_cargo() {
+    // A plan where `lib` is not touched, was never released and no commit
+    // waits for it: it has no version, nothing is written for it, and the
+    // requirement on it is Cargo's to refuse.
+    let dir = repository(&two_packages());
+    let root = dir.path().to_str().expect("a path in UTF-8");
+    let handed = tempfile::tempdir().expect("a folder for the plan");
+    let file = handed.path().join("plan.json");
+    fs::write(
+        &file,
+        "{\"versions\": [{\"name\": \"app\", \"path\": \"crates/app\", \"version\": \"0.0.2\", \
+         \"last\": null, \"pending\": \"0.0.2\", \"writers\": [\"cargo\"]}, {\"name\": \"lib\", \
+         \"path\": \"crates/lib\", \"version\": null, \"last\": null, \"pending\": null, \
+         \"writers\": [\"cargo\"]}]}",
+    )
+    .expect("written");
+
+    let (text, code) = call(&[
+        "nebensound",
+        "-C",
+        root,
+        "write-versions",
+        "--plan",
+        file.to_str().expect("a path in UTF-8"),
+    ]);
+
+    assert_eq!(code, 0, "{text}");
     assert!(
         text.contains(
-            "the package app gets 0.0.2 and depends by path on the package lib at crates/lib, \
-             and component lib is neither touched by this commit nor ever released: there is no \
-             version of lib that app could require. A release of component lib (its tag) gives \
-             it one; until then, a commit that touches component lib as well passes"
+            "component lib is not touched by this commit, was never released and no commit waits \
+             for it, so it has no version to be written."
         ),
         "{text}"
     );
-    assert_eq!(read(git.path(), "crates/app/Cargo.toml"), app);
-    assert_eq!(read(git.path(), "crates/lib/Cargo.toml"), LIB);
+    assert_eq!(read(dir.path(), "crates/lib/Cargo.toml"), LIB);
+    let app = read(dir.path(), "crates/app/Cargo.toml");
+    assert!(
+        app.contains("lib = { path = \"../lib\" } # by path"),
+        "{app}"
+    );
 }
 
 #[test]
@@ -1876,4 +2035,7 @@ fn a_plan_for_a_pull_request_hands_on_the_versions_of_its_merge() {
         lib.last.map(|last| last.to_string()).as_deref(),
         Some("0.0.1")
     );
+    // Released and not changed since: no commit waits for it.
+    assert_eq!(lib.pending, None);
+    assert_eq!(app.pending.as_deref(), Some("0.0.2-pr.9"));
 }

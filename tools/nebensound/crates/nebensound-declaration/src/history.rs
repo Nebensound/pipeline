@@ -49,6 +49,12 @@
 //!   the one before. In one stage, which gives out no pre-release, such a value
 //!   is ignored once the commits before the commit at hand have reached its
 //!   `X.Y.Z`, whichever of their tags are set, and is an error before.
+//! - The **pending** version of a unit is the version of the newest commit
+//!   that waits for it: what that commit resolves to when it is the commit at
+//!   hand, the version of the commit at hand itself when it touches the unit.
+//!   None when no commit waits. It is what a unit that was never released and
+//!   that the commit at hand does not touch is written as where a package that
+//!   gets a version depends on it.
 //!
 //! Reading Git is left to the caller, which hands in a [`History`]. Nothing
 //! here runs a process, so every rule is checked on a history built by hand as
@@ -297,6 +303,12 @@ pub struct UnitVersion {
     /// The version of the commit at hand; [`None`] when the commit does not
     /// touch the unit, or when a finding stands in the way.
     pub version: Option<TagVersion>,
+    /// The version of the newest commit that waits for it, as if that commit
+    /// were the commit at hand: [`UnitVersion::version`] when there is one.
+    /// [`None`] when no commit waits, or when a finding stands in the way.
+    /// What a dependency that was never released and that the commit at hand
+    /// does not touch is required at.
+    pub pending: Option<TagVersion>,
     /// How many commits since its last full release touch it, the commit at
     /// hand included: what its next full release takes in. 0 when the history
     /// cannot be read for it: no `release` branch for two stages, or an
@@ -841,6 +853,7 @@ fn resolve_unit(
         base: Version::ZERO,
         last: None,
         version: None,
+        pending: None,
         waiting: 0,
     };
     let two_stage = entry.release == Release::TwoStage;
@@ -932,6 +945,7 @@ fn resolve_unit(
     } else {
         step.single_stage(head, &touching, warned, findings)
     };
+    entry.pending = entry.version.or_else(|| step.pending(two_stage, &touching));
     entry
 }
 
@@ -1104,6 +1118,23 @@ impl Step<'_> {
         if touching.is_empty() {
             return None;
         }
+        let (target, floors) = self.target(touching, warned, findings)?;
+        if promoted {
+            return Some(TagVersion::stable(target));
+        }
+        // The commit at hand is the newest of the touching commits.
+        self.numbered(target, &floors, findings)
+    }
+
+    /// The version these touching commits release in two stages, and the
+    /// floor in force at each of them: the base raised once by the highest
+    /// change among them, lifted to the highest floor.
+    fn target(
+        &self,
+        touching: &[(usize, &Commit)],
+        warned: &mut BTreeSet<String>,
+        findings: &mut Vec<Finding>,
+    ) -> Option<(Version, Vec<Option<TagVersion>>)> {
         let highest = touching
             .iter()
             .map(|(_, commit)| change(commit, warned, findings))
@@ -1113,15 +1144,24 @@ impl Step<'_> {
         // must not take the target below a pre-release already given out.
         let in_force = self.in_force(&floors);
         let raised = self.raise(self.base, highest, findings)?;
-        let target = in_force.map_or(raised, |floor| raised.max(floor.version));
-        if promoted {
-            return Some(TagVersion::stable(target));
-        }
-        // The commit at hand is the newest of the touching commits. Each one
-        // is numbered one after the one before it, and a pre-release floor of
-        // the target sets the number of the commit it comes into force at.
+        Some((
+            in_force.map_or(raised, |floor| raised.max(floor.version)),
+            floors,
+        ))
+    }
+
+    /// The pre-release of the target that the newest of the touching commits
+    /// gets, given the floor in force at each of them. Each one is numbered
+    /// one after the one before it, and a pre-release floor of the target sets
+    /// the number of the commit it comes into force at.
+    fn numbered(
+        &self,
+        target: Version,
+        floors: &[Option<TagVersion>],
+        findings: &mut Vec<Finding>,
+    ) -> Option<TagVersion> {
         let mut number: u64 = 0;
-        for floor in &floors {
+        for floor in floors {
             let at_least = floor
                 .filter(|floor| floor.version == target)
                 .and_then(|floor| floor.pre)
@@ -1136,6 +1176,23 @@ impl Step<'_> {
             number = next.max(at_least);
         }
         Some(TagVersion::pre(target, number))
+    }
+
+    /// The version of the newest of the touching commits as if it were the
+    /// commit at hand, for a unit the commit at hand does not touch; [`None`]
+    /// when there is none. What it turns up belongs to that commit, not to the
+    /// commit at hand, so it is not reported.
+    fn pending(&self, two_stage: bool, touching: &[(usize, &Commit)]) -> Option<TagVersion> {
+        let (warned, findings) = (&mut BTreeSet::new(), &mut Vec::new());
+        touching.last().and_then(|_| {
+            if two_stage {
+                self.target(touching, warned, findings)
+                    .and_then(|(target, floors)| self.numbered(target, &floors, findings))
+            } else {
+                self.walk(touching, &self.floors(touching), warned, findings)
+                    .map(TagVersion::stable)
+            }
+        })
     }
 
     /// A version raised once, or the finding that it cannot be raised.

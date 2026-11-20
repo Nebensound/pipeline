@@ -96,9 +96,10 @@ pub enum Command {
     /// its reason, as JSON: what `check-rust` leaves out of every step.
     ExcludedPackages,
     /// Write the version of every unit with the version writer `cargo` that
-    /// the commit touches, and the last release of each unit they depend on by
-    /// path, into its Cargo.toml, its dependents and Cargo.lock, in the
-    /// working tree. Never committed: it is done in the checkout of a run,
+    /// the commit touches, and a version for each unit they depend on by path
+    /// (its last release, or its pending version when it was never released),
+    /// into its Cargo.toml, its dependents and Cargo.lock, in the working
+    /// tree. Never committed: it is done in the checkout of a run,
     /// before building.
     WriteVersions {
         /// Take the versions from a plan `nebensound plan` printed, for a

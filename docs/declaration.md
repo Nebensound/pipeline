@@ -416,6 +416,15 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
   does not touch, where a package that gets a version needs it, and it stands
   in the plan as `last`.
 
+- **The pending version** of a unit is the version of the newest commit that
+  waits for it, as that commit resolves when it is the commit at hand: the
+  version of the commit at hand itself when it touches the unit, none when no
+  commit waits. It is what the version writer `cargo` writes for a path
+  dependency whose unit the commit at hand does not touch and that was never
+  released, so that a repository without any tag passes from its first commit
+  on. It stands in the plan as `pending`, with `-pr.<number>` behind it on a
+  pull request.
+
 - **Only the tip of `main` is promoted.** A merge into `release` whose second
   parent is not the commit `origin/main` points at is the error
   `stale-promotion`, both on the pull request into `release` and on the merge
