@@ -41,8 +41,9 @@ described here.
 
 The four rulesets to apply hold only for a repository whose property `pipeline`
 is `central` and whose property `lifecycle` is neither `sandbox` nor
-`archived`. A fork and a repository that has not switched yet carry `legacy`
-and stay untouched. The existing ruleset holds for every repository whose
+`archived`. A fork and a repository that has not switched yet stay untouched
+as long as they carry `legacy` (see [Properties](#properties) for why a new one
+does not by default). The existing ruleset holds for every repository whose
 `lifecycle` is neither `sandbox` nor `archived`, whatever its `pipeline`.
 
 None of the four has a bypass for administrators, except that
@@ -83,8 +84,9 @@ a pull request from any branch, not only from `main`, and the three checks are
 reported by the workflow of the pull request itself, which the pull request can
 change (see [Where the checks come from](#where-the-checks-come-from)). **A
 person allowed to merge into `release` must still look at the head of the pull
-request**: it has to be `main`, or a commit of `main`, and the pull request must
-not change a workflow.
+request**: it has to be `main` at its tip, and the pull request must not change
+a workflow. The pipeline refuses to release a merge whose second parent is not
+the tip of `main`.
 
 ### `release-updaters`
 
@@ -182,6 +184,13 @@ Measured on the test repository: a stand-in workflow that only printed a line
 in jobs named `Version`, `Check` and `Build` satisfied both. So the review of a
 pull request that touches `.github/workflows/` decides whether the checks mean
 anything, and the person merging into `release` looks at the head.
+
+A second gap on `release`: on a pull request from `main` the three names are
+already reported by the push run of `main` on the same commit. Required checks
+are judged on the head commit, so `release-guard` can be satisfied before the
+pull request's own run has judged the merge. The checks then show that the
+promoted commit passed on `main`, not that the merge into `release` passed.
+Wait for the pull request's own run before merging.
 
 ## How `release` comes into being
 
@@ -372,7 +381,8 @@ report them:
    `required-checks` are among them.
 
    ```sh
-   gh api repos/Nebensound/<repository>/rules/branches/main \
+   branch="$(gh api repos/Nebensound/<repository> --jq .default_branch)"
+   gh api "repos/Nebensound/<repository>/rules/branches/$branch" \
      --jq '.[] | [.type, .ruleset_source_type] | @tsv'
    ```
 
