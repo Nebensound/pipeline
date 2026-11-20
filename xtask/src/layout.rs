@@ -9,7 +9,9 @@
 //! Every block belongs to a register entry, and every block of a check, a
 //! version writer or a build is called from a step of `nebensound.yml` that is
 //! named after the entry and switched on it, in exactly the form the workflow
-//! documents for its kind. A check or a build the register knows and nobody
+//! documents for its kind, and in the job of its kind: a check in the check
+//! job, a version writer and a build in the build job, every version writer
+//! above every build. A check or a build the register knows and nobody
 //! has written yet has no directory: a step `Not written yet` fails for it by
 //! name, so the list of written checks in one such step and the list of
 //! written builds in another name exactly the checks and builds that have a
@@ -68,9 +70,18 @@ const CALL_WITH: (&str, &str) = ("working-directory", "${{ matrix.path }}");
 /// commit is, not where or how to check.
 const CALL_PLAN: (&str, &str) = ("plan", "${{ needs.declare.outputs.plan }}");
 
+/// The matrix of the check job: one entry per unit that runs a check.
+const CHECK_JOB: &str = "${{ fromJSON(needs.declare.outputs.units) }}";
+
+/// The matrix of the build job: one entry per unit that builds in the run.
+const BUILD_JOB: &str = "${{ fromJSON(needs.declare.outputs.builds) }}";
+
 /// The form of the step that calls a block of one kind.
 #[derive(Debug)]
 struct Form {
+    /// The job the step stands in, by the `strategy.matrix.include` it runs
+    /// on: a step in another job runs for other units, or at another time.
+    job: &'static str,
     /// The condition the step is switched on, with `{}` for the entry's name.
     switch: &'static str,
     /// What the step may hand the block under `with`, each choice in the order
@@ -81,19 +92,24 @@ struct Form {
 /// A check runs after a check that failed before it, so that one run shows
 /// every finding of the unit.
 const CHECK: Form = Form {
+    job: CHECK_JOB,
     switch: "${{ !cancelled() && contains(matrix.checks, '{}') }}",
     with: &[&[CALL_WITH], &[CALL_PLAN, CALL_WITH]],
 };
 
-/// A version writer writes the versions of the plan before the unit's build.
+/// A version writer writes the versions of the plan before the unit's build,
+/// in the build job.
 const VERSION: Form = Form {
+    job: BUILD_JOB,
     switch: "${{ contains(matrix.writers, '{}') }}",
     with: &[&[CALL_PLAN]],
 };
 
 /// A build runs only when every step before it passed: nothing is built from
-/// versions that were not written.
+/// versions that were not written. It stands in the build job, below every
+/// version writer.
 const BUILD: Form = Form {
+    job: BUILD_JOB,
     switch: "${{ matrix.build == '{}' }}",
     with: &[&[CALL_WITH]],
 };
@@ -210,6 +226,13 @@ fn entries(register: &str) -> Result<(BTreeMap<String, Entry>, Vec<String>), Err
 #[derive(Debug)]
 struct Call {
     block: String,
+    /// The key of the job the step stands in.
+    job: String,
+    /// The `strategy.matrix.include` of that job; read empty when it is no
+    /// text.
+    matrix: String,
+    /// The step's place in its job, from 0.
+    place: usize,
     name: String,
     condition: String,
     /// Every key of the step, in order; a key that is no text reads empty.
@@ -247,13 +270,17 @@ fn calls(workflow: &str) -> Result<Calls, Error> {
     let mut written = Vec::new();
     let mut writers = Vec::new();
     let mut builds = Vec::new();
-    for job in jobs.values() {
-        for step in job["steps"].as_vec().into_iter().flatten() {
+    let string = |yaml: &Yaml| yaml.as_str().unwrap_or_default().to_owned();
+    for (key, job) in jobs {
+        let matrix = string(&job["strategy"]["matrix"]["include"]);
+        for (place, step) in job["steps"].as_vec().into_iter().flatten().enumerate() {
             let text = |key: &str| step[key].as_str().unwrap_or_default().to_owned();
             if let Some(block) = text("uses").strip_prefix("$/.github/actions/") {
-                let string = |yaml: &Yaml| yaml.as_str().unwrap_or_default().to_owned();
                 found.push(Call {
                     block: block.to_owned(),
+                    job: string(key),
+                    matrix: matrix.clone(),
+                    place,
                     name: text("name"),
                     condition: text("if"),
                     keys: step
@@ -271,17 +298,16 @@ fn calls(workflow: &str) -> Result<Calls, Error> {
                 });
             }
             let env = &step["env"];
-            let list = |yaml: &Yaml| yaml.as_str().unwrap_or_default().to_owned();
             match text("name").as_str() {
                 NOT_WRITTEN => {
                     if !env[WRITTEN_CHECKS].is_badvalue() {
-                        written.push(list(&env[WRITTEN_CHECKS]));
+                        written.push(string(&env[WRITTEN_CHECKS]));
                     }
                     if !env[WRITTEN_BUILDS].is_badvalue() {
-                        builds.push(list(&env[WRITTEN_BUILDS]));
+                        builds.push(string(&env[WRITTEN_BUILDS]));
                     }
                 }
-                WRITERS_NOT_WRITTEN => writers.push(list(&env["WRITTEN"])),
+                WRITERS_NOT_WRITTEN => writers.push(string(&env["WRITTEN"])),
                 _ => {}
             }
         }
@@ -398,6 +424,7 @@ pub fn compare(register: &str, workflow: &str, directories: &[Directory]) -> Res
             }
         }
     }
+    problems.extend(order(&entries, &calls));
     for call in &calls {
         if !names.contains(call.block.as_str()) {
             problems.push(format!(
@@ -431,6 +458,12 @@ fn held(name: &str, entry: &str, form: &Form, called: &[&Call]) -> Vec<String> {
     let switch = form.switch.replace("{}", entry);
     if called.is_empty() {
         problems.push(format!("`{name}` is never called from nebensound.yml"));
+    }
+    if called.iter().any(|call| call.matrix.trim() != form.job) {
+        problems.push(format!(
+            "nebensound.yml calls `{name}` from a job whose matrix is not `{}`",
+            form.job
+        ));
     }
     if called
         .iter()
@@ -471,4 +504,37 @@ fn held(name: &str, entry: &str, form: &Form, called: &[&Call]) -> Vec<String> {
         ));
     }
     problems
+}
+
+/// Every version writer that a job calls below a build: the build would
+/// package what Git holds instead of the version of the run. Each pair of
+/// blocks is named once per job.
+fn order(entries: &BTreeMap<String, Entry>, calls: &[Call]) -> BTreeSet<String> {
+    let of = |category: &str| {
+        calls
+            .iter()
+            .filter(|call| {
+                entries
+                    .get(&call.block)
+                    .is_some_and(|entry| entry.category == category)
+            })
+            .collect::<Vec<&Call>>()
+    };
+    let writers = of("version");
+    let builds = of("build");
+    writers
+        .iter()
+        .flat_map(|writer| {
+            builds
+                .iter()
+                .filter(|build| build.job == writer.job && build.place < writer.place)
+                .map(|build| {
+                    format!(
+                        "nebensound.yml calls `{}` below `{}` in the job `{}`: every version \
+                         writer stands before every build",
+                        writer.block, build.block, writer.job
+                    )
+                })
+        })
+        .collect()
 }

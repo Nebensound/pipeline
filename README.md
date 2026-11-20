@@ -329,7 +329,9 @@ one its merge would get, with `-pr.<number>` behind it.
 - The `.crate` is unpacked outside the source tree, where neither the workspace
   nor its `rust-toolchain.toml` reaches, and its tests run there with all
   features, with the same toolchain and the same patches. A file the package
-  leaves out that a test needs fails the build.
+  leaves out that a test needs fails the build, and so does a dev-dependency
+  with a `path` and no `version`, such as a workspace-only test helper:
+  `cargo package` drops it from the manifest. The error names both causes.
 - The `.crate` is uploaded as an artifact of the run named
   `crate-<path>@<version>@<sha>`: the unit's path percent-encoded (`.` for the
   repository itself, `tools%2Ffoo` for `tools/foo`), the version the package
@@ -498,7 +500,9 @@ not part of the case's repository.
 - every check block is called from a step of `nebensound.yml` that is named
   after its entry and switched on it with exactly the condition
   `${{ !cancelled() && contains(matrix.checks, '<name>') }}`, so that an
-  inverted or widened switch is caught. The step has no other key than `name`,
+  inverted or widened switch is caught. The step stands in the check job, the
+  one whose matrix is `${{ fromJSON(needs.declare.outputs.units) }}`, and has
+  no other key than `name`,
   `if`, `uses` and `with`, and hands the block exactly
   `working-directory: ${{ matrix.path }}`, so that neither
   `continue-on-error` nor another path silences the check. Beside it the step
@@ -508,7 +512,10 @@ not part of the case's repository.
 - every version writer's block is called from a step named after its entry
   and switched on it with exactly `${{ contains(matrix.writers, '<writer>') }}`,
   and every build block from a step named after its entry and switched on it
-  with exactly `${{ matrix.build == '<name>' }}`, both in the build job. Neither
+  with exactly `${{ matrix.build == '<name>' }}`, both in the build job (the
+  job whose matrix is `${{ fromJSON(needs.declare.outputs.builds) }}`), every
+  version writer's step above every build step, so that the build packages the
+  version of the run. Neither
   condition holds `!cancelled()`, so that nothing is built after a step that
   failed. The step has no other key than `name`, `if`, `uses` and `with`; it
   hands a version writer exactly `plan: ${{ needs.declare.outputs.plan }}` and

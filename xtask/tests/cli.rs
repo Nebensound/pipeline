@@ -41,6 +41,9 @@ jobs:
       - uses: $/.github/actions/tool
       - uses: $/.github/actions/phase0
   units:
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.declare.outputs.units) }}
     steps:
       - name: Not written yet
         env:
