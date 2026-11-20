@@ -26,7 +26,10 @@ end.
 
 A ruleset file holds no organization condition. It is the body that the
 rulesets API of a single repository accepts, and it was applied in that form to
-a test repository and read back unchanged. The condition that selects
+a test repository and read back unchanged, except `required-checks.json`: it was
+applied and read back with `do_not_enforce_on_create` set to `false`, and its
+present form with `true` is still to be applied, read back and measured (see
+[`required-checks`](#required-checks)). The condition that selects
 repositories is a fragment of its own, which the apply command merges in, so
 that what was tested on a repository is what the organization gets, apart from
 that one step.
@@ -113,17 +116,18 @@ is the look at the head that `release-guard` leaves to the person merging.
 
 ### `version-tags`
 
-On every tag that reads as a version, `v*` for the repository and `*-v*` for a
-component or a generated unit (the tag names are listed in
-[the declaration](../declaration.md#tag-names)): no update and no deletion, for
-anyone, administrators included.
+On every tag that starts with `v` or contains `-v`, which covers every version
+tag: `v*` for the repository and `*-v*` for a component or a generated unit
+(the tag names are listed in [the declaration](../declaration.md#tag-names)):
+no update and no deletion, for anyone, administrators included. A tag that only
+looks like those, such as `vendor-drop`, is held as well.
 
 Tags are records. No version is read from a tag; the versions come from the
 history. What a tag holds is what a caller pins and what the release stage
 wrote, and this ruleset keeps both where they were set. Measured on the test
 repository: moving `v0.0.1` and `tool-v0.0.1` was refused with "Cannot update
 this protected ref", deleting them with "Cannot delete this tag", and a tag
-that reads as no version was created and deleted freely.
+that matches neither pattern was created and deleted freely.
 
 It does not protect against creating a tag. The release stage creates its tags
 with the token of the workflow run, and GitHub Actions cannot be put on a
@@ -148,10 +152,13 @@ expected").
 
 It is not enforced when the branch is created (`do_not_enforce_on_create`), so
 that a new repository, which carries `central` from its creation, can be
-created at all: the first push into an empty repository creates the default
-branch and goes through, and every pull request afterwards needs the three
-checks. The repository's first pull request, the one that adds the caller,
-reports them itself. `release-guard` keeps the rule on creation, so `release`
+created at all. The intended behaviour: the first push into an empty repository
+creates the default branch and goes through, and every pull request afterwards
+needs the three checks. The repository's first pull request, the one that adds
+the caller, reports them itself. **Not yet measured**: both halves still have to
+be measured on a fresh, empty test repository, together with the question
+whether the existing ruleset refuses that first push to a creator who is not an
+administrator. `release-guard` keeps the rule on creation, so `release`
 can be created only at a commit that has passed the three checks.
 
 It does not protect against a workflow of the repository reporting the names
@@ -246,8 +253,9 @@ switched, the owner removes them.
 
 The default of `pipeline` is `central`, so a new repository is bound from the
 start: the four rulesets hold for it before it has a caller. It can still be
-created, because `required-checks` is not enforced on creation, and its first
-pull request adds the caller, which reports the three checks.
+created, because `required-checks` is not enforced on creation (still to be
+measured, see [`required-checks`](#required-checks)), and its first pull
+request adds the caller, which reports the three checks.
 
 What follows from it:
 
@@ -255,16 +263,20 @@ What follows from it:
   the four rulesets until the owner sets it to `legacy`. A ruleset condition
   cannot tell a fork apart.
 - The rulesets see only properties, not whether a repository really calls the
-  pipeline or carries the right property. A daily pass over all repositories
-  of the organization (#108) will find what they cannot see, such as a fork
-  that still carries `central`.
+  pipeline. A daily pass over all repositories of the organization (#108) will
+  find what they cannot see, such as a repository bound to the central pipeline
+  that does not call it. A fork that still carries `central` is found only by
+  the owner's step in [the checklist](#checklist-for-the-organization-owner).
 
 ### The one-time step
 
-Every repository whose default branch does not report the three checks is
-`legacy`. The step is defined by that condition, not by a list of names, so it
-can be run again at any time. On 2026-11-20 it would change 2 of the 3
-repositories that carry `central`.
+The step sets every repository whose default branch does not report the three
+checks to `legacy`. It is defined by that condition, not by a list of names, and
+it runs once, before the rulesets are applied. Run again later, it would also
+set a new repository that has not merged its caller yet to `legacy`, against
+the default `central`; an empty repository is listed as well, because its
+check-run call fails and counts as no check. On 2026-11-20 it would change 2 of
+the 3 repositories that carry `central`.
 
 List the repositories that carry `central` although their default branch does
 not report the three checks (empty output means the organization is in line):
@@ -332,18 +344,19 @@ a repository; the comparison leaves those out.
 ```sh
 normalize='{name, target, enforcement, bypass_actors, conditions, rules}
   | del(.rules[].parameters.dismissal_restriction | select(.enabled == false))'
-name=release-guard
+name=release-guard file=release-guard fragment=conditions-central
+# existing ruleset: name='Grundschutz Standard-Branch'
+#   file=grundschutz-standard-branch fragment=conditions-active
 id="$(gh api --paginate orgs/Nebensound/rulesets \
   --jq ".[] | select(.name == \"$name\") | .id")"
 diff <(gh api "orgs/Nebensound/rulesets/$id" | jq -S "$normalize") \
   <(jq -s '.[0] * {conditions: .[1]}' \
-      "docs/organization/$name.json" docs/organization/conditions-central.json |
+      "docs/organization/$file.json" "docs/organization/$fragment.json" |
     jq -S "$normalize")
 # expected: no output
 ```
 
-For the existing ruleset, set `name` to `Grundschutz Standard-Branch` and use
-`grundschutz-standard-branch.json` with `conditions-active.json`. On a test
+For the existing ruleset, set the three variables as the comment says. On a test
 repository, read `repos/Nebensound/<test repository>/rulesets/<id>` and compare
 with the file alone. The rules that hold for one branch of one repository, from
 every source, are listed by
@@ -403,7 +416,8 @@ report them:
 
 ## Checklist for the organization owner
 
-- Run [the one-time step](#the-one-time-step) and read it back.
+- Run [the one-time step](#the-one-time-step) once, before applying the
+  rulesets, and read it back.
 - Apply `release-guard`, `release-updaters`, `version-tags` and
   `required-checks` with `conditions-central.json`, and read each back.
 - Switch this repository first, `Nebensound/pipeline`, by
