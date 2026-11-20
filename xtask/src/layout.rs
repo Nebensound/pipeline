@@ -15,7 +15,9 @@
 //! has written yet has no directory: a step `Not written yet` fails for it by
 //! name, so the list of written checks in one such step and the list of
 //! written builds in another name exactly the checks and builds that have a
-//! block. A version writer is held the same way by the step
+//! block. Each list stands in the job of its kind, the one whose units it
+//! fails for: a list in another job leaves the units of its own kind without
+//! the step. A version writer is held the same way by the step
 //! `Version writers not written yet`. Every block brings its test cases, at
 //! least one passing and one failing. Beside the blocks lie only the
 //! workflow's own machinery ([`MACHINERY`]), which belongs to no register
@@ -253,6 +255,9 @@ struct Calls {
     writers: Result<Vec<String>, String>,
     /// The list of written builds, or why there is none.
     builds: Result<Vec<String>, String>,
+    /// Every list of written checks or builds that stands outside the job of
+    /// its kind, one sentence each.
+    misplaced: Vec<String>,
 }
 
 /// The steps that call a block, and the lists of written checks, version
@@ -270,6 +275,7 @@ fn calls(workflow: &str) -> Result<Calls, Error> {
     let mut written = Vec::new();
     let mut writers = Vec::new();
     let mut builds = Vec::new();
+    let mut misplaced = Vec::new();
     let string = |yaml: &Yaml| yaml.as_str().unwrap_or_default().to_owned();
     for (key, job) in jobs {
         let matrix = string(&job["strategy"]["matrix"]["include"]);
@@ -300,11 +306,21 @@ fn calls(workflow: &str) -> Result<Calls, Error> {
             let env = &step["env"];
             match text("name").as_str() {
                 NOT_WRITTEN => {
-                    if !env[WRITTEN_CHECKS].is_badvalue() {
-                        written.push(string(&env[WRITTEN_CHECKS]));
-                    }
-                    if !env[WRITTEN_BUILDS].is_badvalue() {
-                        builds.push(string(&env[WRITTEN_BUILDS]));
+                    for (variable, lists, job, what) in [
+                        (WRITTEN_CHECKS, &mut written, CHECK_JOB, "checks"),
+                        (WRITTEN_BUILDS, &mut builds, BUILD_JOB, "builds"),
+                    ] {
+                        if env[variable].is_badvalue() {
+                            continue;
+                        }
+                        lists.push(string(&env[variable]));
+                        if matrix.trim() != job {
+                            misplaced.push(format!(
+                                "nebensound.yml lists the written {what} in `{NOT_WRITTEN}` of a \
+                                 job whose matrix is not `{job}`: the units that run the {what} \
+                                 would not fail for one without a block"
+                            ));
+                        }
                     }
                 }
                 WRITERS_NOT_WRITTEN => writers.push(string(&env["WRITTEN"])),
@@ -317,6 +333,7 @@ fn calls(workflow: &str) -> Result<Calls, Error> {
         written: listed(&written, NOT_WRITTEN, WRITTEN_CHECKS, "checks"),
         writers: listed(&writers, WRITERS_NOT_WRITTEN, "WRITTEN", "version writers"),
         builds: listed(&builds, NOT_WRITTEN, WRITTEN_BUILDS, "builds"),
+        misplaced,
     })
 }
 
@@ -358,7 +375,9 @@ pub fn compare(register: &str, workflow: &str, directories: &[Directory]) -> Res
         written,
         writers,
         builds,
+        misplaced,
     } = calls(workflow)?;
+    problems.extend(misplaced);
     let written = names_of(written, &mut problems);
     let writers = names_of(writers, &mut problems);
     let builds = names_of(builds, &mut problems);

@@ -516,7 +516,7 @@ fn a_block_called_from_the_job_of_another_kind_is_named() {
     // A job without a matrix, or one that is no text.
     for matrix in ["", "    strategy:\n      matrix:\n        include: [1]\n"] {
         let workflow = format!(
-            "jobs:\n  units:\n    steps:\n      - name: Not written yet\n        env:\n          WRITTEN_CHECKS: '[]'\n      - name: Version writers not written yet\n        env:\n          WRITTEN: '[\"cargo\"]'\n  builds:\n{matrix}    steps:\n      - name: Not written yet\n        env:\n          WRITTEN_BUILDS: '[]'\n{}",
+            "jobs:\n  units:\n    strategy:\n      matrix:\n        include: {units}\n    steps:\n      - name: Not written yet\n        env:\n          WRITTEN_CHECKS: '[]'\n      - name: Version writers not written yet\n        env:\n          WRITTEN: '[\"cargo\"]'\n  builds:\n{matrix}    steps:\n      - name: Not written yet\n        env:\n          WRITTEN_BUILDS: '[]'\n{}",
             support::indent(WRITER_STEP, 6)
         );
         let found = layout::compare(
@@ -527,10 +527,59 @@ fn a_block_called_from_the_job_of_another_kind_is_named() {
         .unwrap();
         assert_eq!(
             found.problems,
-            [format!(
-                "nebensound.yml calls `version-cargo` from a job whose matrix is not `{builds}`"
-            )],
+            [
+                format!(
+                    "nebensound.yml lists the written builds in `Not written yet` of a job whose matrix is not `{builds}`: the units that run the builds would not fail for one without a block"
+                ),
+                format!(
+                    "nebensound.yml calls `version-cargo` from a job whose matrix is not `{builds}`"
+                ),
+            ],
             "{matrix}"
+        );
+    }
+}
+
+#[test]
+fn a_list_of_written_blocks_outside_the_job_of_its_kind_is_named() {
+    let agreeing = workflow_jobs(
+        r#"["demo"]"#,
+        r#"["cargo"]"#,
+        r#"["cargo-package"]"#,
+        AGREEING_STEPS,
+        &format!("{WRITER_STEP}{BUILD_STEP}"),
+    );
+    let step = "      - name: Not written yet\n        env:\n";
+    let checks = "          WRITTEN_CHECKS: '[\"demo\"]'\n";
+    let builds = "          WRITTEN_BUILDS: '[\"cargo-package\"]'\n";
+    for (workflow, what, job) in [
+        // The written builds in the step of the check job, and the build job
+        // without its own: a build without a block would pass there.
+        (
+            agreeing
+                .replace(&format!("{step}{builds}"), "")
+                .replace(checks, &format!("{checks}{builds}")),
+            "builds",
+            "${{ fromJSON(needs.declare.outputs.builds) }}",
+        ),
+        // The written checks in the step of the build job, and the check job
+        // without its own.
+        (
+            agreeing
+                .replace(&format!("{step}{checks}"), "")
+                .replace(builds, &format!("{checks}{builds}")),
+            "checks",
+            "${{ fromJSON(needs.declare.outputs.units) }}",
+        ),
+    ] {
+        assert_ne!(workflow, agreeing);
+        let found = layout::compare(REGISTER, &workflow, &every_kind()).unwrap();
+        assert_eq!(
+            found.problems,
+            [format!(
+                "nebensound.yml lists the written {what} in `Not written yet` of a job whose matrix is not `{job}`: the units that run the {what} would not fail for one without a block"
+            )],
+            "{workflow}"
         );
     }
 }

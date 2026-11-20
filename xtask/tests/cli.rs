@@ -62,6 +62,9 @@ jobs:
         env:
           WRITTEN: '[]'
   builds:
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.declare.outputs.builds) }}
     steps:
       - name: Not written yet
         env:
