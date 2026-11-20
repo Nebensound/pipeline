@@ -110,7 +110,9 @@ const RUN: &[(&str, &str, &str)] = &[
 /// job on GitHub, so it names none. Any other name of `job` is refused, as is
 /// any name of `github` and `runner` the xtask does not set: on GitHub it
 /// would have a value, and reading it as empty would run a block one way here
-/// and another way for every caller.
+/// and another way for every caller. The one exception is
+/// `github.event.pull_request`: a case is no pull request, and on GitHub every
+/// field of it is empty in a run that is none, such as a push to `main`.
 const JOB: &[(&str, &str)] = &[("check_run_id", "0")];
 
 /// What stands in for an action that runs on Node.js.
@@ -924,6 +926,8 @@ impl Scope for Context<'_> {
                 .steps
                 .get(*id)
                 .and_then(|record| record.outputs.get(*name).cloned()),
+            // A case is no pull request, so it has none of its fields.
+            ["github", "event", "pull_request", ..] => None,
             ["github", name] => Some(known(self.github.get(*name).cloned(), path)?),
             ["runner", name] => Some(known(self.runner.get(*name).cloned(), path)?),
             ["job", name] => Some(known(

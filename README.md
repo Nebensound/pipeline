@@ -8,8 +8,8 @@ publishes what that declaration says.
 
 - **One reusable workflow**, which a repository calls.
 - **Its building blocks.** Each block performs one step and is named after its
-  entry in the register, with the category in front: `check-<name>`,
-  `build-<name>`, `publish-<target>`.
+  entry in the register, with the category in front: `version-<writer>`,
+  `check-<name>`, `build-<name>`, `publish-<target>`.
 - **The tool `nebensound`.** It reads a repository's declaration, checks it
   against the tree and tells the workflow which blocks to run for which part of
   the repository.
@@ -71,7 +71,8 @@ as a table in the summary of the run), one job per unit that runs a check
 `nebensound / Check`, which sums the units up. A ruleset requires
 `nebensound / Version` and `nebensound / Check`. A check the register knows but
 that has no building block yet fails by name in the step `Not written yet` of
-its unit.
+its unit, and a version writer without one in the step
+`Version writers not written yet` of `nebensound / Check`.
 
 This repository calls the workflow the same way, with one difference: its own
 [`gate.yml`](.github/workflows/gate.yml) calls the workflow at the commit that
@@ -151,7 +152,20 @@ away:
 - Regions, lines and functions are 100% covered (`cargo-llvm-cov`, on a pinned
   nightly toolchain, where `#[coverage(off)]` takes effect).
 - Every published package builds and passes its tests from its own packaged
-  contents, outside the source tree.
+  contents, outside the source tree. The versions are written first, as
+  [`version-cargo`](#version-cargo) writes them, and put back when the step
+  ends: a package without a version is not published, so only a unit with a
+  version is verified here, on a pull request with the version its merge would
+  get. The writing starts from the units of the workspace alone, as Cargo
+  finds it, and follows their path dependencies wherever they lie, so what
+  another workspace of the repository needs cannot fail this one, also a
+  workspace of its own in a folder below it. The packages are packaged in one
+  call, with each of them in place of crates.io from its folder, and each is
+  tested with the packages of its siblings in place of crates.io: a version
+  just written is on no registry yet, and a crate of the same name on
+  crates.io must not stand in for it. A local package they depend on that is
+  not packaged with them, a path dependency that is no member or a member an
+  `[[exclude]]` entry takes out, is put in place of crates.io from its folder.
 
 Rust code is excluded by the package, never by the file. Phase 0 fails on an
 `[[exclude]]` entry that takes a `.rs` file out of a package without taking out
@@ -227,6 +241,62 @@ first key or table of `.nebensound/repo.toml`:
 - `.github/dependabot.yml` matches the Dependabot schema (`check-jsonschema`,
   pinned, with the schema it brings along). An unknown key fails the check
   with the file and the key named, instead of surfacing only after the merge.
+
+### `version-cargo`
+
+[`.github/actions/version-cargo`](.github/actions/version-cargo) is the version
+writer `cargo`. No manifest in the tree carries a version: tags are the truth,
+and Cargo cannot take a version from outside. So the version is written into
+the checkout of the run, immediately before something builds with it, and never
+committed. The block hands the plan Declare printed to
+`nebensound write-versions --plan`, since its job checks out no history to
+resolve a version from. Every unit of the plan with the writer `cargo` that
+the commit at hand touches gets the version of the commit, on a pull request
+the one its merge would get with `-pr.<number>` behind it (such as
+`0.4.2-pr.17`). A unit the commit does not touch gets a version only where a
+package that gets one depends on it by path, followed through further path
+dependencies: the last version released for it, its newest tag that counts, a
+pre-release included, so that the requirement names a version that exists. A
+unit that was never released gets its pending version instead, the one the
+commits waiting for it come to, on a pull request with `-pr.<number>` behind
+it, so that a repository without any tag passes from its first commit on. With
+that version:
+
+- `package.version` in the unit's `Cargo.toml` becomes that version.
+- Every path dependency on the package, wherever in the repository it is
+  written, gets that version as its requirement, in `[dependencies]`,
+  `[dev-dependencies]`, `[build-dependencies]`, their `[target.*]` forms and
+  `[workspace.dependencies]`: a package whose dependency names no version
+  cannot be published. In the manifest of a unit that gets nothing, only the
+  entries of its `[workspace.dependencies]` that a member that gets a version
+  inherits.
+- The workspace's `Cargo.lock` is brought in line: the package's own entry, and
+  every entry that names it with a version. No other entry changes, so
+  `cargo build --locked` passes. The same goes for the `Cargo.lock` of every
+  other workspace that reaches the package through path dependencies, directly
+  or through another package: one that excludes the package, one beside it, or
+  the `fuzz/` folder `cargo fuzz init` creates.
+
+Every change keeps the rest of the file as it is written, and a second call
+changes nothing. Any other unit with the writer gets nothing: its manifest
+stays as it is, and the package test of `check-rust` does not package it. A
+unit with commits after its newest tag still gets that tag's version where it
+gets one without being touched; the gap closes once a step sets tags at the
+release.
+
+The path dependencies followed are those in `[dependencies]`,
+`[dev-dependencies]` and `[build-dependencies]`. A dependency of the tests
+counts too: Cargo drops one without a version from the package, and the
+packaged tests that use it would not compile. A path dependency on a package
+that carries no version at all (a unit with `versioning = "none"`, or one that
+does not select the writer `cargo`) is left to Cargo: the package test fails
+with Cargo's message. That a release must not publish a package that requires
+a version never released belongs to the release stage, not to the writer.
+Only `Cargo.toml` and `Cargo.lock` files change. `check-rust` writes the
+versions the same way for its package test, starting from the units of its
+workspace (`--workspace`); the Build phase that calls the block before building
+is not built yet. A version writer without a building block (today `asciidoc`)
+fails by name in `nebensound / Check`.
 
 ### Linter rules
 
@@ -383,27 +453,35 @@ not part of the case's repository.
 - every directory under `.github/actions/` is a block that belongs to a register
   entry (`check-<name>`, `version-<writer>`, `build-<name>`,
   `publish-<target>`), or the workflow's own machinery (`phase0`, `tool`);
-- every block is called from a step of `nebensound.yml` that is named after its
-  entry and switched on it with exactly the condition
+- every check block is called from a step of `nebensound.yml` that is named
+  after its entry and switched on it with exactly the condition
   `${{ !cancelled() && contains(matrix.checks, '<name>') }}`, so that an
   inverted or widened switch is caught. The step has no other key than `name`,
   `if`, `uses` and `with`, and hands the block exactly
   `working-directory: ${{ matrix.path }}`, so that neither
-  `continue-on-error` nor another path silences the check;
+  `continue-on-error` nor another path silences the check. Beside it the step
+  may hand `plan: ${{ needs.declare.outputs.plan }}`, the plan of phase 0, to a
+  check that writes the versions before it tests a package, as `check-rust`
+  does;
 - the step `Not written yet` counts exactly the checks that have a block as
-  written;
+  written, and the step `Version writers not written yet` exactly the version
+  writers. No step calls a `version-<writer>` block yet: the Build phase that
+  runs it before building brings that call;
 - every block has a passing and a failing case. A `.DS_Store` beside the cases
   is passed over: Git ignores it, so the gate never sees it.
 
-For now the xtask knows only how a check is called and tested, so a block of
-another category is reported until the xtask learns that kind. The first
-`version-`, `build-` or `publish-` block teaches it, together with its cases.
+For now the xtask knows only how a check and a version writer are called and
+tested, so a block of another category is reported until the xtask learns that
+kind. The first `build-` or `publish-` block teaches it, together with its
+cases.
 
 Then it runs every block against its cases. It builds the tool through
 [`.github/actions/tool`](.github/actions/tool), copies each case into a fresh
 Git repository, runs [`.github/actions/phase0`](.github/actions/phase0) on it,
-and runs the block once for every unit the plan starts the block's check for,
-just as a unit job does. A passing case needs the block to succeed everywhere. A
+and runs a check block once for every unit the plan starts the block's check
+for, just as a unit job does, with the plan when the block takes one. A version
+writer's block runs once with the plan, provided a unit of the plan selects the
+writer. A passing case needs the block to succeed everywhere. A
 failing case needs it to fail and to print every finding the case names, so a
 block that fails for another reason does not count.
 

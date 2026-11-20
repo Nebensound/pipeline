@@ -38,10 +38,14 @@ hands the result on:
 3. When phase 0 found no error, every Rust package `[[exclude]]` takes out as a
    whole (`nebensound excluded-packages`) is named in the summary of the run
    with its reason, as a notice.
-4. Then `nebensound plan` prints the plan: every unit,
-   with the checks started for it and the build it names, and the version of
-   every unit that carries one. The units that start at least one check go on
-   to the Check phase.
+4. Then `nebensound plan` prints the plan: every unit, with the checks started
+   for it and the build it names, and the version of every unit that carries
+   one, its last release, its pending version and the version writers it
+   selects. On a pull request the plan is built the way the job Version reads it
+   (see below): each version is the one the merge would get, with `-pr.<number>`
+   behind it. The units that start at least one check go on to the Check phase,
+   and the whole plan is handed on with them: a later job checks out no history,
+   so a version writer takes the versions from the plan.
 
 An error ends the phase here: there is no plan, no check runs, and
 `nebensound / Check` fails. A warning stops nothing.
@@ -129,6 +133,13 @@ result. It fails when phase 0 did not pass or when any unit job did not pass,
 and it passes when every check the plan started passed, or when the plan started
 none.
 
+Its second step, **Version writers not written yet**, fails by name for every
+version writer a unit of the plan selects that has no building block
+`version-<writer>` yet, the way a check without one fails in its unit job. A
+writer belongs to a unit that carries a version, which need not run a check,
+so it is named here. The writers written today are listed in
+[the README](../README.md#version-cargo).
+
 ## Check names
 
 Every job reports under a name in two parts, `nebensound / Check`: GitHub names
@@ -162,9 +173,11 @@ on:
 
 Today both run the same jobs, Declare, Version and Check, with the same steps.
 Only the versions depend on the event: on a pull request `Version` shows the
-version the merge would get with `-pr.<number>` behind it. A newer run for the
-same branch or pull request cancels the one still running. The permissions are
-read-only: the workflow reads the repository and writes nothing back.
+version the merge would get with `-pr.<number>` behind it, and the plan carries
+the same versions, which the package test of `check-rust` writes and builds
+with. A newer run for the same branch or pull request cancels the one still
+running. The permissions are read-only: the workflow reads the repository and
+writes nothing back.
 
 This repository calls the workflow the same way, with one difference: its own
 caller runs the workflow at the commit under test rather than at a pinned

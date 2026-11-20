@@ -33,22 +33,23 @@ channel would be a second version that can fall behind.
 ## Calls
 
 ```text
-nebensound [-C <directory>] [check | tree | explain <path> | plan | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | excluded-packages | setup [--pinned] [--with-runtimes] [--check] | schema | register | ui]
+nebensound [-C <directory>] [check | tree | explain <path> | plan [--pull-request <number> --message <message>] | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | excluded-packages | write-versions [--plan <file>] [--workspace <path>] | setup [--pinned] [--with-runtimes] [--check] | schema | register | ui]
 ```
 
-| Call                | What it does                                                                                                                                                                                                                                                                                                                        |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `check`             | Runs phase 0 and prints everything: the resolved configuration, the rules the repository sets over the pipeline's linter defaults, the tree, the findings and a summary line with the counts. The default, and what the composite action under `.github/actions/phase0` calls.                                                      |
-| `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                                                                |
-| `explain <path>`    | What holds for one path and why: which units contain it, how each of them is released, which checks are in force, how its coverage stands.                                                                                                                                                                                          |
-| `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read.                                                                                                                                                                                                         |
-| `version`           | The version of every unit that carries one, as a table: last release, release mode, the version of the commit at hand and the commits waiting for the next release. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                                       |
-| `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                                                            |
-| `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                                                          |
-| `setup`             | Finds or installs the programs that the checks the plan starts call, as the register pins them: by default it uses those on the computer and installs the pinned version of what is missing; `--pinned` installs every one into its own folder; `--check` changes nothing. See [Setting up the programs](#setting-up-the-programs). |
-| `schema`            | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. `check-toml` assigns the copy committed beside it; [its README](../../.github/actions/check-toml/schemas/README.md#nebensound-declarationjson) says how to write that copy again.                                    |
-| `register`          | The register as Markdown, exactly as [`docs/register.md`](../../docs/register.md) holds it, which a test compares with this output. Reads no repository.                                                                                                                                                                            |
-| `ui`                | The same result to walk through. Only in a build with the `ui` feature.                                                                                                                                                                                                                                                             |
+| Call                | What it does                                                                                                                                                                                                                                                                                                                                     |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `check`             | Runs phase 0 and prints everything: the resolved configuration, the rules the repository sets over the pipeline's linter defaults, the tree, the findings and a summary line with the counts. The default, and what the composite action under `.github/actions/phase0` calls.                                                                   |
+| `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                                                                             |
+| `explain <path>`    | What holds for one path and why: which units contain it, how each of them is released, which checks are in force, how its coverage stands.                                                                                                                                                                                                       |
+| `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read. With `--pull-request <number> --message <message>`, for a pull request, as `version` reads it. See [The plan](#the-plan).                                                                                            |
+| `version`           | The version of every unit that carries one, as a table: last release, release mode, the version of the commit at hand and the commits waiting for the next release. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                                                    |
+| `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                                                                         |
+| `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                                                                       |
+| `write-versions`    | Writes the version of every unit with the version writer `cargo` into its `Cargo.toml`, the path dependencies on it and `Cargo.lock`, in the working tree; never committed. With `--plan <file>`, takes the versions from a printed plan instead of the history; with `--workspace <path>`, starts from the units of the workspace at that path. |
+| `setup`             | Finds or installs the programs that the checks the plan starts call, as the register pins them: by default it uses those on the computer and installs the pinned version of what is missing; `--pinned` installs every one into its own folder; `--check` changes nothing. See [Setting up the programs](#setting-up-the-programs).              |
+| `schema`            | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. `check-toml` assigns the copy committed beside it; [its README](../../.github/actions/check-toml/schemas/README.md#nebensound-declarationjson) says how to write that copy again.                                                 |
+| `register`          | The register as Markdown, exactly as [`docs/register.md`](../../docs/register.md) holds it, which a test compares with this output. Reads no repository.                                                                                                                                                                                         |
+| `ui`                | The same result to walk through. Only in a build with the `ui` feature.                                                                                                                                                                                                                                                                          |
 
 Exit code: `0` when there is nothing to report; `1` when the repository has a
 problem or cannot be read; `2` when the call itself was wrong. A **warning stops
@@ -89,20 +90,26 @@ a run has to start, and where.
     {
       "base": "0.3.1",
       "kind": "repository",
+      "last": "0.3.1",
       "name": null,
       "path": ".",
+      "pending": "0.3.2",
       "prefix": "v",
       "release": "single-stage",
-      "version": "0.3.2"
+      "version": "0.3.2",
+      "writers": []
     },
     {
       "base": "1.4.0",
       "kind": "component",
+      "last": "1.5.0-pre.2",
       "name": "tool",
       "path": "tool",
+      "pending": "1.5.0-pre.3",
       "prefix": "tool-v",
       "release": "two-stage",
-      "version": "1.5.0-pre.3"
+      "version": "1.5.0-pre.3",
+      "writers": ["cargo"]
     }
   ]
 }
@@ -118,10 +125,25 @@ prefix `v`.
 
 `versions` is one entry per unit that carries a version, in the order of
 `units`: `prefix` is what its tags start with, `release` how it is released,
-`base` its last full release (`0.0.0` without one), and `version` the version
-of the commit at hand, `null` when the commit does not touch the unit. How they
-are resolved from tags and history is described in
+`base` its last full release (`0.0.0` without one), `last` the last version
+released for it, its newest tag that counts, a pre-release included (`null`
+without one), `version` the version of the commit at hand, `null` when the
+commit does not touch the unit, `pending` the version of the newest commit
+that waits for the unit, as that commit resolves when it is the commit at
+hand (`version` where there is one, `null` when no commit waits), and
+`writers` the version writers the unit selects. `last` is what the version
+writer `cargo` requires of a path dependency whose unit the commit does not
+touch, where a package that gets a version needs it; `pending` is what it
+writes instead for such a unit that was never released. How they are resolved
+from tags and history is described in
 [the reference of the declaration](../../docs/declaration.md#versions).
+
+`--pull-request <number> --message <message>` builds the plan for a pull
+request, reading `HEAD` the way [`version`](#the-versions) does: every `version`
+is then the one the squash merge would get, with `-pr.<number>` behind it, such
+as `1.5.0-pre.3-pr.17`, and every `pending` carries the same suffix. `base` and
+`last` stay versions that were released. Declare builds the plan this way on a
+pull request, so that the version writers write what a merge would publish.
 
 A check runs **once, at the outermost unit it is in force for**. The base set is
 in force everywhere, so it runs at the repository; a check a unit declares
@@ -171,6 +193,87 @@ commit. Both options go together.
 
 A repository with errors gets no table: the sentence that there are no versions,
 every finding, and exit code `1`, as with the plan.
+
+## Writing the versions
+
+`write-versions` is the version writer `cargo`. No manifest in the tree carries
+a version, and Cargo cannot take one from outside, so the version of the plan is
+written into the working tree before something builds with it, and never
+committed. Every unit of the plan with the writer `cargo` that the commit at
+hand touches gets the version of the commit, `-pr.<number>` behind it in a plan
+built for a pull request. A unit the commit does not touch gets a version only
+where a package that gets one depends on it by path, followed through the path
+dependencies of each unit that gets one: `last`, the last version released for
+it, or `pending`, the version the commits waiting for it come to, when it was
+never released. A repository without any tag therefore gets its versions written
+from its first commit on. With that version it sets `package.version` in the
+unit's `Cargo.toml`, gives every path dependency on that package anywhere in the
+repository that version as its requirement, and sets the package's entry in the
+workspace's `Cargo.lock`, together with every entry that names it with a
+version. Every other workspace that reaches the package through path
+dependencies, directly or through another package, gets its `Cargo.lock` brought
+in line the same way: one that excludes the package, one beside it, or a `fuzz/`
+folder with a workspace of its own. Nothing else changes, and
+`cargo build --locked` passes afterwards.
+
+Any other unit with the writer gets nothing: its `Cargo.toml` stays as it is,
+apart from the entries of the `[workspace.dependencies]` it holds as the root
+of a workspace that a member that gets a version inherits, and without a
+version the package test of `check-rust` does not package it. A unit with
+commits after its newest tag still gets that tag's version where it gets one
+without being touched; the gap closes once a step sets tags at the release.
+
+The path dependencies followed are those in `[dependencies]`,
+`[dev-dependencies]` and `[build-dependencies]`, also per platform or through
+`workspace = true`: `cargo package` refuses a dependency without a version, or,
+for a dependency of its tests, drops it from the package, so that the packaged
+tests that use it would not compile. A path dependency on a package that
+carries no version at all, a unit with `versioning = "none"` or one that does
+not select the writer `cargo`, is left to Cargo: the call raises nothing of its
+own, and the package test fails with Cargo's message. So is one on a unit that
+was never released and that no commit waits for, which has no version to be
+written.
+
+With `--workspace <path>`, only a touched unit that belongs to the workspace
+Cargo finds at that path gets the version of the commit on its own account. A
+workspace of its own in a folder below, one the workspace excludes or never
+names, does not belong to it. Their path dependencies are followed wherever they
+lie: a unit they reach gets the version of the commit when the commit touches
+it, else its last release, else its pending version. The package test of
+`check-rust` starts from its workspace this way, so that what another workspace
+of the repository needs cannot fail it. A path that is not one inside the
+repository ends the call with exit code `2`.
+
+The workspace is found the way Cargo finds it: the package's own folder when
+its manifest has a `[workspace]`, else the folder `package.workspace` names,
+else the nearest folder above it whose `Cargo.toml` has a `[workspace]` that
+does not exclude it or names a folder in `package.workspace`, else the
+package's own folder. A `[workspace]` that excludes the package does not end
+the search, and an entry of `members` that names the package keeps it in
+although `exclude` covers it. The dependents are all `Cargo.toml` files Git
+tracks, inside that workspace or outside it; one that is not TOML is passed
+over. Every change goes through `toml_edit`, so comments, blank lines and the
+order of keys stay, and a file whose text does not change is not written: a
+second call changes nothing.
+
+```text
+component app: the package app at crates/app gets 1.4.1 (workspace root: .).
+component lib is not touched by this commit: the package lib at crates/lib gets its last release 1.2.0 (workspace root: .).
+component log is not touched by this commit and was never released: the package log at crates/log gets 0.0.3, the version the commits waiting for it come to (workspace root: .).
+component cli is not touched by this commit, and no package that gets a version depends on it by path, so nothing is written for it.
+Wrote Cargo.lock.
+Wrote crates/app/Cargo.toml.
+Wrote crates/lib/Cargo.toml.
+Wrote crates/log/Cargo.toml.
+```
+
+Without `--plan` the versions are resolved from the history, as `plan` resolves
+them. A job after Declare checks out the commit at hand and nothing before it,
+so the building blocks hand in the plan Declare printed with `--plan <file>`.
+A repository with errors gets nothing written, only a sentence and exit code
+`1`. A manifest or lockfile that cannot be read, is not TOML or cannot be
+written back, and a unit whose `Cargo.toml` holds no package with a name, end
+the call with exit code `1` and the reason.
 
 ## The files of a check
 

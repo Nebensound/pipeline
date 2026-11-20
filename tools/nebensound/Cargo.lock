@@ -949,6 +949,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "toml",
+ "toml_edit",
  "yaml-rust2",
  "zip",
 ]

@@ -298,14 +298,30 @@ impl Repository {
     }
 
     /// A file as it stands in the repository, and only that: the declaration,
-    /// or a tool's setting that phase 0 holds against it.
+    /// a tool's setting that phase 0 holds against it, or a manifest a version
+    /// writer changes.
     ///
     /// `symlink_metadata` asks about each entry on the way itself rather than
     /// what it may point at, every folder as well as the file. The pull
     /// request chooses the paths of a setting (`ignore-from-file`, `extends`),
     /// and a link, of the file or of a folder before it, could otherwise aim
     /// the read outside the checkout, or at a device that never ends.
-    fn read(&self, relative: &str) -> io::Result<String> {
+    pub(crate) fn read(&self, relative: &str) -> io::Result<String> {
+        fs::read_to_string(self.checked(relative)?)
+    }
+
+    /// Writes a file of the repository back, with the same care as
+    /// [`Self::read`]: the version writers change manifests a pull request
+    /// chose, and a link among them could otherwise aim the write outside the
+    /// checkout.
+    pub(crate) fn write(&self, relative: &str, text: &str) -> io::Result<()> {
+        self.checked(relative)
+            .and_then(|path| fs::write(path, text))
+    }
+
+    /// Where a file of the repository lies, once every entry on the way is
+    /// known to be no link and the file itself a regular one.
+    fn checked(&self, relative: &str) -> io::Result<PathBuf> {
         let mut path = self.root.clone();
         let mut regular = false;
         for segment in relative.split('/') {
@@ -325,7 +341,7 @@ impl Repository {
                  device could never end",
             ));
         }
-        fs::read_to_string(&path)
+        Ok(path)
     }
 
     /// Phase 0 on this repository.

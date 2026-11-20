@@ -25,14 +25,17 @@ pub mod terminal;
 #[cfg(feature = "ui")]
 pub mod ui;
 pub mod versions;
+pub mod writer;
 
 use std::ffi::OsString;
+use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use nebensound_declaration::path::RelativePath;
 use nebensound_declaration::register::{BUILTIN_DEFAULTS, BUILTIN_REGISTER};
+use nebensound_declaration::{Analysis, Central};
 use thiserror::Error;
 
 use crate::output::Output;
@@ -72,7 +75,12 @@ pub enum Command {
         path: String,
     },
     /// Print which unit runs which check, as JSON for a matrix.
-    Plan,
+    Plan {
+        /// For a pull request: its versions are those its squash merge would
+        /// get, with `-pr.<number>` behind them.
+        #[command(flatten)]
+        pull_request: PullRequestArgs,
+    },
     /// Print the files a check covers in a unit, less what `[[exclude]]` takes
     /// out: what its building block checks.
     Files {
@@ -87,6 +95,23 @@ pub enum Command {
     /// Print the Rust packages `[[exclude]]` takes out as a whole, each with
     /// its reason, as JSON: what `check-rust` leaves out of every step.
     ExcludedPackages,
+    /// Write the version of every unit with the version writer `cargo` that
+    /// the commit touches, and a version for each unit they depend on by path
+    /// (its last release, or its pending version when it was never released),
+    /// into its Cargo.toml, its dependents and Cargo.lock, in the working
+    /// tree. Never committed: it is done in the checkout of a run,
+    /// before building.
+    WriteVersions {
+        /// Take the versions from a plan `nebensound plan` printed, for a
+        /// checkout without the history to resolve them from.
+        #[arg(long, value_name = "FILE")]
+        plan: Option<PathBuf>,
+        /// Start only from the units of the workspace Cargo finds at this
+        /// path, as the package test of one workspace does; their path
+        /// dependencies are followed wherever they lie.
+        #[arg(long, value_name = "PATH")]
+        workspace: Option<String>,
+    },
     /// Print the version of every unit that carries one: its last release, how
     /// it is released, the version of the commit at hand and how many commits
     /// wait for the next release.
@@ -94,15 +119,10 @@ pub enum Command {
         /// Print the table as Markdown, for the summary of a run.
         #[arg(long)]
         markdown: bool,
-        /// Read `HEAD` as the merge commit of this pull request: the versions
-        /// are those its squash merge would get, with `-pr.<number>` behind
-        /// them.
-        #[arg(long, value_name = "NUMBER", requires = "message", value_parser = clap::value_parser!(u64).range(1..))]
-        pull_request: Option<u64>,
-        /// The message the squash merge of the pull request would carry: its
-        /// title and description.
-        #[arg(long, requires = "pull_request")]
-        message: Option<String>,
+        /// For a pull request: the versions its squash merge would get, with
+        /// `-pr.<number>` behind them.
+        #[command(flatten)]
+        pull_request: PullRequestArgs,
     },
     // It describes the format, not a repository, so it reads none.
     /// Print the JSON Schema of `.nebensound/repo.toml`, for editors and Taplo.
@@ -130,6 +150,29 @@ pub enum Command {
     Ui,
 }
 
+/// The pull request a call reads the repository for, if any.
+#[derive(Debug, Clone, Args)]
+pub struct PullRequestArgs {
+    /// Read `HEAD` as the merge commit of this pull request: the versions are
+    /// those its squash merge would get, with `-pr.<number>` behind them.
+    #[arg(long, value_name = "NUMBER", requires = "message", value_parser = clap::value_parser!(u64).range(1..))]
+    pub pull_request: Option<u64>,
+    /// The message the squash merge of the pull request would carry: its
+    /// title and description.
+    #[arg(long, requires = "pull_request")]
+    pub message: Option<String>,
+}
+
+impl PullRequestArgs {
+    /// The pull request, when both are given; clap sees to it that neither
+    /// comes alone.
+    fn read(&self) -> Option<PullRequest> {
+        self.pull_request
+            .zip(self.message.clone())
+            .map(|(number, message)| PullRequest { number, message })
+    }
+}
+
 /// Why a call did not go through.
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -144,6 +187,17 @@ pub enum Failure {
         /// What it was.
         source: std::io::Error,
     },
+    /// The plan that was handed in does not read.
+    #[error("the plan {path} does not read: {message}")]
+    Plan {
+        /// Where it was looked for.
+        path: String,
+        /// What it failed on.
+        message: String,
+    },
+    /// The versions could not be written.
+    #[error(transparent)]
+    Write(#[from] writer::WriteError),
     /// The path that was named is not one.
     #[error("{value:?} is not a path inside the repository: {source}")]
     Path {
@@ -260,6 +314,16 @@ enum Call {
     Repository(Job),
 }
 
+/// What `write-versions` is asked for.
+struct Writing {
+    /// The plan to take the versions from; [`None`] resolves them from the
+    /// history.
+    plan: Option<PathBuf>,
+    /// A folder of the workspace whose units start the writing; [`None`]
+    /// starts from every unit.
+    workspace: Option<RelativePath>,
+}
+
 /// A call about the repository.
 enum Job {
     /// Run phase 0 and print the whole result.
@@ -268,8 +332,9 @@ enum Job {
     Tree,
     /// Say what holds for this path.
     Explain(RelativePath),
-    /// Print which unit runs which check.
-    Plan,
+    /// Print which unit runs which check, for the pull request if there is
+    /// one.
+    Plan(Option<PullRequest>),
     /// Print the files a check covers in a unit.
     Files {
         check: String,
@@ -278,6 +343,8 @@ enum Job {
     },
     /// Print the packages taken out as a whole.
     ExcludedPackages,
+    /// Write the versions.
+    WriteVersions(Writing),
     /// Print the versions.
     Version {
         markdown: bool,
@@ -297,17 +364,18 @@ fn call(cli: &Cli) -> Result<Call, Failure> {
         Some(Command::Register) => return Ok(Call::Register),
         None | Some(Command::Check) => Job::Check,
         Some(Command::Tree) => Job::Tree,
-        Some(Command::Plan) => Job::Plan,
+        Some(Command::Plan { pull_request }) => Job::Plan(pull_request.read()),
         Some(Command::ExcludedPackages) => Job::ExcludedPackages,
+        Some(Command::WriteVersions { plan, workspace }) => Job::WriteVersions(Writing {
+            plan: plan.clone(),
+            workspace: workspace.as_deref().map(path_of).transpose()?,
+        }),
         Some(Command::Version {
             markdown,
             pull_request,
-            message,
         }) => Job::Version {
             markdown: *markdown,
-            pull_request: pull_request
-                .zip(message.clone())
-                .map(|(number, message)| PullRequest { number, message }),
+            pull_request: pull_request.read(),
         },
         Some(Command::Setup {
             pinned,
@@ -339,14 +407,18 @@ fn path_of(value: &str) -> Result<RelativePath, Failure> {
     })
 }
 
-/// The repository the call reads: for the versions of a pull request, `HEAD`
-/// as the squash merge of that pull request would put it on its base branch.
+/// The repository the call reads: for the versions or the plan of a pull
+/// request, `HEAD` as the squash merge of that pull request would put it on
+/// its base branch.
 fn repository_of(cli: &Cli, job: &Job) -> Repository {
     match job {
         Job::Version {
             pull_request: Some(pull_request),
             ..
-        } => Repository::at(&cli.repository).as_pull_request(pull_request.message.clone()),
+        }
+        | Job::Plan(Some(pull_request)) => {
+            Repository::at(&cli.repository).as_pull_request(pull_request.message.clone())
+        }
         _ => Repository::at(&cli.repository),
     }
 }
@@ -369,13 +441,15 @@ fn execute(
     let central = central_from(register, defaults)?;
     let analysis = match job {
         // Asked for by the building blocks in a unit job, whose checkout holds
-        // only the commit at hand: the history is read in Declare. Which
-        // programs `setup` needs follows from the checks the plan starts,
-        // never from a version, so a question about a release does not keep
-        // anyone from setting up the programs either.
-        Job::Files { .. } | Job::ExcludedPackages | Job::Setup(_) => {
-            repository.analyse_files(&central)
-        }
+        // only the commit at hand: the history is read in Declare, and the
+        // versions come with the plan it hands on. Which programs `setup`
+        // needs follows from the checks the plan starts, never from a
+        // version, so a question about a release does not keep anyone from
+        // setting up the programs either.
+        Job::Files { .. }
+        | Job::ExcludedPackages
+        | Job::WriteVersions(Writing { plan: Some(_), .. })
+        | Job::Setup(_) => repository.analyse_files(&central),
         _ => repository.analyse(&central),
     }?;
 
@@ -407,14 +481,11 @@ fn execute(
         // A plan read off a declaration with errors would start the wrong
         // things with a straight face, so there is none. What is printed then
         // is a sentence, which no matrix takes for a plan.
-        Job::Plan if analysis.failed() => say(
+        Job::Plan(_) if analysis.failed() => say(
             out,
             "there is no plan: phase 0 found errors, and `check` says which\n",
         ),
-        Job::Plan => say(
-            out,
-            &format!("{}\n", plan::plan(&analysis, &central).to_json()),
-        ),
+        Job::Plan(pull_request) => say(out, &plan_of(&analysis, &central, pull_request.as_ref())),
         // The same reason as for the plan: a list read off a declaration with
         // errors would check the wrong files.
         Job::Files { .. } if analysis.failed() => say(
@@ -441,6 +512,16 @@ fn execute(
                 "{}\n",
                 packages::to_json(&repository.excluded_packages(&analysis))
             ),
+        ),
+        // The same reason again: a version read off a declaration with errors
+        // could be written into the wrong package.
+        Job::WriteVersions(_) if analysis.failed() => say(
+            out,
+            "no version is written: phase 0 found errors, and `check` says which\n",
+        ),
+        Job::WriteVersions(writing) => say(
+            out,
+            &write_versions(&repository, &analysis, &central, writing)?,
         ),
         // The same reason once more: a version read off a declaration with
         // errors could be one the history does not give, so what is printed
@@ -476,4 +557,42 @@ fn execute(
     }
 
     Ok(if analysis.failed() { FOUND } else { OK })
+}
+
+/// The plan as one line of JSON, for the pull request if there is one.
+fn plan_of(analysis: &Analysis, central: &Central, pull_request: Option<&PullRequest>) -> String {
+    let mut plan = plan::plan(analysis, central);
+    plan.pull_request = pull_request.map(|pull_request| pull_request.number);
+    format!("{}\n", plan.to_json())
+}
+
+/// Writes the versions as `writing` asks and returns what was done, ended by a
+/// line break.
+fn write_versions(
+    repository: &Repository,
+    analysis: &Analysis,
+    central: &Central,
+    writing: &Writing,
+) -> Result<String, Failure> {
+    let orders = match &writing.plan {
+        Some(file) => fs::read_to_string(file)
+            .map_err(|error| error.to_string())
+            .and_then(|text| writer::Order::read(&text).map_err(|error| error.to_string()))
+            .map_err(|message| Failure::Plan {
+                path: file.display().to_string(),
+                message,
+            })?,
+        None => writer::Order::of(&plan::plan(analysis, central)),
+    };
+    let manifests: Vec<RelativePath> = analysis
+        .tree
+        .files()
+        .into_iter()
+        .map(|(node, _)| node.path.clone())
+        .filter(|path| path.file_name() == Some("Cargo.toml"))
+        .collect();
+    Ok(format!(
+        "{}\n",
+        writer::write(repository, &manifests, &orders, writing.workspace.as_ref())?
+    ))
 }

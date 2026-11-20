@@ -1,0 +1,8 @@
+# A unit with the version writer cargo whose manifest holds no package: there
+# is nothing to give the version to.
+[repo]
+pipeline = "none"
+
+[component.lib]
+path     = "lib"
+pipeline = { version = ["cargo"] }

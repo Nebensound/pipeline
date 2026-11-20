@@ -57,6 +57,19 @@ fn base(analysis: &Analysis, prefix: &str) -> String {
         )
 }
 
+/// The pending version of one unit at the commit at hand: that of the
+/// newest commit that waits for it.
+fn pending(analysis: &Analysis, prefix: &str) -> Option<String> {
+    analysis
+        .versions
+        .iter()
+        .find(|unit| unit.prefix == prefix)
+        .map_or_else(
+            || panic!("no unit with the prefix {prefix}"),
+            |unit| unit.pending.as_ref().map(ToString::to_string),
+        )
+}
+
 /// The findings of one rule.
 fn found(analysis: &Analysis, rule: Rule) -> Vec<String> {
     analysis
@@ -212,6 +225,11 @@ fn a_two_stage_unit_goes_through_pre_releases_a_promotion_and_the_next_pre_relea
     assert_eq!(version(&git, "lib-v"), None);
     // The first commit and the change of the declaration touched it before.
     assert_eq!(version(&git, "app-v").as_deref(), Some("0.0.3"));
+    // Pending is the version of the newest commit that waits for the unit,
+    // and the version of the commit at hand where it touches the unit.
+    let analysis = analysed(&git);
+    assert_eq!(pending(&analysis, "lib-v").as_deref(), Some("1.0.0-pre.3"));
+    assert_eq!(pending(&analysis, "app-v").as_deref(), Some("0.0.3"));
 
     git.write(&[("lib/b.md", "# Lib\n\nNew.\n")]);
     git.commit("feat: something new in the library");
@@ -256,6 +274,8 @@ fn a_promoted_commit_releases_what_came_before_it_and_nothing_twice() {
     git.commit("docs: still beside the library");
     git.promote();
     assert_eq!(version(&git, "lib-v"), None);
+    // No commit waits for it, so nothing is pending.
+    assert_eq!(pending(&analysed(&git), "lib-v"), None);
 }
 
 #[test]
@@ -1076,13 +1096,15 @@ fn a_generated_unit_carries_its_parents_name_in_its_prefix() {
         plan["versions"],
         serde_json::json!([
             {"kind": "repository", "name": null, "path": ".", "prefix": "v",
-             "release": "single-stage", "base": "0.0.0", "version": "0.0.2"},
+             "release": "single-stage", "base": "0.0.0", "last": null, "version": "0.0.2",
+             "pending": "0.0.2", "writers": []},
             {"kind": "component", "name": "guide", "path": "docs/guide.md",
              "prefix": "docs-guide-v", "release": "single-stage", "base": "0.0.1",
-             "version": "0.0.2"},
+             "last": "0.0.1", "version": "0.0.2", "pending": "0.0.2", "writers": []},
+            // Not touched and never released: the first commit waits for it.
             {"kind": "component", "name": "handbook", "path": "docs/handbook.md",
              "prefix": "docs-handbook-v", "release": "single-stage", "base": "0.0.0",
-             "version": null}
+             "last": null, "version": null, "pending": "0.0.1", "writers": []}
         ])
     );
 }

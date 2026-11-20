@@ -14,7 +14,8 @@ description: >-
 outputs:
   plan:
     description: >-
-      Which unit runs which check, as one line of JSON (`nebensound plan`).
+      Which unit runs which check, as one line of JSON (`nebensound plan`),
+      with the versions a pull request's merge would get on a pull request.
       Empty when phase 0 found errors: then nothing is to be started.
     value: ${{ steps.plan.outputs.plan }}
 
@@ -51,11 +52,33 @@ runs:
           | "::notice title=Excluded package::\(.)"' <<< "$list"
 
     # Only reached when phase 0 passed: a declaration with errors gets no plan.
+    #
+    # On a pull request the checkout is the merge commit GitHub builds for it,
+    # which touches no unit. The plan is then built for the squash merge, with
+    # the title and description as its message, as the job Version reads it:
+    # every version in it is the one that merge would get, with -pr.<number>
+    # behind it, so that the version writers and the package test of
+    # check-rust prove what a merge would publish. The text goes in through
+    # the environment, never into the script.
     - name: Hand on the plan
       id: plan
       shell: bash
+      env:
+        NUMBER: ${{ github.event.pull_request.number }}
+        TITLE: ${{ github.event.pull_request.title }}
+        BODY: ${{ github.event.pull_request.body }}
       run: |
         set -euo pipefail
-        plan="$(nebensound -C "$GITHUB_WORKSPACE" plan)"
+        call=(nebensound -C "$GITHUB_WORKSPACE" plan)
+        if [ -n "$NUMBER" ]; then
+          message="$TITLE"
+          if [ -n "$BODY" ]; then
+            message="$(printf '%s\n\n%s' "$TITLE" "$BODY")"
+          fi
+          # One argument with "=", so that a title starting with "-" stays
+          # the message and is not read as an option.
+          call+=(--pull-request "$NUMBER" "--message=$message")
+        fi
+        plan="$("${call[@]}")"
         echo "$plan"
         echo "plan=$plan" >> "$GITHUB_OUTPUT"

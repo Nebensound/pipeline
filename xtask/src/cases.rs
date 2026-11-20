@@ -3,11 +3,14 @@
 //! A block's cases lie beside its `action.yml`: `tests/pass/<case>/` and
 //! `tests/fail/<case>/`. Each case is a small repository of its own, with its
 //! own `.nebensound/repo.toml`. To run one, the xtask copies it into a fresh
-//! Git repository, runs phase 0 on it the way `Declare` does, and runs the
-//! block once for every unit the plan starts the block's check for, the way a
-//! unit job does. A passing case passes when the block succeeds everywhere. A
-//! failing case passes when the block fails and every line of its
-//! [`FINDING`] file matches a line the block printed.
+//! Git repository and runs phase 0 on it the way `Declare` does. A check block
+//! then runs once for every unit the plan starts the block's check for, the
+//! way a unit job does, and gets the plan as well when it takes one. A version
+//! writer's block runs once with the plan, provided a unit of the plan selects
+//! the writer, the way a job writes the versions before it builds. A passing
+//! case passes when the block succeeds everywhere. A failing case passes when
+//! the block fails and every line of its [`FINDING`] file matches a line the
+//! block printed.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -15,6 +18,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use crate::action::Action;
 use crate::runner::{Host, Job, Place};
 use crate::{Error, say};
 
@@ -227,6 +231,39 @@ pub fn units(plan: &str, check: &str) -> Result<Vec<String>, Error> {
         .collect())
 }
 
+/// The paths of the units of a plan of phase 0 that select the version
+/// writer `writer`.
+///
+/// # Errors
+///
+/// When the plan is no plan.
+pub fn writers(plan: &str, writer: &str) -> Result<Vec<String>, Error> {
+    let plan: serde_json::Value = serde_json::from_str(plan)
+        .map_err(|error| Error::new(format!("the plan of phase 0 is no JSON: {error}")))?;
+    let Some(units) = plan["versions"].as_array() else {
+        return Err(Error::new(
+            "the plan of phase 0 names no versions".to_owned(),
+        ));
+    };
+    Ok(units
+        .iter()
+        .filter(|unit| {
+            unit["writers"]
+                .as_array()
+                .is_some_and(|writers| writers.iter().any(|name| name.as_str() == Some(writer)))
+        })
+        .filter_map(|unit| unit["path"].as_str().map(str::to_owned))
+        .collect())
+}
+
+/// What a block is, by the category in front of its name.
+enum Kind<'a> {
+    /// `check-<name>`.
+    Check(&'a str),
+    /// `version-<writer>`.
+    Version(&'a str),
+}
+
 /// Where one case runs.
 #[derive(Clone, Copy, Debug)]
 pub struct Bench<'a> {
@@ -264,9 +301,14 @@ fn attempt(
     case: &Case,
     out: &mut dyn Write,
 ) -> Result<Option<String>, Error> {
-    let Some(check) = block.strip_prefix("check-") else {
+    let kind = if let Some(check) = block.strip_prefix("check-") {
+        Kind::Check(check)
+    } else if let Some(writer) = block.strip_prefix("version-") {
+        Kind::Version(writer)
+    } else {
         return Err(Error::new(format!(
-            "`{block}` is no check, and the xtask runs the cases of checks only"
+            "`{block}` is neither a check nor a version writer, and the xtask runs the cases \
+             of those only"
         )));
     };
     let temp = tempfile::tempdir_in(bench.scratch).map_err(|error| {
@@ -299,12 +341,40 @@ fn attempt(
         ));
     }
     let plan = phase0.outputs.get("plan").cloned().unwrap_or_default();
-    let units = units(&plan, check)?;
-    if units.is_empty() {
-        return Ok(Some(format!(
-            "no unit of the case starts the check `{check}`, so the block never runs"
-        )));
-    }
+    let dir = bench.root.join(ACTIONS).join(block);
+    let calls: Vec<BTreeMap<String, String>> = match kind {
+        Kind::Check(check) => {
+            let units = units(&plan, check)?;
+            if units.is_empty() {
+                return Ok(Some(format!(
+                    "no unit of the case starts the check `{check}`, so the block never runs"
+                )));
+            }
+            let planned = Action::load(&dir)?
+                .inputs
+                .iter()
+                .any(|input| input.name.eq_ignore_ascii_case("plan"));
+            units
+                .into_iter()
+                .map(|unit| {
+                    let mut inputs = BTreeMap::from([("working-directory".to_owned(), unit)]);
+                    if planned {
+                        inputs.insert("plan".to_owned(), plan.clone());
+                    }
+                    inputs
+                })
+                .collect()
+        }
+        Kind::Version(writer) => {
+            if writers(&plan, writer)?.is_empty() {
+                return Ok(Some(format!(
+                    "no unit of the case selects the version writer `{writer}`, so the block \
+                     never runs"
+                )));
+            }
+            vec![BTreeMap::from([("plan".to_owned(), plan)])]
+        }
+    };
 
     let skip: Vec<&str> = SKIPPED
         .iter()
@@ -313,16 +383,8 @@ fn attempt(
         .collect();
     let mut success = true;
     let mut log = Vec::new();
-    for unit in units {
-        let inputs = BTreeMap::from([("working-directory".to_owned(), unit)]);
-        let outcome = bench.host.run(
-            &mut job,
-            &bench.root.join(ACTIONS).join(block),
-            &inputs,
-            place,
-            &skip,
-            out,
-        )?;
+    for inputs in calls {
+        let outcome = bench.host.run(&mut job, &dir, &inputs, place, &skip, out)?;
         success &= outcome.success;
         log.extend(outcome.log);
     }

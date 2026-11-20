@@ -176,7 +176,7 @@ set.
 | Field        | Type                             | Default | Effect                                                                                                                                                                                      |
 | ------------ | -------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `repo`       | `true`                           | absent  | Takes the pipeline `[repo.component]` offers. Only in the form `{ repo = true }`, alone.                                                                                                    |
-| `version`    | array of version writer names    | `[]`    | The version writers that receive the unit's version as a derived copy. Phase 0 demands that the unit, or the children it generates, carries a version. No version is written yet.           |
+| `version`    | array of version writer names    | `[]`    | The version writers that receive the unit's version as a derived copy. Phase 0 demands that the unit, or the children it generates, carries a version. Only `cargo` is written so far.      |
 | `check`      | array of check names             | `[]`    | Checks beyond the base set. Each is in force for every file of the unit and runs in the Check phase.                                                                                        |
 | `build`      | build name                       | none    | The build that produces the unit's artifact. The plan names it for a unit that carries a version of its own and generates no children. The Build phase is not built yet.                    |
 | `publish`    | `false` or array of target names | `false` | Where the artifact goes: `false` for nowhere, said out loud, or a list of targets. `publish = true` is an error, since it names no target. Nothing is published yet.                        |
@@ -409,6 +409,21 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
   commit of the line of `main` where the unit was released in two stages, so
   one on any other commit `HEAD` contains, or on one where the unit was
   released in one stage, is the warning `unexpected-tag` as well.
+
+- **The last release** of a unit is its newest tag that counts, a pre-release
+  included; a unit without one was never released. It is what the version
+  writer `cargo` requires of a path dependency whose unit the commit at hand
+  does not touch, where a package that gets a version needs it, and it stands
+  in the plan as `last`.
+
+- **The pending version** of a unit is the version of the newest commit that
+  waits for it, as that commit resolves when it is the commit at hand: the
+  version of the commit at hand itself when it touches the unit, none when no
+  commit waits. It is what the version writer `cargo` writes for a path
+  dependency whose unit the commit at hand does not touch and that was never
+  released, so that a repository without any tag passes from its first commit
+  on. It stands in the plan as `pending`, with `-pr.<number>` behind it on a
+  pull request.
 
 - **Only the tip of `main` is promoted.** A merge into `release` whose second
   parent is not the commit `origin/main` points at is the error

@@ -1,0 +1,14 @@
+# A workspace whose member app depends by path on lib, a package the workspace
+# excludes, each a unit with the version writer cargo. The package test cannot
+# package lib together with app, so it patches lib in from its folder: the
+# version just written for lib is on no registry.
+[repo]
+pipeline = "rust-workspace"
+
+[component.app]
+path     = "app"
+pipeline = { version = ["cargo"] }
+
+[component.lib]
+path     = "lib"
+pipeline = { version = ["cargo"] }

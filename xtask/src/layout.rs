@@ -6,15 +6,18 @@
 //! `publish-<target>`, the dots of a target turned into hyphens. So the
 //! directory is the assignment, and no table has to be kept beside it.
 //!
-//! Every block belongs to a register entry and is called from a step of
-//! `nebensound.yml` that is named after the entry and switched on it, in
-//! exactly the form the workflow documents for it. A check
-//! the register knows and nobody has written yet has no directory: the step
+//! Every block belongs to a register entry. A check block is called from a
+//! step of `nebensound.yml` that is named after the entry and switched on it,
+//! in exactly the form the workflow documents for it. A check the register
+//! knows and nobody has written yet has no directory: the step
 //! `Not written yet` fails for it by name, so that step's list of written
-//! checks names exactly the checks that have a block. Every block brings its
-//! test cases, at least one passing and one failing. Beside the blocks lie
-//! only the workflow's own machinery ([`MACHINERY`]), which belongs to no
-//! register entry; it is called from `nebensound.yml` all the same.
+//! checks names exactly the checks that have a block. A version writer is held
+//! the same way by the step `Version writers not written yet`; no step calls
+//! its block yet, since the Build phase that runs it before building is still
+//! to come. Every block brings its test cases, at least one passing and one
+//! failing. Beside the blocks lie only the workflow's own machinery
+//! ([`MACHINERY`]), which belongs to no register entry; it is called from
+//! `nebensound.yml` all the same.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -38,15 +41,23 @@ pub const WORKFLOW: &str = ".github/workflows/nebensound.yml";
 /// The step that fails for every check without a block.
 const NOT_WRITTEN: &str = "Not written yet";
 
+/// The step that fails for every version writer without a block.
+const WRITERS_NOT_WRITTEN: &str = "Version writers not written yet";
+
 /// The keys of a step that calls a check block, in the form `nebensound.yml`
 /// documents for it. Any other key changes what the check does in the job:
 /// `continue-on-error` keeps the job green whatever the block finds,
 /// `timeout-minutes` cuts it short, `env` steers its tools.
 const CALL_KEYS: &[&str] = &["if", "name", "uses", "with"];
 
-/// The one input a step hands a check block: the unit's own path, so that
-/// every unit is checked where it lies.
+/// The input a step hands a check block: the unit's own path, so that every
+/// unit is checked where it lies.
 const CALL_WITH: (&str, &str) = ("working-directory", "${{ matrix.path }}");
+
+/// The one input a step may hand a check block beside [`CALL_WITH`]: the plan
+/// of phase 0, for a check that writes the versions it carries before it
+/// tests a package. It says what the commit is, not where or how to check.
+const CALL_PLAN: (&str, &str) = ("plan", "${{ needs.declare.outputs.plan }}");
 
 /// What the comparison found.
 #[derive(Debug)]
@@ -173,12 +184,15 @@ struct Call {
 #[derive(Debug)]
 struct Calls {
     /// The steps that call a block.
-    calls: Vec<Call>,
+    steps: Vec<Call>,
     /// The list of written checks, or why there is none.
     written: Result<Vec<String>, String>,
+    /// The list of written version writers, or why there is none.
+    writers: Result<Vec<String>, String>,
 }
 
-/// The steps that call a block, and the list of written checks.
+/// The steps that call a block, and the lists of written checks and version
+/// writers.
 fn calls(workflow: &str) -> Result<Calls, Error> {
     let documents = YamlLoader::load_from_str(workflow)
         .map_err(|error| Error::new(format!("nebensound.yml is no YAML: {error}")))?;
@@ -190,6 +204,7 @@ fn calls(workflow: &str) -> Result<Calls, Error> {
     };
     let mut found = Vec::new();
     let mut written = Vec::new();
+    let mut writers = Vec::new();
     for job in jobs.values() {
         for step in job["steps"].as_vec().into_iter().flatten() {
             let text = |key: &str| step[key].as_str().unwrap_or_default().to_owned();
@@ -213,31 +228,49 @@ fn calls(workflow: &str) -> Result<Calls, Error> {
                         .collect(),
                 });
             }
-            if text("name") == NOT_WRITTEN {
-                written.push(
-                    step["env"]["WRITTEN"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_owned(),
-                );
+            let list = || {
+                step["env"]["WRITTEN"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned()
+            };
+            match text("name").as_str() {
+                NOT_WRITTEN => written.push(list()),
+                WRITERS_NOT_WRITTEN => writers.push(list()),
+                _ => {}
             }
         }
     }
-    let written = match written.as_slice() {
+    Ok(Calls {
+        steps: found,
+        written: listed(&written, NOT_WRITTEN, "checks"),
+        writers: listed(&writers, WRITERS_NOT_WRITTEN, "version writers"),
+    })
+}
+
+/// The one list of written names the steps named `step` hold, or why there
+/// is none.
+fn listed(lists: &[String], step: &str, what: &str) -> Result<Vec<String>, String> {
+    match lists {
         [list] => serde_json::from_str::<Vec<String>>(list).map_err(|error| {
-            format!(
-                "the list of written checks in `{NOT_WRITTEN}` is no JSON list of names: {error}"
-            )
+            format!("the list of written {what} in `{step}` is no JSON list of names: {error}")
         }),
         _ => Err(format!(
-            "nebensound.yml has {} steps named `{NOT_WRITTEN}`, and needs exactly one",
-            written.len()
+            "nebensound.yml has {} steps named `{step}`, and needs exactly one",
+            lists.len()
         )),
-    };
-    Ok(Calls {
-        calls: found,
-        written,
-    })
+    }
+}
+
+/// The names a list holds, or none, with why it is missing among `problems`.
+fn names_of(list: Result<Vec<String>, String>, problems: &mut Vec<String>) -> BTreeSet<String> {
+    match list {
+        Ok(list) => list.into_iter().collect(),
+        Err(problem) => {
+            problems.push(problem);
+            BTreeSet::new()
+        }
+    }
 }
 
 /// Compares the three.
@@ -247,14 +280,13 @@ fn calls(workflow: &str) -> Result<Calls, Error> {
 /// When the register is no TOML, or `nebensound.yml` no workflow.
 pub fn compare(register: &str, workflow: &str, directories: &[Directory]) -> Result<Layout, Error> {
     let (entries, mut problems) = entries(register)?;
-    let Calls { calls, written } = calls(workflow)?;
-    let written: BTreeSet<String> = match written {
-        Ok(list) => list.into_iter().collect(),
-        Err(problem) => {
-            problems.push(problem);
-            BTreeSet::new()
-        }
-    };
+    let Calls {
+        steps: calls,
+        written,
+        writers,
+    } = calls(workflow)?;
+    let written = names_of(written, &mut problems);
+    let writers = names_of(writers, &mut problems);
     let names: BTreeSet<&str> = directories.iter().map(|dir| dir.name.as_str()).collect();
     let mut blocks = Vec::new();
 
@@ -279,20 +311,33 @@ pub fn compare(register: &str, workflow: &str, directories: &[Directory]) -> Res
             continue;
         };
         blocks.push(name.to_owned());
-        if entry.category != "check" {
-            problems.push(format!(
-                "`{name}` is a block for the {} `{}`, and the xtask knows only how a check is \
-                 called and tested; it has to learn the other kind first",
-                entry.category, entry.name
-            ));
-            continue;
-        }
-        problems.extend(check_calls(name, &entry.name, &called));
-        if !written.contains(&entry.name) {
-            problems.push(format!(
-                "`{name}` exists, but `{NOT_WRITTEN}` still fails for `{}`",
-                entry.name
-            ));
+        match entry.category {
+            "check" => {
+                problems.extend(check_calls(name, &entry.name, &called));
+                if !written.contains(&entry.name) {
+                    problems.push(format!(
+                        "`{name}` exists, but `{NOT_WRITTEN}` still fails for `{}`",
+                        entry.name
+                    ));
+                }
+            }
+            "version" => {
+                if !writers.contains(&entry.name) {
+                    problems.push(format!(
+                        "`{name}` exists, but `{WRITERS_NOT_WRITTEN}` still fails for `{}`",
+                        entry.name
+                    ));
+                }
+            }
+            category => {
+                problems.push(format!(
+                    "`{name}` is a block for the {category} `{}`, and the xtask knows only how \
+                     a check and a version writer are called and tested; it has to learn the \
+                     other kind first",
+                    entry.name
+                ));
+                continue;
+            }
         }
         match &dir.cases {
             Err(error) => problems.push(error.to_string()),
@@ -326,6 +371,13 @@ pub fn compare(register: &str, workflow: &str, directories: &[Directory]) -> Res
             ));
         }
     }
+    for writer in &writers {
+        if !names.contains(format!("version-{writer}").as_str()) {
+            problems.push(format!(
+                "`{WRITERS_NOT_WRITTEN}` counts `{writer}` as written, but it has no block"
+            ));
+        }
+    }
     Ok(Layout { blocks, problems })
 }
 
@@ -355,19 +407,22 @@ fn check_calls(name: &str, check: &str, called: &[&Call]) -> Vec<String> {
     if called.iter().any(|call| {
         let mut keys: Vec<&str> = call.keys.iter().map(String::as_str).collect();
         keys.sort_unstable();
-        keys != CALL_KEYS
-            || call
-                .with
-                .iter()
-                .map(|(key, value)| (key.as_str(), value.as_str()))
-                .ne([CALL_WITH])
+        let mut with: Vec<(&str, &str)> = call
+            .with
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+            .collect();
+        with.sort_unstable();
+        keys != CALL_KEYS || (with != [CALL_WITH] && with != [CALL_PLAN, CALL_WITH])
     }) {
         problems.push(format!(
             "nebensound.yml calls `{name}` from a step with other keys than `{}`, or that \
-             hands it other than `{}: {}`",
+             hands it other than `{}: {}`, and `{}: {}` beside it at most",
             CALL_KEYS.join("`, `"),
             CALL_WITH.0,
-            CALL_WITH.1
+            CALL_WITH.1,
+            CALL_PLAN.0,
+            CALL_PLAN.1
         ));
     }
     problems

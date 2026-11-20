@@ -65,8 +65,13 @@ fn dir(name: &str, action: bool, cases: Result<Vec<Case>, Error>) -> Directory {
 }
 
 fn workflow(written: &str, steps: &str) -> String {
+    workflow_with(written, "[]", steps)
+}
+
+/// The same with a list of written version writers.
+fn workflow_with(written: &str, writers: &str, steps: &str) -> String {
     format!(
-        "jobs:\n  declare:\n    steps:\n      - uses: $/.github/actions/tool\n      - uses: actions/checkout@v7\n      - run: echo\n  units:\n    steps:\n      - name: Not written yet\n        env:\n          WRITTEN: '{written}'\n{}",
+        "jobs:\n  declare:\n    steps:\n      - uses: $/.github/actions/tool\n      - uses: actions/checkout@v7\n      - run: echo\n  units:\n    steps:\n      - name: Not written yet\n        env:\n          WRITTEN: '{written}'\n{}      - name: Version writers not written yet\n        env:\n          WRITTEN: '{writers}'\n",
         support::indent(steps, 6)
     )
 }
@@ -134,6 +139,9 @@ fn a_step_that_silences_its_check_or_moves_it_is_named() {
         "  1: x\n  with:\n    working-directory: ${{ matrix.path }}\n",
         "  with:\n    working-directory: 1\n",
         "  with: x\n",
+        // The plan from anywhere but phase 0, or the plan alone.
+        "  with:\n    working-directory: ${{ matrix.path }}\n    plan: '{}'\n",
+        "  with:\n    plan: ${{ needs.declare.outputs.plan }}\n",
     ] {
         let found = layout::compare(
             REGISTER,
@@ -151,11 +159,72 @@ fn a_step_that_silences_its_check_or_moves_it_is_named() {
         assert_eq!(
             found.problems,
             [
-                "nebensound.yml calls `check-demo` from a step with other keys than `if`, `name`, `uses`, `with`, or that hands it other than `working-directory: ${{ matrix.path }}`"
+                "nebensound.yml calls `check-demo` from a step with other keys than `if`, `name`, `uses`, `with`, or that hands it other than `working-directory: ${{ matrix.path }}`, and `plan: ${{ needs.declare.outputs.plan }}` beside it at most"
             ],
             "{rest}"
         );
     }
+}
+
+#[test]
+fn a_check_may_take_the_plan_of_phase_0_beside_its_path() {
+    let steps = "- name: demo\n  if: ${{ !cancelled() && contains(matrix.checks, 'demo') }}\n  uses: $/.github/actions/check-demo\n  with:\n    plan: ${{ needs.declare.outputs.plan }}\n    working-directory: ${{ matrix.path }}\n- uses: $/.github/actions/phase0\n";
+    let found = layout::compare(
+        REGISTER,
+        &workflow(r#"["demo"]"#, steps),
+        &[
+            dir("check-demo", true, Ok(both())),
+            dir("phase0", true, Ok(Vec::new())),
+            dir("tool", true, Ok(Vec::new())),
+        ],
+    )
+    .unwrap();
+    assert_eq!(found.problems, Vec::<String>::new());
+}
+
+#[test]
+fn a_version_writer_is_held_to_its_list_and_its_cases() {
+    let blocks = |cases: Vec<Case>| {
+        vec![
+            dir("check-demo", true, Ok(both())),
+            dir("phase0", true, Ok(Vec::new())),
+            dir("tool", true, Ok(Vec::new())),
+            dir("version-cargo", true, Ok(cases)),
+        ]
+    };
+    let found = layout::compare(
+        REGISTER,
+        &workflow_with(r#"["demo"]"#, r#"["cargo"]"#, AGREEING_STEPS),
+        &blocks(both()),
+    )
+    .unwrap();
+    assert_eq!(found.problems, Vec::<String>::new());
+    assert_eq!(found.blocks, ["check-demo", "version-cargo"]);
+
+    let found = layout::compare(
+        REGISTER,
+        &workflow_with(r#"["demo"]"#, "[]", AGREEING_STEPS),
+        &blocks(vec![case(Expect::Pass)]),
+    )
+    .unwrap();
+    assert_eq!(
+        found.problems,
+        [
+            "`version-cargo` exists, but `Version writers not written yet` still fails for `cargo`",
+            "`version-cargo` has no failing test case under tests/fail/",
+        ]
+    );
+
+    let found = layout::compare(
+        REGISTER,
+        &workflow_with(r#"["demo"]"#, r#"["cargo", "ghost"]"#, AGREEING_STEPS),
+        &blocks(both()),
+    )
+    .unwrap();
+    assert_eq!(
+        found.problems,
+        ["`Version writers not written yet` counts `ghost` as written, but it has no block"]
+    );
 }
 
 #[test]
@@ -187,13 +256,13 @@ fn every_disagreement_is_named() {
     assert_eq!(
         found.problems,
         [
-            "`build-cargo-package` is a block for the build `cargo-package`, and the xtask knows only how a check is called and tested; it has to learn the other kind first",
+            "`build-cargo-package` is a block for the build `cargo-package`, and the xtask knows only how a check and a version writer are called and tested; it has to learn the other kind first",
             "`check-cases` belongs to no register entry, and it is no machinery of the workflow (phase0, tool)",
             "nebensound.yml calls `check-demo` from a step that is not named `demo` and switched on it with `${{ !cancelled() && contains(matrix.checks, 'demo') }}`",
             "`check-demo` has no failing test case under tests/fail/",
             "`check-other` has no action.yml",
             "nebensound.yml calls `check-other` from a step that is not named `other` and switched on it with `${{ !cancelled() && contains(matrix.checks, 'other') }}`",
-            "nebensound.yml calls `check-other` from a step with other keys than `if`, `name`, `uses`, `with`, or that hands it other than `working-directory: ${{ matrix.path }}`",
+            "nebensound.yml calls `check-other` from a step with other keys than `if`, `name`, `uses`, `with`, or that hands it other than `working-directory: ${{ matrix.path }}`, and `plan: ${{ needs.declare.outputs.plan }}` beside it at most",
             "`check-other` exists, but `Not written yet` still fails for `other`",
             "`check-other` has no passing test case under tests/pass/",
             "`check-preset` belongs to no register entry, and it is no machinery of the workflow (phase0, tool)",
@@ -231,15 +300,31 @@ fn entries_that_share_a_block_name_are_named() {
 }
 
 #[test]
-fn the_list_of_written_checks_has_to_be_there_once_and_readable() {
+fn the_lists_of_written_blocks_have_to_be_there_once_and_readable() {
     let twice = "- name: Not written yet\n  env:\n    WRITTEN: '[]'\n";
+    let writers_twice = "- name: Version writers not written yet\n  env:\n    WRITTEN: '[]'\n";
     for (workflow, message) in [
         (
             "jobs:\n  a:\n    steps: []\n".to_owned(),
             "has 0 steps named `Not written yet`",
         ),
+        (
+            "jobs:\n  a:\n    steps: []\n".to_owned(),
+            "has 0 steps named `Version writers not written yet`",
+        ),
         (workflow("[]", twice), "has 2 steps named `Not written yet`"),
-        (workflow("not json", ""), "is no JSON list of names"),
+        (
+            workflow("[]", writers_twice),
+            "has 2 steps named `Version writers not written yet`",
+        ),
+        (
+            workflow("not json", ""),
+            "the list of written checks in `Not written yet` is no JSON list of names",
+        ),
+        (
+            workflow_with("[]", "not json", ""),
+            "the list of written version writers in `Version writers not written yet` is no JSON list of names",
+        ),
     ] {
         let found = layout::compare(REGISTER, &workflow, &[]).unwrap();
         assert!(

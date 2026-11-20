@@ -25,6 +25,9 @@ jobs:
     timeout-minutes: 15
     outputs:
       units: ${{ steps.units.outputs.units }}
+      # The whole plan, for what needs the versions in a job whose checkout
+      # holds no history: the version writers.
+      plan: ${{ steps.phase0.outputs.plan }}
 
     steps:
       # The whole history, every branch and every tag: phase 0 reads the
@@ -127,6 +130,9 @@ jobs:
   #     with:
   #       working-directory: ${{ matrix.path }}
   #
+  # A check that writes the versions before it tests a package also gets
+  # `plan: ${{ needs.declare.outputs.plan }}`, and nothing else.
+  #
   # Every step runs after a failing one, so that one run shows every finding of
   # the unit. Each building block adds its step below and its name to the list
   # in "Not written yet"; `cargo xtask check` fails until the register, the
@@ -194,6 +200,7 @@ jobs:
         uses: $/.github/actions/check-rust
         with:
           working-directory: ${{ matrix.path }}
+          plan: ${{ needs.declare.outputs.plan }}
 
       - name: toml
         if: ${{ !cancelled() && contains(matrix.checks, 'toml') }}
@@ -279,3 +286,32 @@ jobs:
               exit 1
               ;;
           esac
+
+      # A version writer the register knows and nobody has written yet, as a
+      # check without a building block fails in `Not written yet`: by name, so
+      # that a pull request says what is missing. Here, since a writer belongs
+      # to a unit that carries a version, not to a unit that runs a check.
+      # Each building block `version-<writer>` adds its name to the list.
+      - name: Version writers not written yet
+        if: ${{ !cancelled() }}
+        env:
+          PLAN: ${{ needs.declare.outputs.plan }}
+          WRITTEN: '["cargo"]'
+        run: |
+          set -euo pipefail
+          if [ -z "$PLAN" ]; then
+            echo "There is no plan, so there is no version writer to look at."
+            exit 0
+          fi
+          missing="$(jq --raw-output --argjson written "$WRITTEN" '
+            .versions[] | . as $unit | (.writers - $written)[]
+            | "\(.)\t\(if $unit.kind == "repository" then "the repository"
+                else "component \($unit.name)" end)"' <<< "$PLAN")"
+          if [ -z "$missing" ]; then
+            echo "Every version writer the plan names has a building block."
+            exit 0
+          fi
+          while IFS=$'\t' read -r writer unit; do
+            echo "::error::The version writer '$writer' has no building block yet, so the version of $unit is not written. It is to be written under .github/actions/version-$writer."
+          done <<< "$missing"
+          exit 1

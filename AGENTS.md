@@ -9,9 +9,9 @@ whatever writes it.
 ## Building blocks
 
 - A building block performs **one step** and is named after its register entry
-  with the category in front: `check-<name>`, `build-<name>`,
-  `publish-<target>`. It is never named after a preset: nobody executes a
-  preset.
+  with the category in front: `version-<writer>`, `check-<name>`,
+  `build-<name>`, `publish-<target>`. It is never named after a preset: nobody
+  executes a preset.
 - A check that does not exist yet fails by name instead of being left out. A
   missing check reports nothing and leaves a pull request without a signal.
 - A building block arrives with its test cases: at least one passing and one

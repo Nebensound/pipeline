@@ -55,6 +55,9 @@ jobs:
         uses: $/.github/actions/check-more
         with:
           working-directory: ${{ matrix.path }}
+      - name: Version writers not written yet
+        env:
+          WRITTEN: '[]'
 "#;
 
 const TOOL: &str =

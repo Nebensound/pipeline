@@ -5,8 +5,9 @@ description: >-
   version, full coverage, and every published package built and tested from
   its own contents.
 
-# One input, and it is not a setting: where the workspace is. It comes from the
-# plan of phase 0, never from the calling repository. The toolchain is the one
+# Two inputs, and neither is a setting: where the workspace is, and the plan of
+# phase 0 itself, for the versions the package test writes. Both come from
+# phase 0, never from the calling repository. The toolchain is the one
 # the workspace pins in its rust-toolchain.toml, and the oldest supported
 # version is its `rust-version` — both are read here rather than handed in, so
 # that no repository can tell this check to look away.
@@ -29,6 +30,12 @@ inputs:
   working-directory:
     description: The directory of the Cargo workspace, as the plan names it.
     required: true
+  plan:
+    description: >-
+      The plan of phase 0 (`nebensound plan`), as Declare hands it on. Without
+      it no version is written, and a package without one is not verified.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -401,40 +408,133 @@ runs:
     # Only what is published, and not excluded. A package with publish = false
     # has no package anyone could build from the outside, and
     # `cargo package --workspace` fails on it instead of skipping it.
+    #
+    # The versions first. No manifest carries one, since tags are the truth, and
+    # a package without a version is not published (Cargo's `publish` defaults
+    # to false then), so it would not be verified. The version writer cargo
+    # writes the version each unit carries at this commit, from the plan, the
+    # same call as the block `version-cargo`: on a pull request the one its
+    # merge would get, with -pr.<number> behind it, and for a unit the commit
+    # does not touch its last release, or its pending version when it was never
+    # released, where a package that gets a version depends on it by path. It
+    # starts from the units of this workspace alone, as Cargo finds it, and
+    # follows their path dependencies wherever they lie, so that what another
+    # workspace of the repository needs cannot fail this one, also a workspace
+    # of its own in a folder below this one. A unit that gets nothing has no
+    # version and is not packaged here.
+    # Every Cargo.toml and Cargo.lock it changed is put back when the step
+    # ends, so that a check after it in the same job sees the files as they
+    # are committed.
     - name: Each published package builds and tests from its own contents
       if: steps.packages.outputs.checked != '0'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         PACKAGES: ${{ steps.packages.outputs.json }}
+        PLAN: ${{ inputs.plan }}
+        UNIT: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
+        root="$GITHUB_WORKSPACE"
+        put_back() {
+          git -C "$root" diff --name-only -z -- ':(glob)**/Cargo.toml' ':(glob)**/Cargo.lock' \
+            | xargs -0 -r git -C "$root" checkout --quiet --
+        }
+        trap put_back EXIT
+        if [ -n "$PLAN" ]; then
+          plan="$RUNNER_TEMP/check-rust-plan.json"
+          printf '%s\n' "$PLAN" > "$plan"
+          nebensound -C "$root" write-versions --plan "$plan" --workspace "$UNIT"
+        else
+          echo "No plan was handed in, so no version is written."
+        fi
         published="$(cargo metadata --locked --format-version 1 --no-deps \
           | jq -r --slurpfile packages "$PACKAGES" '
               .packages[] | select(.publish != [] and (.name | IN($packages[0].checked[])))
-              | .name')"
+              | "\(.name) \(.version)"')"
         if [ -z "$published" ]; then
           echo "Nothing is published from here, so there is nothing to verify."
           exit 0
         fi
-        for name in $published; do
-          cargo package --locked -p "$name"
-        done
+        # All in one call. A package that depends on another one published
+        # from here by path names it by version in its package, and that
+        # version is on no registry yet. Packaged one by one, Cargo looks a
+        # sibling up on crates.io and fails. Packaged together, it lays the
+        # packages of the others over crates.io, but it still takes the
+        # highest version that matches from both: a stranger's crate of the
+        # same name wins whenever crates.io has a higher one, or, on a pull
+        # request, the same version without the suffix (0.0.2 matches
+        # ^0.0.2-pr.7 and sorts above it). So each package packaged here is
+        # patched in from its folder as well, which leaves crates.io nothing
+        # to offer for it; its own package is still verified on its own, and
+        # the copies below are tested against it.
+        #
+        # --allow-dirty: the versions just written are changes Git does not
+        # have, and Cargo refuses to package uncommitted changes without it.
+        # Nothing else in the checkout is changed.
+        args=()
+        while read -r name version; do
+          args+=(--package "$name")
+        done <<< "$published"
+        # A local package they depend on that is not packaged with them is
+        # patched in from its folder, for the same reason: a path dependency
+        # that is no member, or a member an [[exclude]] entry takes out. Only
+        # the ones they reach, directly or through each other, since a patch
+        # the workspace does not use changes its lockfile, and --locked
+        # refuses that. The packages packaged here are among them, by the
+        # folder Cargo gives, so their patches keep the lockfile as it is.
+        packaged="$(cut -d ' ' -f 1 <<< "$published" | jq -R . | jq -s .)"
+        reached="$(cargo metadata --locked --format-version 1 --all-features \
+          | jq -r --argjson packaged "$packaged" '
+              [ .packages[] | select(.source == null) ] as $local
+              | [ $local[].id ] as $ids
+              | .resolve.nodes as $nodes
+              | def reach($from):
+                  ( $from + [ $nodes[] | select(.id | IN($from[])) | .dependencies[]
+                      | select(IN($ids[])) ] | unique ) as $next
+                  | if ($next | length) == ($from | length) then $from else reach($next) end;
+                reach([ $local[] | select(.name | IN($packaged[])) | .id ]) as $reached
+              | $local[]
+              | select(.id | IN($reached[]))
+              | "\(.name | IN($packaged[])) \(.name) \(.manifest_path | rtrimstr("/Cargo.toml"))"')"
+        # `own` holds every patch, for packaging; `patches` only those of the
+        # packages not packaged here, for the copies, which get the copies of
+        # their siblings instead.
+        own=()
+        patches=()
+        while read -r inside name dir; do
+          if [ -z "$name" ]; then
+            continue
+          fi
+          own+=(--config "patch.crates-io.$name.path='$dir'")
+          if [ "$inside" = false ]; then
+            echo "Patched in from its folder, not packaged here: $name at $dir"
+            patches+=(--config "patch.crates-io.$name.path='$dir'")
+          fi
+        done <<< "$reached"
+        cargo package --locked --allow-dirty "${args[@]}" "${own[@]}"
+        # Each package is copied out, and each copy is tested with the copies
+        # of its siblings patched in for crates.io, for the same reason, and
+        # with the local packages patched in as above. A patch a copy does not
+        # need only draws a warning.
+        copies=()
+        while read -r name version; do
+          rm -rf "${RUNNER_TEMP:?}/$name-$version"
+          cp -r "target/package/$name-$version" "$RUNNER_TEMP/$name-$version"
+          copies+=("$name $RUNNER_TEMP/$name-$version")
+        done <<< "$published"
         # Outside the workspace its rust-toolchain.toml no longer applies, so
         # the toolchain is named for the copies.
         toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
-        tested=0
-        for dir in target/package/*/; do
-          name="$(basename "$dir")"
-          case "$name" in tmp-crate) continue ;; esac
-          [ -f "$dir/Cargo.toml" ] || continue
-          rm -rf "$RUNNER_TEMP/$name"
-          cp -r "$dir" "$RUNNER_TEMP/$name"
-          ( cd "$RUNNER_TEMP/$name" && cargo "+$toolchain" test --all-features )
-          tested=$((tested + 1))
+        for copy in "${copies[@]}"; do
+          read -r name dir <<< "$copy"
+          siblings=()
+          for sibling in "${copies[@]}"; do
+            read -r other path <<< "$sibling"
+            if [ "$other" != "$name" ]; then
+              siblings+=(--config "patch.crates-io.$other.path='$path'")
+            fi
+          done
+          ( cd "$dir" && cargo "+$toolchain" test --all-features "${siblings[@]}" "${patches[@]}" )
         done
-        if [ "$tested" -eq 0 ]; then
-          echo "No package was produced, so nothing was verified." >&2
-          exit 1
-        fi
-        echo "Verified $tested package(s) outside the source tree."
+        echo "Verified ${#copies[@]} package(s) outside the source tree."
