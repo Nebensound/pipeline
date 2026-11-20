@@ -8,7 +8,9 @@
 
 use nebensound_repo::Declaration;
 use nebensound_repo::model::Publish;
-use nebensound_repo::names::{CheckName, EcosystemName, PresetName, TargetName};
+use nebensound_repo::names::{
+    BuildName, CheckName, EcosystemName, PresetName, TargetName, VersionWriterName,
+};
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::register::{Register, RegisterError};
 use nebensound_repo::{Central, Ruling, Tree};
@@ -473,6 +475,20 @@ dependabot = ["e"]
         .contains("check")
     );
 
+    let message = refuses(&sound.replace(
+        "produces = \"thing\"",
+        "produces = \"thing\"\nrequires-version = [\"missing\"]",
+    ));
+    assert!(message.contains("version writer"), "{message}");
+    assert!(message.contains("\"missing\""), "{message}");
+    assert!(
+        Register::parse(&sound.replace(
+            "produces = \"thing\"",
+            "produces = \"thing\"\nrequires-version = [\"v\"]",
+        ))
+        .is_ok()
+    );
+
     let message = refuses("this is not toml");
     assert!(message.contains("not readable"), "{message}");
     assert!(matches!(
@@ -572,4 +588,44 @@ fn the_package_side_is_rust_library_without_check_and_dependabot() {
     assert_eq!(whole.publish, member.publish);
     assert!(!whole.check.is_empty() && member.check.is_empty());
     assert!(!whole.dependabot.is_empty() && member.dependabot.is_empty());
+}
+
+#[test]
+fn a_build_names_the_version_writers_it_needs() {
+    let register = builtin();
+    let needs = |name: &str| {
+        register
+            .build
+            .get(&BuildName::new(name).expect("a name"))
+            .unwrap_or_else(|| panic!("the {name} build"))
+            .requires_version
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+    };
+
+    // A crate carries the version of its Cargo.toml, which only the writer
+    // `cargo` sets to the unit's.
+    assert_eq!(needs("cargo-package"), ["cargo"]);
+    assert!(needs("docker").is_empty());
+}
+
+#[test]
+fn every_preset_selects_the_version_writers_its_build_needs() {
+    let register = builtin();
+    let mut checked = 0;
+    for (name, preset) in &register.preset {
+        let Some(build) = &preset.build else {
+            continue;
+        };
+        let needs: &[VersionWriterName] = &register.build[build].requires_version;
+        for writer in needs {
+            assert!(
+                preset.version.contains(writer),
+                "the {name} preset builds {build}, which needs the version writer {writer}"
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 0, "some preset builds what needs a writer");
 }

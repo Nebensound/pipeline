@@ -12,7 +12,7 @@ use crate::finding::{Finding, Rule, UnitName};
 use crate::history::{History, UnitVersion};
 use crate::model::Declaration;
 use crate::names::CheckName;
-use crate::resolve::{Resolution, Unit};
+use crate::resolve::{Origin, Resolution, Unit};
 use crate::tree::Tree;
 
 /// Checks a resolution against the tree it was resolved for.
@@ -46,6 +46,7 @@ fn findings_for(
     manifests_are_watched(resolution, central, tree, &mut findings);
     publication_is_reachable(resolution, central, &mut findings);
     version_writers_have_a_version(resolution, &mut findings);
+    builds_have_their_version_writers(resolution, central, &mut findings);
     findings
 }
 
@@ -295,6 +296,58 @@ fn version_writers_have_a_version(resolution: &Resolution, findings: &mut Vec<Fi
                 format!(
                     "this unit selects the version writer {writers} and carries no version of \
                      its own; there is nothing to copy"
+                ),
+            )
+            .about(unit.name.clone()),
+        );
+    }
+}
+
+/// A build whose artifact carries a version needs the writer that puts the
+/// unit's version there; without it the artifact carries whatever version its
+/// sources hold. The register names, per build, the writers it needs.
+///
+/// A generated unit inherits its pipeline from the unit that generated it, so
+/// the mistake is that unit's and is reported once, there. A unit that carries
+/// no version and generates no children is never built (see the plan), so no
+/// artifact of it can carry a wrong version.
+fn builds_have_their_version_writers(
+    resolution: &Resolution,
+    central: &Central,
+    findings: &mut Vec<Finding>,
+) {
+    for unit in &resolution.units {
+        if matches!(unit.origin, Origin::Generated { .. })
+            || (!unit.carries_version && !unit.versioning.generates_children())
+        {
+            continue;
+        }
+        // An unknown build is reported when the pipeline is resolved.
+        let Some((build, definition)) = unit
+            .pipeline
+            .build
+            .as_ref()
+            .and_then(|build| central.register().build.get_key_value(build))
+        else {
+            continue;
+        };
+        let missing = definition
+            .requires_version
+            .iter()
+            .filter(|writer| !unit.pipeline.version.contains(writer))
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        if missing.is_empty() {
+            continue;
+        }
+        let missing = missing.join(", ");
+        findings.push(
+            Finding::error(
+                Rule::BuildWithoutVersionWriter,
+                format!(
+                    "this unit builds {build}, which needs the version writer {missing}, and does \
+                     not select it; what it builds would carry the version its sources hold, not \
+                     the one the run gives it"
                 ),
             )
             .about(unit.name.clone()),
