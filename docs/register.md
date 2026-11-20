@@ -125,17 +125,19 @@ installed only when the runtime is missing and someone agrees.
 ## Builds
 
 A build produces one kind of artifact. The kind decides which targets can take
-it.
+it. A build that needs version writers takes the version of what it produces
+from what they write: a unit that declares it selects them, or phase 0 fails
+(see [`build-without-version-writer`](declaration.md#build-without-version-writer)).
 
-| Build           | Produces     |
-| --------------- | ------------ |
-| `asciidoctor`   | `site`       |
-| `cargo-package` | `crate`      |
-| `cargo-release` | `executable` |
-| `docker`        | `container`  |
-| `esphome`       | `firmware`   |
-| `platformio`    | `firmware`   |
-| `typst`         | `document`   |
+| Build           | Produces     | Needs version writers |
+| --------------- | ------------ | --------------------- |
+| `asciidoctor`   | `site`       | none                  |
+| `cargo-package` | `crate`      | `cargo`               |
+| `cargo-release` | `executable` | none                  |
+| `docker`        | `container`  | none                  |
+| `esphome`       | `firmware`   | none                  |
+| `platformio`    | `firmware`   | none                  |
+| `typst`         | `document`   | none                  |
 
 ## Publish targets
 

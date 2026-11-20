@@ -195,13 +195,21 @@ fn builds(register: &Register) -> String {
     let rows: Vec<Vec<String>> = register
         .build
         .iter()
-        .map(|(name, build)| vec![code(name), code(&build.produces)])
+        .map(|(name, build)| {
+            vec![
+                code(name),
+                code(&build.produces),
+                codes(&build.requires_version),
+            ]
+        })
         .collect();
     section(
         "Builds",
         "A build produces one kind of artifact. The kind decides which targets can take\n\
-         it.",
-        &["Build", "Produces"],
+         it. A build that needs version writers takes the version of what it produces\n\
+         from what they write: a unit that declares it selects them, or phase 0 fails\n\
+         (see [`build-without-version-writer`](declaration.md#build-without-version-writer)).",
+        &["Build", "Produces", "Needs version writers"],
         &rows,
     )
 }

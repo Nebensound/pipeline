@@ -77,12 +77,17 @@ pub struct Check {
     pub programs: Vec<ProgramName>,
 }
 
-/// What a build produces.
+/// What a build produces, and what it needs to produce it.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Build {
     /// The kind of artifact it leaves behind.
     pub produces: ArtifactKind,
+    /// The version writers a unit that declares it must select: the artifact
+    /// carries the version they write, and without them whatever version its
+    /// sources hold.
+    #[serde(default)]
+    pub requires_version: Vec<VersionWriterName>,
 }
 
 /// What a target takes.
@@ -280,6 +285,13 @@ impl Register {
                 });
             }
             minimum(name, runtime, program.runtime_minimum.as_deref())?;
+        }
+        for (name, build) in &self.build {
+            for writer in &build.requires_version {
+                if !self.version.contains_key(writer) {
+                    return Err(dangling(name, "version writer", writer));
+                }
+            }
         }
         for (name, target) in &self.target {
             if let Some(check) = &target.requires_check

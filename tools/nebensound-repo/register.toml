@@ -90,8 +90,13 @@ extensions = [".typ"]
 extensions = [".dockerfile"]
 filenames  = ["Dockerfile", "Containerfile"]
 
+# A build names the version writers it needs: what it produces carries the
+# version they write, and without them it would carry whatever version the
+# sources hold. A crate takes its version from Cargo.toml, so `cargo-package`
+# needs the writer `cargo`.
 [build.cargo-package]
-produces = "crate"
+produces         = "crate"
+requires-version = ["cargo"]
 
 [build.cargo-release]
 produces = "executable"

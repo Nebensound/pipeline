@@ -173,14 +173,14 @@ Left out, a unit runs nothing beyond the base set: no version writer, no check
 of its own, no build, nothing published, no ecosystem watched beyond the base
 set.
 
-| Field        | Type                             | Default | Effect                                                                                                                                                                                                                                                         |
-| ------------ | -------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `repo`       | `true`                           | absent  | Takes the pipeline `[repo.component]` offers. Only in the form `{ repo = true }`, alone.                                                                                                                                                                       |
-| `version`    | array of version writer names    | `[]`    | The version writers that receive the unit's version as a derived copy. Phase 0 demands that the unit, or the children it generates, carries a version. Only `cargo` is written so far.                                                                         |
-| `check`      | array of check names             | `[]`    | Checks beyond the base set. Each is in force for every file of the unit and runs in the Check phase.                                                                                                                                                           |
-| `build`      | build name                       | none    | The build that produces the unit's artifact. The plan names it for a unit that carries a version of its own and generates no children, and that unit gets a job in the Build phase of every run that gives it a version, the runs of a commit that touches it. |
-| `publish`    | `false` or array of target names | `false` | Where the artifact goes: `false` for nowhere, said out loud, or a list of targets. `publish = true` is an error, since it names no target. Nothing is published yet.                                                                                           |
-| `dependabot` | array of ecosystem names         | `[]`    | The ecosystems Dependabot is to watch for this unit, beyond the base set. Phase 0 compares them with the manifests the unit holds. Nothing writes a Dependabot configuration from them yet.                                                                    |
+| Field        | Type                             | Default | Effect                                                                                                                                                                                                                                                                                                                                      |
+| ------------ | -------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repo`       | `true`                           | absent  | Takes the pipeline `[repo.component]` offers. Only in the form `{ repo = true }`, alone.                                                                                                                                                                                                                                                    |
+| `version`    | array of version writer names    | `[]`    | The version writers that receive the unit's version as a derived copy. Phase 0 demands that the unit, or the children it generates, carries a version. Only `cargo` is written so far.                                                                                                                                                      |
+| `check`      | array of check names             | `[]`    | Checks beyond the base set. Each is in force for every file of the unit and runs in the Check phase.                                                                                                                                                                                                                                        |
+| `build`      | build name                       | none    | The build that produces the unit's artifact. The plan names it for a unit that carries a version of its own and generates no children, and that unit gets a job in the Build phase of every run that gives it a version, the runs of a commit that touches it. Phase 0 demands that `version` selects every version writer the build needs. |
+| `publish`    | `false` or array of target names | `false` | Where the artifact goes: `false` for nowhere, said out loud, or a list of targets. `publish = true` is an error, since it names no target. Nothing is published yet.                                                                                                                                                                        |
+| `dependabot` | array of ecosystem names         | `[]`    | The ecosystems Dependabot is to watch for this unit, beyond the base set. Phase 0 compares them with the manifests the unit holds. Nothing writes a Dependabot configuration from them yet.                                                                                                                                                 |
 
 ### `[[include]]`
 
@@ -649,6 +649,18 @@ Error. A unit selects a version writer, carries no version of its own and
 generates no children that carry one, so there is nothing to copy. Give it a
 `versioning` value that includes `self`, or let it generate children, or remove
 the version writer.
+
+### `build-without-version-writer`
+
+Error. A unit declares a build, and does not select a version writer that build
+needs. What the build produces carries the version that writer puts in place
+(`cargo-package` packages the version in the unit's `Cargo.toml`, which the
+writer `cargo` sets), so without it the artifact would carry whatever version
+the sources hold instead of the one the run gives the unit. The register names
+the writers each build needs (see [Builds](register.md#builds)). Add the writer
+to the unit's `version` list, or choose a preset that selects it. A unit that
+generates children is reported once, for its own declaration, which the
+children inherit.
 
 ### `unwatched-manifest`
 
