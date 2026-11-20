@@ -84,9 +84,10 @@ a pull request from any branch, not only from `main`, and the three checks are
 reported by the workflow of the pull request itself, which the pull request can
 change (see [Where the checks come from](#where-the-checks-come-from)). **A
 person allowed to merge into `release` must still look at the head of the pull
-request**: it has to be `main` at its tip, and the pull request must not change
-a workflow. The pipeline refuses to release a merge whose second parent is not
-the tip of `main`.
+request**: it has to be `main` at its tip, so that every workflow it runs,
+changed or not, has passed the review of its pull request into `main`. The
+pipeline refuses to release a merge whose second parent is not the tip of
+`main`.
 
 ### `release-updaters`
 
