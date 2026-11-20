@@ -65,7 +65,7 @@ pub use central::{Central, Ruling};
 pub use edit::DeclarationFile;
 pub use finding::{Finding, Rule, Severity, UnitName};
 pub use history::{History, UnitVersion, Versions};
-pub use model::{Declaration, Pipeline, Publish, Release, Versioning};
+pub use model::{Declaration, Edition, Pipeline, Publish, Release, Versioning};
 pub use register::Register;
 pub use resolve::{Resolution, Unit, resolve};
 pub use tree::Tree;
@@ -140,10 +140,9 @@ pub enum Command {
     /// its reason, as JSON: what `check-rust` leaves out of every step.
     ExcludedPackages,
     /// Write the version of every unit with the version writer `cargo` that
-    /// the commit touches, and a version for each unit they depend on by path
-    /// (its last release, or its pending version when it was never released),
-    /// into its Cargo.toml, its dependents and Cargo.lock, in the working
-    /// tree. Never committed: it is done in the checkout of a run,
+    /// the commit touches, and the current version of each unit they depend
+    /// on by path, into its Cargo.toml, its dependents and Cargo.lock, in the
+    /// working tree. Never committed: it is done in the checkout of a run,
     /// before building.
     WriteVersions {
         /// Take the versions from a plan `nebensound-repo plan` printed, for a
@@ -156,9 +155,9 @@ pub enum Command {
         #[arg(long, value_name = "PATH")]
         workspace: Option<String>,
     },
-    /// Print the version of every unit that carries one: its last release, how
-    /// it is released, the version of the commit at hand and how many commits
-    /// wait for the next release.
+    /// Print the version of every unit that carries one: how it is released,
+    /// its current version, the version of the commit at hand and, in two
+    /// stages, how many commits wait for the next promotion.
     Version {
         /// Print the table as Markdown, for the summary of a run.
         #[arg(long)]
@@ -698,16 +697,73 @@ pub enum ReadError {
         /// The path of the rejected entry.
         path: String,
     },
+    /// The declaration is written for an edition this tool does not know.
+    #[error(
+        "it is written for edition {edition}, and this tool knows edition {EDITION} only: a \
+         newer pipeline is needed to read it"
+    )]
+    UnknownEdition {
+        /// The edition it names.
+        edition: i64,
+    },
+    /// `edition` is a whole number below 1.
+    #[error("edition {edition} does not exist: an edition is a whole number from 1")]
+    InvalidEdition {
+        /// The number it names.
+        edition: i64,
+    },
+}
+
+/// The edition this tool reads: the only one there is. A declaration that
+/// leaves `edition` out is read in it.
+pub const EDITION: u64 = 1;
+
+/// The top level of a declaration as far as its edition goes, read before
+/// anything else of the file: a newer edition may hold what this reader does
+/// not know.
+#[derive(serde::Deserialize)]
+struct EditionOnly {
+    #[serde(default)]
+    edition: Option<toml::Value>,
 }
 
 impl Declaration {
+    /// The edition a declaration is written for, read before anything else
+    /// of it: [`EDITION`] when it names none.
+    ///
+    /// A whole number above the editions this tool knows is
+    /// [`ReadError::UnknownEdition`], whatever else the file holds, so that a
+    /// file written for a newer pipeline says so instead of failing on a
+    /// field this reader does not know. A value that is no whole number is
+    /// left to [`Declaration::parse`], which refuses it as a value of the
+    /// wrong type.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::Unreadable`] when the TOML does not read,
+    /// [`ReadError::UnknownEdition`] for an edition this tool does not know,
+    /// and [`ReadError::InvalidEdition`] for a whole number below 1.
+    pub fn read_edition(source: &str) -> Result<u64, ReadError> {
+        let top: EditionOnly = toml::from_str(source)?;
+        match top.edition {
+            Some(toml::Value::Integer(edition)) if edition < 1 => {
+                Err(ReadError::InvalidEdition { edition })
+            }
+            Some(toml::Value::Integer(edition)) if edition.cast_unsigned() != EDITION => {
+                Err(ReadError::UnknownEdition { edition })
+            }
+            _ => Ok(EDITION),
+        }
+    }
+
     /// Reads the declaration of a repository.
     ///
     /// # Errors
     ///
-    /// Returns [`ReadError`] when the TOML does not read, carries a field the
-    /// shape does not have, writes an exclusion as a pattern, or makes one
-    /// depend on the file being empty.
+    /// Returns [`ReadError`] when the TOML does not read, names an edition
+    /// this tool does not know, carries a field the shape does not have,
+    /// writes an exclusion as a pattern, or makes one depend on the file
+    /// being empty.
     pub fn parse(source: &str) -> Result<Self, ReadError> {
         let declaration = Self::parse_central(source)?;
         for entry in &declaration.exclude {
@@ -732,9 +788,10 @@ impl Declaration {
     ///
     /// # Errors
     ///
-    /// Returns [`ReadError`] when the TOML does not read or does not match the
-    /// shape.
+    /// Returns [`ReadError`] when the TOML does not read, names an edition
+    /// this tool does not know, or does not match the shape.
     pub fn parse_central(source: &str) -> Result<Self, ReadError> {
+        Self::read_edition(source)?;
         let declaration: Self = toml::from_str(source)?;
         // As a table, uniqueness came for free: TOML forbids the same key
         // twice. A list does not, so the rule stands here now.

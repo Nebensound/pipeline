@@ -48,7 +48,7 @@ nebensound-repo [-C <directory>] [check | tree | explain <path> | plan [--pull-r
 | `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                                                                             |
 | `explain <path>`    | What holds for one path and why: which units contain it, how each of them is released, which checks are in force, how its coverage stands.                                                                                                                                                                                                       |
 | `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read. With `--pull-request <number> --message <message>`, for a pull request, as `version` reads it. See [The plan](#the-plan).                                                                                            |
-| `version`           | The version of every unit that carries one, as a table: last release, release mode, the version of the commit at hand and the commits waiting for the next release. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                                                    |
+| `version`           | The version of every unit that carries one, as a table: release mode, current version, the version of the commit at hand and, in two stages, the commits waiting for the next promotion. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                               |
 | `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                                                                         |
 | `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                                                                       |
 | `write-versions`    | Writes the version of every unit with the version writer `cargo` into its `Cargo.toml`, the path dependencies on it and `Cargo.lock`, in the working tree; never committed. With `--plan <file>`, takes the versions from a printed plan instead of the history; with `--workspace <path>`, starts from the units of the workspace at that path. |
@@ -94,27 +94,23 @@ a run has to start, and where.
   ],
   "versions": [
     {
-      "base": "0.3.1",
+      "current": "0.3.2",
       "kind": "repository",
-      "last": "0.3.1",
       "name": null,
       "path": ".",
-      "pending": "0.3.2",
       "prefix": "v",
       "release": "single-stage",
       "version": "0.3.2",
       "writers": []
     },
     {
-      "base": "1.4.0",
+      "current": "1.5.0-pre.2",
       "kind": "component",
-      "last": "1.5.0-pre.2",
       "name": "tool",
       "path": "tool",
-      "pending": "1.5.0-pre.3",
       "prefix": "tool-v",
       "release": "two-stage",
-      "version": "1.5.0-pre.3",
+      "version": null,
       "writers": ["cargo"]
     }
   ]
@@ -126,30 +122,28 @@ read, and `checks` shortened. It is written by `serde_json`, so a path holding
 quotes or control characters cannot break the JSON. `units` is
 every unit phase 0 resolved, repository first. `checks` is the same thing flat —
 one entry per check that is started — because a matrix takes a list and cannot
-unfold a list inside one. The repository has no name; its tags carry only the
-prefix `v`.
+unfold a list inside one. The repository has no name; its records carry only
+the prefix `v`.
 
 `versions` is one entry per unit that carries a version, in the order of
-`units`: `prefix` is what its tags start with, `release` how it is released,
-`base` its last full release (`0.0.0` without one), `last` the last version
-released for it, its newest tag that counts, a pre-release included (`null`
-without one), `version` the version of the commit at hand, `null` when the
-commit does not touch the unit, `pending` the version of the newest commit
-that waits for the unit, as that commit resolves when it is the commit at
-hand (`version` where there is one, `null` when no commit waits), and
-`writers` the version writers the unit selects. `last` is what the version
-writer `cargo` requires of a path dependency whose unit the commit does not
-touch, where a package that gets a version needs it; `pending` is what it
-writes instead for such a unit that was never released. How they are resolved
-from tags and history is described in
+`units`: `prefix` is what the names of its records, its tags and releases,
+start with, `release` how it is released, `current` its current version, the
+highest one the history gives a commit of the line up to the commit at hand, a
+pre-release included (`null` before the first commit that touches the unit),
+`version` the version of the commit at hand, `null` when the commit does not
+touch the unit, and `writers` the version writers the unit selects. `current`
+is what the version writer `cargo` requires of a path dependency whose unit
+the commit does not touch, where a package that gets a version needs it. How
+they are resolved from the history is described in
 [the reference of the declaration](../../docs/declaration.md#versions).
 
 `--pull-request <number> --message <message>` builds the plan for a pull
 request, reading `HEAD` the way [`version`](#the-versions) does: every `version`
 is then the one the squash merge would get, with `-pr.<number>` behind it, such
-as `1.5.0-pre.3-pr.17`, and every `pending` carries the same suffix. `base` and
-`last` stay versions that were released. Declare builds the plan this way on a
-pull request, so that the version writers write what a merge would publish.
+as `1.5.0-pre.3-pr.17`, and so is the `current` of a unit the pull request
+touches, which is that version. The `current` of a unit it does not touch
+carries no suffix. Declare builds the plan this way on a pull request, so that
+the version writers write what a merge would publish.
 
 A check runs **once, at the outermost unit it is in force for**. The base set is
 in force everywhere, so it runs at the repository; a check a unit declares
@@ -174,18 +168,22 @@ read off a broken declaration would start the wrong things.
 ```text
 Versions
 
-  Unit            Path  Release       Last release  This commit  Waiting
-  the repository  .     single-stage  0.3.1         0.3.2        1
-  component tool  tool  two-stage     1.4.0         1.5.0-pre.3  3
+  Unit            Path  Release       Current      This commit  Waiting
+  the repository  .     single-stage  0.3.2        0.3.2
+  component tool  tool  two-stage     1.5.0-pre.2  none         2
 ```
 
-`Last release` is the unit's highest full release, `none` without one;
-`This commit` the version of the commit at hand, `none` when the commit does not
-touch the unit; `Waiting` the commits since the last release that touch the
-unit, the commit at hand included, which is what its next full release takes in.
-`--markdown` prints the same rows as a Markdown table with a short legend, which
-the job `Version` writes into the summary of the run. The repository always
-carries a version, so the table is never empty.
+`Current` is the highest version the history gives a commit of the line up to
+the commit at hand, a pre-release included, after a promotion the full version,
+`none` before the first commit that touches the unit; `This commit` the version
+of the commit at hand, `none` when the commit does not touch the unit;
+`Waiting`, for a unit released in two stages, the commits since its last
+promotion that touch it, the commit at hand included, which is what its next
+full release takes in. In one stage every commit that touches the unit is a
+release of its own, and the cell stays empty. `--markdown` prints the same rows
+as a Markdown table with a short legend, which the job `Version` writes into
+the summary of the run. The repository always carries a version, so the table
+is never empty.
 
 `--pull-request <number> --message <message>` reads `HEAD` as the merge commit
 GitHub builds for a pull request, which touches no unit itself. It stands for
@@ -193,7 +191,8 @@ the commit the squash merge would put on the base branch instead: one parent,
 the first parent of `HEAD`, the changes of `HEAD` against it, and the message
 given, which the job takes from the title and the description of the pull
 request. Every version is then the one that merge would get, with
-`-pr.<number>` behind it; the column is called `This pull request`. A merge into
+`-pr.<number>` behind it, and so is the current version of a unit the pull
+request touches; the column is called `This pull request`. A merge into
 `release` is read as it is, since such a pull request is merged with a merge
 commit. Both options go together.
 
@@ -209,9 +208,8 @@ committed. Every unit of the plan with the writer `cargo` that the commit at
 hand touches gets the version of the commit, `-pr.<number>` behind it in a plan
 built for a pull request. A unit the commit does not touch gets a version only
 where a package that gets one depends on it by path, followed through the path
-dependencies of each unit that gets one: `last`, the last version released for
-it, or `pending`, the version the commits waiting for it come to, when it was
-never released. A repository without any tag therefore gets its versions written
+dependencies of each unit that gets one: `current`, its current version. No
+tag is read for it, so a repository without any tag gets its versions written
 from its first commit on. With that version it sets `package.version` in the
 unit's `Cargo.toml`, gives every path dependency on that package anywhere in the
 repository that version as its requirement, and sets the package's entry in the
@@ -225,9 +223,7 @@ folder with a workspace of its own. Nothing else changes, and
 Any other unit with the writer gets nothing: its `Cargo.toml` stays as it is,
 apart from the entries of the `[workspace.dependencies]` it holds as the root
 of a workspace that a member that gets a version inherits, and without a
-version the package test of `check-rust` does not package it. A unit with
-commits after its newest tag still gets that tag's version where it gets one
-without being touched; the gap closes once a step sets tags at the release.
+version the package test of `check-rust` does not package it.
 
 The path dependencies followed are those in `[dependencies]`,
 `[dev-dependencies]` and `[build-dependencies]`, also per platform or through
@@ -237,15 +233,14 @@ tests that use it would not compile. A path dependency on a package that
 carries no version at all, a unit with `versioning = "none"` or one that does
 not select the writer `cargo`, is left to Cargo: the call raises nothing of its
 own, and the package test fails with Cargo's message. So is one on a unit that
-was never released and that no commit waits for, which has no version to be
-written.
+no commit has touched yet, which has no current version to be written.
 
 With `--workspace <path>`, only a touched unit that belongs to the workspace
 Cargo finds at that path gets the version of the commit on its own account. A
 workspace of its own in a folder below, one the workspace excludes or never
 names, does not belong to it. Their path dependencies are followed wherever they
-lie: a unit they reach gets the version of the commit when the commit touches
-it, else its last release, else its pending version. The package test of
+lie: a unit they reach gets its current version, which is the version of the
+commit when the commit touches it. The package test of
 `check-rust` starts from its workspace this way, so that what another workspace
 of the repository needs cannot fail it. A path that is not one inside the
 repository ends the call with exit code `2`.
@@ -264,13 +259,12 @@ second call changes nothing.
 
 ```text
 component app: the package app at crates/app gets 1.4.1 (workspace root: .).
-component lib is not touched by this commit: the package lib at crates/lib gets its last release 1.2.0 (workspace root: .).
-component log is not touched by this commit and was never released: the package log at crates/log gets 0.0.3, the version the commits waiting for it come to (workspace root: .).
+component lib is not touched by this commit: the package lib at crates/lib gets its current version 1.2.0 (workspace root: .).
+component log is not touched by this commit and no commit has touched it yet, so it has no version to be written.
 component cli is not touched by this commit, and no package that gets a version depends on it by path, so nothing is written for it.
 Wrote Cargo.lock.
 Wrote crates/app/Cargo.toml.
 Wrote crates/lib/Cargo.toml.
-Wrote crates/log/Cargo.toml.
 ```
 
 Without `--plan` the versions are resolved from the history, as `plan` resolves
@@ -491,10 +485,13 @@ judge things the repository does not have.
 
 The versions come from Git as well: the line of `main` (the first-parent line
 of `HEAD`, or at a merge into `release` that of the commit of `main` it
-merges), the declaration and the files each commit of that line held, the tags
-and the branches `origin/release` and `origin/main`. Where a unit lived and how
+merges), the declaration and the files each commit of that line held, and the
+branches `origin/release` and `origin/main`. The tags are read only to be held
+against that history: no version comes from them. Where a unit lived and how
 it was released is read at each commit from its own declaration, so a unit
-that moves or switches between one stage and two keeps its earlier releases.
+that moves or switches between one stage and two keeps its earlier releases,
+and a declaration written for an edition this tool does not know stops the
+call, wherever it stands on the line.
 At a merge into `release`, `origin/main` also tells whether it brings in the tip
 of `main`: only the tip is promoted, and any other merge is the error
 `stale-promotion`. A repository without a commit has no version yet; a shallow clone is an error,

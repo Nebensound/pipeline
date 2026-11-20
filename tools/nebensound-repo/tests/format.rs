@@ -6,13 +6,13 @@
 // here the reason travels with the call and the failure is the point.
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
-use nebensound_repo::Declaration;
 use nebensound_repo::model::{ExplicitPipeline, Pipeline, Publish, Versioning};
 use nebensound_repo::names::{
     ArtifactKind, BuildName, CheckName, ComponentName, Extension, NameError, PresetName, Reason,
     ReasonError, TargetName, VersionWriterName,
 };
 use nebensound_repo::path::{PathError, RelativePath};
+use nebensound_repo::{Declaration, EDITION, Edition};
 
 fn parse(source: &str) -> Declaration {
     match Declaration::parse(source) {
@@ -377,4 +377,64 @@ fn the_same_pattern_must_not_stand_twice() {
     )
     .expect_err("centrally too, one of the two is then untrue");
     assert!(central.to_string().contains("twice"), "{central}");
+}
+
+#[test]
+fn edition_1_reads_like_a_declaration_without_one() {
+    let without = parse("[repo]\npipeline = \"none\"\n");
+    let with = parse("edition = 1\n\n[repo]\npipeline = \"none\"\n");
+    assert_eq!(without.edition, None);
+    assert_eq!(with.edition, Some(Edition(1)));
+    assert_eq!(
+        Declaration {
+            edition: None,
+            ..with
+        },
+        without
+    );
+    for source in ["[repo]\n", "edition = 1\n[repo]\n"] {
+        assert_eq!(Declaration::read_edition(source).ok(), Some(EDITION));
+    }
+}
+
+#[test]
+fn an_edition_this_tool_does_not_know_asks_for_a_newer_pipeline() {
+    // Read before anything else of the file: a field the newer edition
+    // brings does not hide that a newer pipeline is needed.
+    for source in [
+        "edition = 2\n\n[repo]\npipeline = \"none\"\n",
+        "edition = 2\nsomething-new = true\n\n[repo]\nsomewhere = \"else\"\n",
+    ] {
+        let message = refuses(source);
+        assert_eq!(
+            message,
+            "it is written for edition 2, and this tool knows edition 1 only: a newer \
+             pipeline is needed to read it",
+            "{source:?}"
+        );
+    }
+}
+
+#[test]
+fn an_edition_is_a_whole_number_from_1() {
+    for (source, expected) in [
+        (
+            "edition = 0\n[repo]\n",
+            "edition 0 does not exist: an edition is a whole number from 1",
+        ),
+        (
+            "edition = -3\n[repo]\n",
+            "edition -3 does not exist: an edition is a whole number from 1",
+        ),
+    ] {
+        assert_eq!(refuses(source), expected, "{source:?}");
+    }
+    // Anything but a whole number is a value of the wrong type.
+    for source in ["edition = \"1\"\n[repo]\n", "edition = 1.0\n[repo]\n"] {
+        let message = refuses(source);
+        assert!(message.contains("edition"), "{source:?}: {message}");
+        assert!(message.contains("u64"), "{source:?}: {message}");
+    }
+    // A file that does not read as TOML says so, before any edition.
+    assert!(Declaration::read_edition("edition = \n").is_err());
 }

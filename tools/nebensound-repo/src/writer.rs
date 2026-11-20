@@ -2,22 +2,20 @@
 //!
 //! Cargo cannot take a version from outside: the version of a package stands in
 //! its `Cargo.toml` and nowhere else. No manifest in the tree carries one,
-//! because tags are the truth. So the version a unit carries at the commit at
-//! hand is written into the checkout of the run, immediately before building,
-//! and never committed.
+//! because the history is the truth. So the version a unit carries at the
+//! commit at hand is written into the checkout of the run, immediately before
+//! building, and never committed.
 //!
 //! Every unit of the plan with the writer `cargo` that the commit at hand
 //! touches gets the version of the commit, `-pr.<number>` behind it on a pull
 //! request. A unit the commit does not touch gets a version only where a
 //! package that gets one depends on it by path, for its tests as well,
-//! followed through further path dependencies: the last version released for
-//! it, so that the requirement names a version that exists, or, for a unit
-//! that was never released, its pending version, the one the commits waiting
-//! for it come to, `-pr.<number>` behind it on a pull request. A repository
-//! without any tag therefore gets its versions written from its first commit
-//! on. Any other unit gets nothing: its manifest stays as it is, and the
-//! package test does not package it. A path dependency on a package that
-//! carries no version at all, no unit with the writer `cargo`, is left to
+//! followed through further path dependencies: its current version, the
+//! highest one the history gives a commit up to the commit at hand. A
+//! repository without any tag therefore gets its versions written from its
+//! first commit on. Any other unit gets nothing: its manifest stays as it is,
+//! and the package test does not package it. A path dependency on a package
+//! that carries no version at all, no unit with the writer `cargo`, is left to
 //! Cargo, which refuses to package the dependent. With the version:
 //!
 //! - `package.version` in the unit's `Cargo.toml` becomes that version;
@@ -41,8 +39,8 @@
 //! it, gets the version of the commit on its own account; a workspace of its
 //! own in a folder below, which the workspace excludes or never names, does
 //! not belong to it. Any other unit gets a version only where one that gets a
-//! version depends on it by path: the version of the commit when the commit
-//! touches it, else its last release, else its pending version.
+//! version depends on it by path: its current version, which is the version
+//! of the commit when the commit touches it.
 //!
 //! The workspace is found the way Cargo finds it: the package's own folder
 //! when its manifest has a `[workspace]`, else the folder it names in
@@ -104,13 +102,11 @@ pub struct Order {
     /// the one its squash merge would get, with `-pr.<number>` behind it.
     /// [`None`] when the commit does not touch the unit.
     pub version: Option<String>,
-    /// The last version released for the unit: its newest counted tag, a
-    /// pre-release included. [`None`] when it was never released.
-    pub last: Option<TagVersion>,
-    /// The version of the newest commit that waits for the unit, as it is
-    /// written: with `-pr.<number>` behind it on a pull request. [`None`] when
-    /// no commit waits.
-    pub pending: Option<String>,
+    /// The current version of the unit as it is written: the highest one the
+    /// history gives a commit of the line up to the commit at hand, which is
+    /// [`Order::version`] when there is one. [`None`] before the first commit
+    /// that touches the unit.
+    pub current: Option<String>,
     /// The version writers it selects.
     pub writers: Vec<VersionWriterName>,
 }
@@ -129,12 +125,14 @@ impl Order {
                         |number| of_pull_request(&version, number),
                     )
                 };
+                let version = unit.version.map(written);
                 Self {
                     unit: unit.name.to_string(),
                     path: unit.path.clone(),
-                    version: unit.version.map(written),
-                    last: unit.last,
-                    pending: unit.pending.map(written),
+                    current: version
+                        .clone()
+                        .or_else(|| unit.current.map(|current| current.to_string())),
+                    version,
                     writers: writers.clone(),
                 }
             })
@@ -160,8 +158,7 @@ impl Order {
                 ),
                 path: entry.path,
                 version: entry.version.map(|written| written.0),
-                last: entry.last,
-                pending: entry.pending.map(|written| written.0),
+                current: entry.current.map(|written| written.0),
                 writers: entry.writers,
             })
             .collect())
@@ -180,8 +177,7 @@ struct HandedVersion {
     name: Option<String>,
     path: RelativePath,
     version: Option<Written>,
-    last: Option<TagVersion>,
-    pending: Option<Written>,
+    current: Option<Written>,
     writers: Vec<VersionWriterName>,
 }
 
@@ -372,10 +368,8 @@ pub fn write(
 enum Source {
     /// The commit at hand touches it: the version of the commit.
     Commit,
-    /// It is not touched and was released: its last release.
-    Last,
-    /// It is not touched and was never released: its pending version.
-    Pending,
+    /// It is not touched: its current version.
+    Current,
 }
 
 /// A unit that gets a version, with its package version already set.
@@ -401,13 +395,12 @@ struct Chosen {
 /// Every unit the commit touches gets the version of the commit, when `start`
 /// is [`Some`] only one whose workspace has that root. Any other unit gets a
 /// version only where a package that gets one depends on it by path, followed
-/// through the path dependencies of each one it gives a version to: the
-/// version of the commit when the commit touches it, else its last release,
-/// else its pending version. A unit with none of the three, never released
-/// and waited for by no commit, gets nothing, and neither does a path
-/// dependency on a package that is no unit with the writer `cargo`: both are
-/// left to Cargo, which refuses to package a dependent without a version
-/// requirement.
+/// through the path dependencies of each one it gives a version to: its
+/// current version, which is the version of the commit when the commit
+/// touches it. A unit without a current version, which no commit has touched
+/// yet, gets nothing, and neither does a path dependency on a package that is
+/// no unit with the writer `cargo`: both are left to Cargo, which refuses to
+/// package a dependent without a version requirement.
 fn choose(
     files: &mut Files<'_>,
     cargo: &[&Order],
@@ -436,11 +429,10 @@ fn choose(
             else {
                 continue;
             };
-            let (given, source) = match (&order.version, order.last, &order.pending) {
-                (Some(touched), _, _) => (touched.clone(), Source::Commit),
-                (None, Some(last), _) => (last.to_string(), Source::Last),
-                (None, None, Some(pending)) => (pending.clone(), Source::Pending),
-                (None, None, None) => continue,
+            let (given, source) = match (&order.version, &order.current) {
+                (Some(touched), _) => (touched.clone(), Source::Commit),
+                (None, Some(current)) => (current.clone(), Source::Current),
+                (None, None) => continue,
             };
             let unit = files.chosen(order, given, source)?;
             queue.push_back(unit.needs.clone());
@@ -475,8 +467,7 @@ fn unwritten(
 
 /// What is said about a unit that gets nothing: one the commit touches lies
 /// outside the workspace the call starts from, whose root is `start`, and one
-/// that was never released and that no commit waits for has no version to be
-/// given.
+/// that no commit has touched yet has no version to be given.
 fn passed_over(order: &Order, start: Option<&RelativePath>) -> String {
     if let (Some(_), Some(start)) = (&order.version, start) {
         format!(
@@ -484,10 +475,10 @@ fn passed_over(order: &Order, start: Option<&RelativePath>) -> String {
              depends on it by path, so nothing is written for it.",
             order.unit
         )
-    } else if order.version.is_none() && order.last.is_none() && order.pending.is_none() {
+    } else if order.current.is_none() {
         format!(
-            "{} is not touched by this commit, was never released and no commit waits for it, \
-             so it has no version to be written.",
+            "{} is not touched by this commit and no commit has touched it yet, so it has no \
+             version to be written.",
             order.unit
         )
     } else {
@@ -512,14 +503,9 @@ fn announced(
         Source::Commit => {
             format!("{unit}: the package {name} at {path} gets {version} (workspace root: {root}).")
         }
-        Source::Last => format!(
-            "{unit} is not touched by this commit: the package {name} at {path} gets its last \
-             release {version} (workspace root: {root})."
-        ),
-        Source::Pending => format!(
-            "{unit} is not touched by this commit and was never released: the package {name} at \
-             {path} gets {version}, the version the commits waiting for it come to (workspace \
-             root: {root})."
+        Source::Current => format!(
+            "{unit} is not touched by this commit: the package {name} at {path} gets its \
+             current version {version} (workspace root: {root})."
         ),
     }
 }

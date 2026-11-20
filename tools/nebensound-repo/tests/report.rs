@@ -51,7 +51,7 @@ fn the_configuration_says_where_every_value_came_from() {
     assert!(text.contains("preset rust-library"), "{text}");
     assert!(text.contains("cargo-package"), "{text}");
     assert!(text.contains("private-registry"), "{text}");
-    assert!(text.contains("tags (versioning = "), "{text}");
+    assert!(text.contains("history (versioning = "), "{text}");
 
     // The generated units say who generated them and that they declare nothing
     // of their own.

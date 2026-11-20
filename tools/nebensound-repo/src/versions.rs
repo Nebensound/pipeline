@@ -5,7 +5,7 @@
 //! built from the same rows, so that the two cannot say different things about
 //! the same commit.
 
-use crate::{Analysis, TagVersion, UnitVersion, Version};
+use crate::{Analysis, TagVersion, UnitVersion};
 
 use crate::report::{self, shown};
 
@@ -31,7 +31,7 @@ fn headers(pull_request: Option<u64>) -> [&'static str; 6] {
         "Unit",
         "Path",
         "Release",
-        "Last release",
+        "Current",
         if pull_request.is_some() {
             "This pull request"
         } else {
@@ -42,24 +42,35 @@ fn headers(pull_request: Option<u64>) -> [&'static str; 6] {
 }
 
 /// One unit as a row of the table, unescaped.
+///
+/// The current version is the commit's own where it has one, and only that
+/// one carries the number of a pull request. Waiting is filled in two stages
+/// only: in one stage every commit that touches the unit is a release of its
+/// own, and nothing waits.
 fn row(unit: &UnitVersion, pull_request: Option<u64>) -> [String; 6] {
-    let last = if unit.base == Version::ZERO {
-        "none".to_owned()
-    } else {
-        unit.base.to_string()
+    let written = |version: &TagVersion| match pull_request {
+        None => version.to_string(),
+        Some(number) => of_pull_request(version, number),
     };
-    let version = match (&unit.version, pull_request) {
-        (None, _) => "none".to_owned(),
-        (Some(version), None) => version.to_string(),
-        (Some(version), Some(number)) => of_pull_request(version, number),
+    let version = unit
+        .version
+        .as_ref()
+        .map_or_else(|| "none".to_owned(), written);
+    let current = match (&unit.version, &unit.current) {
+        (Some(_), _) => version.clone(),
+        (None, Some(current)) => current.to_string(),
+        (None, None) => "none".to_owned(),
     };
+    let waiting = unit
+        .waiting
+        .map_or_else(String::new, |waiting| waiting.to_string());
     [
         unit.name.to_string(),
         unit.path.to_string(),
         unit.release.to_string(),
-        last,
+        current,
         version,
-        unit.waiting.to_string(),
+        waiting,
     ]
 }
 
@@ -121,8 +132,10 @@ pub fn markdown(versions: &[UnitVersion], pull_request: Option<u64>) -> String {
     }
     lines.push(String::new());
     lines.push(
-        "Last release is the highest full release, waiting the commits since it that touch the \
-         unit, this commit included. A unit this commit does not touch has no version here."
+        "Current is the highest version the history gives a commit up to this one. A unit this \
+         commit does not touch has no version of its own here. Waiting, for a unit released in \
+         two stages, is the commits since its last promotion that touch it, this commit \
+         included."
             .to_owned(),
     );
     if let Some(number) = pull_request {
