@@ -97,6 +97,49 @@ gh api repos/Nebensound/pipeline/actions/permissions/workflow
 # (the API returns it on one line)
 ```
 
+## Every repository of the organization
+
+The settings above protect this repository. The settings below are carried by
+every repository of the organization, because GitHub offers them per
+repository only and an organization cannot set them as a default. Nothing in
+the pipeline changes repository settings, so a repository created later does
+not get them by itself: whoever creates a repository sets them with the call
+below, and the read-back call shows any repository that was missed.
+
+- **Head branches are deleted after merge.** A merged pull request leaves no
+  stale branch behind. The setting never deletes the default branch or a
+  protected branch, and a branch that no pull request was merged from is not
+  touched either. A `release` branch therefore relies on its ruleset, not on
+  this setting, to stay.
+- **Forks are left out.** A fork belongs to someone else's project, and its
+  settings follow that project's habits. The read-back call lists no fork, and
+  archived repositories are left out as well because nobody merges there.
+
+Read the state of every active repository that is not a fork (one line per
+repository, `true` is expected on every line):
+
+```sh
+gh repo list Nebensound --no-archived --source --limit 1000 \
+  --json nameWithOwner,deleteBranchOnMerge \
+  --jq '.[] | [.nameWithOwner, .deleteBranchOnMerge] | @tsv'
+# expected: every line ends in "true"
+```
+
+List only the repositories that still need the setting (empty output means the
+organization is in line):
+
+```sh
+gh repo list Nebensound --no-archived --source --limit 1000 \
+  --json nameWithOwner,deleteBranchOnMerge \
+  --jq '.[] | select(.deleteBranchOnMerge | not) | .nameWithOwner'
+```
+
+Set it for one repository:
+
+```sh
+gh api -X PATCH repos/Nebensound/<repository> -F delete_branch_on_merge=true
+```
+
 ## Checklist for the organization owner
 
 Settings that only the organization owner can change, or that the API refused,
