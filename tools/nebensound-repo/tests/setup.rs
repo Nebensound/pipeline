@@ -968,6 +968,13 @@ fn with_runtimes_installs_without_asking_and_pip_gets_an_environment_of_its_own(
 
     assert_eq!(code, 0, "{text}");
     assert!(!text.contains("[y/N]"), "{text}");
+    // The runtime this run installed for the program stays in the report,
+    // although the program installed with pip no longer needs it.
+    let py = fixture.path("cache/runtimes/py/4.5.6/py/bin/py");
+    assert!(
+        text.contains(&format!("Runtimes\n  py 4.5.6: pinned, {}\n", py.display())),
+        "{text}"
+    );
     let tool = fixture.path("cache/programs/wheel-tool/7.8.9/bin/wheel-tool");
     let output = Command::new(&tool).output().expect("the tool runs");
     assert_eq!(
@@ -996,6 +1003,39 @@ fn a_virtual_environment_whose_python_is_gone_is_installed_again() {
     let (text, code) = run(&register, Mode::Missing, false, &mut fixture.env());
     assert_eq!(code, 0, "{text}");
     assert!(python.is_file(), "{text}");
+}
+
+#[test]
+fn a_windows_environment_starts_only_while_its_python_is_there() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    let dir = fixture.path("environment");
+    let base = fixture.path("python");
+    fs::create_dir_all(&base).expect("a folder");
+    let config = dir.join("pyvenv.cfg");
+
+    // No launcher.
+    assert!(!find::environment_starts(&dir, true));
+    executable(&dir.join("Scripts/python.exe"), b"a launcher");
+    // A launcher, but no pyvenv.cfg.
+    assert!(!find::environment_starts(&dir, true));
+    // A pyvenv.cfg that names no home.
+    fs::write(&config, "include-system-site-packages = false\n").expect("a file");
+    assert!(!find::environment_starts(&dir, true));
+    let named = format!(
+        "\nversion = 3.12.0\nhome = {}\ninclude-system-site-packages = false\n",
+        base.display()
+    );
+    fs::write(&config, named).expect("a file");
+    // The Python it names is gone.
+    assert!(!find::environment_starts(&dir, true));
+    executable(&base.join("python.exe"), b"python");
+    assert!(find::environment_starts(&dir, true));
+
+    // On Linux and macOS the environment's Python alone tells.
+    assert!(!find::environment_starts(&dir, false));
+    executable(&dir.join("bin/python"), b"python");
+    assert!(find::environment_starts(&dir, false));
 }
 
 #[test]

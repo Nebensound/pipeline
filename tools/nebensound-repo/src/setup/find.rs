@@ -180,13 +180,14 @@ fn pinned_program(
     let dir = program_folder(env.folder.as_deref()?, name, &program.version);
     let executable = program_executable(register, program, &dir, env)?;
     // A virtual environment points at the Python it was made with. Once that
-    // Python is gone, nothing in it starts, and it counts as no installation.
+    // Python is gone, nothing in it starts, and it counts as no installation:
+    // see `environment_starts`.
     let pip = program
         .runtime
         .as_ref()
         .and_then(|runtime| register.runtime.get(runtime))
         .is_some_and(|runtime| runtime.installer == Installer::Pip);
-    if pip && !environment_python(&dir, env.windows).is_file() {
+    if pip && !environment_starts(&dir, env.windows) {
         return None;
     }
     finished(&dir, executable)
@@ -259,6 +260,29 @@ pub fn environment_python(dir: &Path, windows: bool) -> PathBuf {
     } else {
         dir.join("bin").join("python")
     }
+}
+
+/// Whether the virtual environment in `dir` still starts: its Python is
+/// there, and so is the Python it was made with.
+///
+/// On Linux and macOS the environment's Python is a link to that Python and
+/// is no file once it is gone. On Windows it is a copy of a launcher that
+/// starts the `python.exe` in the folder `home` names in `pyvenv.cfg`, so
+/// that folder must still hold one.
+#[must_use]
+pub fn environment_starts(dir: &Path, windows: bool) -> bool {
+    environment_python(dir, windows).is_file()
+        && (!windows || base_home(dir).is_some_and(|home| home.join("python.exe").is_file()))
+}
+
+/// The folder of the Python a virtual environment in `dir` was made with, as
+/// its `pyvenv.cfg` names it.
+fn base_home(dir: &Path) -> Option<PathBuf> {
+    let config = std::fs::read_to_string(dir.join("pyvenv.cfg")).ok()?;
+    config.lines().find_map(|line| {
+        let (key, value) = line.split_once('=')?;
+        (key.trim() == "home").then(|| PathBuf::from(value.trim()))
+    })
 }
 
 /// The first file on the search path that is this command and can be run.

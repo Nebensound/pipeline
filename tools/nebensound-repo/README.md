@@ -406,9 +406,9 @@ Before the tool was called `nebensound-repo`, the folder was called
 same way.
 
 A program installed with pip keeps the Python it was installed with. When that
-Python is gone, `setup` installs the program again; on Windows, where the
-environment keeps a copy of its Python, delete the program's folder and run
-`setup` again.
+Python is gone, `setup` installs the program again. On Windows, where the
+environment holds a launcher that starts that Python, `setup` reads which one
+it is from the environment's `pyvenv.cfg`.
 
 ### For the other calls
 

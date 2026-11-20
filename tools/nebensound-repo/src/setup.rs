@@ -216,7 +216,7 @@ impl<'a> Setup<'a, '_> {
             list(&checks),
             folder.display()
         ));
-        let survey = self.survey(options.mode);
+        let survey = self.survey(options.mode, &[]);
         if survey.programs.is_empty() {
             self.say("\nThese checks call no program the register pins.\n");
             return Ok(true);
@@ -227,6 +227,14 @@ impl<'a> Setup<'a, '_> {
         }
 
         let mut failed = false;
+        // After the installs a program installed with pip no longer needs its
+        // runtime; the report still names the runtime this run needed for it.
+        let needed: Vec<&ProgramName> = survey
+            .programs
+            .iter()
+            .filter(|wanted| wanted.needs_runtime)
+            .map(|wanted| wanted.name)
+            .collect();
         let programs: Vec<&Wanted> = survey
             .programs
             .iter()
@@ -259,12 +267,15 @@ impl<'a> Setup<'a, '_> {
                 failed = true;
             }
         }
-        let survey = self.survey(options.mode);
+        let survey = self.survey(options.mode, &needed);
         self.report(&survey);
         Ok(!failed && complete(&survey))
     }
 
-    fn survey(&self, mode: Mode) -> Survey<'a> {
+    /// What there is of the programs and of the runtimes this run needs. A
+    /// program in `needed` counts as needing its runtime, whatever is found
+    /// for it now.
+    fn survey(&self, mode: Mode, needed: &[&ProgramName]) -> Survey<'a> {
         let register = self.register;
         let programs: Vec<Wanted<'a>> = register
             .programs_of(self.checks)
@@ -289,7 +300,9 @@ impl<'a> Setup<'a, '_> {
                     name,
                     program,
                     runtime,
-                    needs_runtime: runtime.is_some_and(|(_, runtime)| needs(runtime, &found, mode)),
+                    needs_runtime: runtime.is_some_and(|(_, runtime)| {
+                        needed.contains(&name) || needs(runtime, &found, mode)
+                    }),
                     checks,
                     found,
                 }
