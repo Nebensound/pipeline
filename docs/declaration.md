@@ -558,8 +558,9 @@ commit on, while the tool goes on reading the older ones. The tool's tests hold
 the promise: they resolve recorded histories to the versions recorded with them,
 and a change that moves one of them fails.
 
-The promise of edition 1 binds from the first release of the pipeline on. Until
-then the rules of counting may still be corrected within edition 1.
+The promise of edition 1 binds from `v0.1.0` of this repository on, the first
+version meant for callers. Until then the rules of counting may still be
+corrected within edition 1.
 
 A tool that meets an edition it does not know stops phase 0 by name and says
 that a newer pipeline is needed, wherever the declaration that names it stands
