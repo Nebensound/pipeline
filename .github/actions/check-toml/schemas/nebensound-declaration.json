@@ -124,7 +124,7 @@
               "$ref": "#/definitions/BuildName"
             }
           ],
-          "description": "The build that produces the artifact."
+          "description": "The build that produces the artifact.\n\nIt runs in every run that gives the unit a version, the run of a\ncommit that touches the unit; a run that does not builds nothing for\nit."
         },
         "check": {
           "description": "Checks beyond the base set every repository runs.",

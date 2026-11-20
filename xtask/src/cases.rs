@@ -8,11 +8,11 @@
 //! way a unit job does, and gets the plan as well when it takes one. A version
 //! writer's block runs once with the plan, provided a unit of the plan selects
 //! the writer. A build block runs once for every unit the plan starts the
-//! build for, the way a build job does: after the blocks of the version
-//! writers the unit selects, each with the plan, and only when they passed. A
-//! passing case passes when the block succeeds everywhere. A failing case
-//! passes when the block fails and every line of its [`FINDING`] file matches
-//! a line the block printed.
+//! build for and gives a version of the run, the way a build job does: after
+//! the blocks of the version writers the unit selects, each with the plan, and
+//! only when they passed. A passing case passes when the block succeeds
+//! everywhere. A failing case passes when the block fails and every line of
+//! its [`FINDING`] file matches a line the block printed.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -269,8 +269,11 @@ pub struct Built {
 }
 
 /// The units a plan of phase 0 starts the build `build` for, each with the
-/// version writers it selects: those of the entry under `versions` with the
-/// same kind and name.
+/// version writers it selects, the way `Declare` names them: a unit whose
+/// build is `build` and whose entry under `versions`, the one of the same
+/// kind and name, gives it a version of this run. A unit the commit does not
+/// touch has the version `null` there and builds nothing, also where a
+/// version writer gives it its last or pending version for a dependent.
 ///
 /// # Errors
 ///
@@ -287,10 +290,12 @@ pub fn builds(plan: &str, build: &str) -> Result<Vec<Built>, Error> {
         .filter(|unit| unit["build"].as_str() == Some(build))
         .filter_map(|unit| {
             let path = unit["path"].as_str()?.to_owned();
-            let writers = versions
-                .iter()
-                .find(|version| version["kind"] == unit["kind"] && version["name"] == unit["name"])
-                .and_then(|version| version["writers"].as_array())
+            let version = versions.iter().find(|version| {
+                version["kind"] == unit["kind"] && version["name"] == unit["name"]
+            })?;
+            version["version"].as_str()?;
+            let writers = version["writers"]
+                .as_array()
                 .into_iter()
                 .flatten()
                 .filter_map(|writer| writer.as_str().map(str::to_owned))
@@ -475,7 +480,8 @@ fn calls(kind: &Kind<'_>, plan: &str, dir: &Path) -> Result<Result<Vec<Call>, St
             let units = builds(plan, build)?;
             if units.is_empty() {
                 return Ok(Err(format!(
-                    "no unit of the case starts the build `{build}`, so the block never runs"
+                    "no unit of the case starts the build `{build}` with a version of the run, so \
+                     the block never runs"
                 )));
             }
             units

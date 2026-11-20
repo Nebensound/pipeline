@@ -196,10 +196,12 @@ runs:
         writers='["demo"]'
         build='"demo"'
         if [ -f no-units ]; then checks='[]'; writers='[]'; build=null; fi
+        version='"0.1.0"'
         if [ -f ghost-writer ]; then writers='["ghost"]'; fi
+        if [ -f untouched ]; then version=null; fi
         if [ -f no-plan ]; then echo "plan=nothing" >> "$GITHUB_OUTPUT"; exit 0; fi
         sub='"kind":"component","name":"sub","path":"sub"'
-        echo "plan={\"units\":[{\"kind\":\"repository\",\"name\":null,\"path\":\".\",\"checks\":$checks,\"build\":null},{$sub,\"checks\":$checks,\"build\":$build}],\"versions\":[{$sub,\"writers\":$writers}]}" >> "$GITHUB_OUTPUT"
+        echo "plan={\"units\":[{\"kind\":\"repository\",\"name\":null,\"path\":\".\",\"checks\":$checks,\"build\":null},{$sub,\"checks\":$checks,\"build\":$build}],\"versions\":[{$sub,\"version\":$version,\"writers\":$writers}]}" >> "$GITHUB_OUTPUT"
 "#;
 
 /// A version writer's block: it gets the plan and no path.
@@ -275,7 +277,7 @@ runs:
 /// A root with phase 0, the block `check-demo` and its copy `check-rust`,
 /// `check-planned` that takes the plan, the version writer `version-demo`,
 /// the build `build-demo`, and the cases `good`, `bad`, `unbuildable`,
-/// `ghost-writer`, `phase0-fails`, `no-units` and `no-plan`.
+/// `ghost-writer`, `phase0-fails`, `no-units`, `untouched` and `no-plan`.
 fn root(scene: &Scene) -> std::path::PathBuf {
     let root = scene.path().join("root");
     write(
@@ -306,6 +308,7 @@ fn root(scene: &Scene) -> std::path::PathBuf {
             ("cases/bad/expected-finding", "::error file=sub/bad::wrong\n"),
             ("cases/phase0-fails/phase0-fails", ""),
             ("cases/no-units/no-units", ""),
+            ("cases/untouched/untouched", ""),
             ("cases/no-plan/no-plan", ""),
         ],
     );
@@ -448,9 +451,20 @@ fn a_build_runs_for_each_of_its_units_after_their_version_writers() {
         verdict
             .unwrap()
             .unwrap()
-            .contains("no unit of the case starts the build `demo`"),
+            .contains("no unit of the case starts the build `demo` with a version of the run"),
         "{out}"
     );
+
+    // A unit the commit does not touch builds nothing, as in a build job.
+    let (verdict, out) = run(&scene, "build-demo", "untouched", Expect::Pass);
+    assert!(
+        verdict
+            .unwrap()
+            .unwrap()
+            .contains("no unit of the case starts the build `demo` with a version of the run"),
+        "{out}"
+    );
+    assert!(!out.contains("sub built"), "{out}");
 
     let (verdict, out) = run(&scene, "build-demo", "ghost-writer", Expect::Pass);
     assert!(
@@ -473,18 +487,24 @@ fn the_plan_names_the_units_of_a_build_with_their_writers() {
         {"kind":"component","name":"odd","path":"odd","build":"demo"},
         {"kind":"component","name":"other","path":"other","build":"other"},
         {"kind":"component","name":"none","path":"none","build":null},
-        {"kind":"component","name":"lost","build":"demo"}
+        {"kind":"component","name":"lost","build":"demo"},
+        {"kind":"component","name":"untouched","path":"untouched","build":"demo"},
+        {"kind":"component","name":"unversioned","path":"unversioned","build":"demo"}
     ],"versions":[
-        {"kind":"repository","name":null,"writers":[]},
-        {"kind":"component","name":"lib","writers":["cargo"]},
-        {"kind":"component","name":"odd","writers":[1, "cargo"]},
-        {"kind":"component","name":"other","writers":["cargo"]},
-        {"kind":"component","name":"doc"}
+        {"kind":"repository","name":null,"version":"1.0.0","writers":[]},
+        {"kind":"component","name":"lib","version":"0.2.0-pr.7","writers":["cargo"]},
+        {"kind":"component","name":"odd","version":"0.1.0","writers":[1, "cargo"]},
+        {"kind":"component","name":"other","version":"0.1.0","writers":["cargo"]},
+        {"kind":"component","name":"doc","version":"0.1.0"},
+        {"kind":"component","name":"lost","version":"0.1.0","writers":[]},
+        {"kind":"component","name":"untouched","version":null,"writers":["cargo"]}
     ]}"#;
     let built = |path: &str, writers: &[&str]| cases::Built {
         path: path.to_owned(),
         writers: writers.iter().map(|writer| (*writer).to_owned()).collect(),
     };
+    // `untouched` has no version of the run and `unversioned` no entry under
+    // `versions` at all: neither builds.
     assert_eq!(
         cases::builds(plan, "demo").unwrap(),
         [
@@ -494,9 +514,10 @@ fn the_plan_names_the_units_of_a_build_with_their_writers() {
             built("odd", &["cargo"]),
         ]
     );
-    assert_eq!(
-        cases::builds(r#"{"units":[{"path":"x","build":"demo"}]}"#, "demo").unwrap(),
-        [built("x", &[])]
+    assert!(
+        cases::builds(r#"{"units":[{"path":"x","build":"demo"}]}"#, "demo")
+            .unwrap()
+            .is_empty()
     );
     assert!(cases::builds(plan, "absent").unwrap().is_empty());
     assert!(

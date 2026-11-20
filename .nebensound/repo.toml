@@ -2,7 +2,8 @@
 
 # The declaration of this repository: what it consists of and what the pipeline
 # does with it. The pipeline reads it in every run and checks it against the
-# tree. "none" applies no preset: nothing here is built or published.
+# tree. "none" applies no preset: what is built is named per unit below, and
+# nothing is published.
 #
 # Every field is described in
 # https://github.com/Nebensound/pipeline/blob/main/docs/declaration.md
@@ -14,25 +15,30 @@ pipeline = "none"
 # unit of its own because Cargo resolves here: the rust check runs here and
 # Dependabot watches the lockfile here. It carries a version, which every run
 # writes into its manifest with the version writer cargo before the package
-# test of the rust check: on a pull request the version its merge would get.
-# Nothing publishes it.
+# test of the rust check and before its build: on a pull request the version
+# its merge would get. A run that touches it builds its crate with
+# cargo-package and hands it on as an artifact of the run. Nothing publishes
+# it.
 [component.nebensound]
 path = "tools/nebensound"
 
 [component.nebensound.pipeline]
 version    = ["cargo"]
 check      = ["rust"]
+build      = "cargo-package"
 publish    = false
 dependabot = ["cargo"]
 
 # The library that understands a declaration, inside that workspace. The tool
 # depends on it by path, so it carries a version of its own as well: a package
 # that gets a version requires one of each path dependency. The package test
-# builds and tests it as it would be published. The workspace above runs the
-# check and watches the lockfile. Nothing publishes it.
+# builds and tests it as it would be published, and a run that touches it
+# builds its crate with cargo-package and hands it on as an artifact of the
+# run. The workspace above runs the check and watches the lockfile. Nothing
+# publishes it.
 [component.nebensound-declaration]
 path     = "tools/nebensound/crates/nebensound-declaration"
-pipeline = { version = ["cargo"], publish = false }
+pipeline = { version = ["cargo"], build = "cargo-package", publish = false }
 
 # The xtask of this repository, a Cargo workspace of its own for the same
 # reason. Phase 0 demands that it runs the rust check like any other Rust code.

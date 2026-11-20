@@ -69,7 +69,8 @@ checked against the tree), `nebensound / Version` (the version of every unit,
 as a table in the summary of the run), one job per unit that runs a check
 (`nebensound / Check repository`, `nebensound / Check component <name>`),
 `nebensound / Check`, which sums the units up, one job per unit that builds
-(`nebensound / Build repository`, `nebensound / Build component <name>`) and
+and has a version of the run, that is, one the commit touches
+(`nebensound / Build repository`, `nebensound / Build component <name>`), and
 `nebensound / Build`, which sums the builds up. A ruleset requires
 `nebensound / Version`, `nebensound / Check` and `nebensound / Build`. A check
 or a build the register knows but that has no building block yet fails by name
@@ -79,6 +80,10 @@ one in the step `Version writers not written yet` of `nebensound / Check`.
 This repository calls the workflow the same way, with one difference: its own
 [`gate.yml`](.github/workflows/gate.yml) calls the workflow at the commit that
 is running, so a change to the pipeline is checked by the pipeline it changes.
+Its declaration builds the tool `nebensound` and the library
+`nebensound-declaration` with `cargo-package` and publishes neither, so a pull
+request that touches one of them runs the Build phase here with the real
+upload.
 
 ## Building blocks
 
@@ -299,8 +304,8 @@ a version never released belongs to the release stage, not to the writer.
 Only `Cargo.toml` and `Cargo.lock` files change. `check-rust` writes the
 versions the same way for its package test, starting from the units of its
 workspace (`--workspace`). The Build phase calls the block in the job of every
-unit that builds and selects the writer, before it builds. A version writer
-without a building block (today `asciidoc`) fails by name in
+unit that builds in the run and selects the writer, before it builds. A version
+writer without a building block (today `asciidoc`) fails by name in
 `nebensound / Check`.
 
 ### `build-cargo-package`
@@ -525,12 +530,12 @@ Git repository, runs [`.github/actions/phase0`](.github/actions/phase0) on it,
 and runs a check block once for every unit the plan starts the block's check
 for, just as a unit job does, with the plan when the block takes one. A version
 writer's block runs once with the plan, provided a unit of the plan selects the
-writer. A build block runs once for every unit the plan starts the build for,
-just as a build job does: first the block of every version writer the unit
-selects, with the plan, and the build block only when they passed. A passing
-case needs the block to succeed everywhere. A failing case needs it to fail
-and to print every finding the case names, so a block that fails for another
-reason does not count.
+writer. A build block runs once for every unit the plan starts the build for
+and gives a version of the run, just as a build job does: first the block of
+every version writer the unit selects, with the plan, and the build block only
+when they passed. A passing case needs the block to succeed everywhere. A
+failing case needs it to fail and to print every finding the case names, so a
+block that fails for another reason does not count.
 
 The xtask keeps no copy of what a block does. It reads every step from the
 block's `action.yml` and runs it the way the runner of GitHub Actions does: it

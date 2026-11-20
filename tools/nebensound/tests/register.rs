@@ -5,7 +5,9 @@
 //! to write it again.
 //!
 //! This lives in the tool and not in the library: the library is published,
-//! and in its package the page is not there to be read.
+//! and in its package the page is not there to be read. The tool's own
+//! package, which the Build phase tests from its contents, leaves this file
+//! out for the same reason (see its `Cargo.toml`).
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 

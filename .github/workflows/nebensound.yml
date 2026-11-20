@@ -65,10 +65,13 @@ jobs:
           jq . <<< "$units"
           echo "units=$units" >> "$GITHUB_OUTPUT"
 
-      # The same for the builds: only the units that build go on, each with
-      # the version writers it selects, which write its version before it
-      # builds. A unit that builds carries a version, so it stands under
-      # `versions` as well.
+      # The same for the builds: only the units that build in this run go on,
+      # each with the version writers it selects, which write its version
+      # before it builds. A unit that builds carries a version, so it stands
+      # under `versions` as well, and it builds only when the plan gives it a
+      # version of this run. A unit the commit does not touch has no new
+      # artifact to hand on, also where the writer gives it its last or
+      # pending version for a package that depends on it.
       - name: Name the units that build
         id: builds
         env:
@@ -78,9 +81,10 @@ jobs:
           builds="$(jq --compact-output '
             .versions as $versions
             | [ .units[] | select(.build != null) | . as $unit
-                | . + { writers: (first($versions[]
-                    | select(.kind == $unit.kind and .name == $unit.name)
-                    | .writers) // []) } ]' <<< "$PLAN")"
+                | first($versions[]
+                    | select(.kind == $unit.kind and .name == $unit.name)) as $version
+                | select($version.version != null)
+                | . + { writers: $version.writers } ]' <<< "$PLAN")"
           jq . <<< "$builds"
           echo "builds=$builds" >> "$GITHUB_OUTPUT"
 
@@ -336,7 +340,7 @@ jobs:
           done <<< "$missing"
           exit 1
 
-  # One job per unit that builds, as the plan of phase 0 names them. Each starts
+  # One job per unit that builds in this run, as Declare names them. Each starts
   # only when Check passed: nothing is built from a tree that failed. The
   # condition names the results itself, since the implicit success() would
   # also skip the builds when `units` was skipped because no unit runs a check.
@@ -425,7 +429,8 @@ jobs:
 
   # The one name a ruleset can require for the builds, gathered like Check. It
   # passes only when Check passed: a build that never started because a check
-  # failed is no success. On a plan without builds it is green and says so.
+  # failed is no success. When nothing builds in this run it is green and says
+  # so.
   build:
     name: Build
     needs:
@@ -462,7 +467,7 @@ jobs:
                 echo "::error::The plan names builds, and none of them ran."
                 exit 1
               fi
-              echo "The plan starts no build here; there was nothing to build."
+              echo "Nothing builds in this run: no unit that builds has a version of this run."
               ;;
             *)
               echo "::error::At least one build did not pass ($BUILDS)."

@@ -45,10 +45,10 @@ hands the result on:
    selects. On a pull request the plan is built the way the job Version reads it
    (see below): each version is the one the merge would get, with `-pr.<number>`
    behind it. The units that start at least one check go on to the Check phase,
-   the units whose build is not `null` go on to the Build phase, each with the
-   version writers it selects, and the whole plan is handed on with them: a
-   later job checks out no history, so a version writer takes the versions from
-   the plan.
+   the units whose build is not `null` and that the plan gives a version of
+   this run go on to the Build phase, each with the version writers it selects,
+   and the whole plan is handed on with them: a later job checks out no
+   history, so a version writer takes the versions from the plan.
 
 An error ends the phase here: there is no plan, no check runs, nothing is
 built, and `nebensound / Check` and `nebensound / Build` fail. A warning stops
@@ -146,16 +146,19 @@ so it is named here. The writers written today are listed in
 
 ## Build
 
-### One job per unit that builds
+### One job per unit that builds in this run
 
-Every unit whose build the plan names gets a job of its own, named
-`nebensound / Build repository` for the repository and
-`nebensound / Build component <name>` for a component. The plan names the build
-of a unit that carries a version of its own and generates no children (see
-[the declaration](declaration.md#versions)). A build job starts only when
-Declare and `nebensound / Check` passed: nothing is built from a tree whose
-checks failed. It checks the repository out, takes the tool from the cache
-Declare filled, and runs its steps:
+Every unit whose build the plan names and that the plan gives a version of
+this run gets a job of its own, named `nebensound / Build repository` for the
+repository and `nebensound / Build component <name>` for a component. The plan
+names the build of a unit that carries a version of its own and generates no
+children (see [the declaration](declaration.md#versions)), and gives a unit a
+version of the run when the commit touches it. A unit the commit does not touch
+has no new artifact to hand on and gets no build job, also where a version
+writer writes its last or pending version for a package that depends on it. A
+build job starts only when Declare and `nebensound / Check` passed: nothing is
+built from a tree whose checks failed. It checks the repository out, takes the
+tool from the cache Declare filled, and runs its steps:
 
 1. **Not written yet.** It fails, by name, when the unit's build has no
    building block yet, so that a pull request says what is missing. The builds
@@ -178,7 +181,7 @@ the build tests what it hands on.
 job, whatever their result, so it reports on every run. It fails when phase 0
 or Check did not pass, since then nothing was built, and when any build job did
 not pass. It passes when every build the plan started passed, or, with a
-sentence that says so, when the plan starts none.
+sentence that says so, when nothing builds in this run.
 
 ## Check names
 
