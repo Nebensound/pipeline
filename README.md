@@ -160,11 +160,12 @@ away:
   finds it, and follows their path dependencies wherever they lie, so what
   another workspace of the repository needs cannot fail this one, also a
   workspace of its own in a folder below it. The packages are packaged in one
-  call and each is tested with the packages of its siblings in place of
-  crates.io, since a version just written is on no registry yet. A local
-  package they depend on that is not packaged with them, a path dependency
-  that is no member or a member an `[[exclude]]` entry takes out, is put in
-  place of crates.io from its folder.
+  call, with each of them in place of crates.io from its folder, and each is
+  tested with the packages of its siblings in place of crates.io: a version
+  just written is on no registry yet, and a crate of the same name on
+  crates.io must not stand in for it. A local package they depend on that is
+  not packaged with them, a path dependency that is no member or a member an
+  `[[exclude]]` entry takes out, is put in place of crates.io from its folder.
 
 Rust code is excluded by the package, never by the file. Phase 0 fails on an
 `[[exclude]]` entry that takes a `.rs` file out of a package without taking out

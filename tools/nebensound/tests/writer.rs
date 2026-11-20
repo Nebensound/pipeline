@@ -5,9 +5,10 @@
 
 mod support;
 
+use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
-use std::process::Command;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
 
 use nebensound::plan;
 use nebensound::repository::Repository;
@@ -89,7 +90,27 @@ fn cargo(root: &Path, args: &[&str]) -> String {
 
 /// The same, into a target folder the caller keeps.
 fn cargo_into(root: &Path, target: &Path, args: &[&str]) -> String {
-    let output = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+    let output = cargo_output(root, target, args);
+    assert!(
+        output.status.success(),
+        "cargo {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("cargo answers in UTF-8")
+}
+
+/// Cargo in the fixture, as [`cargo_into`] runs it, expected to fail: what it
+/// says on standard error.
+fn cargo_failing(root: &Path, args: &[&str]) -> String {
+    let target = tempfile::tempdir().expect("a target folder");
+    let output = cargo_output(root, target.path(), args);
+    assert!(!output.status.success(), "cargo {args:?} passed");
+    String::from_utf8(output.stderr).expect("cargo answers in UTF-8")
+}
+
+/// Cargo in the fixture, whatever comes of it.
+fn cargo_output(root: &Path, target: &Path, args: &[&str]) -> Output {
+    Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
         .args(args)
         .arg("--offline")
         .current_dir(root)
@@ -105,13 +126,7 @@ fn cargo_into(root: &Path, target: &Path, args: &[&str]) -> String {
         .env_remove("CARGO_LLVM_COV_TARGET_DIR")
         .env_remove("CARGO_BUILD_TARGET_DIR")
         .output()
-        .expect("cargo runs");
-    assert!(
-        output.status.success(),
-        "cargo {args:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).expect("cargo answers in UTF-8")
+        .expect("cargo runs")
 }
 
 /// The version `cargo metadata` reports for a package of the fixture.
@@ -1200,34 +1215,53 @@ fn change_the_app_of_two(git: &Git) {
 }
 
 /// What the package test of `check-rust` does with the versions written:
-/// every published package packaged in one call, then each copy tested with
-/// the copies of its siblings patched in for crates.io. `packages` are the
-/// published packages, each with its version. `outside` are the local
-/// packages they depend on that are not packaged with them, each with its
-/// folder in `root`: they are patched in from there, for the packaging and
-/// for each copy. By the path Cargo itself gives the folder, without links:
-/// a patch by another path is a source of its own, which the workspace does
-/// not use, and `--locked` refuses the lockfile change that brings.
+/// every published package packaged in one call, each patched in from its
+/// folder, then each copy tested with the copies of its siblings patched in
+/// for crates.io. `packages` are the published packages, each with its
+/// version. `outside` are the local packages they depend on that are not
+/// packaged with them, each with its folder in `root`: they are patched in
+/// from there, for the packaging and for each copy. By the path Cargo itself
+/// gives the folder, without links: a patch by another path is a source of
+/// its own, which the workspace does not use, and `--locked` refuses the
+/// lockfile change that brings.
 fn package_test(root: &Path, packages: &[(&str, &str)], outside: &[(&str, &str)]) {
+    package_test_with(root, packages, outside, &[]);
+}
+
+/// The same, with `extra` arguments for the packaging call alone.
+fn package_test_with(
+    root: &Path,
+    packages: &[(&str, &str)],
+    outside: &[(&str, &str)],
+    extra: &[&str],
+) {
     let target = tempfile::tempdir().expect("a target folder");
     let canonical = root.canonicalize().expect("the fixture exists");
+    let patch = |name: &str, folder: &Path| {
+        [
+            "--config".to_owned(),
+            format!(
+                "patch.crates-io.{name}.path='{}'",
+                folder.to_str().expect("a path in UTF-8")
+            ),
+        ]
+    };
     let patches: Vec<String> = outside
         .iter()
-        .flat_map(|(name, folder)| {
-            [
-                "--config".to_owned(),
-                format!(
-                    "patch.crates-io.{name}.path='{}'",
-                    canonical.join(folder).to_str().expect("a path in UTF-8")
-                ),
-            ]
-        })
+        .flat_map(|(name, folder)| patch(name, &canonical.join(folder)))
+        .collect();
+    let folders = member_folders(root);
+    let own: Vec<String> = packages
+        .iter()
+        .flat_map(|(name, _)| patch(name, &folders[*name]))
         .collect();
     let mut args = vec!["package", "--locked", "--allow-dirty"];
     for (name, _) in packages {
         args.extend(["--package", name]);
     }
+    args.extend(own.iter().map(String::as_str));
     args.extend(patches.iter().map(String::as_str));
+    args.extend(extra);
     cargo_into(root, target.path(), &args);
     let copies = target.path().join("package");
     let copy = |name: &str, version: &str| copies.join(format!("{name}-{version}"));
@@ -1235,15 +1269,148 @@ fn package_test(root: &Path, packages: &[(&str, &str)], outside: &[(&str, &str)]
         let mut args = vec!["test".to_owned()];
         args.extend(patches.iter().cloned());
         for (other, version) in packages.iter().filter(|(other, _)| other != name) {
-            args.push("--config".to_owned());
-            args.push(format!(
-                "patch.crates-io.{other}.path='{}'",
-                copy(other, version).to_str().expect("a path in UTF-8")
-            ));
+            args.extend(patch(other, &copy(other, version)));
         }
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         cargo(&copy(name, version), &args);
     }
+}
+
+/// The folder of every member of the workspace at `root`, by package name,
+/// as `cargo metadata` gives it.
+fn member_folders(root: &Path) -> BTreeMap<String, PathBuf> {
+    let metadata: serde_json::Value = serde_json::from_str(&cargo(
+        root,
+        &["metadata", "--format-version", "1", "--no-deps", "--locked"],
+    ))
+    .expect("cargo metadata prints JSON");
+    metadata["packages"]
+        .as_array()
+        .expect("a list of packages")
+        .iter()
+        .map(|package| {
+            let name = package["name"].as_str().expect("a name").to_owned();
+            let manifest = Path::new(package["manifest_path"].as_str().expect("a manifest"));
+            let folder = manifest.parent().expect("a folder").to_path_buf();
+            (name, folder)
+        })
+        .collect()
+}
+
+/// A crates.io that holds a stranger's crate called `name` at `version`, with
+/// nothing in it: Cargo in `root` takes crates.io from a folder that holds
+/// only that crate. The folder is returned and has to live as long as the
+/// fixture is used.
+fn a_stranger_on_crates_io(root: &Path, name: &str, version: &str) -> tempfile::TempDir {
+    let registry = tempfile::tempdir().expect("a folder for the registry");
+    let crate_folder = registry.path().join(format!("{name}-{version}"));
+    fs::create_dir_all(crate_folder.join("src")).expect("the crate's folder is made");
+    fs::write(
+        crate_folder.join("Cargo.toml"),
+        format!("[package]\nname = \"{name}\"\nversion = \"{version}\"\nedition = \"2024\"\n"),
+    )
+    .expect("the stranger's manifest is written");
+    fs::write(
+        crate_folder.join("src/lib.rs"),
+        "//! A stranger's crate of the same name.\n",
+    )
+    .expect("the stranger's code is written");
+    fs::write(
+        crate_folder.join(".cargo-checksum.json"),
+        "{\"files\": {}, \"package\": null}\n",
+    )
+    .expect("the stranger's checksums are written");
+    fs::create_dir_all(root.join(".cargo")).expect("the configuration's folder is made");
+    fs::write(
+        root.join(".cargo/config.toml"),
+        format!(
+            "[source.crates-io]\nreplace-with = \"stranger\"\n\n[source.stranger]\ndirectory = \
+             '{}'\n",
+            registry.path().to_str().expect("a path in UTF-8")
+        ),
+    )
+    .expect("the configuration is written");
+    registry
+}
+
+/// [`two_packages`] with the versions of a plan written, where the commit
+/// touches `app` alone and `lib` gets `written`, and a stranger's crate `lib`
+/// at `stranger` on crates.io, a version the requirement on `lib` matches and
+/// that sorts above it: the package test still builds `app` against `lib`.
+fn beside_a_stranger(app: &str, lib: &str, written: &str, stranger: &str) {
+    let dir = repository(&two_packages());
+    let root = dir.path().to_str().expect("a path in UTF-8");
+    let handed = tempfile::tempdir().expect("a folder for the plan");
+    let file = handed.path().join("plan.json");
+    fs::write(
+        &file,
+        format!(
+            "{{\"versions\": [{{\"name\": \"app\", \"path\": \"crates/app\", \"version\": \
+             \"{app}\", \"last\": null, \"pending\": \"{app}\", \"writers\": [\"cargo\"]}}, \
+             {{\"name\": \"lib\", \"path\": \"crates/lib\", \"version\": null, {lib}, \
+             \"writers\": [\"cargo\"]}}]}}"
+        ),
+    )
+    .expect("written");
+    let (text, code) = call(&[
+        "nebensound",
+        "-C",
+        root,
+        "write-versions",
+        "--plan",
+        file.to_str().expect("a path in UTF-8"),
+    ]);
+    assert_eq!(code, 0, "{text}");
+    let manifest = read(dir.path(), "crates/app/Cargo.toml");
+    assert!(
+        manifest.contains(&format!(
+            "lib = {{ path = \"../lib\", version = \"{written}\" }}"
+        )),
+        "{manifest}"
+    );
+    let _registry = a_stranger_on_crates_io(dir.path(), "lib", stranger);
+    // Cargo packages against a crates.io that a folder stands in for only
+    // when the call names it; crates.io is where the packages would go anyway.
+    let registry = ["--registry", "crates-io"];
+
+    // Without its folder patched in, the sibling loses to the stranger.
+    let mut args = vec!["package", "--locked", "--allow-dirty"];
+    args.extend(registry);
+    args.extend(["--package", "lib", "--package", "app"]);
+    let error = cargo_failing(dir.path(), &args);
+    assert!(
+        error.contains("cannot find function `one` in crate `lib`"),
+        "{error}"
+    );
+
+    package_test_with(
+        dir.path(),
+        &[("lib", written), ("app", app)],
+        &[],
+        &registry,
+    );
+}
+
+#[test]
+fn a_strangers_crate_does_not_stand_in_for_a_sibling_on_a_pull_request() {
+    // `^0.0.1-pr.7` matches the stranger's 0.0.1, which sorts above it.
+    beside_a_stranger(
+        "0.0.2-pr.7",
+        "\"last\": null, \"pending\": \"0.0.1-pr.7\"",
+        "0.0.1-pr.7",
+        "0.0.1",
+    );
+}
+
+#[test]
+fn a_strangers_crate_does_not_stand_in_for_a_sibling_on_main() {
+    // `^0.6.0` matches the stranger's 0.6.5, a higher version.
+    beside_a_stranger(
+        "0.6.1",
+        "\"last\": \"0.6.0\", \"pending\": null",
+        "0.6.0",
+        "0.6.5",
+    );
 }
 
 #[test]

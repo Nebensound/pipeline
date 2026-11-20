@@ -458,9 +458,16 @@ runs:
         fi
         # All in one call. A package that depends on another one published
         # from here by path names it by version in its package, and that
-        # version is on no registry yet. Packaged together, Cargo builds each
-        # against the packages of the others; packaged one by one, it looks a
-        # sibling up on crates.io and fails, or finds a stranger's crate.
+        # version is on no registry yet. Packaged one by one, Cargo looks a
+        # sibling up on crates.io and fails. Packaged together, it lays the
+        # packages of the others over crates.io, but it still takes the
+        # highest version that matches from both: a stranger's crate of the
+        # same name wins whenever crates.io has a higher one, or, on a pull
+        # request, the same version without the suffix (0.0.2 matches
+        # ^0.0.2-pr.7 and sorts above it). So each package packaged here is
+        # patched in from its folder as well, which leaves crates.io nothing
+        # to offer for it; its own package is still verified on its own, and
+        # the copies below are tested against it.
         #
         # --allow-dirty: the versions just written are changes Git does not
         # have, and Cargo refuses to package uncommitted changes without it.
@@ -474,9 +481,10 @@ runs:
         # that is no member, or a member an [[exclude]] entry takes out. Only
         # the ones they reach, directly or through each other, since a patch
         # the workspace does not use changes its lockfile, and --locked
-        # refuses that.
+        # refuses that. The packages packaged here are among them, by the
+        # folder Cargo gives, so their patches keep the lockfile as it is.
         packaged="$(cut -d ' ' -f 1 <<< "$published" | jq -R . | jq -s .)"
-        outside="$(cargo metadata --locked --format-version 1 --all-features \
+        reached="$(cargo metadata --locked --format-version 1 --all-features \
           | jq -r --argjson packaged "$packaged" '
               [ .packages[] | select(.source == null) ] as $local
               | [ $local[].id ] as $ids
@@ -487,16 +495,24 @@ runs:
                   | if ($next | length) == ($from | length) then $from else reach($next) end;
                 reach([ $local[] | select(.name | IN($packaged[])) | .id ]) as $reached
               | $local[]
-              | select((.id | IN($reached[])) and (.name | IN($packaged[]) | not))
-              | "\(.name) \(.manifest_path | rtrimstr("/Cargo.toml"))"')"
+              | select(.id | IN($reached[]))
+              | "\(.name | IN($packaged[])) \(.name) \(.manifest_path | rtrimstr("/Cargo.toml"))"')"
+        # `own` holds every patch, for packaging; `patches` only those of the
+        # packages not packaged here, for the copies, which get the copies of
+        # their siblings instead.
+        own=()
         patches=()
-        while read -r name dir; do
-          if [ -n "$name" ]; then
+        while read -r inside name dir; do
+          if [ -z "$name" ]; then
+            continue
+          fi
+          own+=(--config "patch.crates-io.$name.path='$dir'")
+          if [ "$inside" = false ]; then
             echo "Patched in from its folder, not packaged here: $name at $dir"
             patches+=(--config "patch.crates-io.$name.path='$dir'")
           fi
-        done <<< "$outside"
-        cargo package --locked --allow-dirty "${args[@]}" "${patches[@]}"
+        done <<< "$reached"
+        cargo package --locked --allow-dirty "${args[@]}" "${own[@]}"
         # Each package is copied out, and each copy is tested with the copies
         # of its siblings patched in for crates.io, for the same reason, and
         # with the local packages patched in as above. A patch a copy does not
