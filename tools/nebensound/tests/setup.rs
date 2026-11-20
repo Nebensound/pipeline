@@ -78,12 +78,28 @@ impl Fixture {
     }
 }
 
+/// Puts an executable file with these bytes at `file`.
+///
+/// Written by a shell rather than by this process: a file this process held
+/// open for writing could be inherited by a process another test starts at
+/// that moment, and running it would then fail as busy.
 fn executable(file: &Path, bytes: &[u8]) {
     if let Some(parent) = file.parent() {
         fs::create_dir_all(parent).expect("a folder");
     }
-    fs::write(file, bytes).expect("a file");
-    fs::set_permissions(file, fs::Permissions::from_mode(0o755)).expect("executable");
+    let mut shell = Command::new("sh")
+        .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(file)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .expect("a shell");
+    shell
+        .stdin
+        .take()
+        .expect("its input")
+        .write_all(bytes)
+        .expect("the bytes written");
+    assert!(shell.wait().expect("the shell ends").success());
 }
 
 /// A program that prints this line, whatever it is asked.
