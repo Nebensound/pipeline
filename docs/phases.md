@@ -172,7 +172,7 @@ A step does not run after one that failed: an artifact built from versions that
 were not written would be the wrong one. Tests of the source belong to Check;
 the build tests what it hands on.
 
-### The summary
+### The summary of the builds
 
 `nebensound / Build` runs after Declare, `nebensound / Check` and every build
 job, whatever their result, so it reports on every run. It fails when phase 0
