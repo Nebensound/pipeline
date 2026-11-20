@@ -1,3 +1,3 @@
 # The packaged test cannot be compiled without the module, and the block says so.
 *file not found for module*support*
-::error::The crate lib * fails its tests from its own contents. A file its tests need may be left out of the package.
+::error::The crate lib * fails its tests from its own contents. A file its tests need may be left out of the package, or a dev-dependency may have no version, which cargo package drops.

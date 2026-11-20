@@ -150,8 +150,10 @@ runs:
     # The test of the artifact: the very file that is handed on, unpacked
     # outside the source tree, where neither the workspace nor its
     # rust-toolchain.toml reaches, and tested from what it holds. A file the
-    # package leaves out that a test needs fails here. The toolchain is named,
-    # since the workspace's rust-toolchain.toml no longer applies.
+    # package leaves out that a test needs fails here, and so does a
+    # dev-dependency without a version, which `cargo package` drops from the
+    # manifest. The toolchain is named, since the workspace's
+    # rust-toolchain.toml no longer applies.
     - name: Test the crate from its own contents
       shell: bash
       working-directory: ${{ inputs.working-directory }}
@@ -179,7 +181,7 @@ runs:
         echo "The packaged manifest names $(grep -m 1 '^version = ' "$unpacked/Cargo.toml")."
         cd "$unpacked"
         if ! cargo "+$toolchain" test --all-features "${patches[@]}"; then
-          echo "::error::The crate $PACKAGE $VERSION fails its tests from its own contents. A file its tests need may be left out of the package."
+          echo "::error::The crate $PACKAGE $VERSION fails its tests from its own contents. A file its tests need may be left out of the package, or a dev-dependency may have no version, which cargo package drops."
           exit 1
         fi
 
