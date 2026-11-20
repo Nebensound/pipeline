@@ -42,6 +42,7 @@ fn executable(path: &Path, script: &str) {
 
 #[test]
 fn outputs_flow_from_step_to_step_and_out_of_the_action() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let (outcome, out) = ok(scene.run(
         r#"
@@ -86,6 +87,7 @@ runs:
 
 #[test]
 fn after_a_failure_only_steps_that_ask_for_status_run() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let (outcome, out) = ok(scene.run(
         r"
@@ -132,6 +134,7 @@ runs:
 
 #[test]
 fn the_environment_and_the_path_last_for_the_job() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let bin = scene.path().join("bin");
     executable(&bin.join("hello"), "#!/bin/sh\necho hello from the path\n");
@@ -156,6 +159,7 @@ fn the_environment_and_the_path_last_for_the_job() {
 
 #[test]
 fn a_step_sees_what_the_runner_hands_it() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let mut host = scene.host();
     host.env.push(("CARGO_PKG_NAME".into(), "xtask".into()));
@@ -206,6 +210,7 @@ fn a_step_sees_what_the_runner_hands_it() {
 
 #[test]
 fn inputs_come_from_the_caller_else_from_their_default() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let (outcome, out) = ok(scene.run(
         r#"
@@ -228,6 +233,7 @@ runs:
 
 #[test]
 fn a_case_is_no_pull_request() {
+    let _alone = support::alone();
     // As on a push to `main`: phase 0 reads the pull request's number to
     // build the plan for its merge, and finds none.
     let scene = Scene::new();
@@ -241,6 +247,7 @@ fn a_case_is_no_pull_request() {
 
 #[test]
 fn a_step_runs_in_its_working_directory() {
+    let _alone = support::alone();
     let scene = Scene::new();
     fs::create_dir_all(scene.workspace().join("sub/dir")).unwrap();
     let (outcome, out) = ok(scene.run(
@@ -253,6 +260,7 @@ fn a_step_runs_in_its_working_directory() {
 
 #[test]
 fn a_named_step_can_be_left_out_and_has_to_exist() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let dir = scene.action(
         "main",
@@ -273,6 +281,7 @@ fn a_named_step_can_be_left_out_and_has_to_exist() {
 
 #[test]
 fn what_the_runner_would_not_run_is_refused() {
+    let _alone = support::alone();
     let scene = Scene::new();
     for (yaml, inputs, message) in [
         ("runs:\n  using: node24\n", &[][..], "runs on `node24`"),
@@ -371,6 +380,7 @@ fn what_the_runner_would_not_run_is_refused() {
 
 #[test]
 fn an_action_the_xtask_cannot_fetch_is_refused() {
+    let _alone = support::alone();
     let scene = Scene::new();
     for (action, message) in [
         ("./local", "is not one the xtask fetches"),
@@ -396,6 +406,7 @@ fn an_action_the_xtask_cannot_fetch_is_refused() {
 
 #[test]
 fn a_step_that_cannot_be_prepared_or_started_is_an_error() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let dir = scene.action("main", &composite("echo"));
     let file = scene.path().join("a file");
@@ -432,6 +443,7 @@ fn a_step_that_cannot_be_prepared_or_started_is_an_error() {
 
 #[test]
 fn file_commands_are_read_as_github_writes_them() {
+    let _alone = support::alone();
     let read = |text: &str| runner::file_commands(text, "GITHUB_OUTPUT");
     assert_eq!(
         read("a=1\n\nb<<X\nline=one\nline<<two\nX\nc=x<<y\nd<<E=F\nv\nE=F\n").unwrap(),
@@ -458,6 +470,7 @@ fn file_commands_are_read_as_github_writes_them() {
 
 #[test]
 fn a_step_gets_only_what_a_runner_step_has_too() {
+    let _alone = support::alone();
     let vars: Vec<(OsString, OsString)> = [
         "PATH",
         "HOME",
@@ -504,6 +517,7 @@ fn a_step_gets_only_what_a_runner_step_has_too() {
 
 #[test]
 fn outside_cargo_leaves_out_what_would_steer_cargo() {
+    let _alone = support::alone();
     let vars: Vec<(OsString, OsString)> = [
         "PATH",
         "HOME",
@@ -528,6 +542,7 @@ fn outside_cargo_leaves_out_what_would_steer_cargo() {
 
 #[test]
 fn a_cache_is_left_out() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let (outcome, out) = ok(scene.run(
         "runs:\n  using: composite\n  steps:\n    - id: cache\n      uses: actions/cache/restore@v6\n    - if: steps.cache.outputs.cache-hit != 'true'\n      shell: bash\n      run: echo built\n    - uses: Swatinem/rust-cache@v2\n      with:\n        workspaces: x\n",
@@ -544,6 +559,7 @@ fn a_cache_is_left_out() {
 
 #[test]
 fn an_upload_keeps_the_files_on_this_machine_and_needs_them_there() {
+    let _alone = support::alone();
     let scene = Scene::new();
     support::write(&scene.workspace(), &[("out/a.crate", "")]);
     let absolute = scene.workspace().join("out/a.crate");
@@ -599,6 +615,7 @@ fn host_with_path(scene: &Scene, bin: &Path) -> runner::Host {
 
 #[test]
 fn a_setup_step_stands_in_with_the_tool_on_the_path_in_its_version() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let bin = scene.path().join("bin");
     executable(&bin.join("node"), "#!/bin/sh\necho v24.11.1\n");
@@ -639,6 +656,7 @@ fn a_setup_step_stands_in_with_the_tool_on_the_path_in_its_version() {
 
 #[test]
 fn a_setup_step_without_its_tool_fails() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let empty = scene.path().join("empty");
     fs::create_dir_all(&empty).unwrap();
@@ -667,6 +685,7 @@ fn remote(origin: &Path, name: &str, files: &[(&str, &str)]) {
 
 #[test]
 fn a_composite_action_a_step_calls_is_fetched_and_run() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let origin = scene.path().join("origin");
     remote(
@@ -710,6 +729,7 @@ fn a_composite_action_a_step_calls_is_fetched_and_run() {
 
 #[test]
 fn an_action_pinned_to_a_commit_is_fetched() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let origin = scene.path().join("origin");
     remote(
@@ -761,6 +781,7 @@ fn an_action_pinned_to_a_commit_is_fetched() {
 
 #[test]
 fn a_fetch_that_fails_leaves_no_checkout_behind() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let origin = scene.path().join("origin");
     remote(
@@ -791,6 +812,7 @@ fn a_fetch_that_fails_leaves_no_checkout_behind() {
 
 #[test]
 fn what_the_steps_expect_on_the_path_is_read_from_the_action() {
+    let _alone = support::alone();
     let action = xtask::action::Action::parse(
         r"
 runs:
@@ -827,6 +849,7 @@ runs:
 
 #[test]
 fn a_need_is_met_only_by_its_version() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let bin = scene.path().join("bin");
     fs::create_dir_all(&bin).unwrap();

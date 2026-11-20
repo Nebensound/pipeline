@@ -133,6 +133,7 @@ fn repository(scene: &Scene) -> PathBuf {
 
 #[test]
 fn help_is_no_failure_and_a_wrong_call_is_one() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let setup = setup(scene.path(), scene.path(), "linux");
     for help in ["help", "--help", "-h"] {
@@ -166,6 +167,7 @@ fn help_is_no_failure_and_a_wrong_call_is_one() {
 
 #[test]
 fn every_case_runs_and_every_problem_is_named() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let root = repository(&scene);
     let setup = setup(&root, scene.path(), "linux");
@@ -216,6 +218,7 @@ fn every_case_runs_and_every_problem_is_named() {
 
 #[test]
 fn elsewhere_than_linux_the_cases_do_not_run() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let root = repository(&scene);
     let (code, out) = call(&["check", "--all"], &setup(&root, scene.path(), "macos"));
@@ -231,6 +234,7 @@ fn elsewhere_than_linux_the_cases_do_not_run() {
 
 #[test]
 fn problems_of_the_layout_and_of_the_run_are_counted_together() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let root = repository(&scene);
     // A broken case: the layout names it, and running the block fails on it.
@@ -249,6 +253,7 @@ fn problems_of_the_layout_and_of_the_run_are_counted_together() {
 
 #[test]
 fn a_run_without_its_tool_or_its_room_stops() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let root = repository(&scene);
     write(
@@ -375,6 +380,7 @@ fn provide(bin: &Path) {
 
 #[test]
 fn setup_calls_the_tool_of_this_commit_with_every_option() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let (root, bin, mut setup) = needy(&scene);
     provide(&bin);
@@ -455,6 +461,7 @@ fn setup_calls_the_tool_of_this_commit_with_every_option() {
 
 #[test]
 fn setup_names_what_the_test_cases_need_and_the_machine_lacks() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let (_, bin, mut setup) = needy(&scene);
     setup.cargo = fake_cargo(&scene, 0);
@@ -489,6 +496,7 @@ fn setup_names_what_the_test_cases_need_and_the_machine_lacks() {
 
 #[test]
 fn elsewhere_than_linux_setup_leaves_out_what_only_the_cases_need() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let (_, bin, mut setup) = needy(&scene);
     setup.os = "macos".to_owned();
@@ -511,6 +519,7 @@ fn elsewhere_than_linux_setup_leaves_out_what_only_the_cases_need() {
 
 #[test]
 fn setup_with_actions_it_cannot_read_is_a_failure() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let (root, bin, mut setup) = needy(&scene);
     provide(&bin);
@@ -532,6 +541,7 @@ fn setup_with_actions_it_cannot_read_is_a_failure() {
 
 #[test]
 fn setup_killed_by_a_signal_is_a_failure() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let script = scene.path().join("cargo-killed");
     fs::write(&script, "#!/bin/sh\nkill -9 $$\n").unwrap();
@@ -548,6 +558,7 @@ fn setup_killed_by_a_signal_is_a_failure() {
 
 #[test]
 fn a_repository_that_cannot_be_read_is_a_finding() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let (code, out) = call(
         &["check", "--all"],
@@ -559,6 +570,7 @@ fn a_repository_that_cannot_be_read_is_a_finding() {
 
 #[test]
 fn the_processor_is_named_as_the_runner_names_it() {
+    let _alone = support::alone();
     assert_eq!(xtask::runner_arch("x86_64"), "X64");
     assert_eq!(xtask::runner_arch("aarch64"), "ARM64");
     assert_eq!(xtask::runner_arch("riscv64"), "riscv64");
@@ -566,6 +578,7 @@ fn the_processor_is_named_as_the_runner_names_it() {
 
 #[test]
 fn the_current_setup_is_this_repository_on_this_machine() {
+    let _alone = support::alone();
     let setup = Setup::current();
     assert!(setup.root.join(".github/actions").is_dir());
     assert_eq!(setup.os, std::env::consts::OS);
@@ -576,6 +589,7 @@ fn the_current_setup_is_this_repository_on_this_machine() {
 
 #[test]
 fn a_program_that_fails_or_does_not_start_is_an_error() {
+    let _alone = support::alone();
     let missing = xtask::quietly("/nonexistent/program".as_ref(), &[]).unwrap_err();
     assert!(
         missing
@@ -602,6 +616,7 @@ fn a_program_that_fails_or_does_not_start_is_an_error() {
 
 #[test]
 fn the_binary_answers_with_its_exit_code() {
+    let _alone = support::alone();
     let help = Command::new(env!("CARGO_BIN_EXE_xtask"))
         .arg("help")
         .output()
