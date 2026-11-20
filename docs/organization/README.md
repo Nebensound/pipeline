@@ -41,9 +41,9 @@ described here.
 
 The four rulesets to apply hold only for a repository whose property `pipeline`
 is `central` and whose property `lifecycle` is neither `sandbox` nor
-`archived`. A fork and a repository that has not switched yet stay untouched
-as long as they carry `legacy` (see [Properties](#properties) for why a new one
-does not by default). The existing ruleset holds for every repository whose
+`archived`. A repository that has not switched yet stays untouched as long as
+it carries `legacy`; a new repository and a new fork carry `central` from their
+creation (see [Properties](#properties)). The existing ruleset holds for every repository whose
 `lifecycle` is neither `sandbox` nor `archived`, whatever its `pipeline`.
 
 None of the four has a bypass for administrators, except that
@@ -146,12 +146,17 @@ administrator, who bypasses the existing ruleset, could not merge a pull
 request before its checks had passed ("3 of 3 required status checks are
 expected").
 
+It is not enforced when the branch is created (`do_not_enforce_on_create`), so
+that a new repository, which carries `central` from its creation, can be
+created at all: the first push into an empty repository creates the default
+branch and goes through, and every pull request afterwards needs the three
+checks. The repository's first pull request, the one that adds the caller,
+reports them itself. `release-guard` keeps the rule on creation, so `release`
+can be created only at a commit that has passed the three checks.
+
 It does not protect against a workflow of the repository reporting the names
-itself, which the next section explains. It also holds when a branch is
-created: measured with `release-guard`, which carries the same rule, a branch
-cannot be created at a commit that has not passed the three checks. For the
-first push into a new, empty repository that carries `central`, this is
-inferred from that measurement, not measured.
+itself, which the next section explains, nor against what the first push into
+an empty repository brings.
 
 ### `Grundschutz Standard-Branch`
 
@@ -239,11 +244,20 @@ property. The properties `language` and `kind` repeat what the declaration and
 the files already say, and no ruleset targets them; once a repository has
 switched, the owner removes them.
 
-Because the default of `pipeline` is `central`, a repository created later
-carries `central` from its creation, and so does a fork made later: the four
-rulesets bind it before it has a caller. A repository that has not switched and
-a fork stay untouched only when they carry `legacy`, so the owner sets a new
-repository to `legacy` until its caller is merged, and a new fork for good.
+The default of `pipeline` is `central`, so a new repository is bound from the
+start: the four rulesets hold for it before it has a caller. It can still be
+created, because `required-checks` is not enforced on creation, and its first
+pull request adds the caller, which reports the three checks.
+
+What follows from it:
+
+- A fork of someone else's project carries `central` as well and is bound by
+  the four rulesets until the owner sets it to `legacy`. A ruleset condition
+  cannot tell a fork apart.
+- The rulesets see only properties, not whether a repository really calls the
+  pipeline or carries the right property. A daily pass over all repositories
+  of the organization (#108) will find what they cannot see, such as a fork
+  that still carries `central`.
 
 ### The one-time step
 
@@ -403,5 +417,5 @@ report them:
   gh api -X DELETE orgs/Nebensound/properties/schema/kind
   ```
 
-- Set a fork made later to `legacy`, and a new repository too until its caller
-  is merged (see [Properties](#properties)).
+- Set a fork of someone else's project to `legacy` once it is made (see
+  [Properties](#properties)).
