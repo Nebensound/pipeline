@@ -175,9 +175,9 @@ Today both run the same jobs, Declare, Version and Check, with the same steps.
 Only the versions depend on the event: on a pull request `Version` shows the
 version the merge would get with `-pr.<number>` behind it, and the plan carries
 the same versions, which the package test of `check-rust` writes and builds
-with. A newer run for the
-same branch or pull request cancels the one still running. The permissions are
-read-only: the workflow reads the repository and writes nothing back.
+with. A newer run for the same branch or pull request cancels the one still
+running. The permissions are read-only: the workflow reads the repository and
+writes nothing back.
 
 This repository calls the workflow the same way, with one difference: its own
 caller runs the workflow at the commit under test rather than at a pinned

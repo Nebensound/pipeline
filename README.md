@@ -293,10 +293,9 @@ with Cargo's message. That a release must not publish a package that requires
 a version never released belongs to the release stage, not to the writer.
 Only `Cargo.toml` and `Cargo.lock` files change. `check-rust` writes the
 versions the same way for its package test, starting from the units of its
-workspace (`--workspace`); the Build phase that calls the block before
-building is not built yet. A version writer
-without a building block (today `asciidoc`) fails by name in
-`nebensound / Check`.
+workspace (`--workspace`); the Build phase that calls the block before building
+is not built yet. A version writer without a building block (today `asciidoc`)
+fails by name in `nebensound / Check`.
 
 ### Linter rules
 
