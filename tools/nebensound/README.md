@@ -244,13 +244,17 @@ it, else its last release, else its pending version. The package test of
 of the repository needs cannot fail it. A path that is not one inside the
 repository ends the call with exit code `2`.
 
-The workspace is found the way Cargo finds it: the folder `package.workspace`
-names, else the nearest folder at or above the package whose `Cargo.toml` has
-a `[workspace]` that does not exclude it, else the package's own folder. The
-dependents are all `Cargo.toml` files Git tracks, inside that workspace or
-outside it; one that is not TOML is passed over. Every change goes through
-`toml_edit`, so comments, blank lines and the order of keys stay, and a file
-whose text does not change is not written: a second call changes nothing.
+The workspace is found the way Cargo finds it: the package's own folder when
+its manifest has a `[workspace]`, else the folder `package.workspace` names,
+else the nearest folder above it whose `Cargo.toml` has a `[workspace]` that
+does not exclude it or names a folder in `package.workspace`, else the
+package's own folder. A `[workspace]` that excludes the package does not end
+the search, and an entry of `members` that names the package keeps it in
+although `exclude` covers it. The dependents are all `Cargo.toml` files Git
+tracks, inside that workspace or outside it; one that is not TOML is passed
+over. Every change goes through `toml_edit`, so comments, blank lines and the
+order of keys stay, and a file whose text does not change is not written: a
+second call changes nothing.
 
 ```text
 component app: the package app at crates/app gets 1.4.1 (workspace root: .).

@@ -1634,6 +1634,164 @@ pipeline = { version = ["cargo"] }
     cargo(&git.path().join("crates/own"), &["build", "--locked"]);
 }
 
+/// A repository whose one unit with a version, `pkg`, lies at `path` with the
+/// writer `cargo`, beside the manifests, lockfiles and code in `files`. The
+/// repository runs the check `rust` everywhere, so that the code in `files`
+/// is covered.
+fn one_unit_at(path: &str, files: &[(&str, &str)]) -> Git {
+    let git = Git::new();
+    let declaration = format!(
+        "[repo]\npipeline = {{ check = [\"rust\"] }}\n\n[component.pkg]\npath     = \
+         \"{path}\"\npipeline = {{ version = [\"cargo\"] }}\n"
+    );
+    let manifest = format!("{path}/Cargo.toml");
+    let code = format!("{path}/src/lib.rs");
+    git.write(&[
+        (".nebensound/repo.toml", declaration.as_str()),
+        (
+            manifest.as_str(),
+            "[package]\nname    = \"pkg\"\nedition = \"2024\"\n",
+        ),
+        (code.as_str(), "//! The unit.\n"),
+    ]);
+    git.write(files);
+    git.commit("feat: start");
+    git
+}
+
+#[test]
+fn a_member_the_workspace_names_stays_in_although_it_excludes_its_folder() {
+    // Cargo keeps a package that `members` names in the workspace, whatever
+    // `exclude` covers.
+    let git = one_unit_at(
+        "crates/keep",
+        &[
+            (
+                "Cargo.toml",
+                "[workspace]\nmembers  = [\"crates/keep\"]\nexclude  = [\"crates\"]\nresolver = \
+                 \"3\"\n",
+            ),
+            (
+                "Cargo.lock",
+                "version = 4\n\n[[package]]\nname = \"pkg\"\nversion = \"0.0.0\"\n",
+            ),
+        ],
+    );
+
+    let (text, code) = call(&[
+        "nebensound",
+        "-C",
+        git.root(),
+        "write-versions",
+        "--workspace",
+        ".",
+    ]);
+
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.contains(
+            "component pkg: the package pkg at crates/keep gets 0.0.1 (workspace root: .)."
+        ),
+        "{text}"
+    );
+    assert_eq!(
+        read(git.path(), "Cargo.lock"),
+        "version = 4\n\n[[package]]\nname = \"pkg\"\nversion = \"0.0.1\"\n"
+    );
+    cargo(git.path(), &["build", "--locked"]);
+    assert_eq!(reported(git.path(), "pkg"), "0.0.1");
+}
+
+#[test]
+fn a_workspace_that_excludes_the_package_does_not_end_the_search() {
+    // `mid` is a workspace of its own that excludes `pkg`; Cargo goes on to the
+    // root, whose `members` names `pkg`.
+    let git = one_unit_at(
+        "mid/pkg",
+        &[
+            (
+                "Cargo.toml",
+                "[workspace]\nmembers  = [\"mid/pkg\"]\nexclude  = [\"mid\"]\nresolver = \"3\"\n",
+            ),
+            (
+                "Cargo.lock",
+                "version = 4\n\n[[package]]\nname = \"pkg\"\nversion = \"0.0.0\"\n",
+            ),
+            (
+                "mid/Cargo.toml",
+                "[package]\nname    = \"mid\"\nedition = \"2024\"\n\n[workspace]\nexclude = \
+                 [\"pkg\"]\n",
+            ),
+            ("mid/src/lib.rs", "//! The middle.\n"),
+        ],
+    );
+
+    let (text, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
+
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.contains("component pkg: the package pkg at mid/pkg gets 0.0.1 (workspace root: .)."),
+        "{text}"
+    );
+    assert_eq!(
+        read(git.path(), "Cargo.lock"),
+        "version = 4\n\n[[package]]\nname = \"pkg\"\nversion = \"0.0.1\"\n"
+    );
+    cargo(git.path(), &["build", "--locked"]);
+    assert_eq!(reported(git.path(), "pkg"), "0.0.1");
+}
+
+#[test]
+fn a_package_above_that_names_its_workspace_ends_the_search_there() {
+    // `inner` says nothing about a workspace, so Cargo passes it over; `mid`
+    // names its workspace `ws` in `package.workspace`, and Cargo takes that
+    // for `pkg` below it as well.
+    let git = one_unit_at(
+        "mid/inner/pkg",
+        &[
+            (
+                "ws/Cargo.toml",
+                "[workspace]\nmembers  = [\"../mid\", \"../mid/inner\", \
+                 \"../mid/inner/pkg\"]\nresolver = \"3\"\n",
+            ),
+            (
+                "ws/Cargo.lock",
+                "version = 4\n\n[[package]]\nname = \"inner\"\nversion = \
+                 \"0.0.0\"\n\n[[package]]\nname = \"mid\"\nversion = \
+                 \"0.0.0\"\n\n[[package]]\nname = \"pkg\"\nversion = \"0.0.0\"\n",
+            ),
+            (
+                "mid/Cargo.toml",
+                "[package]\nname      = \"mid\"\nedition   = \"2024\"\nworkspace = \"../ws\"\n",
+            ),
+            ("mid/src/lib.rs", "//! The middle.\n"),
+            (
+                "mid/inner/Cargo.toml",
+                "[package]\nname    = \"inner\"\nedition = \"2024\"\n",
+            ),
+            ("mid/inner/src/lib.rs", "//! Inside.\n"),
+        ],
+    );
+
+    let (text, code) = call(&["nebensound", "-C", git.root(), "write-versions"]);
+
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.contains(
+            "component pkg: the package pkg at mid/inner/pkg gets 0.0.1 (workspace root: ws)."
+        ),
+        "{text}"
+    );
+    assert_eq!(
+        read(git.path(), "ws/Cargo.lock"),
+        "version = 4\n\n[[package]]\nname = \"inner\"\nversion = \"0.0.0\"\n\n[[package]]\nname \
+         = \"mid\"\nversion = \"0.0.0\"\n\n[[package]]\nname = \"pkg\"\nversion = \"0.0.1\"\n"
+    );
+    let ws = git.path().join("ws");
+    cargo(&ws, &["build", "--locked", "--workspace"]);
+    assert_eq!(reported(&ws, "pkg"), "0.0.1");
+}
+
 #[test]
 fn a_package_outside_any_workspace_without_a_lockfile_gets_its_version() {
     let git = Git::new();

@@ -44,12 +44,16 @@
 //! version depends on it by path: the version of the commit when the commit
 //! touches it, else its last release, else its pending version.
 //!
-//! The workspace is found the way Cargo finds it: the folder the manifest
-//! names in `package.workspace`, else the nearest folder at or above the
-//! package whose `Cargo.toml` has a `[workspace]` that does not exclude it,
-//! else the package's own folder. A dependent is any `Cargo.toml` Git tracks,
-//! in that workspace or outside it; one that does not read as TOML is passed
-//! over, since it cannot be a package Cargo builds.
+//! The workspace is found the way Cargo finds it: the package's own folder
+//! when its manifest has a `[workspace]`, else the folder it names in
+//! `package.workspace`, else the nearest folder above it whose `Cargo.toml`
+//! has a `[workspace]` that does not exclude it or names a folder in
+//! `package.workspace`, else the package's own folder. A `[workspace]` that
+//! excludes the package does not end the search, and an entry of `members`
+//! that names the package keeps it in although `exclude` covers it. A
+//! dependent is any `Cargo.toml` Git tracks, in that workspace or outside it;
+//! one that does not read as TOML is passed over, since it cannot be a package
+//! Cargo builds.
 //!
 //! Every change goes through `toml_edit`, which keeps comments, blank lines
 //! and the order of keys. A file whose text does not change is not written, so
@@ -874,27 +878,39 @@ impl Files<'_> {
     }
 
     /// The root of the workspace the package at `package` belongs to when its
-    /// own manifest does not say: the nearest folder above it whose manifest
-    /// has a `[workspace]` that does not exclude it, else its own folder.
+    /// own manifest does not say, searched upwards from the folder above it as
+    /// Cargo searches: a folder whose manifest has a `[workspace]` that
+    /// excludes the package is passed over, and the search goes on above it; a
+    /// package that `members` names literally is never excluded; a manifest
+    /// without a `[workspace]` that names its workspace in `package.workspace`
+    /// ends the search there. Nothing found, the package's own folder.
     fn workspace_above(&mut self, package: &RelativePath) -> RelativePath {
         let mut above = package.clone();
         while !above.is_root() {
             above = folder(&above);
-            if let Some(workspace) = self
-                .lenient(&above.join("Cargo.toml"))
-                .and_then(|manifest| manifest.get("workspace"))
-            {
-                let excluded = workspace
-                    .get("exclude")
-                    .and_then(Item::as_array)
-                    .is_some_and(|excluded| {
-                        excluded
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .filter_map(|written| resolve(&above, written))
-                            .any(|excluded| excluded.contains(package))
-                    });
-                return if excluded { package.clone() } else { above };
+            let Some(manifest) = self.lenient(&above.join("Cargo.toml")) else {
+                continue;
+            };
+            if let Some(workspace) = manifest.get("workspace") {
+                // Cargo compares the written entries as paths, without
+                // expanding globs, in `members` as in `exclude`.
+                let lists = |key: &str| {
+                    workspace
+                        .get(key)
+                        .and_then(Item::as_array)
+                        .is_some_and(|entries| {
+                            entries
+                                .iter()
+                                .filter_map(Value::as_str)
+                                .filter_map(|written| resolve(&above, written))
+                                .any(|entry| entry.contains(package))
+                        })
+                };
+                if lists("members") || !lists("exclude") {
+                    return above;
+                }
+            } else if let Some(root) = own_root(manifest, &above) {
+                return root;
             }
         }
         package.clone()
