@@ -362,10 +362,11 @@ afterwards, and `1` when one is missing, a download or an installation failed,
 or the repository has errors. A version that differs from the pinned one is
 said and stops nothing.
 
-Not every program has a build for every platform: on Windows on ARM there is
-none of `jq` and `lychee`. There the default mode uses the computer's copy,
-which then has to be on the `PATH`, and `--pinned` cannot install them: it says
-so for each and exits with `1`, even when the computer has them.
+Not every program has a build for every platform: on Windows there is none of
+`dockerfmt`, and on Windows on ARM none of `hadolint`, `jq` and `lychee`. There
+the default mode uses the computer's copy, which then has to be on the `PATH`,
+and `--pinned` cannot install them: it says so for each and exits with `1`,
+even when the computer has them.
 
 ### The folder
 
