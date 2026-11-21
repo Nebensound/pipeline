@@ -404,6 +404,9 @@ fn a_lockfile_is_a_whole_name_a_check_covers_that_ends_in_lock() {
     assert!(register.is_lockfile("Cargo.lock"));
     assert!(register.is_lockfile("api/uv.lock"));
     assert!(register.is_lockfile("sub/flake.lock"));
+    assert!(register.is_lockfile("poetry.lock"));
+    assert!(register.is_lockfile("api/pdm.lock"));
+    assert!(register.is_lockfile("Pipfile.lock"));
     // Named by a check, but not a lockfile.
     assert!(!register.is_lockfile("deploy/Dockerfile"));
     // A lockfile, but no check covers it.
