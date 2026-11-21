@@ -231,7 +231,7 @@ fn a_pattern_that_matches_only_lockfiles_takes_nothing_out() {
 }
 
 #[test]
-fn a_prettierignore_naming_a_lockfile_and_another_file_counts_as_a_whole() {
+fn a_prettierignore_naming_a_lockfile_and_another_file_counts_at_the_other_file() {
     let found = found(
         &excusing(".prettierignore"),
         &with(&[
@@ -240,26 +240,17 @@ fn a_prettierignore_naming_a_lockfile_and_another_file_counts_as_a_whole() {
         ]),
     );
 
-    assert_eq!(
-        summary(&found),
-        [
-            "unexcused-ignore composer.lock",
-            "unexcused-ignore data.json"
-        ]
-    );
+    assert_eq!(summary(&found), ["unexcused-ignore data.json"]);
 }
 
 #[test]
-fn a_taplo_exclude_naming_a_lockfile_and_another_file_counts_as_a_whole() {
+fn a_taplo_exclude_naming_a_lockfile_and_another_file_counts_at_the_other_file() {
     let found = found(
         QUIET,
         &with(&[("taplo.toml", "exclude = [\"Cargo.lock\", \"Cargo.toml\"]\n")]),
     );
 
-    assert_eq!(
-        summary(&found),
-        ["unexcused-ignore Cargo.lock", "unexcused-ignore Cargo.toml"]
-    );
+    assert_eq!(summary(&found), ["unexcused-ignore Cargo.toml"]);
 }
 
 #[test]

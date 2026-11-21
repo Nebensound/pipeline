@@ -519,8 +519,8 @@ out a Rust file takes out nothing Prettier would have looked at. Taplo's
 that takes out nothing but lockfiles the register names, such as a
 `.prettierignore` naming `composer.lock` or an `exclude` naming `Cargo.lock`,
 takes nothing out of a check: no block hands a lockfile to Prettier, and Taplo
-lints without its configuration. One that takes out any other file as well
-counts with every file it takes out. Where
+lints without its configuration. One that takes out another file as well is
+reported at that file only. Where
 yamllint's file sets neither `ignore` nor `ignore-from-file`, phase 0 reads them
 in the file its `extends` names, as yamllint does. rustfmt's `ignore` is read in
 every folder, relative to that folder, since which configuration rustfmt applies
