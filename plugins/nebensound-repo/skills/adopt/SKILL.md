@@ -222,9 +222,12 @@ two stages (step 6): leave it, and stop the loop once it is the only error.
   `unwatched-manifest`, `childless-generator`): fix it, since this pull request
   writes the declaration.
 - **Any other warning** (`nonconforming-name`, `nonconforming-default-branch`,
-  `missing-minimum-file`, `unconventional-commit`, `pointless-release-branch`):
-  leave the repository as it is. A rename or a new default branch is an owner
-  step; the rest becomes a follow-up issue.
+  `missing-minimum-file`, `pointless-release-branch`): leave the repository as
+  it is. A rename or a new default branch is an owner step; the rest becomes a
+  follow-up issue.
+- **`unconventional-commit`** needs no work, since history is not rewritten for
+  it: name the commits in the pull request description as a note (they count
+  as patches) and write no issue for it.
 
 ## 8. Read the repository settings
 
@@ -251,7 +254,8 @@ call.
    - **Decisions asked**: every question of steps 5 to 7 with the answer given.
    - **Settled without asking**: what `init` or phase 0 stated as certain, and
      the judgements below.
-   - **Phase 0**: the summary line of the last local `check`.
+   - **Phase 0**: the summary line of the last local `check`, and the commits
+     `unconventional-commit` names, as a note that they count as patches.
    - **Owner steps**: settings that differ or could not be read, a rename, a
      new default branch, and the branch `release` for a unit released in two
      stages.
@@ -262,14 +266,18 @@ call.
    has to pass; when it fails, fix the branch and push again. The one
    exception is `missing-release-branch` for a unit the user chose to release
    in two stages (step 6): leave it, name it in the description as an owner
-   step, and go on with step 3 of this list. What
-   `nebensound / Check` or `nebensound / Build` find is not fixed here: it
-   becomes follow-up issues. The step `Not written yet` fails for a check or
+   step, and go on with step 3 of this list. Declare then fails, so
+   `nebensound / Check` and `nebensound / Build` do not run: say in the
+   description that they have not run yet, and add to the owner step that
+   their findings are filed as issues once the branch exists and a run has
+   passed Declare. What `nebensound / Check` or `nebensound / Build` find is
+   not fixed here: it becomes follow-up issues. The step `Not written yet` fails for a check or
    build the pipeline has no building block for; that gap is the pipeline's,
    so name it in the description instead of writing an issue for it.
 3. Write the follow-up issues in the adopted repository. Sources: the findings
-   of `Check` and `Build`; the warnings left in step 7; the workflows kept in
-   step 5; and your judgement of the list `init` ends with, which names what
+   of `Check` and `Build`, where they ran; the warnings left in step 7 apart
+   from `unconventional-commit`; the workflows kept in step 5; and your
+   judgement of the list `init` ends with, which names what
    only a person or an assistant can tell: the language of comments and
    messages, naming, documentation. Judge language and naming yourself without
    asking, and the other points where the case is simple; put the rest to the
