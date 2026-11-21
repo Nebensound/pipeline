@@ -10,7 +10,9 @@
 //! else. The others that lead to the same lockfile, as the members of a Cargo
 //! workspace lead to the `Cargo.lock` of its root, are reported once, at the
 //! one nearest the root of the repository: the root's own manifest when it is
-//! among them.
+//! among them. Taking out only that one moves the finding to the next, so for
+//! a workspace the message asks to take out every manifest that leads to the
+//! lockfile.
 //!
 //! It is a **warning**, as a manifest nothing watches is: a missing lockfile
 //! leaves what is resolved to the day of the run, and makes no statement of
@@ -106,10 +108,19 @@ pub fn findings(analysis: &Analysis, register: &Register, read: &Read<'_>) -> Ve
                 format!(
                     "the lockfile of this {manifest} is {expected}, {stands}, and Git does not \
                      track it; what is checked and built is then resolved anew in each run. \
-                     Commit {expected}, or take the manifest out with an [[exclude]] entry and \
-                     its reason",
+                     Commit {expected}, or take out {which} with an [[exclude]] entry and its \
+                     reason",
                     manifest = missing.manifest,
                     stands = missing.stands,
+                    which = match missing.stands {
+                        Stands::Manifest => "the manifest",
+                        // The members of the workspace lead to the same
+                        // lockfile: taking out the one reported only moves
+                        // the finding to the next.
+                        Stands::CargoWorkspaceRoot => {
+                            "every manifest that leads to it, such as the folder of the workspace,"
+                        }
+                    },
                 ),
             )
             .at(missing.at.clone())

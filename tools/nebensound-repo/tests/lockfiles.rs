@@ -87,8 +87,20 @@ fn a_workspace_without_its_lockfile_is_warned_about_once_at_its_root() {
         finding.message,
         "the lockfile of this Cargo.toml is tool/Cargo.lock, in the root of the Cargo \
          workspace, and Git does not track it; what is checked and built is then resolved \
-         anew in each run. Commit tool/Cargo.lock, or take the manifest out with an \
-         [[exclude]] entry and its reason"
+         anew in each run. Commit tool/Cargo.lock, or take out every manifest that leads to \
+         it, such as the folder of the workspace, with an [[exclude]] entry and its reason"
+    );
+}
+
+#[test]
+fn excluding_only_the_reported_root_moves_the_finding_to_the_next_member() {
+    let found = found(&declaring(&exclude("tool/Cargo.toml")), &[]);
+
+    let at: Vec<_> = found.iter().filter_map(|f| f.path.clone()).collect();
+    assert_eq!(at, [path("tool/app/Cargo.toml")], "{found:?}");
+    assert!(
+        found[0].message.contains("every manifest that leads to it"),
+        "{found:?}"
     );
 }
 
@@ -211,6 +223,12 @@ fn a_lockfile_that_stands_beside_its_manifest_is_looked_for_there() {
         found[0]
             .message
             .contains("is tool/app/Cargo.lock, beside the manifest,"),
+        "{found:?}"
+    );
+    assert!(
+        found[0]
+            .message
+            .ends_with("or take out the manifest with an [[exclude]] entry and its reason"),
         "{found:?}"
     );
 }
