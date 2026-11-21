@@ -444,16 +444,19 @@ fn calls(kind: &Kind<'_>, plan: &str, dir: &Path) -> Result<Result<Vec<Call>, St
     };
     // A check or build block gets the plan beside the unit's path when it
     // takes one, as its step in nebensound.yml hands it over.
-    let unit = |path: String| -> Result<BTreeMap<String, String>, Error> {
-        let mut inputs = BTreeMap::from([("working-directory".to_owned(), path)]);
-        if Action::load(dir)?
+    let planned = match kind {
+        Kind::Version(_) => false,
+        Kind::Check(_) | Kind::Build(_) => Action::load(dir)?
             .inputs
             .iter()
-            .any(|input| input.name.eq_ignore_ascii_case("plan"))
-        {
+            .any(|input| input.name.eq_ignore_ascii_case("plan")),
+    };
+    let unit = |path: String| {
+        let mut inputs = BTreeMap::from([("working-directory".to_owned(), path)]);
+        if planned {
             inputs.insert("plan".to_owned(), plan.to_owned());
         }
-        Ok(inputs)
+        inputs
     };
     Ok(Ok(match *kind {
         Kind::Check(check) => {
@@ -463,10 +466,7 @@ fn calls(kind: &Kind<'_>, plan: &str, dir: &Path) -> Result<Result<Vec<Call>, St
                     "no unit of the case starts the check `{check}`, so the block never runs"
                 )));
             }
-            units
-                .into_iter()
-                .map(|path| Ok(alone(unit(path)?)))
-                .collect::<Result<_, Error>>()?
+            units.into_iter().map(|path| alone(unit(path))).collect()
         }
         Kind::Version(writer) => {
             if writers(plan, writer)?.is_empty() {
@@ -490,13 +490,11 @@ fn calls(kind: &Kind<'_>, plan: &str, dir: &Path) -> Result<Result<Vec<Call>, St
             }
             units
                 .into_iter()
-                .map(|built| {
-                    Ok(Call {
-                        writers: built.writers,
-                        inputs: unit(built.path)?,
-                    })
+                .map(|built| Call {
+                    writers: built.writers,
+                    inputs: unit(built.path),
                 })
-                .collect::<Result<_, Error>>()?
+                .collect()
         }
     }))
 }

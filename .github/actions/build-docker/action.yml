@@ -173,7 +173,8 @@ runs:
         fi
 
     # The layout names one image manifest, and each file is the one its digest
-    # names. The configuration is kept for the steps below.
+    # names. It is unpacked beside the tar for the scan, which reads a layout
+    # only as a folder; the tar stays what is handed on.
     - name: Read the digest of the image
       id: digest
       shell: bash
@@ -184,31 +185,30 @@ runs:
         VERSION: ${{ steps.unit.outputs.version }}
       run: |
         set -euo pipefail
-        member() {
-          tar --extract --to-stdout --file "$IMAGE" "$1" 2> /dev/null \
-            || tar --extract --to-stdout --file "$IMAGE" "./$1"
-        }
+        layout="$DIR/layout"
+        mkdir -p "$layout"
+        tar --extract --file "$IMAGE" --directory "$layout"
+        # Sets `file` to the file of the layout with the digest $1.
         blob() {
-          local file="$DIR/$2"
-          member "blobs/${1/://}" > "$file"
-          if [ "sha256:$(sha256sum "$file" | cut -d ' ' -f 1)" != "$1" ]; then
-            echo "::error::The layout of '$UNIT' holds a file under $1 whose digest is another."
+          file="$layout/blobs/${1/://}"
+          if [ ! -f "$file" ] || [ "sha256:$(sha256sum "$file" | cut -d ' ' -f 1)" != "$1" ]; then
+            echo "::error::The layout of '$UNIT' holds no file with the digest $1."
             exit 1
           fi
         }
-        member index.json > "$DIR/index.json"
-        manifests="$(jq '.manifests | length' "$DIR/index.json")"
-        media="$(jq --raw-output '.manifests[0].mediaType' "$DIR/index.json")"
+        manifests="$(jq '.manifests | length' "$layout/index.json")"
+        media="$(jq --raw-output '.manifests[0].mediaType' "$layout/index.json")"
         if [ "$manifests" -ne 1 ] || [ "$media" != "application/vnd.oci.image.manifest.v1+json" ]; then
           echo "::error::The layout of '$UNIT' names $manifests entries, the first of type $media, and one image manifest is what it has to name."
           exit 1
         fi
-        digest="$(jq --raw-output '.manifests[0].digest' "$DIR/index.json")"
-        blob "$digest" manifest.json
-        configuration="$(jq --raw-output '.config.digest' "$DIR/manifest.json")"
-        blob "$configuration" config.json
-        platform="$(jq --raw-output '.os + "/" + .architecture' "$DIR/config.json")"
-        labelled="$(jq --raw-output '.config.Labels["org.opencontainers.image.version"] // empty' "$DIR/config.json")"
+        digest="$(jq --raw-output '.manifests[0].digest' "$layout/index.json")"
+        blob "$digest"
+        configuration="$(jq --raw-output '.config.digest' "$file")"
+        blob "$configuration"
+        config="$file"
+        platform="$(jq --raw-output '.os + "/" + .architecture' "$config")"
+        labelled="$(jq --raw-output '.config.Labels["org.opencontainers.image.version"] // empty' "$config")"
         if [ "$platform" != "linux/amd64" ] || [ "$labelled" != "$VERSION" ]; then
           echo "::error::The image of '$UNIT' is for $platform and labelled with the version '$labelled', and it has to be for linux/amd64 and labelled $VERSION."
           exit 1
@@ -218,7 +218,8 @@ runs:
         {
           echo "digest=$digest"
           echo "configuration=$configuration"
-          echo "config=$DIR/config.json"
+          echo "config=$config"
+          echo "layout=$layout"
         } >> "$GITHUB_OUTPUT"
 
     - name: Require a health check
@@ -381,19 +382,19 @@ runs:
         rm "$DIR/$asset"
         "$DIR/trivy/trivy" --version
 
-    # Its database of vulnerabilities is fetched fresh in every run, into a
-    # folder of the run.
+    # The layout unpacked from the tar that is handed on. Trivy's database of
+    # vulnerabilities is fetched fresh in every run, into a folder of the run.
     - name: Scan the image
       shell: bash
       env:
         UNIT: ${{ inputs.working-directory }}
         DOCKERFILE: ${{ steps.unit.outputs.dockerfile }}
         DIR: ${{ steps.unit.outputs.dir }}
-        IMAGE: ${{ steps.unit.outputs.image }}
+        LAYOUT: ${{ steps.digest.outputs.layout }}
       run: |
         set -euo pipefail
         report="$DIR/trivy.json"
-        "$DIR/trivy/trivy" image --input "$IMAGE" --config "" --ignorefile "" \
+        "$DIR/trivy/trivy" image --input "$LAYOUT" --config "" --ignorefile "" \
           --cache-dir "$DIR/trivy-cache" --scanners vuln \
           --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 \
           --format json --output "$report" \
