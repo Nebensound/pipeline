@@ -35,12 +35,13 @@ A name stands here once the format knows it. Whether a step behind it is built
 yet is a separate question: [the phases](phases.md) say which phases run today,
 and a check whose building block is not written yet fails by name in its unit.
 
-What a name means does not change. Versions are resolved from the declaration of
-every earlier commit, read with the register of the tool that runs (see
-[Versions](declaration.md#versions)). A default that changes under the same name
-(the release mode of a target, or what a preset brings) changes what the
-declarations of old commits mean, and with it which tags count. Such a change is
-a breaking change of the pipeline; a new default comes under a new name.";
+What a name means does not change within an edition. Versions are resolved from
+the declaration of every earlier commit, read in its edition with the register
+of the tool that runs (see [Versions](declaration.md#versions) and
+[Editions](declaration.md#editions)). A default that changed under the same name
+(the release mode of a target, or what a preset brings) would change what the
+declarations of old commits mean, and with it the versions of an existing
+history. Such a change comes as a new name or as a new edition.";
 
 /// The page, as `docs/register.md` holds it.
 #[must_use]
@@ -195,13 +196,21 @@ fn builds(register: &Register) -> String {
     let rows: Vec<Vec<String>> = register
         .build
         .iter()
-        .map(|(name, build)| vec![code(name), code(&build.produces)])
+        .map(|(name, build)| {
+            vec![
+                code(name),
+                code(&build.produces),
+                codes(&build.requires_version),
+            ]
+        })
         .collect();
     section(
         "Builds",
         "A build produces one kind of artifact. The kind decides which targets can take\n\
-         it.",
-        &["Build", "Produces"],
+         it. A build that needs version writers takes the version of what it produces\n\
+         from what they write: a unit that declares it selects them, or phase 0 fails\n\
+         (see [`build-without-version-writer`](declaration.md#build-without-version-writer)).",
+        &["Build", "Produces", "Needs version writers"],
         &rows,
     )
 }

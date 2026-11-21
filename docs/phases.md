@@ -15,9 +15,10 @@ and what runs on a pull request and on a push.
 | Build   | `nebensound / Build repository`, `nebensound / Build component <name>` and `nebensound / Build` |
 
 The workflow does not publish or deploy anything yet, and it reports versions
-without tagging or releasing them. Those phases arrive one at a time,
-each when it does something: a job that only existed to be green would report
-success for work nobody did. Until a phase is built, no job stands in for it,
+without tagging or releasing them: tags and releases are records the release
+stages will write, and no version is read from them. Those phases arrive one at
+a time, each when it does something: a job that only existed to be green would
+report success for work nobody did. Until a phase is built, no job stands in for it,
 and this page does not describe it.
 
 ## Declare
@@ -32,8 +33,8 @@ it and hands the result on:
    ([`.github/actions/tool`](../.github/actions/tool)).
 2. `nebensound-repo check` reads `.nebensound/repo.toml`, resolves it against
    the register and checks it against what Git tracks, and resolves the version
-   of every unit from the tags and the history. It prints the resolved
-   configuration, the annotated tree, the findings and a summary line.
+   of every unit from the history, holding the tags against it. It prints the
+   resolved configuration, the annotated tree, the findings and a summary line.
    [The reference of the declaration](declaration.md) describes every field and
    every finding.
 3. When phase 0 found no error, every Rust package `[[exclude]]` takes out as a
@@ -41,14 +42,14 @@ it and hands the result on:
    run with its reason, as a notice.
 4. Then `nebensound-repo plan` prints the plan: every unit, with the checks
    started for it and the build it names, and the version of every unit that
-   carries one, its last release, its pending version and the version writers it
-   selects. On a pull request the plan is built the way the job Version reads it
-   (see below): each version is the one the merge would get, with `-pr.<number>`
-   behind it. The units that start at least one check go on to the Check phase,
-   the units whose build is not `null` and that the plan gives a version of this
-   run go on to the Build phase, each with the version writers it selects, and
-   the whole plan is handed on with them: a later job checks out no history, so
-   a version writer takes the versions from the plan.
+   carries one, its current version and the version writers it selects. On a
+   pull request the plan is built the way the job Version reads it (see below):
+   each version is the one the merge would get, with `-pr.<number>` behind it.
+   The units that start at least one check go on to the Check phase, the units
+   whose build is not `null` and that the plan gives a version of this run go
+   on to the Build phase, each with the version writers it selects, and the
+   whole plan is handed on with them: a later job checks out no history, so a
+   version writer takes the versions from the plan.
 
 An error ends the phase here: there is no plan, no check runs, nothing is
 built, and `nebensound / Check` and `nebensound / Build` fail. A warning stops
@@ -63,13 +64,13 @@ cache Declare filled and runs `nebensound-repo version`: the text table goes
 into the log, and the same table as Markdown into the summary of the run, one
 row per unit that carries a version:
 
-| Column       | What it says                                                                         |
-| ------------ | ------------------------------------------------------------------------------------ |
-| Unit, Path   | Which unit, and where it lives.                                                      |
-| Release      | `single-stage` or `two-stage`.                                                       |
-| Last release | Its highest full release, `none` without one.                                        |
-| This commit  | The version of the commit at hand, `none` when the commit does not touch the unit.   |
-| Waiting      | The commits since the last release that touch the unit, the commit at hand included. |
+| Column      | What it says                                                                                                                                     |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Unit, Path  | Which unit, and where it lives.                                                                                                                  |
+| Release     | `single-stage` or `two-stage`.                                                                                                                   |
+| Current     | The highest version the history gives a commit up to the commit at hand, a pre-release included; `none` before the first commit that touches it. |
+| This commit | The version of the commit at hand, `none` when the commit does not touch the unit.                                                               |
+| Waiting     | In two stages only: the commits since the last full release that touch the unit, the commit at hand included. Empty in one stage.                |
 
 [The reference of the declaration](declaration.md#versions) describes how each
 value is resolved. The repository always carries a version, so the table always
@@ -81,9 +82,9 @@ squash merge would put on the base branch: one parent, the changes of the pull
 request, and its title and description as the message, as they stand when the
 run starts. The column is called `This pull request` there, and each version in
 it is the one that merge would get with `-pr.<number>` behind it, such as
-`0.4.2-pr.17` or `1.2.0-pre.3-pr.17`. It names artifacts and is never
-published. A pull request into `release` is merged with a merge commit and is
-read as it is.
+`0.4.2-pr.17` or `1.2.0-pre.3-pr.17`; so is the current version of a unit the
+pull request touches. It names artifacts and is never published. A pull request
+into `release` is merged with a merge commit and is read as it is.
 
 The job runs whatever Declare's result. When phase 0 finds an error, such as a
 shallow clone, there is no table: the log and the summary list every finding
@@ -155,7 +156,7 @@ names the build of a unit that carries a version of its own and generates no
 children (see [the declaration](declaration.md#versions)), and gives a unit a
 version of the run when the commit touches it. A unit the commit does not touch
 has no new artifact to hand on and gets no build job, also where a version
-writer writes its last or pending version for a package that depends on it. A
+writer writes its current version for a package that depends on it. A
 build job starts only when Declare and `nebensound / Check` passed: nothing is
 built from a tree whose checks failed. It checks the repository out, takes the
 tool from the cache Declare filled, and runs its steps:

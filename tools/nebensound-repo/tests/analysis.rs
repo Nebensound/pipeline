@@ -440,8 +440,8 @@ fn the_one_target_that_cannot_be_taken_back_also_demands_the_language() {
     assert!(codes(&analysis).contains(&"target-demands-check"));
 
     let allowed = run(
-        "[repo]\npipeline = { check = [\"rust\"], build = \"cargo-package\", \
-         publish = [\"crates.io\"], dependabot = [\"cargo\"] }\n",
+        "[repo]\npipeline = { version = [\"cargo\"], check = [\"rust\"], \
+         build = \"cargo-package\", publish = [\"crates.io\"], dependabot = [\"cargo\"] }\n",
         CRATE_FILES,
     );
     assert!(allowed.findings().is_empty(), "{:?}", allowed.findings());
@@ -513,6 +513,146 @@ fn a_version_writer_needs_a_version_to_copy() {
 }
 
 #[test]
+fn a_build_needs_the_version_writers_the_register_names_for_it() {
+    // cargo-package needs the writer cargo: without it, the crate would carry
+    // the version its Cargo.toml holds, not the one the run gives the unit.
+    let without = run(
+        "[repo]\npipeline = { dependabot = [\"cargo\"] }\n\n\
+         [component.thing]\npath = \"crates/thing\"\n\
+         pipeline = { check = [\"rust\"], build = \"cargo-package\" }\n",
+        CRATE_FILES,
+    );
+    assert_eq!(codes(&without), ["build-without-version-writer"]);
+    let finding = found(&without, Rule::BuildWithoutVersionWriter).expect("the finding");
+    assert_eq!(finding.severity, Severity::Error);
+    assert!(without.failed());
+    assert_eq!(
+        finding.unit,
+        Some(UnitName::Component(
+            ComponentName::new("thing").expect("a name")
+        ))
+    );
+    assert!(finding.message.contains("cargo-package"), "{finding}");
+    assert!(
+        finding.message.contains("version writer cargo"),
+        "{finding}"
+    );
+
+    // Another writer does not stand in for the one the build needs.
+    let other = run(
+        "[repo]\npipeline = { dependabot = [\"cargo\"] }\n\n\
+         [component.thing]\npath = \"crates/thing\"\n\
+         pipeline = { version = [\"asciidoc\"], check = [\"rust\"], \
+         build = \"cargo-package\" }\n",
+        CRATE_FILES,
+    );
+    assert_eq!(codes(&other), ["build-without-version-writer"]);
+
+    // With the writer, nothing is wrong.
+    let with = run(
+        "[repo]\npipeline = { dependabot = [\"cargo\"] }\n\n\
+         [component.thing]\npath = \"crates/thing\"\n\
+         pipeline = { version = [\"cargo\"], check = [\"rust\"], \
+         build = \"cargo-package\" }\n",
+        CRATE_FILES,
+    );
+    assert!(with.findings().is_empty(), "{:?}", with.findings());
+
+    // A build that needs no writer needs none.
+    let docker = run(
+        "[repo]\npipeline = { check = [\"rust\"], build = \"docker\", \
+         dependabot = [\"cargo\"] }\n",
+        CRATE_FILES,
+    );
+    assert!(
+        !codes(&docker).contains(&"build-without-version-writer"),
+        "{:?}",
+        docker.findings()
+    );
+
+    // A build the register does not know is reported as that, and only that.
+    let unknown = run(
+        "[repo]\npipeline = { check = [\"rust\"], build = \"nothing-like-it\", \
+         dependabot = [\"cargo\"] }\n",
+        CRATE_FILES,
+    );
+    assert!(
+        !codes(&unknown).contains(&"build-without-version-writer"),
+        "{:?}",
+        unknown.findings()
+    );
+}
+
+#[test]
+fn a_generator_without_the_writer_its_build_needs_is_reported_once() {
+    // The children inherit the pipeline, and with it the mistake; it is the
+    // generator's declaration that is wrong, so it is reported there alone.
+    let analysis = run(
+        "[repo]\npipeline = { dependabot = [\"cargo\"] }\n\n\
+         [component.crates]\npath = \"crates\"\nversioning = \"child-folders\"\n\
+         pipeline = { check = [\"rust\"], build = \"cargo-package\" }\n",
+        CRATE_FILES,
+    );
+    let reported: Vec<_> = analysis
+        .findings()
+        .into_iter()
+        .filter(|finding| finding.rule == Rule::BuildWithoutVersionWriter)
+        .map(|finding| finding.unit.clone())
+        .collect();
+    assert_eq!(
+        reported,
+        [Some(UnitName::Component(
+            ComponentName::new("crates").expect("a name")
+        ))]
+    );
+    assert!(
+        analysis
+            .units
+            .iter()
+            .any(|unit| unit.name.to_string() == "component thing"),
+        "the child exists and inherits the build"
+    );
+}
+
+#[test]
+fn a_unit_that_is_never_built_needs_no_writer_for_its_build() {
+    // Without a version of its own and without children, the unit gets no
+    // build job, so nothing it builds could carry a wrong version; and the
+    // writer would be refused there as having nothing to copy.
+    let analysis = run(
+        "[repo]\npipeline = { dependabot = [\"cargo\"] }\n\n\
+         [component.thing]\npath = \"crates/thing\"\nversioning = \"none\"\n\
+         pipeline = { check = [\"rust\"], build = \"cargo-package\" }\n",
+        CRATE_FILES,
+    );
+    assert!(!unit(&analysis, "thing").carries_version);
+    assert!(
+        !codes(&analysis).contains(&"build-without-version-writer"),
+        "{:?}",
+        analysis.findings()
+    );
+}
+
+#[test]
+fn every_preset_that_builds_passes_with_the_writers_it_selects() {
+    let central = central();
+    let mut seen = 0;
+    for (name, preset) in &central.register().preset {
+        if preset.build.is_none() {
+            continue;
+        }
+        let analysis = run(&format!("[repo]\npipeline = \"{name}\"\n"), CRATE_FILES);
+        assert!(
+            !codes(&analysis).contains(&"build-without-version-writer"),
+            "{name}: {:?}",
+            analysis.findings()
+        );
+        seen += 1;
+    }
+    assert!(seen > 0, "some preset builds");
+}
+
+#[test]
 fn a_finding_says_what_it_is_about() {
     let analysis = run(
         "[repo]\n\n[component.ghost]\npath = \"nowhere\"\n",
@@ -532,8 +672,8 @@ fn a_finding_says_what_it_is_about() {
 #[test]
 fn an_explicit_pipeline_may_leave_publish_out_altogether() {
     let analysis = run(
-        "[repo]\npipeline = { check = [\"rust\"], build = \"cargo-package\", \
-         dependabot = [\"cargo\"] }\n",
+        "[repo]\npipeline = { version = [\"cargo\"], check = [\"rust\"], \
+         build = \"cargo-package\", dependabot = [\"cargo\"] }\n",
         CRATE_FILES,
     );
     assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
@@ -560,9 +700,9 @@ fn every_rule_has_a_code_of_its_own() {
         Rule::TargetDemandsCheck,
         Rule::PublishWithoutVersion,
         Rule::VersionWriterWithoutVersion,
+        Rule::BuildWithoutVersionWriter,
         Rule::UnwatchedManifest,
         Rule::PointlessWatch,
-        Rule::UnexpectedTag,
         Rule::UnconventionalCommit,
         Rule::ShallowClone,
         Rule::MissingReleaseBranch,
@@ -571,6 +711,7 @@ fn every_rule_has_a_code_of_its_own() {
         Rule::PointlessReleaseBranch,
         Rule::PreReleaseMinimum,
         Rule::StalePromotion,
+        Rule::ConflictingTag,
         Rule::UnexcusedIgnore,
         Rule::UnreadableIgnoreFile,
         Rule::PartialPackageExclusion,
@@ -740,7 +881,8 @@ fn a_package_in_a_workspace_is_checked_by_the_workspace() {
     let analysis = run(
         "[repo]\npipeline = { check = [\"rust\"], dependabot = [\"cargo\"] }\n\n\
          [component.thing]\npath = \"crates/thing\"\n\
-         pipeline = { build = \"cargo-package\", publish = [\"crates.io\"] }\n\n\
+         pipeline = { version = [\"cargo\"], build = \"cargo-package\", \
+         publish = [\"crates.io\"] }\n\n\
          [component.workflows]\npath = \".github\"\npipeline = { check = [\"yaml\"] }\n",
         CRATE_FILES,
     );

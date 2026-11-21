@@ -23,6 +23,10 @@ use crate::version::TagVersion;
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Declaration {
+    /// How a commit that holds this declaration is read. `1` when it is left
+    /// out, and `1` is the only edition there is.
+    #[serde(default)]
+    pub edition: Option<Edition>,
     /// What is pulled back into the check — paths and patterns.
     #[serde(default)]
     pub include: Vec<Inclusion>,
@@ -43,6 +47,21 @@ pub struct Declaration {
     #[serde(default)]
     pub exclude: Vec<Exclusion>,
 }
+
+/// The edition of a declaration: how a commit that holds it is read, with
+/// which reader, with which meaning of the register's names and with which
+/// rules of counting.
+///
+/// Within an edition, the versions of an existing history never change with
+/// the version of the tool, and a declaration that was valid stays readable
+/// with the same meaning. A change that would break this comes as a new
+/// edition, which a repository switches on with a commit and which holds from
+/// that commit on, while the tool goes on reading the older ones. `1` is the
+/// only edition there is ([`crate::EDITION`]); [`Declaration::read_edition`]
+/// refuses any other before the rest of the file is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(transparent)]
+pub struct Edition(pub u64);
 
 /// An entry that pulls something back into the check.
 ///

@@ -20,8 +20,17 @@
 //! anything of them is used. A runtime is installed only when it is missing
 //! and someone agrees: in a terminal by answering yes, otherwise by passing
 //! `--with-runtimes`. Without either, nothing at all is installed. A runtime
-//! on the computer that is too old for a program on it counts as missing; one
-//! that can run the programs is used whatever its version, in every mode.
+//! on the computer that is too old for a program that needs it counts as
+//! missing; one that can run those programs is used whatever its version, in
+//! every mode.
+//!
+//! A runtime is needed, and held against the lowest version a program on it
+//! runs on, only for the programs this run installs on it or starts through
+//! it: one that is to be installed, since its runtime's installer puts it in
+//! place, and a pinned copy installed with npm, whose command is a script that
+//! calls the runtime. A pinned copy installed with pip starts with the Python
+//! of its own environment, and a program on the computer that the run leaves as
+//! it is starts the way it was installed; neither of them needs the runtime.
 
 pub mod fetch;
 pub mod find;
@@ -38,7 +47,7 @@ use std::process::Command;
 
 use crate::Register;
 use crate::names::{CheckName, ProgramName, RuntimeName};
-use crate::programs::{Download, Platform, Program, Runtime, at_least};
+use crate::programs::{Download, Installer, Platform, Program, Runtime, at_least};
 
 use self::find::{Found, MARK};
 use self::unpack::Packing;
@@ -156,23 +165,25 @@ pub fn run(
 struct Wanted<'a> {
     name: &'a ProgramName,
     program: &'a Program,
-    /// The runtime it runs on, if it needs one.
+    /// The runtime it runs on, if it has one.
     runtime: Option<(&'a RuntimeName, &'a Runtime)>,
+    /// Whether this run needs that runtime for it: see [`needs`].
+    needs_runtime: bool,
     checks: Vec<&'a CheckName>,
     found: Found,
 }
 
-/// One runtime a program needs, and what there is of it.
+/// One runtime a program needs in this run, and what there is of it.
 struct Needed<'a> {
     name: &'a RuntimeName,
     runtime: &'a Runtime,
-    /// The highest of the lowest versions the programs on it run on, with
-    /// the first program that needs it.
+    /// The highest of the lowest versions the programs that need it run on,
+    /// with the first program that needs that version.
     minimum: Option<(&'a ProgramName, &'a str)>,
     found: Found,
 }
 
-/// What there is of every program and runtime.
+/// What there is of every program, and of every runtime this run needs.
 struct Survey<'a> {
     runtimes: Vec<Needed<'a>>,
     programs: Vec<Wanted<'a>>,
@@ -205,7 +216,7 @@ impl<'a> Setup<'a, '_> {
             list(&checks),
             folder.display()
         ));
-        let survey = self.survey();
+        let survey = self.survey(options.mode, &[]);
         if survey.programs.is_empty() {
             self.say("\nThese checks call no program the register pins.\n");
             return Ok(true);
@@ -216,13 +227,18 @@ impl<'a> Setup<'a, '_> {
         }
 
         let mut failed = false;
+        // After the installs a program installed with pip no longer needs its
+        // runtime; the report still names the runtime this run needed for it.
+        let needed: Vec<&ProgramName> = survey
+            .programs
+            .iter()
+            .filter(|wanted| wanted.needs_runtime)
+            .map(|wanted| wanted.name)
+            .collect();
         let programs: Vec<&Wanted> = survey
             .programs
             .iter()
-            .filter(|wanted| match options.mode {
-                Mode::Pinned => !matches!(wanted.found, Found::Pinned(_)),
-                _ => wanted.found.missing(),
-            })
+            .filter(|wanted| installs(&wanted.found, options.mode))
             .collect();
         let runtimes: Vec<&Needed> = survey
             .runtimes
@@ -251,12 +267,15 @@ impl<'a> Setup<'a, '_> {
                 failed = true;
             }
         }
-        let survey = self.survey();
+        let survey = self.survey(options.mode, &needed);
         self.report(&survey);
         Ok(!failed && complete(&survey))
     }
 
-    fn survey(&self) -> Survey<'a> {
+    /// What there is of the programs and of the runtimes this run needs. A
+    /// program in `needed` counts as needing its runtime, whatever is found
+    /// for it now.
+    fn survey(&self, mode: Mode, needed: &[&ProgramName]) -> Survey<'a> {
         let register = self.register;
         let programs: Vec<Wanted<'a>> = register
             .programs_of(self.checks)
@@ -272,25 +291,30 @@ impl<'a> Setup<'a, '_> {
                             .is_some_and(|definition| definition.programs.contains(name))
                     })
                     .collect();
+                let runtime = program
+                    .runtime
+                    .as_ref()
+                    .and_then(|runtime| register.runtime.get_key_value(runtime));
+                let found = find::program(register, name, program, self.env);
                 Wanted {
                     name,
                     program,
-                    runtime: program
-                        .runtime
-                        .as_ref()
-                        .and_then(|runtime| register.runtime.get_key_value(runtime)),
+                    runtime,
+                    needs_runtime: runtime.is_some_and(|(_, runtime)| {
+                        needed.contains(&name) || needs(runtime, &found, mode)
+                    }),
                     checks,
-                    found: find::program(register, name, program, self.env),
+                    found,
                 }
             })
             .collect();
         let mut runtimes: Vec<Needed<'a>> = Vec::new();
-        for (name, runtime) in programs.iter().filter_map(|wanted| wanted.runtime) {
+        for (name, runtime) in programs.iter().filter_map(needed_runtime) {
             if !runtimes.iter().any(|needed| needed.name == name) {
                 let minimum = highest(
                     programs
                         .iter()
-                        .filter(|wanted| wanted.runtime.is_some_and(|(on, _)| on == name))
+                        .filter(|wanted| needed_runtime(wanted).is_some_and(|(on, _)| on == name))
                         .filter_map(|wanted| {
                             let minimum = wanted.program.runtime_minimum.as_deref();
                             minimum.map(|minimum| (wanted.name, minimum))
@@ -323,7 +347,9 @@ impl<'a> Setup<'a, '_> {
             let users: Vec<String> = survey
                 .programs
                 .iter()
-                .filter(|wanted| wanted.runtime.is_some_and(|(name, _)| name == needed.name))
+                .filter(|wanted| {
+                    needed_runtime(wanted).is_some_and(|(name, _)| name == needed.name)
+                })
                 .map(|wanted| wanted.name.to_string())
                 .collect();
             let source = self
@@ -535,6 +561,35 @@ impl<'a> Setup<'a, '_> {
         }
         self.say(&text);
     }
+}
+
+/// Whether this run puts the program in place: in the default mode, and in
+/// the one that only says what that mode would do, when it is missing; with
+/// `--pinned`, unless its pinned copy is there.
+fn installs(found: &Found, mode: Mode) -> bool {
+    match mode {
+        Mode::Pinned => !matches!(found, Found::Pinned(_)),
+        Mode::Missing | Mode::Check => found.missing(),
+    }
+}
+
+/// Whether this run needs the runtime of a program on it: when it installs
+/// the program through the runtime's installer, or when the program's pinned
+/// copy starts through the runtime. npm puts a script in place that calls the
+/// runtime on the `PATH`; pip puts the program into an environment of its own,
+/// which starts with that environment's Python. A program on the computer that
+/// the run leaves as it is starts the way it was installed.
+fn needs(runtime: &Runtime, found: &Found, mode: Mode) -> bool {
+    let started_through = match runtime.installer {
+        Installer::Npm => true,
+        Installer::Pip => false,
+    };
+    installs(found, mode) || (started_through && matches!(found, Found::Pinned(_)))
+}
+
+/// The runtime of a program, if this run needs it for the program.
+fn needed_runtime<'a>(wanted: &Wanted<'a>) -> Option<(&'a RuntimeName, &'a Runtime)> {
+    wanted.runtime.filter(|_| wanted.needs_runtime)
 }
 
 /// Whether nothing is missing.

@@ -150,7 +150,12 @@ fn unit_lines(unit: &Unit) -> Vec<String> {
             listed(&unit.pipeline.dependabot)
         ));
     }
-    let version = if unit.carries_version { "tags" } else { "none" };
+    // A version comes from the history, never from a tag.
+    let version = if unit.carries_version {
+        "history"
+    } else {
+        "none"
+    };
     lines.push(format!(
         "{}{version} (versioning = \"{}\")",
         column(6, "Version"),

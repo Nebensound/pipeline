@@ -82,20 +82,23 @@ pub enum Rule {
     PublishWithoutVersion,
     /// A version writer on a unit that carries no version to copy.
     VersionWriterWithoutVersion,
+    /// A build without a version writer it needs, so that its artifact would
+    /// carry a version the run did not write.
+    BuildWithoutVersionWriter,
     /// A manifest whose ecosystem no unit has watched.
     UnwatchedManifest,
     /// A watched ecosystem whose manifest does not exist.
     PointlessWatch,
-    /// A tag with a unit's prefix that is not one of its releases.
-    UnexpectedTag,
     /// A commit message that is not a Conventional Commit.
     UnconventionalCommit,
     /// A clone without the whole history, so no version can be told.
     ShallowClone,
-    /// A unit released in two stages, and no branch `origin/release`.
+    /// A unit that is or was released in two stages at a commit that counts
+    /// for it, and no branch `origin/release`.
     MissingReleaseBranch,
-    /// A unit released in one stage whose newest tag is a pre-release that its
-    /// last full release does not hold.
+    /// A unit released in one stage with commits since its last full release
+    /// that were released in two stages, and so given pre-releases that never
+    /// became a full release.
     UnreleasedBeforeSwitch,
     /// A version whose field to raise holds the largest number already.
     ExhaustedVersion,
@@ -105,6 +108,10 @@ pub enum Rule {
     PreReleaseMinimum,
     /// A merge into `release` of a commit other than the tip of `main`.
     StalePromotion,
+    /// A tag that reads as a release of a unit, sits elsewhere than on the
+    /// commit the history gives its version, and is not below the unit's
+    /// current version.
+    ConflictingTag,
     /// A file a tool's own setting takes out, and no exclusion does.
     UnexcusedIgnore,
     /// A tool's setting that takes files out, and that phase 0 cannot read.
@@ -136,9 +143,9 @@ impl Rule {
             Self::TargetDemandsCheck => "target-demands-check",
             Self::PublishWithoutVersion => "publish-without-version",
             Self::VersionWriterWithoutVersion => "version-writer-without-version",
+            Self::BuildWithoutVersionWriter => "build-without-version-writer",
             Self::UnwatchedManifest => "unwatched-manifest",
             Self::PointlessWatch => "pointless-watch",
-            Self::UnexpectedTag => "unexpected-tag",
             Self::UnconventionalCommit => "unconventional-commit",
             Self::ShallowClone => "shallow-clone",
             Self::MissingReleaseBranch => "missing-release-branch",
@@ -147,6 +154,7 @@ impl Rule {
             Self::PointlessReleaseBranch => "pointless-release-branch",
             Self::PreReleaseMinimum => "pre-release-minimum",
             Self::StalePromotion => "stale-promotion",
+            Self::ConflictingTag => "conflicting-tag",
             Self::UnexcusedIgnore => "unexcused-ignore",
             Self::UnreadableIgnoreFile => "unreadable-ignore-file",
             Self::PartialPackageExclusion => "partial-package-exclusion",
