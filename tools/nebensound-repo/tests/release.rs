@@ -81,6 +81,7 @@ fn the_default_follows_the_publish_targets() {
     let units = units(
         r#"
 [repo]
+audience = "public"
 pipeline = "rust-workspace"
 
 [component.library]
@@ -116,6 +117,7 @@ fn one_target_in_two_stages_takes_the_unit_to_two_stages() {
     let units = units(
         r#"
 [repo]
+audience = "public"
 pipeline = { build = "cargo-package", publish = ["release-assets", "private-registry", "ghcr"] }
 "#,
         FILES,
@@ -128,7 +130,7 @@ pipeline = { build = "cargo-package", publish = ["release-assets", "private-regi
     );
 
     let units = self::units(
-        "[repo]\npipeline = { build = \"docker\", publish = [\"ghcr\", \"pages\"] }\n",
+        "[repo]\naudience = \"public\"\npipeline = { build = \"docker\", publish = [\"ghcr\", \"pages\"] }\n",
         FILES,
     );
     // When none of them does, every target decided.
@@ -143,6 +145,7 @@ fn a_written_value_wins_over_the_default_and_keeps_it_known() {
     let units = units(
         r#"
 [repo]
+audience = "public"
 pipeline = "none"
 release  = "two-stage"
 
@@ -179,6 +182,7 @@ fn a_minimum_version_is_taken_as_written() {
     let units = units(
         r#"
 [repo]
+audience = "public"
 pipeline        = "none"
 minimum-version = "1.0.0"
 
@@ -204,6 +208,7 @@ fn a_generated_unit_inherits_both_from_its_creator() {
     let units = units(
         r#"
 [repo]
+audience = "public"
 pipeline = "none"
 
 [component.docs]
@@ -240,7 +245,7 @@ minimum-version = "0.1.0"
 
     // A creator without a minimum version passes none on.
     let units = self::units(
-        "[repo]\npipeline = \"none\"\n\n[component.docs]\npath = \"docs\"\npipeline = \
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.docs]\npath = \"docs\"\npipeline = \
          \"typst-document\"\nversioning = \"child-files\"\n",
         FILES,
     );
@@ -254,6 +259,7 @@ fn a_minimum_version_may_name_a_pre_release() {
     let units = units(
         r#"
 [repo]
+audience = "public"
 pipeline = "none"
 
 [component.library]
