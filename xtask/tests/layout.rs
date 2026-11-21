@@ -56,11 +56,22 @@ fn case(expect: Expect) -> Case {
     }
 }
 
+/// A block whose action.yml declares no input `plan`.
 fn dir(name: &str, action: bool, cases: Result<Vec<Case>, Error>) -> Directory {
     Directory {
         name: name.to_owned(),
         action,
+        plan: Ok(false),
         cases,
+    }
+}
+
+/// A block with both kinds of cases whose action.yml declares the input
+/// `plan`, or cannot be read.
+fn planned(name: &str, plan: Result<bool, Error>) -> Directory {
+    Directory {
+        plan,
+        ..dir(name, true, Ok(both()))
     }
 }
 
@@ -93,8 +104,18 @@ fn workflow_jobs(
     )
 }
 
-/// What a step that hands a check block other keys or inputs is told.
-const CHECK_FORM: &str = "other keys than `if`, `name`, `uses`, `with`, or that hands it other than `working-directory: ${{ matrix.path }}`, or `plan: ${{ needs.declare.outputs.plan }}` and `working-directory: ${{ matrix.path }}`";
+/// What a step that hands a check or build block other keys or inputs is
+/// told, when the block declares no input `plan`.
+const CHECK_FORM: &str = "other keys than `if`, `name`, `uses`, `with`, or that hands it other than `working-directory: ${{ matrix.path }}`";
+
+/// The same when the block declares the input `plan`.
+const PLANNED_FORM: &str = "other keys than `if`, `name`, `uses`, `with`, or that hands it other than `plan: ${{ needs.declare.outputs.plan }}` and `working-directory: ${{ matrix.path }}`";
+
+/// The same when the block's action.yml cannot be read.
+const EITHER_FORM: &str = "other keys than `if`, `name`, `uses`, `with`, or that hands it other than `working-directory: ${{ matrix.path }}`, or `plan: ${{ needs.declare.outputs.plan }}` and `working-directory: ${{ matrix.path }}`";
+
+/// The line under `with` of a step that hands its block the plan of phase 0.
+const WITH_PLAN: &str = "    plan: ${{ needs.declare.outputs.plan }}\n";
 
 const AGREEING_STEPS: &str = "- name: demo\n  if: ${{ !cancelled() && contains(matrix.checks, 'demo') }}\n  uses: $/.github/actions/check-demo\n  with:\n    working-directory: ${{ matrix.path }}\n- uses: $/.github/actions/phase0\n  id: phase0\n";
 
@@ -186,20 +207,81 @@ fn a_step_that_silences_its_check_or_moves_it_is_named() {
     }
 }
 
-#[test]
-fn a_check_may_take_the_plan_of_phase_0_beside_its_path() {
-    let steps = "- name: demo\n  if: ${{ !cancelled() && contains(matrix.checks, 'demo') }}\n  uses: $/.github/actions/check-demo\n  with:\n    plan: ${{ needs.declare.outputs.plan }}\n    working-directory: ${{ matrix.path }}\n- uses: $/.github/actions/phase0\n";
-    let found = layout::compare(
+/// The problems of a check step `steps` beside the block `check-demo`.
+fn check_problems(steps: &str, block: Directory) -> Vec<String> {
+    layout::compare(
         REGISTER,
         &workflow(r#"["demo"]"#, steps),
         &[
-            dir("check-demo", true, Ok(both())),
+            block,
             dir("phase0", true, Ok(Vec::new())),
             dir("tool", true, Ok(Vec::new())),
         ],
     )
-    .unwrap();
-    assert_eq!(found.problems, Vec::<String>::new());
+    .unwrap()
+    .problems
+}
+
+#[test]
+fn a_check_gets_the_plan_exactly_when_its_block_takes_it() {
+    let bare = AGREEING_STEPS;
+    let with_plan = AGREEING_STEPS.replacen(
+        "    working-directory",
+        &format!("{WITH_PLAN}    working-directory"),
+        1,
+    );
+    let elsewhere = AGREEING_STEPS.replacen(
+        "    working-directory",
+        "    plan: '{}'\n    working-directory",
+        1,
+    );
+
+    // The block takes the plan: the step hands it over, and only from phase 0.
+    assert_eq!(
+        check_problems(&with_plan, planned("check-demo", Ok(true))),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        check_problems(bare, planned("check-demo", Ok(true))),
+        [
+            "the step `demo` of nebensound.yml hands `check-demo` no plan, though its action.yml declares the input `plan`: the step hands it `plan: ${{ needs.declare.outputs.plan }}` as well"
+        ]
+    );
+    assert_eq!(
+        check_problems(&elsewhere, planned("check-demo", Ok(true))),
+        [format!(
+            "nebensound.yml calls `check-demo` from a step with {PLANNED_FORM}"
+        )]
+    );
+
+    // The block takes no plan: the step hands it none.
+    assert_eq!(
+        check_problems(&with_plan, planned("check-demo", Ok(false))),
+        [
+            "the step `demo` of nebensound.yml hands `check-demo` the plan, though its action.yml declares no input `plan`: the step hands it no `plan`"
+        ]
+    );
+
+    // An action.yml that cannot be read is named, and leaves the plan open.
+    for steps in [bare, with_plan.as_str()] {
+        assert_eq!(
+            check_problems(
+                steps,
+                planned("check-demo", Err(Error::new("a broken action".to_owned())))
+            ),
+            ["a broken action"]
+        );
+    }
+    assert_eq!(
+        check_problems(
+            &elsewhere,
+            planned("check-demo", Err(Error::new("a broken action".to_owned())))
+        ),
+        [
+            "a broken action".to_owned(),
+            format!("nebensound.yml calls `check-demo` from a step with {EITHER_FORM}")
+        ]
+    );
 }
 
 /// The step that calls the version writer `cargo`, as `nebensound.yml`
@@ -415,25 +497,54 @@ fn a_build_is_held_to_its_list_its_form_and_its_cases() {
 }
 
 #[test]
-fn a_build_may_take_the_plan_of_phase_0_beside_its_path() {
-    let found = layout::compare(
-        REGISTER,
-        &workflow_jobs(
-            r#"["demo"]"#,
-            "[]",
-            r#"["cargo-package"]"#,
-            AGREEING_STEPS,
-            &format!("{BUILD_STEP}    plan: ${{{{ needs.declare.outputs.plan }}}}\n"),
-        ),
-        &[
-            dir("build-cargo-package", true, Ok(both())),
-            dir("check-demo", true, Ok(both())),
-            dir("phase0", true, Ok(Vec::new())),
-            dir("tool", true, Ok(Vec::new())),
-        ],
-    )
-    .unwrap();
-    assert_eq!(found.problems, Vec::<String>::new());
+fn a_build_gets_the_plan_exactly_when_its_block_takes_it() {
+    let problems = |step: &str, plan: bool| {
+        layout::compare(
+            REGISTER,
+            &workflow_jobs(
+                r#"["demo"]"#,
+                "[]",
+                r#"["cargo-package"]"#,
+                AGREEING_STEPS,
+                step,
+            ),
+            &[
+                planned("build-cargo-package", Ok(plan)),
+                dir("check-demo", true, Ok(both())),
+                dir("phase0", true, Ok(Vec::new())),
+                dir("tool", true, Ok(Vec::new())),
+            ],
+        )
+        .unwrap()
+        .problems
+    };
+    let with_plan = format!("{BUILD_STEP}{WITH_PLAN}");
+    assert_eq!(problems(&with_plan, true), Vec::<String>::new());
+    assert_eq!(
+        problems(BUILD_STEP, true),
+        [
+            "the step `cargo-package` of nebensound.yml hands `build-cargo-package` no plan, though its action.yml declares the input `plan`: the step hands it `plan: ${{ needs.declare.outputs.plan }}` as well"
+        ]
+    );
+    assert_eq!(
+        problems(&with_plan, false),
+        [
+            "the step `cargo-package` of nebensound.yml hands `build-cargo-package` the plan, though its action.yml declares no input `plan`: the step hands it no `plan`"
+        ]
+    );
+    // A step with another key is told the whole form, plan or not.
+    assert_eq!(
+        problems(&format!("{with_plan}  timeout-minutes: 1\n"), true),
+        [format!(
+            "nebensound.yml calls `build-cargo-package` from a step with {PLANNED_FORM}"
+        )]
+    );
+    assert_eq!(
+        problems(&format!("{BUILD_STEP}  timeout-minutes: 1\n"), true),
+        [format!(
+            "nebensound.yml calls `build-cargo-package` from a step with {PLANNED_FORM}"
+        )]
+    );
 }
 
 /// The blocks of a check, a version writer and a build, each with its cases.
@@ -773,19 +884,38 @@ fn every_directory_is_listed_with_its_cases() {
             ("check-b/action.yml", ""),
             ("check-b/tests/pass/a/file", ""),
             ("check-a/README.md", ""),
+            (
+                "check-c/action.yml",
+                "inputs:\n  Plan:\n    required: true\nruns:\n  using: composite\n  steps: []\n",
+            ),
+            (
+                "check-d/action.yml",
+                "inputs:\n  working-directory:\n    required: true\nruns:\n  using: composite\n  steps: []\n",
+            ),
             ("a file", ""),
         ],
     );
     let found = layout::directories(&actions).unwrap();
-    let names: Vec<(&str, bool, usize)> = found
+    let names: Vec<(&str, bool, usize, Result<bool, String>)> = found
         .iter()
         .map(|dir| {
             (
                 dir.name.as_str(),
                 dir.action,
                 dir.cases.as_ref().unwrap().len(),
+                dir.plan.as_ref().copied().map_err(ToString::to_string),
             )
         })
         .collect();
-    assert_eq!(names, [("check-a", false, 0), ("check-b", true, 1)]);
+    let empty = format!("{} is empty", actions.join("check-b/action.yml").display());
+    assert_eq!(
+        names,
+        [
+            ("check-a", false, 0, Ok(false)),
+            ("check-b", true, 1, Err(empty)),
+            // GitHub reads input names without regard to case.
+            ("check-c", true, 0, Ok(true)),
+            ("check-d", true, 0, Ok(false)),
+        ]
+    );
 }

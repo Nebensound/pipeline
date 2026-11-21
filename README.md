@@ -587,9 +587,11 @@ not part of the case's repository.
   `if`, `uses` and `with`, and hands the block exactly
   `working-directory: ${{ matrix.path }}`, so that neither
   `continue-on-error` nor another path silences the check. Beside it the step
-  may hand `plan: ${{ needs.declare.outputs.plan }}`, the plan of phase 0, to a
-  check that writes the versions before it tests a package, as `check-rust`
-  does;
+  hands `plan: ${{ needs.declare.outputs.plan }}`, the plan of phase 0, exactly
+  when the block's `action.yml` declares the input `plan`, as `check-rust` does
+  to write the versions before it tests a package, and never otherwise: the
+  block's cases get the plan exactly then, so a step that dropped it would
+  leave every caller's run without what the cases test;
 - every version writer's block is called from a step named after its entry
   and switched on it with exactly `${{ contains(matrix.writers, '<writer>') }}`,
   and every build block from a step named after its entry and switched on it
@@ -600,9 +602,10 @@ not part of the case's repository.
   condition holds `!cancelled()`, so that nothing is built after a step that
   failed. The step has no other key than `name`, `if`, `uses` and `with`; it
   hands a version writer exactly `plan: ${{ needs.declare.outputs.plan }}` and
-  a build exactly `working-directory: ${{ matrix.path }}`, beside which it may
-  hand the plan to a build that labels what it builds with the unit's version,
-  as `build-docker` does;
+  a build exactly `working-directory: ${{ matrix.path }}`, beside which it
+  hands the plan exactly when the build block's `action.yml` declares the
+  input `plan`, as `build-docker` does to label what it builds with the unit's
+  version;
 - the step `Not written yet` of the check job counts exactly the checks that
   have a block as written (`WRITTEN_CHECKS`), the step `Not written yet` of
   the build job exactly the builds (`WRITTEN_BUILDS`), and the step
