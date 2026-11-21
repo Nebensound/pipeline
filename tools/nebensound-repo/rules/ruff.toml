@@ -27,6 +27,9 @@ ignore = [
   # hold.
   "D203",
   "D213",
+  # A copyright notice in every file: the licence stands in the LICENSE every
+  # repository holds at its root.
+  "CPY001",
 ]
 
 # pytest's assertions are plain `assert` statements, which S101 reports as

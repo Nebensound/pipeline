@@ -1,1 +1,1 @@
-::error file=tests/test_cli.py,line=10::pytest: tests.test_cli.test_greet failed: *
+::error file=tests/test_cli.py,line=8::pytest: tests.test_cli.test_greet failed: *

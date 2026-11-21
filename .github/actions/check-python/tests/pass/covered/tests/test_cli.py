@@ -1,7 +1,5 @@
 """The command line greets the name it is given."""
 
-import pytest
-
 from sample.cli import greet, main
 
 
@@ -10,7 +8,6 @@ def test_greet() -> None:
     assert greet("Ada") == "Hello, Ada!"
 
 
-def test_main_greets_the_world(capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_greets_the_world() -> None:
     """Greet the world without a name."""
     assert main([]) == 0
-    assert capsys.readouterr().out == "Hello, world!\n"

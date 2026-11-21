@@ -1,1 +1,1 @@
-::error file=src/sample/cli.py::not formatted the way Ruff writes it; 'ruff format' fixes it
+::error file=src/sample/cli.py,line=15,col=52::not formatted the way Ruff writes it; 'ruff format' fixes it

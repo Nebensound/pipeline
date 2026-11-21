@@ -455,56 +455,45 @@ runs:
         set -euo pipefail
         dir="$RUNNER_TEMP/check-python"
         . "$dir/variables"
-        message() {
-          local value="$1"
-          value="${value//'%'/'%25'}"
-          value="${value//$'\r'/'%0D'}"
-          value="${value//$'\n'/'%0A'}"
-          printf '%s' "$value"
-        }
-        property() {
-          local value
-          value="$(message "$1")"
-          value="${value//':'/'%3A'}"
-          value="${value//','/'%2C'}"
-          printf '%s' "$value"
-        }
         # The files from the folder Ruff runs in, which holds every one of
-        # them, and back.
+        # them.
         inside() {
           if [ "$RUFF_FOLDER" = . ]; then printf '%s' "$1"; else printf '%s' "${1#"$RUFF_FOLDER"/}"; fi
-        }
-        outside() {
-          if [ "$RUFF_FOLDER" = . ]; then printf '%s' "$1"; else printf '%s/%s' "$RUFF_FOLDER" "$1"; fi
         }
         files=()
         while IFS= read -r -d '' file; do
           files+=("$(inside "$file")")
         done < "$LIST"
-        out="$dir/ruff-format-out"
+        report="$dir/ruff-format.json"
         err="$dir/ruff-format-err"
         status=0
         (cd "$RUFF_FOLDER" && ruff format --check --no-cache --no-force-exclude \
-          --config "$RUFF_CONFIG" -- "${files[@]}") > "$out" 2> "$err" || status=$?
-        cat "$out" "$err"
-        failed=0
-        while IFS= read -r line; do
-          if [[ "$line" =~ ^Would\ reformat:\ (.+)$ ]]; then
-            echo "::error file=$(property "$(outside "${BASH_REMATCH[1]}")")::not formatted the way Ruff writes it; 'ruff format' fixes it"
-            failed=1
-          fi
-        done < "$out"
-        while IFS= read -r line; do
-          if [[ "$line" =~ ^error:\ Failed\ to\ parse\ (.+):([0-9]+):([0-9]+):\ (.*)$ ]]; then
-            echo "::error file=$(property "$(outside "${BASH_REMATCH[1]}")"),line=${BASH_REMATCH[2]},col=${BASH_REMATCH[3]}::Ruff cannot format it: $(message "${BASH_REMATCH[4]}")"
-            failed=1
-          fi
-        done < "$err"
-        if [ "$status" -ne 0 ] && [ "$failed" -eq 0 ]; then
-          echo "::error::Ruff's formatter failed with exit status $status; its output stands in the log"
-          failed=1
+          --output-format json --config "$RUFF_CONFIG" -- "${files[@]}") > "$report" 2> "$err" \
+          || status=$?
+        cat "$err"
+        if [ "$status" -gt 2 ] || ! jq --exit-status 'type == "array"' "$report" > /dev/null 2>&1; then
+          cat "$report"
+          echo "::error::Ruff's formatter could not check the files (exit status $status); its message stands in the log"
+          exit 1
         fi
-        exit "$failed"
+        # A file that is not formatted is named at its first change; one Ruff
+        # cannot read at the place it stops.
+        jq --raw-output --arg root "$(realpath "$GITHUB_WORKSPACE")" --arg folder "$RUFF_FOLDER" '
+          def escaped: gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A");
+          def property: escaped | gsub(":"; "%3A") | gsub(","; "%2C");
+          .[]
+          | (if (.filename | startswith("/")) then (.filename | ltrimstr($root + "/"))
+             elif $folder == "." then .filename
+             else "\($folder)/\(.filename)" end) as $file
+          | "\($file):\(.location.row):\(.location.column): \(.code // "error") \(.message)",
+            "::error file=\($file | property),line=\(.location.row),col=\(.location.column)::\(
+              if .code == "unformatted" then "not formatted the way Ruff writes it; '"'"'ruff format'"'"' fixes it"
+              else "Ruff cannot format it: \(.message | escaped)" end)"
+        ' "$report"
+        if [ "$(jq 'length' "$report")" -ne 0 ] || [ "$status" -ne 0 ]; then
+          exit 1
+        fi
+        echo "Every file is formatted the way Ruff writes it."
 
     # Every finding becomes an annotation on its line, naming the rule. A
     # rule the repository switches off for one line (`# noqa: <code>`) stays
@@ -563,7 +552,8 @@ runs:
     # its `ignore`, which would hide every finding of a file, is empty, the
     # files are exactly the list (`include`), and its `exclude` takes none of
     # them out. Its `venvPath` and `venv` name the project's environment, so
-    # that imports resolve as installed. A lower mode written in the
+    # that imports resolve as installed, and where it names no
+    # `pythonVersion`, the project's interpreter gives it. A lower mode written in the
     # configuration or in a file (`# pyright: basic`) is a finding of its own:
     # Pyright would honour the comment, and the configuration would lower the
     # mode wherever Pyright runs by hand.
@@ -721,11 +711,16 @@ runs:
 
         settings = dict(settings)
         settings["typeCheckingMode"] = "strict"
-        settings["include"] = [os.path.join(root, name) for name in files]
+        # Pyright takes only paths relative to its configuration's folder,
+        # which holds every file of the list.
+        settings["include"] = [os.path.relpath(os.path.join(root, name), folder) for name in files]
         settings["exclude"] = [".nebensound-check-python-excludes-nothing"]
         settings["ignore"] = []
         settings["venvPath"] = os.path.dirname(environment)
         settings["venv"] = os.path.basename(environment)
+        # The version of the interpreter that runs this, the project's, unless
+        # the repository names another one to check against.
+        settings.setdefault("pythonVersion", "%d.%d" % sys.version_info[:2])
         run = os.path.join(folder, f".nebensound-check-python-pyright-{os.getpid()}.json")
         with open(run, "w", encoding="utf-8") as file:
             json.dump(settings, file)
