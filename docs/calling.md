@@ -29,7 +29,10 @@ tag, which Dependabot raises as a pull request.
 The job grants `contents: write`, which the release stage on `main` needs to
 write tags and releases. Only the workflow's job `Publish` asks for it, after a
 push to `main`; every other job, and every job of a pull request, keeps a read
-token (see [the phases](phases.md#pull-request-and-push)).
+token (see [the phases](phases.md#pull-request-and-push)). A caller that raises
+its pin to a commit with `Publish` grants `contents: write` in the same change:
+GitHub refuses every run, pull requests included, whose called workflow asks
+for more than the caller grants.
 
 ## The schema line runs ahead of the pin
 

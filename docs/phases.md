@@ -278,9 +278,10 @@ and only those: the unit jobs change with the repository, so a ruleset that
 required one would block a pull request when the unit goes away or is renamed,
 and Declare is part of what `Check` and `Build` sum up. Of the reported jobs,
 only `Check` is meant for a ruleset to require for the checks, and only `Build`
-for the builds. `nebensound / Publish` runs after the merge, on `main`, and is
-never reported on a pull request, so no ruleset can require it. Further
-required names arrive with the phases that are not built yet.
+for the builds. `nebensound / Publish` runs after the merge, on `main`; on a
+pull request it is skipped, and a ruleset counts a skipped check as passed, so
+requiring it would add no signal. Further required names arrive with the phases
+that are not built yet.
 
 ## Pull request and push
 

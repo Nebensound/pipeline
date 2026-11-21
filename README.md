@@ -74,7 +74,7 @@ The job grants `contents: write` because the release stage on `main` writes
 tags and releases. Only its job `Publish` asks for that permission; every other
 job, and every job of a pull request, keeps a read token. A push to `release`
 is the merge of a promotion, where the second stage of a unit released in two
-stages belongs; until that stage exists, such a run checks and builds and
+stages belongs; until that stage exists, such a run checks and builds, and
 releases nothing.
 
 A run reports as `nebensound / Declare` (phase 0: the declaration read and
