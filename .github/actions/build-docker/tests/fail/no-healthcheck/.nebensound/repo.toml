@@ -1,0 +1,4 @@
+# An image without HEALTHCHECK: nothing would show that it serves, so it is
+# not even started.
+[repo]
+pipeline = { check = ["dockerfile"], build = "docker", dependabot = ["docker"] }

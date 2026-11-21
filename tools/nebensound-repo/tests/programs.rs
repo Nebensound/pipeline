@@ -1,5 +1,5 @@
-//! The programs the checks call, and the runtimes they run on: pinned, with a
-//! download per platform and its digest.
+//! The programs the checks and builds call, and the runtimes they run on:
+//! pinned, with a download per platform and its digest.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
@@ -32,7 +32,8 @@ fn check(name: &str) -> CheckName {
 fn every_check_with_a_building_block_names_the_programs_it_calls() {
     let register = builtin();
     for (name, programs) in [
-        ("json", &["biome", "jq", "prettier"][..]),
+        ("dockerfile", &["dockerfmt", "hadolint"][..]),
+        ("json", &["biome", "jq", "prettier"]),
         ("markdown", &["lychee", "markdownlint-cli2", "prettier"]),
         ("rust", &["cargo-llvm-cov"]),
         ("toml", &["taplo"]),
@@ -69,11 +70,14 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
         ("biome", "2.5.15", None),
         ("cargo-llvm-cov", "0.9.0", None),
         ("check-jsonschema", "0.39.0", Some(("python", "3.11.0"))),
+        ("dockerfmt", "1.0.0", None),
+        ("hadolint", "2.15.1", None),
         ("jq", "1.8.1", None),
         ("lychee", "0.24.2", None),
         ("markdownlint-cli2", "0.23.2", Some(("node", "22.0.0"))),
         ("prettier", "3.9.6", Some(("node", "14.0.0"))),
         ("taplo", "0.10.0", None),
+        ("trivy", "0.76.2", None),
         ("yamllint", "1.38.0", Some(("python", "3.10.0"))),
     ] {
         let program = &register.program[&ProgramName::new(name).expect("a name")];
@@ -96,7 +100,7 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
             assert!(download.url.contains(version), "{name} {platform}");
         }
     }
-    assert_eq!(register.program.len(), 10);
+    assert_eq!(register.program.len(), 13);
 
     let runtimes: Vec<(String, String, Installer)> = register
         .runtime

@@ -1,0 +1,4 @@
+# A failure threshold of the repository other than none or ignore holds: with
+# `error`, the warning DL3007 for the tag `latest` fails nothing.
+[repo]
+pipeline = { check = ["dockerfile"], dependabot = ["docker"] }

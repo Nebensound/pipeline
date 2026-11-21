@@ -89,6 +89,7 @@ extensions = [".typ"]
 [check.dockerfile]
 extensions = [".dockerfile"]
 filenames  = ["Dockerfile", "Containerfile"]
+programs   = ["dockerfmt", "hadolint"]
 
 # A build names the version writers it needs: what it produces carries the
 # version they write, and without them it would carry whatever version the
@@ -101,8 +102,11 @@ requires-version = ["cargo"]
 [build.cargo-release]
 produces = "executable"
 
+# The image is scanned for vulnerabilities before it is handed on, and the
+# scanner is pinned like any program a check calls.
 [build.docker]
 produces = "container"
+programs = ["trivy"]
 
 [build.platformio]
 produces = "firmware"
@@ -300,12 +304,13 @@ manifests         = ["Dockerfile", "Containerfile"]
 package-ecosystem = "github-actions"
 manifests         = []
 
-# The programs the checks call, each pinned to the version its building block
-# installs, and where that version comes from on each platform: a build per
-# operating system and architecture, or, for a program on a runtime, its one
-# package, which the runtime's installer puts in place. Every download carries
-# the digest its publisher states for it, in the release data named beside it;
-# a download with another digest is refused. `nebensound-repo setup` reads this.
+# The programs the checks and builds call, each pinned to the version its
+# building block installs, and where that version comes from on each platform:
+# a build per operating system and architecture, or, for a program on a
+# runtime, its one package, which the runtime's installer puts in place. Every
+# download carries the digest its publisher states for it, in the release data
+# named beside it; a download with another digest is refused.
+# `nebensound-repo setup` reads this.
 #
 # A platform without an entry has no pinned build: there only the computer's
 # copy can be used. The default mode of `nebensound-repo setup` takes it from the
@@ -436,6 +441,67 @@ runtime-minimum = "3.11.0"
 url    = "https://files.pythonhosted.org/packages/06/e9/644e47c8b929f14cbda2b6779be047caa2098cc06f8bd7e04e8c62416cdc/check_jsonschema-0.39.0-py3-none-any.whl"
 digest = "sha256:14ce5c94871c551268ea948ffe21e9f1464dc48fb20bf9a4c13deeaaf756cf9b"
 
+# dockerfmt ships only MD5 files; these are the SHA-256 digests GitHub states
+# for the release assets, which match them. The Linux builds are the glibc ones
+# check-dockerfile installs. There is no build for Windows. It names its version
+# through a subcommand.
+[program.dockerfmt]
+version      = "1.0.0"
+command      = "dockerfmt"
+version-args = ["version"]
+
+[program.dockerfmt.download.linux-x86_64]
+url        = "https://github.com/reteps/dockerfmt/releases/download/v1.0.0/dockerfmt-v1.0.0-linux-amd64.tar.gz"
+digest     = "sha256:da0cd8bbb3f1b6cdbe0bc16d4e762ffb2351a69eb259d84a7ddc35bcf156e1f7"
+executable = "dockerfmt"
+
+[program.dockerfmt.download.linux-aarch64]
+url        = "https://github.com/reteps/dockerfmt/releases/download/v1.0.0/dockerfmt-v1.0.0-linux-arm64.tar.gz"
+digest     = "sha256:fb361d10597b998766c72db47c4a70350832860571bb772a8b8cfc780377b7c9"
+executable = "dockerfmt"
+
+[program.dockerfmt.download.macos-x86_64]
+url        = "https://github.com/reteps/dockerfmt/releases/download/v1.0.0/dockerfmt-v1.0.0-darwin-amd64.tar.gz"
+digest     = "sha256:a0d6dc8d1b9bbb65a54b4070a18c33396896b325639e7a4baf11fb90f2a7d972"
+executable = "dockerfmt"
+
+[program.dockerfmt.download.macos-aarch64]
+url        = "https://github.com/reteps/dockerfmt/releases/download/v1.0.0/dockerfmt-v1.0.0-darwin-arm64.tar.gz"
+digest     = "sha256:69239cf26188c206def08f2b9867da63af53336224f58faf05eb4df3562e5467"
+executable = "dockerfmt"
+
+# checksums.sha256 of the release; the same digests stand on the release
+# assets. Each build is the program itself, not an archive. There is no build
+# for Windows on ARM.
+[program.hadolint]
+version = "2.15.1"
+command = "hadolint"
+
+[program.hadolint.download.linux-x86_64]
+url        = "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64"
+digest     = "sha256:c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507"
+executable = "hadolint"
+
+[program.hadolint.download.linux-aarch64]
+url        = "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-arm64"
+digest     = "sha256:f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd3510aca35b344b5d"
+executable = "hadolint"
+
+[program.hadolint.download.macos-x86_64]
+url        = "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-macos-x86_64"
+digest     = "sha256:ffe9bb18b23d5ed1eae50237aecdbb523d016e96da0bd4e7aa432040acfc3fde"
+executable = "hadolint"
+
+[program.hadolint.download.macos-aarch64]
+url        = "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-macos-arm64"
+digest     = "sha256:5c09f3213f8e40406abe048233d985eebef336d4a6a20021be47fadb6cf480a2"
+executable = "hadolint"
+
+[program.hadolint.download.windows-x86_64]
+url        = "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-windows-x86_64.exe"
+digest     = "sha256:01d927294962b5387f9ead4f18679158452be4f17c765ad0bdffe5264b9c7b0a"
+executable = "hadolint.exe"
+
 # sha256sum.txt of the release; the same digests stand on the release assets.
 # The block takes jq from the runner image, and this is the version the Linux
 # runners bring.
@@ -563,6 +629,37 @@ executable = "taplo.exe"
 url        = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-windows-aarch64.gz"
 digest     = "sha256:c16a9a1248bdd746fde657b0196bfc47c8bede1e50ae73b7d9d33088a6682180"
 executable = "taplo.exe"
+
+# trivy_0.76.2_checksums.txt of the release; the same digests stand on the
+# release assets. There is no build for Windows on ARM.
+[program.trivy]
+version = "0.76.2"
+command = "trivy"
+
+[program.trivy.download.linux-x86_64]
+url        = "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz"
+digest     = "sha256:bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf"
+executable = "trivy"
+
+[program.trivy.download.linux-aarch64]
+url        = "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-ARM64.tar.gz"
+digest     = "sha256:ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3"
+executable = "trivy"
+
+[program.trivy.download.macos-x86_64]
+url        = "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_macOS-64bit.tar.gz"
+digest     = "sha256:e08bb9ea449ecf66c6bfb03cbb8697c503ff33d35fc585c9747e3eaeb7ed4c7b"
+executable = "trivy"
+
+[program.trivy.download.macos-aarch64]
+url        = "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_macOS-ARM64.tar.gz"
+digest     = "sha256:ae7ea358326960406b703c77b2ac490190797d80b306b5b50c2a27221da0a5b8"
+executable = "trivy"
+
+[program.trivy.download.windows-x86_64]
+url        = "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_windows-64bit.zip"
+digest     = "sha256:691f737a7e5566a673c3a74dab9160552ec32101e953b659e5c77443d16dddb6"
+executable = "trivy.exe"
 
 # The digest PyPI states for the wheel; `requires_python` is ">=3.10".
 [program.yamllint]

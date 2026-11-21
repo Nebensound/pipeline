@@ -33,11 +33,15 @@ it and hands the result on:
    ([`.github/actions/tool`](../.github/actions/tool)).
 2. `nebensound-repo check` reads `.nebensound/repo.toml`, resolves it against
    the register and checks it against what Git tracks, and resolves the version
-   of every unit from the history, holding the tags against it. It is given
-   the visibility GitHub shows for the repository, taken from the event or,
-   where the event does not carry it, from the API, and holds the declared
-   audience against it (see [Audience](declaration.md#audience)). It prints the
-   resolved configuration, the annotated tree, the findings and a summary line.
+   of every unit from the history, holding the tags against it. It also holds
+   the repository's name and default branch, which the action hands in from the
+   event of the run, and the files every repository holds against the
+   organization's conventions, as warnings. It is given the visibility GitHub
+   shows for the repository, taken from the event or, where the event does not
+   carry it, from the API, and holds the declared audience against it (see
+   [Audience](declaration.md#audience)). It prints the resolved configuration,
+   the annotated tree, the findings, each as an annotation of the run, and a
+   summary line.
    [The reference of the declaration](declaration.md) describes every field and
    every finding.
 3. When phase 0 found no error, `nebensound-repo plan` prints the plan: every unit, with the checks
@@ -176,9 +180,10 @@ tool from the cache Declare filled, and runs its steps:
    `version-<writer>` with the plan, so that the manifest carries the version
    of the run. A version writer without a building block has already failed
    `nebensound / Check`, so no build starts without its version.
-3. **The build**, the building block `build-<name>` over the unit's path. It
-   builds the artifact once, tests the artifact itself and uploads it as an
-   artifact of the run.
+3. **The build**, the building block `build-<name>` over the unit's path, with
+   the plan where the build labels what it builds with the unit's version, as
+   `build-docker` does. It builds the artifact once, tests the artifact itself
+   and uploads it as an artifact of the run.
 
 A step does not run after one that failed: an artifact built from versions that
 were not written would be the wrong one. Tests of the source belong to Check;

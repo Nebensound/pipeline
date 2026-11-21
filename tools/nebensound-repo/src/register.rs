@@ -1,5 +1,5 @@
 //! The central register of presets, version writers, checks, builds,
-//! targets, and the programs and runtimes the checks call.
+//! targets, and the programs and runtimes the checks and builds call.
 //!
 //! It is data, not code, and it is compiled into this crate. A repository
 //! therefore never holds a copy that could fall behind: adopting a change to
@@ -33,7 +33,7 @@ pub struct Register {
     pub preset: BTreeMap<PresetName, Preset>,
     /// Every package ecosystem Dependabot can watch.
     pub ecosystem: BTreeMap<EcosystemName, Ecosystem>,
-    /// Every program a check calls, pinned.
+    /// Every program a check or a build calls, pinned.
     #[serde(default)]
     pub program: BTreeMap<ProgramName, Program>,
     /// Every runtime a program runs on, pinned.
@@ -88,6 +88,9 @@ pub struct Build {
     /// sources hold.
     #[serde(default)]
     pub requires_version: Vec<VersionWriterName>,
+    /// The programs it calls, each pinned under `[program.*]`.
+    #[serde(default)]
+    pub programs: Vec<ProgramName>,
 }
 
 /// What a target takes.
@@ -290,6 +293,11 @@ impl Register {
             for writer in &build.requires_version {
                 if !self.version.contains_key(writer) {
                     return Err(dangling(name, "version writer", writer));
+                }
+            }
+            for program in &build.programs {
+                if !self.program.contains_key(program) {
+                    return Err(dangling(name, "program", program));
                 }
             }
         }

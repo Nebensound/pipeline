@@ -26,6 +26,7 @@
 pub mod annotate;
 pub mod audience;
 pub mod central;
+pub mod conformance;
 #[cfg(feature = "ui")]
 pub mod draw;
 pub mod edit;
@@ -113,6 +114,10 @@ pub struct Cli {
 pub enum Command {
     /// Run phase 0 and print the whole result. The default.
     Check {
+        /// What GitHub knows about the repository and its declaration does
+        /// not hold.
+        #[command(flatten)]
+        identity: IdentityArgs,
         /// How GitHub shows the repository, as a run knows it: phase 0 then
         /// holds the declared audience against it. Left out, as on a
         /// developer's machine, nothing is compared.
@@ -204,6 +209,20 @@ pub enum Command {
     /// Open the interface. Only in a build with the `ui` feature.
     #[cfg(feature = "ui")]
     Ui,
+}
+
+/// The repository's name and default branch, as a run hands them in from its
+/// event. Each one left out is read from Git where Git knows it.
+#[derive(Debug, Clone, Default, Args)]
+pub struct IdentityArgs {
+    /// The repository's name, as GitHub knows it. Without it, the name the
+    /// address of `origin` ends in.
+    #[arg(long, value_name = "NAME", value_parser = clap::builder::NonEmptyStringValueParser::new())]
+    pub name: Option<String>,
+    /// The repository's default branch, as GitHub knows it. Without it, the
+    /// branch `refs/remotes/origin/HEAD` names.
+    #[arg(long, value_name = "BRANCH", value_parser = clap::builder::NonEmptyStringValueParser::new())]
+    pub default_branch: Option<String>,
 }
 
 /// The pull request a call reads the repository for, if any.
@@ -384,9 +403,10 @@ struct Writing {
 
 /// A call about the repository.
 enum Job {
-    /// Run phase 0 and print the whole result, holding the declared audience
-    /// against the visibility if one is given.
-    Check(Option<Visibility>),
+    /// Run phase 0 and print the whole result, with the name and the default
+    /// branch the call gives, holding the declared audience against the
+    /// visibility if one is given.
+    Check(IdentityArgs, Option<Visibility>),
     /// Print the annotated tree.
     Tree,
     /// Say what holds for this path.
@@ -423,8 +443,11 @@ fn call(cli: &Cli) -> Result<Call, Failure> {
         #[cfg(feature = "program")]
         Some(Command::Schema) => return Ok(Call::Schema),
         Some(Command::Register) => return Ok(Call::Register),
-        None => Job::Check(None),
-        Some(Command::Check { visibility }) => Job::Check(*visibility),
+        None => Job::Check(IdentityArgs::default(), None),
+        Some(Command::Check {
+            identity,
+            visibility,
+        }) => Job::Check(identity.clone(), *visibility),
         Some(Command::Tree) => Job::Tree,
         Some(Command::Plan { pull_request }) => Job::Plan(pull_request.read()),
         Some(Command::ExcludedPackages) => Job::ExcludedPackages,
@@ -519,7 +542,7 @@ fn analysis_for(
         repository.analyse(central)
     }?;
     Ok(match job {
-        Job::Check(Some(visibility)) => analysis.with_visibility(*visibility),
+        Job::Check(_, Some(visibility)) => analysis.with_visibility(*visibility),
         _ => analysis,
     })
 }
@@ -532,30 +555,15 @@ fn execute(
     output: Output,
     out: &mut dyn Write,
 ) -> Result<u8, Failure> {
-    // Only the interface asks where the output goes. A build without it takes
-    // the argument all the same, so that the entry point reads the same in
-    // both.
-    #[cfg(not(feature = "ui"))]
-    let _ = output;
-
     let repository = repository_of(cli, job);
     let central = central_from(register, defaults)?;
-    let analysis = analysis_for(&repository, &central, job)?;
+    let mut analysis = analysis_for(&repository, &central, job)?;
 
     match job {
-        Job::Check(_) => {
-            say(
-                out,
-                &format!(
-                    "{}\n\n{}\n\n{}\n\n{}\n\n{}\n",
-                    report::configuration(&analysis, &central),
-                    rules::report(&analysis, &repository.reader(), rules::Defaults::BUILT_IN),
-                    report::tree(&analysis),
-                    report::findings(&analysis),
-                    report::summary(&analysis)
-                ),
-            );
-        }
+        Job::Check(given, _) => say(
+            out,
+            &check(&repository, &mut analysis, &central, given, output)?,
+        ),
         Job::Tree => say(out, &format!("{}\n", report::tree(&analysis))),
         Job::Explain(wanted) => {
             let Some(text) = report::explain(&analysis, wanted) else {
@@ -648,6 +656,47 @@ fn execute(
     }
 
     Ok(if analysis.failed() { FOUND } else { OK })
+}
+
+/// The whole report of phase 0, ended by a line break, with what departs from
+/// the organization's conventions among the findings.
+fn check(
+    repository: &Repository,
+    analysis: &mut Analysis,
+    central: &Central,
+    given: &IdentityArgs,
+    output: Output,
+) -> Result<String, Failure> {
+    let identity = repository.identity(given.name.as_deref(), given.default_branch.as_deref())?;
+    let found = conformance::findings(
+        &identity,
+        analysis
+            .tree
+            .files()
+            .into_iter()
+            .map(|(node, _)| &node.path),
+    );
+    let loose = analysis.tree.attach(found);
+    analysis.loose.extend(loose);
+    // In a run every finding is an annotation, so that it shows on the run
+    // and on the pull request; elsewhere it is a line.
+    let findings = if output == Output::Workflow {
+        report::annotations(analysis)
+    } else {
+        report::findings(analysis)
+    };
+    let mut notes = String::new();
+    for note in conformance::notes(&identity) {
+        notes.push_str(&report::shown(&note));
+        notes.push_str("\n\n");
+    }
+    Ok(format!(
+        "{}\n\n{}\n\n{}\n\n{findings}\n\n{notes}{}\n",
+        report::configuration(analysis, central),
+        rules::report(analysis, &repository.reader(), rules::Defaults::BUILT_IN),
+        report::tree(analysis),
+        report::summary(analysis)
+    ))
 }
 
 /// The plan as one line of JSON, for the pull request if there is one.

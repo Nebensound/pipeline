@@ -16,7 +16,7 @@ use crate::names::{
 };
 use crate::path::RelativePath;
 use crate::pattern::Pattern;
-use crate::version::TagVersion;
+use crate::version::{FeatTypes, TagVersion};
 
 /// The contents of `.nebensound/repo.toml`.
 #[cfg_attr(feature = "program", derive(schemars::JsonSchema))]
@@ -138,6 +138,10 @@ pub struct Repo {
     /// The default a component can ask for with `pipeline.repo = true`.
     #[serde(default)]
     pub component: Option<ComponentDefaults>,
+    /// Commit types that count like `feat` in this repository, beside `feat`
+    /// itself. Each commit is read with the list its own declaration holds.
+    #[serde(default)]
+    pub feat_types: FeatTypes,
 }
 
 /// What `[repo.component]` offers. Only a pipeline, and only on request.

@@ -129,6 +129,7 @@ out, and its effect.
 | `versioning`      | string                               | `"self"`                       | Which units around the repository carry a version. Only the values that include `self` are open to the repository. See [Versioning](#versioning).        |
 | `release`         | string                               | decided by the publish targets | `"single-stage"` or `"two-stage"`: how the unit's version reaches a full release. See [Releases](#releases).                                             |
 | `minimum-version` | version `"X.Y.Z"` or `"X.Y.Z-pre.N"` | none                           | The version the unit gets is never lower than this. See [Releases](#releases).                                                                           |
+| `feat-types`      | array of commit types                | none                           | Commit types that count like `feat` for every unit, beside `feat` itself. See [How a version is resolved](#how-a-version-is-resolved).                   |
 | `allow-unused`    | table of check → reason              | none                           | Checks of this unit's own pipeline that may find no file without failing, each with the reason why it stays. Without an entry, such a check is an error. |
 | `component`       | table                                | none                           | The pipeline a component can ask for with `pipeline = { repo = true }`. See `[repo.component]` below.                                                    |
 
@@ -520,6 +521,20 @@ would write both units' records under the same names.
 
   No change leads to `1.0.0`; that step is taken with `minimum-version`.
 
+  A repository whose changes are not features names its own types for the
+  column `feat` with `feat-types` in `[repo]`. With `feat-types = ["rule"]`, a
+  commit `rule: …` raises like `feat`, and `rule!: …` like a breaking change.
+  A type is written as a Conventional Commit writes it, letters only, and is
+  compared without regard to case; each type stands once, and `feat` and `fix`
+  are not listed. Nothing else can be declared: the breaking marker is the same
+  for every type, and a type that is not listed counts as everything else. Each
+  commit is read with the list its own declaration holds, like every field
+  above that decides a version: the list counts from the commit that writes it
+  on, a commit before it counts without it, and a commit whose declaration
+  cannot be read takes the list from the nearest commit after it whose
+  declaration can, and from the declaration at hand until one follows. A
+  declaration without the field reads every commit as before.
+
 - **One stage**: a commit that touches the unit is the base raised once per
   touching commit since the base, each by its own change.
 - **Two stages**: the target is the base raised once by the highest change among
@@ -635,14 +650,25 @@ stable code; the wording of its message may improve, the code does not change.
 - An **error** fails `nebensound / Declare`, and with it `nebensound / Check`.
   No plan is made, so no check runs.
 - A **warning** stops nothing. It says that a statement in the declaration is
-  not true, not that something is broken.
+  not true, not that something is broken, or that the repository departs from
+  the organization's conventions (`nonconforming-name`,
+  `nonconforming-default-branch`, `missing-minimum-file`). `check` reports
+  these three; the other calls do not look for them.
 
 A finding reads like `error[uncovered-file] at src/main.rs: …`: the severity, the
 code, the unit or path it is about, and a sentence. A finding that points at a
 place in a file adds its line and column, counted from 1:
 `error[partial-package-exclusion] at .nebensound/repo.toml:12:8: …`. The report of phase 0 shows
 each finding under the path it is about in the tree, and lists them all under
-`Findings`.
+`Findings`. In a workflow run (`GITHUB_ACTIONS=true`, with no terminal
+attached) the list holds each finding as an annotation of the run instead,
+`::error` or `::warning` titled with its code, so that it shows on the run and
+on the pull request. It names the file where the finding stands at a file the
+repository holds, with line and column where it has them. Its message starts
+with the code in brackets, since the log shows the message without the title:
+`[missing-minimum-file] at LICENSE: …`. GitHub keeps only a limited number of
+annotations per step, so a long list may show only in part on the run and the
+pull request; the log of the step always holds every finding.
 
 ### `unknown-preset`
 
@@ -933,6 +959,48 @@ a `Cargo.toml` that does not read counts as one. A `.rs` file belongs to the
 innermost package around it, and a file that lies in no package is not judged
 here.
 
+### `nonconforming-name`
+
+Warning. The repository's name is not lowercase letters and digits joined by
+single hyphens (`^[a-z0-9]+(-[a-z0-9]+)*$`). `.github` is exempt, since GitHub
+requires that name. The message names the name that would conform: lowercase,
+`_` and `.` become `-`, hyphens that follow each other become one, and a
+hyphen at either end goes. Words are not split at a change of case, so
+`MyTool` becomes `mytool`. Nothing is renamed: renaming moves the repository's
+address, and a person decides it.
+
+`check` takes the name from `--name`; the workflow hands it in from the event
+of the run. Without it, the name is the one the address of `origin` ends in.
+Where Git knows no address, `check` says so in one line and checks no name.
+
+### `nonconforming-default-branch`
+
+Warning. The repository's default branch is not `main`, where the pipeline
+gives every version out. `check` takes the branch from `--default-branch`; the
+workflow hands it in from the event of the run. Without it, the branch is the
+one `refs/remotes/origin/HEAD` names, which a clone sets
+(`git remote set-head origin --auto` sets it later). Where Git does not know
+it, `check` says so in one line and checks no branch.
+
+### `missing-minimum-file`
+
+Warning. The repository does not hold a file every repository holds, once, at
+the root of the repository. The finding stands at the path where the file
+belongs, and its message names that path. Every place and name GitHub itself
+honours counts:
+
+| File                          | Counts as                                                                                          | Named at                 |
+| ----------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------ |
+| README                        | `README`, alone or with any extension, in any case, at the root, under `.github/` or under `docs/` | `README.md`              |
+| licence or proprietary notice | a name that starts with `LICENSE`, `LICENCE`, `COPYING` or `UNLICENSE`, in any case, at the root   | `LICENSE`                |
+| `AGENTS.md`                   | `AGENTS.md` at the root                                                                            | `AGENTS.md`              |
+| code owners                   | `CODEOWNERS` at the root, under `docs/` or under `.github/`                                        | `.github/CODEOWNERS`     |
+| Dependabot configuration      | `.github/dependabot.yml` or `.github/dependabot.yaml`                                              | `.github/dependabot.yml` |
+| `.gitignore`                  | `.gitignore` at the root                                                                           | `.gitignore`             |
+| `.editorconfig`               | `.editorconfig` at the root                                                                        | `.editorconfig`          |
+
+A file counts when Git tracks it, whatever it holds. Add the file.
+
 ### When the file cannot be read
 
 Some mistakes stop phase 0 before any finding is made. It then prints one
@@ -952,6 +1020,8 @@ sentence that names the file and the mistake, and fails:
 - `audience` is none of `"public"`, `"internal"` and `"customer"`;
 - `release` is neither `"single-stage"` nor `"two-stage"`, or
   `minimum-version` is neither `X.Y.Z` nor `X.Y.Z-pre.N`;
+- an entry of `feat-types` is not letters only, is `feat` or `fix`, or stands
+  twice;
 - an `[[exclude]]` entry names a pattern, or the same path stands twice under
   `[[exclude]]`;
 - a pipeline combines `repo = true` with other keys, or says `repo = false`, or
