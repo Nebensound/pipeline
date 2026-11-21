@@ -26,17 +26,16 @@ finding only once the tool at the pin knows it. When a step needs something that
 has not arrived, say which issue brings it and stop that step. Never imitate a
 missing command by hand.
 
-| What                                                                                                                                                           | State                                     |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `nebensound-repo check` with `--name` and `--default-branch`                                                                                                   | exists                                    |
-| The fields of `.nebensound/repo.toml`, among them `release`, `minimum-version` and `feat-types`, and the findings of phase 0, all in `docs/declaration.md`     | exist                                     |
-| The conformance warnings `nonconforming-name`, `nonconforming-default-branch` and `missing-minimum-file`                                                       | exist                                     |
-| The versions, from the history alone                                                                                                                           | exist                                     |
-| `nebensound-repo init`, its `TODO(init)` markers, the finding `check` gives for a remaining marker, and the list of what needs judgement that `init` ends with | #26, not yet                              |
-| The field `audience` in `[repo]`, the findings `missing-audience` and `mismatched-audience`, and `check --visibility`                                          | #101, not yet                             |
-| A documented way to get the tool, and a tool that warns when it is older than the pin                                                                          | #94, not yet; until then step 2           |
-| `nebensound-repo release`, and creating the branch `release`                                                                                                   | #21, not yet                              |
-| A release of the pipeline to pin                                                                                                                               | none yet: pin a full commit SHA of `main` |
+| What                                                                                                                                                                   | State                                     |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `nebensound-repo check` with `--name`, `--default-branch` and `--visibility`                                                                                           | exists                                    |
+| The fields of `.nebensound/repo.toml`, among them `audience`, `release`, `minimum-version` and `feat-types`, and the findings of phase 0, all in `docs/declaration.md` | exist                                     |
+| The conformance warnings `nonconforming-name`, `nonconforming-default-branch` and `missing-minimum-file`, and the errors `missing-audience` and `mismatched-audience`  | exist                                     |
+| The versions, from the history alone                                                                                                                                   | exist                                     |
+| `nebensound-repo init`, its `TODO(init)` markers, the finding `check` gives for a remaining marker, and the list of what needs judgement that `init` ends with         | #26, not yet                              |
+| A documented way to get the tool, and a tool that warns when it is older than the pin                                                                                  | #94, not yet; until then step 2           |
+| `nebensound-repo release`, and creating the branch `release`                                                                                                           | #21, not yet                              |
+| A release of the pipeline to pin                                                                                                                                       | none yet: pin a full commit SHA of `main` |
 
 When one of these lands, the reference at the pin describes it: read
 `README.md`, `docs/declaration.md`, `docs/calling.md`,
@@ -183,7 +182,7 @@ Always asked, one question each:
 | Question                          | Field                               | Default to offer                                                                                                                                                                                                                                        |
 | --------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Is anything published, and where? | `publish` of each unit's `pipeline` | `false`. A public target is chosen only by an explicit answer and is never the default.                                                                                                                                                                 |
-| For whom is it meant?             | `audience` in `[repo]` (#101)       | Suggest from the visibility on GitHub: `public` for a public repository, `internal` or `customer` for a private one. Never write it silently. Ask only once the tool at the pin knows it.                                                               |
+| For whom is it meant?             | `audience` in `[repo]` (required)   | Suggest from the visibility on GitHub: `public` for a public repository, `internal` or `customer` for a private one. Never write it silently.                                                                                                           |
 | One stage or two?                 | `release`                           | The mode the publish targets give (`docs/declaration.md#releases`).                                                                                                                                                                                     |
 | From which version on?            | `minimum-version`                   | Per unit, from the highest version of its own prefix (step 1): the next patch above a release (`1.4.3` gives `1.4.4`), the release itself above a pre-release (`1.5.0-pre.2` gives `1.5.0`). Without any old version of that unit, leave the field out. |
 | Which parts are components?       | `[component.<name>]`                | The candidates `init` recognised.                                                                                                                                                                                                                       |
@@ -204,11 +203,13 @@ change not committed yet reaches them only in part.
 ```sh
 git add -A
 git commit -m "ci: switch to the central pipeline"   # later rounds: --amend
-<tool> -C . check --name <name> --default-branch <default branch>
+<tool> -C . check --name <name> --default-branch <default branch> \
+  --visibility <visibility>
 ```
 
-Once the tool knows `--visibility` (#101), add it with the visibility from step
-1 in lowercase (`public`, `private` or `internal`).
+`<visibility>` is the visibility from step 1 in lowercase (`public`, `private`
+or `internal`), as the job `nebensound / Declare` passes it; with it, `check`
+holds the declared `audience` against it.
 
 Repeat until `check` reports no error and no remaining `TODO(init)`. The one
 exception is `missing-release-branch` for a unit the user chose to release in
@@ -216,7 +217,10 @@ two stages (step 6): leave it, and stop the loop once it is the only error.
 
 - **An error**: its entry in `docs/declaration.md#findings` at the pin names the
   way out. Take it alone where it is certain; where it is a choice from the
-  table of step 6 (a component, an exclusion and its reason), ask.
+  table of step 6 (the audience, a component, an exclusion and its reason),
+  ask. For `mismatched-audience`, ask whether the value or the visibility is
+  wrong. A wrong value you correct; a wrong visibility is a repository
+  setting: stop, and tell the user that changing it is an owner step.
 - **A warning about a statement of the declaration** (`pointless-exclusion`,
   `pointless-inclusion`, `pointless-suppression`, `pointless-watch`,
   `unwatched-manifest`, `childless-generator`): fix it, since this pull request
