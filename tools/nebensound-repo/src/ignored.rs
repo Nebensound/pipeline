@@ -22,12 +22,35 @@
 //!   `.yamllint.yaml` or `.yamllint.yml` at the root, whichever yamllint reads,
 //!   or, where it sets neither, in the configuration its `extends` names.
 //! - lychee: `exclude_path` in `lychee.toml` at the root, matched against the
-//!   path from the root, the very string `run markdown` hands lychee.
+//!   path from the root, the very string `run markdown` and `check-html` hand
+//!   lychee.
+//! - Stylelint: `.stylelintignore` at the root, and `ignoreFiles` in the
+//!   configuration Stylelint reads in a folder (the first of the names it
+//!   looks for, `package.json` only where it holds a `stylelint` key),
+//!   relative to that folder, for the files below it that no nearer
+//!   configuration governs. A configuration in JavaScript is not read, since
+//!   phase 0 runs no code of the repository; it still governs its folder.
+//! - html-validate: `.htmlvalidateignore` in every folder, relative to that
+//!   folder.
 //! - rustfmt: `ignore` in `.rustfmt.toml` or `rustfmt.toml`, in every folder,
 //!   relative to that folder, the hidden one first. Which of them rustfmt
 //!   applies to a file depends on where it runs and on the target it formats,
 //!   so every one is read. rustfmt honours `ignore` only on a nightly
 //!   toolchain, which a workspace may pin.
+//! - Pyright: `ignore` in `pyrightconfig.json`, and in the `[tool.pyright]`
+//!   table of a `pyproject.toml`, in every folder, relative to that folder.
+//!   Pyright reads the configuration of the folder it runs in, so every one
+//!   is read. A file it ignores is checked and its findings are dropped.
+//! - coverage.py: `omit` in `[run]` and `[report]` of `.coveragerc`, of
+//!   `[coverage:run]` and `[coverage:report]` in `setup.cfg` and `tox.ini`,
+//!   and of `[tool.coverage.run]` and `[tool.coverage.report]` in a
+//!   `pyproject.toml`, in every folder, relative to that folder; which one
+//!   coverage.py takes depends on where it runs, so every one is read.
+//! - Ruff: a `# ruff: noqa` or `# flake8: noqa` line without rule codes in a
+//!   Python file, which takes that file out of Ruff's linter.
+//!
+//! `check-python` sets Pyright's `ignore` and coverage.py's `omit` aside; Ruff
+//! honours the comment wherever it runs.
 //!
 //! Only a file the tool reads in a building block counts: Prettier's ignore
 //! file taking out a Rust file takes out nothing Prettier would have looked at.
@@ -43,7 +66,7 @@ use crate::annotate::Coverage;
 use crate::finding::{Finding, Rule};
 use crate::path::RelativePath;
 use crate::register::Register;
-use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
+use globset::{GlobBuilder, GlobMatcher, GlobSet, GlobSetBuilder};
 use ignore::Match;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use regex::RegexSet;
@@ -53,7 +76,8 @@ use yaml_rust2::{Yaml, YamlLoader};
 /// A tool a building block runs that has a way of its own to leave files out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tool {
-    /// The formatter of `check-json`, `check-markdown` and `check-yaml`.
+    /// The formatter of `check-css`, `check-html`, `check-json`,
+    /// `check-markdown` and `check-yaml`.
     Prettier,
     /// The formatter and linter of `check-toml`.
     Taplo,
@@ -61,10 +85,20 @@ pub enum Tool {
     Markdownlint,
     /// The linter of `check-yaml`.
     Yamllint,
-    /// The link checker of `check-markdown`.
+    /// The link checker of `check-html` and `check-markdown`.
     Lychee,
     /// The formatter of `check-rust`.
     Rustfmt,
+    /// The linter of `check-css`.
+    Stylelint,
+    /// The linter of `check-html`.
+    HtmlValidate,
+    /// The type checker of `check-python`.
+    Pyright,
+    /// The coverage tool of `check-python`.
+    Coverage,
+    /// The formatter and linter of `check-python`.
+    Ruff,
 }
 
 impl Tool {
@@ -78,6 +112,11 @@ impl Tool {
             Self::Yamllint => "yamllint",
             Self::Lychee => "lychee",
             Self::Rustfmt => "rustfmt",
+            Self::Stylelint => "Stylelint",
+            Self::HtmlValidate => "html-validate",
+            Self::Pyright => "Pyright",
+            Self::Coverage => "coverage.py",
+            Self::Ruff => "Ruff",
         }
     }
 
@@ -85,11 +124,27 @@ impl Tool {
     #[must_use]
     pub fn checks(self) -> &'static [&'static str] {
         match self {
-            Self::Prettier => &["json", "markdown", "yaml"],
+            Self::Prettier => &["css", "html", "json", "markdown", "yaml"],
             Self::Taplo => &["toml"],
-            Self::Markdownlint | Self::Lychee => &["markdown"],
+            Self::Markdownlint => &["markdown"],
+            Self::Lychee => &["html", "markdown"],
             Self::Yamllint => &["yaml"],
             Self::Rustfmt => &["rust"],
+            Self::Stylelint => &["css"],
+            Self::HtmlValidate => &["html"],
+            Self::Pyright | Self::Coverage | Self::Ruff => &["python"],
+        }
+    }
+
+    /// Whether it reads this file of its checks: coverage.py measures code,
+    /// so it reads no stub file (`.pyi`).
+    fn reads(self, file: &RelativePath) -> bool {
+        match self {
+            Self::Coverage => file
+                .file_name()
+                .and_then(|name| std::path::Path::new(name).extension())
+                .is_some_and(|extension| extension == "py"),
+            _ => true,
         }
     }
 }
@@ -127,6 +182,29 @@ enum Matcher {
     /// Regular expressions over the path from the repository root, such as
     /// `docs/a.md`: the string lychee matches them against in the block.
     Regex(RegexSet),
+    /// Stylelint's `ignoreFiles`: globs relative to the folder of its
+    /// configuration, read in order, a negated one (`!…`) taking back what
+    /// the ones before it matched, as Stylelint reads them. They count for
+    /// the files below that folder that no configuration in a folder nearer
+    /// to them governs.
+    Ordered {
+        base: RelativePath,
+        globs: Vec<(bool, GlobMatcher, String)>,
+        nearer: Vec<RelativePath>,
+    },
+    /// coverage.py's patterns: some over the whole path from the root, the
+    /// others relative to a folder.
+    Coverage {
+        anywhere: Globs,
+        base: RelativePath,
+        here: Globs,
+    },
+    /// The file itself, through a line it holds.
+    Itself {
+        file: RelativePath,
+        line: usize,
+        written: String,
+    },
 }
 
 impl Matcher {
@@ -167,6 +245,64 @@ impl Matcher {
                 .iter()
                 .next()
                 .map(|index| format!("through the pattern `{}`", set.patterns()[index])),
+            Self::Ordered {
+                base,
+                globs,
+                nearer,
+            } => {
+                if !base.contains(file) || nearer.iter().any(|dir| dir.contains(file)) {
+                    return None;
+                }
+                let below = file.segments()[base.segments().len()..].join("/");
+                // A list of negated globs alone takes out every file that
+                // none of them names.
+                let mut why = globs.iter().all(|(negated, _, _)| *negated).then(|| {
+                    let written: Vec<String> = globs
+                        .iter()
+                        .map(|(_, _, written)| format!("`{written}`"))
+                        .collect();
+                    format!(
+                        "since it matches none of the patterns {}",
+                        written.join(", ")
+                    )
+                });
+                for (negated, glob, written) in globs {
+                    if *negated {
+                        if glob.is_match(&below) {
+                            why = None;
+                        }
+                    } else if why.is_none() && glob.is_match(&below) {
+                        why = Some(format!("through the pattern `{written}`"));
+                    }
+                }
+                why
+            }
+            Self::Coverage {
+                anywhere,
+                base,
+                here,
+            } => {
+                let path = file.to_string();
+                if let Some(index) = anywhere.set.matches(&path).first() {
+                    return Some(format!(
+                        "through the pattern `{}`",
+                        anywhere.written[*index]
+                    ));
+                }
+                if !base.contains(file) {
+                    return None;
+                }
+                let below = file.segments()[base.segments().len()..].join("/");
+                here.set
+                    .matches(&below)
+                    .first()
+                    .map(|index| format!("through the pattern `{}`", here.written[*index]))
+            }
+            Self::Itself {
+                file: own,
+                line,
+                written,
+            } => (own == file).then(|| format!("through `{written}` on line {line}")),
         }
     }
 }
@@ -185,7 +321,7 @@ impl Setting {
         let (Coverage::Covered(check) | Coverage::Uncovered(check)) = coverage else {
             return None;
         };
-        if !self.tool.checks().contains(&check.as_str()) {
+        if !self.tool.checks().contains(&check.as_str()) || !self.tool.reads(file) {
             return None;
         }
         self.matcher.out(file)
@@ -413,6 +549,406 @@ fn yamllint_ignore(
     }
 }
 
+/// The names Stylelint looks for its configuration under in a folder, in its
+/// order, as its `cosmiconfig` searches them.
+const STYLELINT_CONFIGS: &[&str] = &[
+    "package.json",
+    ".stylelintrc",
+    ".stylelintrc.json",
+    ".stylelintrc.yaml",
+    ".stylelintrc.yml",
+    ".stylelintrc.js",
+    ".stylelintrc.ts",
+    ".stylelintrc.cjs",
+    ".stylelintrc.mjs",
+    ".config/stylelintrc",
+    ".config/stylelintrc.json",
+    ".config/stylelintrc.yaml",
+    ".config/stylelintrc.yml",
+    ".config/stylelintrc.js",
+    ".config/stylelintrc.ts",
+    ".config/stylelintrc.cjs",
+    ".config/stylelintrc.mjs",
+    "stylelint.config.js",
+    "stylelint.config.ts",
+    "stylelint.config.cjs",
+    "stylelint.config.mjs",
+];
+
+/// Whether a configuration of Stylelint is written in JavaScript or
+/// TypeScript, which phase 0 does not run.
+fn script(file: &RelativePath) -> bool {
+    let name = file.file_name().unwrap_or_default();
+    [".js", ".ts", ".cjs", ".mjs"]
+        .iter()
+        .any(|ending| name.ends_with(ending))
+}
+
+/// A configuration of Stylelint: its file and, unless it is JavaScript, what
+/// it holds.
+type StylelintConfig<'a> = (&'a RelativePath, Option<Yaml>);
+
+/// The configuration of Stylelint a folder holds, as Stylelint finds it: the
+/// first of its names there, `package.json` only where it has a `stylelint`
+/// key. With it, the configuration as YAML, or [`None`] for one in
+/// JavaScript; JSON reads as YAML.
+fn stylelint_config<'a>(
+    files: &[&'a RelativePath],
+    dir: &RelativePath,
+    read: &Read<'_>,
+) -> Result<Option<StylelintConfig<'a>>, (&'a RelativePath, String)> {
+    for name in STYLELINT_CONFIGS {
+        let candidate = name
+            .split('/')
+            .fold(dir.clone(), |path, segment| path.join(segment));
+        let Some(file) = files.iter().find(|file| ***file == candidate).copied() else {
+            continue;
+        };
+        if script(file) {
+            return Ok(Some((file, None)));
+        }
+        let config = read(file)
+            .and_then(|source| yaml(&source))
+            .map_err(|error| (file, error))?;
+        if *name != "package.json" {
+            return Ok(Some((file, Some(config))));
+        }
+        if let Yaml::Hash(_) = &config["stylelint"] {
+            return Ok(Some((file, Some(config["stylelint"].clone()))));
+        }
+    }
+    Ok(None)
+}
+
+/// What `ignoreFiles` of a configuration of Stylelint takes out, read as
+/// Stylelint reads it: text or a list of text, `*` stopping at a slash.
+fn stylelint(
+    config: &Yaml,
+    base: &RelativePath,
+    nearer: Vec<RelativePath>,
+) -> Result<Option<Matcher>, String> {
+    let Some(written) = text_or_list(&config["ignoreFiles"], "ignoreFiles")? else {
+        return Ok(None);
+    };
+    let globs = written
+        .into_iter()
+        .map(|pattern| {
+            let (negated, glob) = match pattern.strip_prefix('!') {
+                Some(rest) => (true, rest),
+                None => (false, pattern.as_str()),
+            };
+            GlobBuilder::new(glob)
+                .literal_separator(true)
+                .build()
+                .map(|built| (negated, built.compile_matcher(), pattern.clone()))
+                .map_err(text)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if globs.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(Matcher::Ordered {
+        base: base.clone(),
+        globs,
+        nearer,
+    }))
+}
+
+/// The `ignoreFiles` of every configuration of Stylelint, each counting for
+/// the files below its folder that no nearer configuration governs, and each
+/// configuration that could not be read.
+fn stylelint_settings(
+    files: &[&RelativePath],
+    read: &Read<'_>,
+) -> (Vec<Setting>, Vec<(RelativePath, String)>) {
+    let folders: std::collections::BTreeSet<RelativePath> = files
+        .iter()
+        .filter(|file| {
+            STYLELINT_CONFIGS.iter().any(|name| {
+                let segments = name.split('/').count();
+                file.segments().len() >= segments
+                    && file.segments()[file.segments().len() - segments..].join("/") == *name
+            })
+        })
+        .map(|file| {
+            let segments = file.segments();
+            let depth = if segments.len() >= 2 && segments[segments.len() - 2] == ".config" {
+                2
+            } else {
+                1
+            };
+            segments[..segments.len() - depth]
+                .iter()
+                .fold(RelativePath::root(), |path, segment| path.join(segment))
+        })
+        .collect();
+    let mut configs = Vec::new();
+    let mut failures = Vec::new();
+    for dir in folders {
+        match stylelint_config(files, &dir, read) {
+            Ok(Some((file, config))) => configs.push((dir, file.clone(), config)),
+            Ok(None) => {}
+            Err((file, error)) => failures.push((file.clone(), error)),
+        }
+    }
+    let mut settings = Vec::new();
+    for (dir, file, config) in &configs {
+        let Some(config) = config else {
+            continue;
+        };
+        let nearer = configs
+            .iter()
+            .map(|(other, _, _)| other)
+            .filter(|other| *other != dir && dir.contains(other))
+            .cloned()
+            .collect();
+        match stylelint(config, dir, nearer) {
+            Ok(Some(matcher)) => settings.push(Setting {
+                file: file.clone(),
+                tool: Tool::Stylelint,
+                matcher,
+            }),
+            Ok(None) => {}
+            Err(error) => failures.push((file.clone(), error)),
+        }
+    }
+    (settings, failures)
+}
+
+#[derive(Deserialize)]
+struct Pyright {
+    ignore: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+struct PyrightTable {
+    tool: Option<PyrightTool>,
+}
+
+#[derive(Deserialize)]
+struct PyrightTool {
+    pyright: Option<Pyright>,
+}
+
+/// Pyright reads each entry of `ignore` as a path relative to the folder of
+/// its configuration, a file or a folder with everything below it, where
+/// `**` stands for any folders and `*` and `?` stay within one name.
+fn pyright(config: Pyright, base: &RelativePath) -> Result<Option<Matcher>, String> {
+    let Some(entries) = config.ignore.filter(|entries| !entries.is_empty()) else {
+        return Ok(None);
+    };
+    let mut set = GlobSetBuilder::new();
+    for entry in &entries {
+        let path = entry
+            .strip_prefix("./")
+            .unwrap_or(entry)
+            .trim_end_matches('/');
+        for pattern in [path.to_owned(), format!("{path}/**")] {
+            set.add(
+                GlobBuilder::new(&pattern)
+                    .literal_separator(true)
+                    .build()
+                    .map_err(text)?,
+            );
+        }
+    }
+    // Each entry stands twice in the set, as itself and with what lies below.
+    let written = entries
+        .iter()
+        .flat_map(|entry| [entry.clone(), entry.clone()])
+        .collect();
+    set.build()
+        .map(|set| {
+            Some(Matcher::Globs {
+                base: base.clone(),
+                include: None,
+                exclude: Globs { set, written },
+            })
+        })
+        .map_err(text)
+}
+
+fn pyright_json(source: &str, base: &RelativePath) -> Result<Option<Matcher>, String> {
+    let config: Option<Pyright> =
+        jsonc_parser::parse_to_serde_value(source, &jsonc_parser::ParseOptions::default())
+            .map_err(text)?;
+    config.map_or(Ok(None), |config| pyright(config, base))
+}
+
+fn pyright_toml(source: &str, base: &RelativePath) -> Result<Option<Matcher>, String> {
+    let table: PyrightTable = toml::from_str(source).map_err(text)?;
+    match table.tool.and_then(|tool| tool.pyright) {
+        Some(config) => pyright(config, base),
+        None => Ok(None),
+    }
+}
+
+/// coverage.py's patterns, as `globset` reads them. A pattern without a `/`
+/// names a file anywhere. coverage.py matches the others against the
+/// absolute path of a file, from its start: one that starts with a wildcard
+/// as it is, so it names a file only where it starts with `*/` or `**/`,
+/// any folders above; any other one relative to the folder of its
+/// configuration, where coverage.py runs, and an absolute one names no file
+/// of the repository. `*` stays within one name, `**/` stands for any
+/// folders and a trailing `/*` for anything below.
+fn coverage(patterns: Vec<String>, base: &RelativePath) -> Result<Option<Matcher>, String> {
+    if patterns.is_empty() {
+        return Ok(None);
+    }
+    let mut anywhere = Vec::new();
+    let mut here = Vec::new();
+    for written in patterns {
+        let pattern = written.replace('\\', "/");
+        let pattern = pattern.strip_prefix("./").unwrap_or(&pattern).to_owned();
+        let pattern = match pattern.strip_suffix("/*") {
+            Some(stem) => format!("{stem}/**"),
+            None => pattern,
+        };
+        if !pattern.contains('/') {
+            anywhere.push((format!("**/{pattern}"), written));
+        } else if pattern.starts_with(['*', '?']) {
+            // Matched against an absolute path from its start, such a
+            // pattern names a file only where its wildcards stand for the
+            // folders above it.
+            let stars = pattern.len() - pattern.trim_start_matches('*').len();
+            if let Some(rest) = pattern[stars..].strip_prefix('/').filter(|_| stars > 0) {
+                anywhere.push((format!("**/{rest}"), written));
+            }
+        } else if !pattern.starts_with('/') {
+            here.push((pattern, written));
+        }
+    }
+    let build = |patterns: Vec<(String, String)>| -> Result<Globs, String> {
+        let mut set = GlobSetBuilder::new();
+        let mut written = Vec::new();
+        for (pattern, original) in patterns {
+            set.add(
+                GlobBuilder::new(&pattern)
+                    .literal_separator(true)
+                    .build()
+                    .map_err(text)?,
+            );
+            written.push(original);
+        }
+        set.build().map(|set| Globs { set, written }).map_err(text)
+    };
+    Ok(Some(Matcher::Coverage {
+        anywhere: build(anywhere)?,
+        base: base.clone(),
+        here: build(here)?,
+    }))
+}
+
+#[derive(Deserialize)]
+struct CoverageTable {
+    tool: Option<CoverageTool>,
+}
+
+#[derive(Deserialize)]
+struct CoverageTool {
+    coverage: Option<CoverageSections>,
+}
+
+#[derive(Deserialize)]
+struct CoverageSections {
+    run: Option<CoverageOmit>,
+    report: Option<CoverageOmit>,
+}
+
+#[derive(Deserialize)]
+struct CoverageOmit {
+    omit: Option<Vec<String>>,
+}
+
+fn coverage_toml(source: &str, base: &RelativePath) -> Result<Option<Matcher>, String> {
+    let table: CoverageTable = toml::from_str(source).map_err(text)?;
+    let sections = table.tool.and_then(|tool| tool.coverage);
+    let patterns = sections
+        .into_iter()
+        .flat_map(|sections| [sections.run, sections.report])
+        .flatten()
+        .filter_map(|section| section.omit)
+        .flatten()
+        .collect();
+    coverage(patterns, base)
+}
+
+/// `omit` of the named sections of an INI file, as coverage.py reads it with
+/// Python's configparser: a value runs on over the indented lines below its
+/// key, and its patterns stand one per line or apart by commas.
+fn coverage_ini(
+    source: &str,
+    sections: &[&str],
+    base: &RelativePath,
+) -> Result<Option<Matcher>, String> {
+    let mut patterns = Vec::new();
+    let mut section: Option<String> = None;
+    let mut collecting = false;
+    for (number, line) in source.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with(['#', ';']) {
+            continue;
+        }
+        if line.starts_with([' ', '\t']) {
+            if collecting {
+                patterns.extend(split(trimmed));
+            }
+            continue;
+        }
+        collecting = false;
+        if let Some(name) = trimmed.strip_prefix('[') {
+            let Some(name) = name.strip_suffix(']') else {
+                return Err(format!(
+                    "line {}: a section header that does not close",
+                    number + 1
+                ));
+            };
+            section = Some(name.trim().to_owned());
+            continue;
+        }
+        let Some((key, value)) = trimmed.split_once(['=', ':']) else {
+            return Err(format!(
+                "line {}: neither a section, a key nor a value",
+                number + 1
+            ));
+        };
+        if key.trim().eq_ignore_ascii_case("omit")
+            && section
+                .as_deref()
+                .is_some_and(|name| sections.contains(&name))
+        {
+            patterns.extend(split(value.trim()));
+            collecting = true;
+        }
+    }
+    coverage(patterns, base)
+}
+
+/// The patterns of one line of a list in an INI file.
+fn split(line: &str) -> Vec<String> {
+    line.split(',')
+        .map(str::trim)
+        .filter(|pattern| !pattern.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The line of a Python file that takes it out of Ruff's linter as a whole:
+/// `# ruff: noqa` or `# flake8: noqa` without rule codes.
+fn noqa(file: &RelativePath, source: &str) -> Option<Matcher> {
+    source.lines().enumerate().find_map(|(index, line)| {
+        let comment = line.trim().strip_prefix('#')?.trim();
+        let (tool, rest) = comment.split_once(':')?;
+        let tool = tool.trim().to_ascii_lowercase();
+        (["ruff", "flake8"].contains(&tool.as_str()) && rest.trim().eq_ignore_ascii_case("noqa"))
+            .then(|| Matcher::Itself {
+                file: file.clone(),
+                line: index + 1,
+                written: line.trim().to_owned(),
+            })
+    })
+}
+
 /// Reads a file of the repository, as it stands there.
 pub type Read<'a> = dyn Fn(&RelativePath) -> Result<String, String> + 'a;
 
@@ -437,6 +973,7 @@ fn places<'a>(files: &[&'a RelativePath]) -> Vec<(&'a RelativePath, Tool)> {
             Tool::Yamllint,
         ),
         (&["lychee.toml"][..], Tool::Lychee),
+        (&[".stylelintignore"][..], Tool::Stylelint),
     ] {
         if let Some(file) = first(files, names) {
             found.push((file, tool));
@@ -457,6 +994,21 @@ fn places<'a>(files: &[&'a RelativePath]) -> Vec<(&'a RelativePath, Tool)> {
             && !files.contains(&&folder(file).join(".rustfmt.toml"));
         if hidden || plain {
             found.push((*file, Tool::Rustfmt));
+        }
+        // html-validate reads the ignore file of every folder above a file.
+        if file.file_name() == Some(".htmlvalidateignore") {
+            found.push((*file, Tool::HtmlValidate));
+        }
+        // Pyright and coverage.py, every file they may read their settings
+        // from.
+        match file.file_name() {
+            Some("pyrightconfig.json") => found.push((*file, Tool::Pyright)),
+            Some("pyproject.toml") => {
+                found.push((*file, Tool::Pyright));
+                found.push((*file, Tool::Coverage));
+            }
+            Some(".coveragerc" | "setup.cfg" | "tox.ini") => found.push((*file, Tool::Coverage)),
+            _ => {}
         }
     }
     found
@@ -486,6 +1038,21 @@ fn read_setting(
             markdownlint_jsonc(&source, &folder(file))
         }
         Tool::Markdownlint => markdownlint_yaml(&source, &folder(file)),
+        Tool::Stylelint | Tool::HtmlValidate => gitignore(source.lines(), &folder(file)).map(Some),
+        Tool::Pyright if file.file_name() == Some("pyrightconfig.json") => {
+            pyright_json(&source, &folder(file))
+        }
+        Tool::Pyright => pyright_toml(&source, &folder(file)),
+        Tool::Coverage if file.file_name() == Some("pyproject.toml") => {
+            coverage_toml(&source, &folder(file))
+        }
+        Tool::Coverage if file.file_name() == Some(".coveragerc") => {
+            coverage_ini(&source, &["run", "report"], &folder(file))
+        }
+        Tool::Coverage => {
+            coverage_ini(&source, &["coverage:run", "coverage:report"], &folder(file))
+        }
+        Tool::Ruff => Ok(noqa(file, &source)),
     }
 }
 
@@ -498,7 +1065,20 @@ fn remedy(tool: Tool) -> &'static str {
              with its Cargo.toml) with an [[exclude]] entry and a reason in \
              .nebensound/repo.toml"
         }
-        Tool::Prettier | Tool::Taplo | Tool::Markdownlint | Tool::Yamllint | Tool::Lychee => {
+        // Single rules stay the repository's choice.
+        Tool::Ruff => {
+            "switch single rules off (`# ruff: noqa: <code>`), or give it an [[exclude]] entry \
+             with a reason in .nebensound/repo.toml"
+        }
+        Tool::Prettier
+        | Tool::Taplo
+        | Tool::Markdownlint
+        | Tool::Yamllint
+        | Tool::Lychee
+        | Tool::Pyright
+        | Tool::Coverage
+        | Tool::Stylelint
+        | Tool::HtmlValidate => {
             "give it an [[exclude]] entry with a reason in .nebensound/repo.toml"
         }
     }
@@ -512,6 +1092,17 @@ pub fn findings(analysis: &Analysis, register: &Register, read: &Read<'_>) -> Ve
     let nodes = analysis.tree.files();
     let files: Vec<&RelativePath> = nodes.iter().map(|(node, _)| &node.path).collect();
 
+    let unreadable = |file: &RelativePath, tool: Tool, error: String| {
+        Finding::error(
+            Rule::UnreadableIgnoreFile,
+            format!(
+                "phase 0 cannot read what this takes out of {}, so it cannot hold it against \
+                 the declaration: {error}",
+                tool.name()
+            ),
+        )
+        .at(file.clone())
+    };
     let mut findings = Vec::new();
     let mut settings = Vec::new();
     for (file, tool) in places(&files) {
@@ -522,17 +1113,29 @@ pub fn findings(analysis: &Analysis, register: &Register, read: &Read<'_>) -> Ve
                 matcher,
             }),
             Ok(None) => {}
-            Err(error) => findings.push(
-                Finding::error(
-                    Rule::UnreadableIgnoreFile,
-                    format!(
-                        "phase 0 cannot read what this takes out of {}, so it cannot hold it \
-                         against the declaration: {error}",
-                        tool.name()
-                    ),
-                )
-                .at(file.clone()),
-            ),
+            Err(error) => findings.push(unreadable(file, tool, error)),
+        }
+    }
+    let (configured, failures) = stylelint_settings(&files, read);
+    settings.extend(configured);
+    findings.extend(
+        failures
+            .into_iter()
+            .map(|(file, error)| unreadable(&file, Tool::Stylelint, error)),
+    );
+
+    // A Python file that takes itself out of Ruff. Only the files a check
+    // reads are opened; one that cannot be read holds no such line.
+    for (node, coverage) in &nodes {
+        let python = matches!(coverage, Coverage::Covered(check) | Coverage::Uncovered(check)
+            if Tool::Ruff.checks().contains(&check.as_str()));
+        if let Some(Ok(Some(matcher))) = python.then(|| read_setting(&node.path, Tool::Ruff, read))
+        {
+            settings.push(Setting {
+                file: node.path.clone(),
+                tool: Tool::Ruff,
+                matcher,
+            });
         }
     }
 
@@ -545,20 +1148,24 @@ pub fn findings(analysis: &Analysis, register: &Register, read: &Read<'_>) -> Ve
         }
         for setting in &settings {
             if let Some(why) = setting.out(&node.path, coverage) {
-                findings.push(
-                    Finding::error(
-                        Rule::UnexcusedIgnore,
-                        format!(
-                            "{file} takes this file out of {} {why}, and no [[exclude]] entry \
-                             does. The pipeline checks it all the same: {remedy}, or let \
-                             {file} keep it in",
-                            setting.tool.name(),
-                            file = setting.file,
-                            remedy = remedy(setting.tool),
-                        ),
+                let message = if setting.tool == Tool::Ruff {
+                    // Ruff honours the line in the block as well.
+                    format!(
+                        "this file takes itself out of Ruff's linter {why}, and no [[exclude]] \
+                         entry does; Ruff leaves it unchecked wherever it runs: {remedy}",
+                        remedy = remedy(setting.tool),
                     )
-                    .at(node.path.clone()),
-                );
+                } else {
+                    format!(
+                        "{file} takes this file out of {} {why}, and no [[exclude]] entry \
+                         does. The pipeline checks it all the same: {remedy}, or let \
+                         {file} keep it in",
+                        setting.tool.name(),
+                        file = setting.file,
+                        remedy = remedy(setting.tool),
+                    )
+                };
+                findings.push(Finding::error(Rule::UnexcusedIgnore, message).at(node.path.clone()));
             }
         }
     }

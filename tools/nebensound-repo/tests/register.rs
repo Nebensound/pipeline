@@ -12,7 +12,7 @@ use nebensound_repo::names::{
     BuildName, CheckName, EcosystemName, PresetName, TargetName, VersionWriterName,
 };
 use nebensound_repo::path::RelativePath;
-use nebensound_repo::register::{BUILTIN_REGISTER, Register, RegisterError};
+use nebensound_repo::register::{BUILTIN_REGISTER, Register, RegisterError, Stands};
 use nebensound_repo::{Central, Ruling, Tree};
 
 fn refuses(source: &str) -> String {
@@ -413,6 +413,25 @@ fn a_lockfile_is_a_whole_name_a_check_covers_that_ends_in_lock() {
     assert!(!register.is_lockfile("yarn.lock"));
     assert!(!register.is_lockfile("other.lock"));
     assert!(!register.is_lockfile("Cargo.toml"));
+}
+
+#[test]
+fn the_lockfile_of_a_manifest_is_one_a_check_names() {
+    let register = builtin();
+    let cargo = &register.ecosystem[&EcosystemName::new("cargo").expect("a name")];
+    let lockfile = cargo.lockfile.as_ref().expect("Cargo knows a lockfile");
+    assert_eq!(lockfile.manifest, "Cargo.toml");
+    assert!(register.is_lockfile(&lockfile.name));
+    assert_eq!(lockfile.stands, Stands::CargoWorkspaceRoot);
+
+    // A name no check covers would be a second list of lockfiles.
+    let written = "name = \"Cargo.lock\"";
+    assert!(BUILTIN_REGISTER.contains(written));
+    let message = refuses(&BUILTIN_REGISTER.replace(written, "name = \"yarn.lock\""));
+    assert_eq!(
+        message,
+        "cargo refers to the lockfile \"yarn.lock\", which the register does not define"
+    );
 }
 
 #[test]

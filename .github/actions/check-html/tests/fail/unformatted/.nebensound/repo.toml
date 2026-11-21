@@ -1,0 +1,4 @@
+# A fragment that Prettier would write on three lines.
+[repo]
+audience = "public"
+pipeline = { check = ["html"] }

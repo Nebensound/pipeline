@@ -1,0 +1,4 @@
+# A page with an image without an alt attribute.
+[repo]
+audience = "public"
+pipeline = { check = ["html"] }

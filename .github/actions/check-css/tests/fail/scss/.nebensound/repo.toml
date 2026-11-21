@@ -1,0 +1,4 @@
+# An SCSS variable that is not kebab-case, which only the SCSS rules know.
+[repo]
+audience = "public"
+pipeline = { check = ["css"] }

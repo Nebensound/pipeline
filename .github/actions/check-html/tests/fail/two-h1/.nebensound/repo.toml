@@ -1,0 +1,4 @@
+# A page with two h1.
+[repo]
+audience = "public"
+pipeline = { check = ["html"] }

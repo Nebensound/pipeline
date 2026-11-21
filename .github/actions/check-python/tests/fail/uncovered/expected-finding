@@ -1,0 +1,1 @@
+::error file=src/sample/cli.py,line=14::coverage.py: not covered: line(s) 14

@@ -94,7 +94,10 @@ stands on the list of what nobody checks as long as it is empty: it needs no
 exclusion. Empty means what Git holds for it, not what lies in the working
 tree. A marker added with `git add -N` holds nothing in Git yet, so it does not
 count as empty until it is staged. A marker that holds content is a file like
-any other, and phase 0 reports it as `language-without-check`.
+any other, and phase 0 reports it as `language-without-check`. The same holds
+for `py.typed`, the empty marker of a Python package that ships its type hints;
+`.python-version`, which names the interpreter uv installs, stands on the list
+whatever it holds.
 
 ### Where a check runs
 
@@ -846,6 +849,22 @@ file.
 Warning. A unit has an ecosystem watched and holds no manifest of it. Remove the
 ecosystem from its `dependabot` list. An ecosystem of the base set is exempt.
 
+### `missing-lockfile`
+
+Warning. A manifest's ecosystem knows a lockfile, and Git does not track it.
+What is checked and built is then resolved anew in each run instead of being
+what was resolved and committed. The register names, per ecosystem, the
+lockfile of a manifest and where it stands (see
+[Ecosystems](register.md#ecosystems)): for a `Cargo.toml` the `Cargo.lock` in
+the root of the Cargo workspace its package belongs to, found the way Cargo
+finds it. The members of a workspace lead to the same lockfile, so it is
+reported once, at the manifest nearest the root of the repository, and the
+message names the lockfile. Commit it. A manifest that an `[[exclude]]` entry
+takes out is passed over. Taking out only the reported manifest of a workspace
+moves the finding to the next member; to silence it, take out every manifest
+that leads to the lockfile, such as the folder of the workspace. Whether a
+committed lockfile is up to date is for the check of each language.
+
 ### `unconventional-commit`
 
 Warning. A commit the version of a unit is raised by has a message that is not a
@@ -961,7 +980,10 @@ nothing out of a check. A `.rs` file
 that rustfmt's `ignore` takes out is excused only by an entry that takes out its
 whole package (see
 [`partial-package-exclusion`](#partial-package-exclusion)); inside a package,
-`#[rustfmt::skip]` is the means.
+`#[rustfmt::skip]` is the means. A Python file that holds `# ruff: noqa`
+without rule codes takes itself out of Ruff's linter, which honours the line in
+`check-python` as well: give the file an `[[exclude]]` entry, or switch single
+rules off instead (`# ruff: noqa: <code>`).
 [The README](../README.md#exclusions) lists the settings phase 0 reads.
 
 ### `unreadable-ignore-file`

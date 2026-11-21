@@ -11,7 +11,7 @@
 
 use std::fmt::Display;
 
-use crate::programs::{Download, Platform};
+use crate::programs::{Companion, Download, Platform};
 use crate::{Central, Publish, Register};
 
 /// What stands above the tables: what the page is and where it comes from.
@@ -145,7 +145,7 @@ fn programs(register: &Register) -> String {
                     let minimum = program.runtime_minimum.as_deref().unwrap_or_default();
                     format!("{}, {} or later", code(runtime), code(minimum))
                 }),
-                platforms(&program.download),
+                companions(platforms(&program.download), &program.companions),
             ]
         })
         .collect();
@@ -155,7 +155,8 @@ fn programs(register: &Register) -> String {
          `nebensound-repo setup` finds or installs the ones a repository's checks call\n\
          (see [the tool](../tools/nebensound-repo/README.md#setting-up-the-programs)).\n\
          A program on a runtime is one package, which the runtime's installer puts in\n\
-         place, and needs at least the version of the runtime its package states;\n\
+         place together with its companions, the packages pinned beside it that are\n\
+         no command, and needs at least the version of the runtime its package states;\n\
          every other one is a build per platform. Each download is refused unless it\n\
          has the digest the register pins; the addresses and digests stand in\n\
          `register.toml`, each with the release data it was taken from. On a platform\n\
@@ -275,14 +276,24 @@ fn ecosystems(register: &Register) -> String {
                 code(name),
                 code(&ecosystem.package_ecosystem),
                 codes(&ecosystem.manifests),
+                ecosystem.lockfile.as_ref().map_or_else(none, |lockfile| {
+                    format!(
+                        "{} of a {}, {}",
+                        code(&lockfile.name),
+                        code(&lockfile.manifest),
+                        lockfile.stands
+                    )
+                }),
             ]
         })
         .collect();
     section(
         "Ecosystems",
         "The package ecosystems Dependabot can watch, and the file names phase 0\n\
-         recognizes a manifest of each by.",
-        &["Ecosystem", "Dependabot name", "Manifests"],
+         recognizes a manifest of each by. Where an ecosystem knows a lockfile, phase 0\n\
+         warns when Git does not track the lockfile of a manifest (see\n\
+         [`missing-lockfile`](declaration.md#missing-lockfile)).",
+        &["Ecosystem", "Dependabot name", "Manifests", "Lockfile"],
         &rows,
     )
 }
@@ -373,6 +384,18 @@ fn platforms(downloads: &std::collections::BTreeMap<Platform, Download>) -> Stri
         return "one package for every platform".to_owned();
     }
     codes(&downloads.keys().collect::<Vec<_>>())
+}
+
+/// The builds of a program, and the companions installed with it.
+fn companions(builds: String, companions: &[Companion]) -> String {
+    if companions.is_empty() {
+        return builds;
+    }
+    let pinned: Vec<String> = companions
+        .iter()
+        .map(|companion| format!("{} {}", code(&companion.name), code(&companion.version)))
+        .collect();
+    format!("{builds}, with {}", pinned.join(", "))
 }
 
 /// Where a preset publishes.

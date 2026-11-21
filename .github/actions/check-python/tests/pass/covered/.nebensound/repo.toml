@@ -1,0 +1,8 @@
+# A uv project as a python-service holds it: formatted, without a Ruff or a
+# strict Pyright finding, its tests passing at 100 % of lines and branches, and
+# its wheel installing into a clean environment, where its command answers
+# `--help` and its package imports. The case runs the python check alone; the
+# Dockerfile and the image are not part of it.
+[repo]
+audience = "public"
+pipeline = { check = ["python"], dependabot = ["uv"] }
