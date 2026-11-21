@@ -36,13 +36,10 @@ use crate::annotate::Coverage;
 use crate::ignored::{Read, folder};
 use crate::path::RelativePath;
 use crate::report::{column, shown};
+use crate::ruff_config::{FILES, Next, chain as links, settings};
 
 /// The check whose block runs Ruff.
 const CHECK: &str = "python";
-
-/// The files Ruff takes its configuration from in a folder, in the order it
-/// looks for them.
-const FILES: &[&str] = &[".ruff.toml", "ruff.toml", "pyproject.toml"];
 
 /// The settings that switch rules on or off, in the order they are shown.
 const SELECTION: &[&str] = &[
@@ -64,8 +61,6 @@ enum Setting {
 
 /// What one configuration says of Ruff's rules.
 struct Config {
-    /// What its `extend` names.
-    extend: Option<String>,
     /// The settings it writes, each under the key it is written as.
     selection: Vec<(String, Setting)>,
 }
@@ -127,11 +122,9 @@ fn strings(key: &str, value: &Value) -> Result<Vec<String>, String> {
 
 /// What a table of Ruff's settings says of its rules.
 fn config(table: &Table) -> Result<Config, String> {
-    let extend = match table.get("extend") {
-        None => None,
-        Some(Value::String(path)) => Some(path.clone()),
-        Some(_) => return Err("`extend` is not text".to_owned()),
-    };
+    if table.get("extend").is_some_and(|extend| !extend.is_str()) {
+        return Err("`extend` is not text".to_owned());
+    }
     let lint = match table.get("lint") {
         None => None,
         Some(Value::Table(lint)) => Some(lint),
@@ -165,24 +158,7 @@ fn config(table: &Table) -> Result<Config, String> {
         };
         selection.push((key, setting));
     }
-    Ok(Config { extend, selection })
-}
-
-/// Ruff's settings in a file: all of it, or of a `pyproject.toml` its
-/// `[tool.ruff]` table, [`None`] where it holds none.
-fn settings(file: &RelativePath, source: &str) -> Result<Option<Table>, String> {
-    let mut table: Table = toml::from_str(source).map_err(|error| error.to_string())?;
-    if file.file_name() != Some("pyproject.toml") {
-        return Ok(Some(table));
-    }
-    let Some(Value::Table(mut tool)) = table.remove("tool") else {
-        return Ok(None);
-    };
-    match tool.remove("ruff") {
-        None => Ok(None),
-        Some(Value::Table(ruff)) => Ok(Some(ruff)),
-        Some(_) => Err("`tool.ruff` is not a table".to_owned()),
-    }
+    Ok(Config { selection })
 }
 
 /// The units the block runs at that hold a Python file the check covers: for
@@ -229,25 +205,6 @@ fn found(files: &[&RelativePath], unit: &RelativePath, read: &Read<'_>) -> Optio
         }
         dir = folder(&dir);
     }
-}
-
-/// The file an `extend` names from the folder of the file it stands in, or
-/// [`None`] where it lies outside the repository or Ruff would expand it.
-fn resolve(dir: &RelativePath, extend: &str) -> Option<RelativePath> {
-    if extend.starts_with(['/', '~']) || extend.contains('$') {
-        return None;
-    }
-    let mut segments: Vec<&str> = dir.segments().iter().map(String::as_str).collect();
-    for segment in extend.split('/') {
-        match segment {
-            "" | "." => {}
-            ".." => {
-                segments.pop()?;
-            }
-            name => segments.push(name),
-        }
-    }
-    RelativePath::new(&segments.join("/")).ok()
 }
 
 /// Whether a selector names a rule or prefix, so that an `extend-select` of it
@@ -364,25 +321,21 @@ fn entries(key: &str, setting: &Setting, default: &Baseline) -> Vec<String> {
 /// `extend` chain names.
 fn chain(top: RelativePath, read: &Read<'_>, default: &Baseline) -> Vec<String> {
     let mut lines = Vec::new();
-    let mut seen: Vec<RelativePath> = Vec::new();
-    let mut file = top;
-    loop {
-        let head = column(6, &shown(&file.to_string()));
-        let place = seen.last().map_or_else(
+    let mut over: Option<RelativePath> = None;
+    for link in links(top, read) {
+        let head = column(6, &shown(&link.file.to_string()));
+        let place = over.as_ref().map_or_else(
             || "laid over the default rule by rule".to_owned(),
             |over| format!("laid over the default beneath {over}, whose `extend` names it"),
         );
-        let read_config = read(&file)
-            .and_then(|source| settings(&file, &source))
-            .and_then(|table| config(&table.unwrap_or_default()));
-        let config = match read_config {
+        let config = match link.table.and_then(|table| config(&table)) {
             Ok(config) => config,
             Err(error) => {
                 lines.push(format!("{head}cannot be read: {}", shown(&error)));
                 return lines;
             }
         };
-        if config.extend.is_none() && config.selection.is_empty() {
+        if link.extend.is_none() && config.selection.is_empty() {
             lines.push(format!(
                 "{}{}",
                 head,
@@ -394,30 +347,22 @@ fn chain(top: RelativePath, read: &Read<'_>, default: &Baseline) -> Vec<String> 
         for (key, setting) in &config.selection {
             lines.extend(entries(key, setting, default));
         }
-        let Some(extend) = config.extend else {
+        let Some((extend, next)) = link.extend else {
             return lines;
         };
-        let next = resolve(&folder(&file), &extend);
-        let what = match &next {
-            None => "lies outside the repository: named, not read",
-            Some(next) if *next == file || seen.contains(next) => {
-                "comes back round to a file above it, which Ruff refuses"
-            }
-            Some(_) => "what it names lies beneath the rules here",
+        let what = match next {
+            Next::Outside => "lies outside the repository: named, not read",
+            Next::Loop => "comes back round to a file above it, which Ruff refuses",
+            Next::File(_) => "what it names lies beneath the rules here",
         };
         lines.push(format!(
             "{}{}",
             column(10, "extend"),
             shown(&format!("{}: {what}", Json::from(extend.as_str())))
         ));
-        match next {
-            Some(next) if next != file && !seen.contains(&next) => {
-                seen.push(file);
-                file = next;
-            }
-            _ => return lines,
-        }
+        over = Some(link.file);
     }
+    lines
 }
 
 /// The section of Ruff, or [`None`] where the check covers no Python file.

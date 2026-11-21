@@ -683,10 +683,11 @@ block hands lychee. A setting that takes out less is fine. Phase 0 reads:
 | markdownlint-cli2 | `ignores` in `.markdownlint-cli2.jsonc` or `.markdownlint-cli2.yaml`, in every folder       |
 | yamllint          | `ignore` and `ignore-from-file` in `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at root |
 | lychee            | `exclude_path` in `lychee.toml` at the root                                                 |
-| Pyright           | `ignore` and `exclude` in `pyrightconfig.json` or `[tool.pyright]`, in every folder         |
+| Pyright           | `include`, `ignore`, `exclude` in `pyrightconfig.json` or `[tool.pyright]`, in every folder |
 | coverage.py       | `omit` in `.coveragerc`, `setup.cfg`, `tox.ini` or `pyproject.toml`, in every folder        |
 | Ruff              | `# ruff: noqa` or `# flake8: noqa` without rule codes, in the Python file itself            |
 | Ruff              | `exclude`, `extend-exclude` in `.ruff.toml`, `ruff.toml` or `[tool.ruff]`, in every folder  |
+| Ruff              | `include`, `lint.exclude`, `format.exclude` in the configuration that governs a file        |
 | rustfmt           | `ignore` in `.rustfmt.toml` or `rustfmt.toml`, in every folder                              |
 | Stylelint         | `.stylelintignore` at the root; `ignoreFiles` in the configuration of every folder          |
 | html-validate     | `.htmlvalidateignore` in every folder                                                       |
@@ -719,11 +720,26 @@ Ruff finds in each folder (the first of `.ruff.toml`, `ruff.toml` and a
 crossing a `/` and a pattern without a `/` naming a file or folder of that name
 anywhere below, as Ruff matches them; each counts for what lies below its
 folder that no nearer configuration governs, and for the folder of a nearer one
-itself, which Ruff checks with the configuration above it. Pyright's `exclude`
-is read like its `ignore`. Both tools' `exclude` takes the place of their
-default list, and what that list leaves out (Ruff's `.venv`, `node_modules`,
-`dist` and the like; Pyright's `**/node_modules`, `**/__pycache__` and `**/.*`)
-is no finding, whether a setting names it again or not. A setting phase 0 cannot read fails as well (`unreadable-ignore-file`). A JavaScript options file of markdownlint-cli2
+itself, which Ruff checks with the configuration above it. Ruff's `include`,
+`lint.exclude` and `format.exclude` are read in the configuration that governs
+a file, the nearest one above it, and matched as Ruff matches them: against
+the file's path and, for `lint.exclude` and `format.exclude`, its name, but not
+against the folders above it, so a folder's name there takes nothing out.
+`lint.exclude` takes a file out of `ruff check` alone and `format.exclude` out
+of `ruff format` alone, and the finding names the step. Ruff's default
+`include` takes every `.py` and `.pyi` file, all the check covers, so only an
+`include` of the configuration's own can leave one out; `extend-include` only
+adds to `include` and is never a finding. Where a configuration names another
+in `extend`, the settings of that one count beneath its own, as Ruff lays
+them, each pattern relative to the folder of the file that writes it; an
+`extend` is followed inside the repository only, and one that comes back round
+is a loop, which Ruff refuses (`unreadable-ignore-file`). Pyright's `exclude`
+is read like its `ignore`; its `include` takes out every file below the folder
+of its configuration that none of its entries names. Ruff's `exclude` takes the
+place of its default list, Pyright's adds to its own; what those lists leave
+out (Ruff's `.venv`, `node_modules`, `dist` and the like; Pyright's
+`**/node_modules`, `**/__pycache__` and `**/.*`) is no finding, whether a
+setting names it again or not. A setting phase 0 cannot read fails as well (`unreadable-ignore-file`). A JavaScript options file of markdownlint-cli2
 (`.markdownlint-cli2.cjs` or `.mjs`) is not judged, since phase 0 cannot read it
 without running it; the block sets its `ignores` aside all the same. A setting
 that switches a rule off for some files, such as yamllint's per-rule `ignore`
