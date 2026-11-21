@@ -357,7 +357,7 @@ account of an organization administrator and no bypass actor.
   `pull_request` from both the repository-level copy and the live ruleset of
   the organization of the same name, which binds the repository as well.
 - **Half one, the first push.** With both rulesets active, `git push origin
-  main` into the empty repository created the default branch and went through.
+main` into the empty repository created the default branch and went through.
   No ruleset refused it, so none was taken away. The ruleset of the
   organization and its copy name the repository role Admin as a bypass, which
   the account has; whether they would refuse a creator who is not an
