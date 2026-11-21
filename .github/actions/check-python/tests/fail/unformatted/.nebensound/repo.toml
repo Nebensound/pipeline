@@ -1,0 +1,6 @@
+# A string in single quotes, which Ruff's formatter writes in double quotes.
+# Ruff's linter does not report it: its quote rules contradict the formatter
+# and are off in the pipeline's default.
+[repo]
+audience = "public"
+pipeline = { check = ["python"], dependabot = ["uv"] }

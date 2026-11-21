@@ -1,0 +1,2 @@
+::error file=pyproject.toml::typeCheckingMode "basic" lowers Pyright's strict mode*
+::error file=src/sample/cli.py,line=3::'# pyright: basic' lowers Pyright's strict mode for this file*

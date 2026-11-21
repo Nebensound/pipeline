@@ -1,0 +1,4 @@
+# A test that expects another greeting than the one the code gives.
+[repo]
+audience = "public"
+pipeline = { check = ["python"], dependabot = ["uv"] }

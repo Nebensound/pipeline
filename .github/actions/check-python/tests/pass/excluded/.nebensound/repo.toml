@@ -1,0 +1,14 @@
+# The covered project with a module and a test that an [[exclude]] entry
+# takes out: the module is not formatted, carries no type hints and no test
+# covers it, and the test fails. Neither is handed to a tool.
+[repo]
+audience = "public"
+pipeline = { check = ["python"], dependabot = ["uv"] }
+
+[[exclude]]
+path   = "src/sample/legacy.py"
+reason = "a module kept as it was written, until it is replaced"
+
+[[exclude]]
+path   = "tests/test_legacy.py"
+reason = "the test of that module, which fails"

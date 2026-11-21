@@ -1,0 +1,5 @@
+# Pyright's mode lowered twice: in its configuration and in a comment of a
+# file. Both are findings, whatever Pyright then reports.
+[repo]
+audience = "public"
+pipeline = { check = ["python"], dependabot = ["uv"] }

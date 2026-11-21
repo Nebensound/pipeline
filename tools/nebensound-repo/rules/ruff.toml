@@ -1,0 +1,38 @@
+# The pipeline's default for Ruff. check-python lays a repository's own Ruff
+# configuration over it the way Ruff lays a configuration over the one its
+# `extend` names: the repository's `ignore`, `extend-select` and
+# `extend-per-file-ignores` change single rules and keep the rest, its `select`
+# and `per-file-ignores` start over, and every other setting it names wins.
+#
+# Every rule holds, less what contradicts another tool of the pipeline.
+
+[lint]
+select = ["ALL"]
+ignore = [
+  # Ruff's own list of lint rules that conflict with its formatter.
+  "W191",
+  "E111",
+  "E114",
+  "E117",
+  "D206",
+  "D300",
+  "Q000",
+  "Q001",
+  "Q002",
+  "Q003",
+  "COM812",
+  "COM819",
+  "ISC002",
+  # Two pairs of docstring rules that contradict each other; D211 and D212
+  # hold.
+  "D203",
+  "D213",
+]
+
+# pytest's assertions are plain `assert` statements, which S101 reports as
+# code that disappears under `python -O`; in a test that is the point.
+[lint.per-file-ignores]
+"**/tests/**"    = ["S101"]
+"**/test_*.py"   = ["S101"]
+"**/*_test.py"   = ["S101"]
+"**/conftest.py" = ["S101"]

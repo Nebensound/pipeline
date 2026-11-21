@@ -94,7 +94,10 @@ stands on the list of what nobody checks as long as it is empty: it needs no
 exclusion. Empty means what Git holds for it, not what lies in the working
 tree. A marker added with `git add -N` holds nothing in Git yet, so it does not
 count as empty until it is staged. A marker that holds content is a file like
-any other, and phase 0 reports it as `language-without-check`.
+any other, and phase 0 reports it as `language-without-check`. The same holds
+for `py.typed`, the empty marker of a Python package that ships its type hints;
+`.python-version`, which names the interpreter uv installs, stands on the list
+whatever it holds.
 
 ### Where a check runs
 

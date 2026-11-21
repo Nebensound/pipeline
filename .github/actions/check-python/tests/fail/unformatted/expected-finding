@@ -1,0 +1,1 @@
+::error file=src/sample/cli.py::not formatted the way Ruff writes it; 'ruff format' fixes it

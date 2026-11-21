@@ -1,0 +1,1174 @@
+name: check-python
+description: >-
+  The Python check over one uv project: every Python file the unit holds is
+  formatted the way Ruff writes it, passes Ruff and passes Pyright in strict
+  mode; the tests pass with every line and branch covered; and the project's
+  wheel installs into a clean environment, where its commands answer `--help`
+  and its packages import.
+
+# One input, and it is not a setting: where the unit is. It comes from the plan
+# of phase 0. The files are the ones `nebensound-repo files` names for the check
+# and the unit: what Git tracks below that path with an extension the register
+# gives the check (`.py`, `.pyi`), less what an `[[exclude]]` entry of the
+# declaration takes out. A file nobody committed is not judged, a committed one
+# is not missed, and no ignore mechanism of a tool takes one out. The calling
+# job checks the repository out and puts the tool on the PATH first (the action
+# `tool`).
+#
+# The unit is a uv project: its pyproject.toml lies at the unit's path, and its
+# uv.lock there or above it, at the root of the uv workspace it belongs to, as
+# uv finds it. The interpreter is the one `.python-version` names, at the unit
+# or at that root, as rust-toolchain.toml names the toolchain of check-rust; uv
+# installs it from its own downloads and never takes one of the machine. uv,
+# Ruff, Pyright (with the Node.js it runs on) and coverage.py are pinned below,
+# as the register pins them; pytest and its plugins are the project's, from its
+# lockfile, since they have to import its code. Everything is installed into
+# the runner's temporary folder, and nothing is written into the checkout that
+# outlives a step.
+#
+# A file an `[[exclude]]` entry takes out is handed to no tool: Ruff and
+# Pyright get the list, pytest does not collect an excluded file, and coverage
+# does not judge one. An entry that takes out the unit's whole folder leaves
+# nothing to check.
+
+inputs:
+  working-directory:
+    description: The directory of the unit, as the plan names it.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # At the repository root, where the paths the tool names start.
+    - name: Find the Python files
+      id: files
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        dir="$RUNNER_TEMP/check-python"
+        rm -rf "$dir"
+        mkdir -p "$dir"
+        list="$dir/files"
+        excluded="$dir/excluded"
+        # The tool writes a refusal where the list would go: into the log
+        # with it, or the step fails without saying why.
+        if ! nebensound-repo files -z -- python "$UNIT" > "$list"; then
+          cat "$list" >&2
+          exit 1
+        fi
+        count="$(tr -cd '\0' < "$list" | wc -c)"
+        # What Git tracks below the unit with an extension of the check and
+        # the tool does not name: what an [[exclude]] entry takes out.
+        : > "$excluded"
+        while IFS= read -r -d '' file; do
+          case "$file" in
+            *.py | *.pyi)
+              if ! grep -qzxF -- "$file" "$list"; then
+                printf '%s\0' "$file" >> "$excluded"
+              fi ;;
+          esac
+        done < <(git ls-files -z -- "$UNIT")
+        # The unit's pyproject.toml, as an annotation names it.
+        if [ "$UNIT" = . ]; then manifest=pyproject.toml; else manifest="$UNIT/pyproject.toml"; fi
+        {
+          echo "count=$count"
+          echo "list=$list"
+          echo "excluded=$excluded"
+          echo "manifest=$manifest"
+        } >> "$GITHUB_OUTPUT"
+        if [ "$count" -eq 0 ]; then
+          echo "No Python file below '$UNIT'; there is nothing to check."
+          exit 0
+        fi
+        echo "$count Python file(s) to check:"
+        tr '\0' '\n' < "$list"
+        if [ -s "$excluded" ]; then
+          echo "Taken out by an [[exclude]] entry, and handed to no tool:"
+          tr '\0' '\n' < "$excluded"
+        fi
+        # The project the files belong to. pyproject.toml is read where the
+        # unit lies, as Cargo.toml is for check-rust; a folder of loose
+        # scripts would otherwise leave the tests and the 100 % coverage out.
+        if ! git ls-files --error-unmatch -- "$manifest" > /dev/null 2>&1; then
+          echo "::error::check-python checks a uv project, and '$UNIT', the unit's path, holds no pyproject.toml that Git tracks; write one there (uv init), or exclude the Python files with an [[exclude]] entry and a reason"
+          exit 1
+        fi
+
+    # The release binaries of uv and Ruff and the Node.js that Pyright runs
+    # on, and the packages of Pyright and coverage.py, pinned by version and
+    # by their digests: the SHA-256 GitHub states for each release asset of uv
+    # and Ruff, the one SHASUMS256.txt of Node.js states, the npm registry's
+    # `dist.integrity` (SHA-512) for Pyright and the one PyPI states for the
+    # wheel of coverage.py, the same as the register's. A changed download
+    # fails here instead of running. Pyright's package holds everything it
+    # needs, so it is unpacked, not installed with npm, and no install script
+    # runs. coverage.py is the wheel that runs on every Python; it is laid over
+    # the project's environment when the tests run, with `uv run --with`.
+    - name: Install uv, Ruff, Pyright and coverage.py
+      id: tools
+      if: steps.files.outputs.count != '0'
+      shell: bash
+      run: |
+        set -euo pipefail
+        case "$(uname -m)" in
+          x86_64)
+            triple=x86_64-unknown-linux-gnu
+            uv_digest=a7fbaff2b9a271d85c1bdb540941090fd1ce011797b4abeb48e4dcd39c2471d5
+            ruff_digest=94b33791f48cd54ab35ad673a443a5c001d3e6d87effeaba9899070b700d45f3
+            node="node-v24.22.3-linux-x64"
+            node_digest=061ec3e3062115705b56b51fa9cc330ab50d34b6969387d4e4b1a50c6809acc2 ;;
+          aarch64)
+            triple=aarch64-unknown-linux-gnu
+            uv_digest=0797542018e541a9288855df555c8077eed06f7a47d206362030480e8ecc9f3d
+            ruff_digest=d4eea36ee6228f6c6bbcf0aea4ebf66fe0e595eedc6cffe628d7b8ba3623390f
+            node="node-v24.22.3-linux-arm64"
+            node_digest=261af2af250dfd7e9f25cf151d1b2713a0adf8f10a9ad116c4947f68627affe8 ;;
+          *)
+            echo "::error::check-python has no uv, Ruff or Node.js binary for $(uname -m)."
+            exit 1 ;;
+        esac
+        dir="$RUNNER_TEMP/check-python"
+        bin="$dir/bin"
+        downloads="$dir/downloads"
+        mkdir -p "$bin" "$downloads" "$dir/node" "$dir/pyright"
+        # Downloads one file and holds it to its digest.
+        fetch() {
+          local url="$1" file="$2" algorithm="$3" digest="$4"
+          curl --fail --silent --show-error --location --retry 3 --output "$file" "$url"
+          echo "$digest  $file" | "sha${algorithm}sum" --check --quiet
+        }
+        fetch "https://github.com/astral-sh/uv/releases/download/0.13.9/uv-$triple.tar.gz" \
+          "$downloads/uv.tar.gz" 256 "$uv_digest"
+        tar --extract --gzip --file "$downloads/uv.tar.gz" --directory "$bin" \
+          --strip-components 1 "uv-$triple/uv"
+        fetch "https://github.com/astral-sh/ruff/releases/download/0.17.6/ruff-$triple.tar.gz" \
+          "$downloads/ruff.tar.gz" 256 "$ruff_digest"
+        tar --extract --gzip --file "$downloads/ruff.tar.gz" --directory "$bin" \
+          --strip-components 1 "ruff-$triple/ruff"
+        fetch "https://nodejs.org/dist/v24.22.3/$node.tar.gz" \
+          "$downloads/node.tar.gz" 256 "$node_digest"
+        tar --extract --gzip --file "$downloads/node.tar.gz" --directory "$dir/node" \
+          --strip-components 2 "$node/bin/node"
+        fetch "https://registry.npmjs.org/pyright/-/pyright-1.1.414.tgz" \
+          "$downloads/pyright.tgz" 512 \
+          14f6596f9d637a90d7e1e3fb4c460378d16d984dd683092411c269bc7dff426512b23d04032dcb5eefb10784ff1560de8edb179427c5affadb5858f0bb0b97c3
+        tar --extract --gzip --file "$downloads/pyright.tgz" --directory "$dir/pyright" \
+          --strip-components 1
+        # Under the name of its wheel, which uv reads it by.
+        wheel="$dir/coverage-7.17.4-py3-none-any.whl"
+        fetch "https://files.pythonhosted.org/packages/fb/b5/3039295337fcda9dfcaf6d4d294246c4400587d8f4a23b29b001c5cea588/coverage-7.17.4-py3-none-any.whl" \
+          "$wheel" 256 0f9547c30aeef70904ede391f4cb43d2ddd0a0d2d8fb4a96c75cc422f64afaac
+        rm -rf "$downloads"
+        "$bin/uv" --version
+        "$bin/ruff" --version
+        echo "Node.js $("$dir/node/node" --version), Pyright $("$dir/node/node" "$dir/pyright/index.js" --version)"
+        echo "coverage.py 7.17.4"
+
+        # What every later step reads first. uv keeps its cache, the Python it
+        # installs, the links it would put on a PATH and the project's
+        # environment in the temporary folder, takes only a Python it
+        # downloads itself, and prints no progress bars into the log. No
+        # interpreter writes bytecode into the checkout, and no variable of
+        # the machine steers which Python runs or what it imports.
+        {
+          printf 'export PATH=%q:"$PATH"\n' "$bin"
+          printf 'export UV_CACHE_DIR=%q\n' "$dir/uv-cache"
+          printf 'export UV_PYTHON_INSTALL_DIR=%q\n' "$dir/python"
+          printf 'export UV_PYTHON_BIN_DIR=%q\n' "$dir/python-bin"
+          printf 'export UV_PROJECT_ENVIRONMENT=%q\n' "$dir/environment"
+          printf 'export UV_PYTHON_PREFERENCE=only-managed\n'
+          printf 'export UV_PYTHON_DOWNLOADS=automatic\n'
+          printf 'export UV_NO_PROGRESS=1\n'
+          printf 'export PYTHONDONTWRITEBYTECODE=1\n'
+          printf 'unset PYTHONPATH PYTHONHOME PYTHONSTARTUP VIRTUAL_ENV CONDA_PREFIX\n'
+          printf 'NODE=%q\n' "$dir/node/node"
+          printf 'PYRIGHT=%q\n' "$dir/pyright/index.js"
+          printf 'COVERAGE=%q\n' "$wheel"
+        } > "$dir/variables"
+
+    # The interpreter `.python-version` names, at the unit or at the root of
+    # its uv workspace, installed by uv. It also runs the small scripts of the
+    # steps below, which read TOML with the standard library.
+    #
+    # Ruff's rules: the pipeline's default
+    # (`tools/nebensound-repo/rules/ruff.toml`, from the same commit as this
+    # file) lies beneath the repository's own Ruff configuration, which is
+    # laid over it rule by rule, the way Ruff lays a configuration over the
+    # one its `extend` names: the repository's `ignore` and `extend-select`
+    # change single rules and keep the rest of the default, its `select`
+    # starts over, and every other setting it names wins. The configuration
+    # is the one Ruff would find for the unit: `.ruff.toml`, `ruff.toml` or a
+    # pyproject.toml with a `[tool.ruff]` table, in the unit's folder or the
+    # nearest one above it, up to the repository root. What its own `extend`
+    # names comes along with it, over the default as well. Its paths are read
+    # from that configuration's folder, where Ruff runs. Where it names no
+    # `target-version`, the one its project's `requires-python` gives is set,
+    # as Ruff itself would infer it.
+    - name: Install the project's Python
+      id: python
+      if: steps.tools.outcome == 'success'
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+        MANIFEST: ${{ steps.files.outputs.manifest }}
+      run: |
+        set -euo pipefail
+        dir="$RUNNER_TEMP/check-python"
+        . "$dir/variables"
+        message() {
+          local value="$1"
+          value="${value//'%'/'%25'}"
+          value="${value//$'\r'/'%0D'}"
+          value="${value//$'\n'/'%0A'}"
+          printf '%s' "$value"
+        }
+        property() {
+          local value
+          value="$(message "$1")"
+          value="${value//':'/'%3A'}"
+          value="${value//','/'%2C'}"
+          printf '%s' "$value"
+        }
+        project="$(property "$MANIFEST")"
+        # A file in a folder, as a path from the root.
+        at() {
+          if [ "$1" = . ]; then printf '%s' "$2"; else printf '%s/%s' "$1" "$2"; fi
+        }
+        # The folder above a path from the root, `.` for the root itself.
+        above() {
+          case "$1" in
+            .) return 1 ;;
+            */*) printf '%s' "${1%/*}" ;;
+            *) printf '.' ;;
+          esac
+        }
+        workspace=""
+        folder="$UNIT"
+        while :; do
+          if [ -f "$folder/uv.lock" ]; then
+            workspace="$folder"
+            break
+          fi
+          folder="$(above "$folder")" || break
+        done
+        if [ -z "$workspace" ]; then
+          echo "::error file=$project::uv finds no uv.lock at '$(message "$UNIT")' or above it: check-python installs the project as its lockfile pins it (uv sync --locked); write it with 'uv lock' and commit it"
+          exit 1
+        fi
+        echo "The uv workspace: $workspace"
+        pin=""
+        for candidate in "$(at "$UNIT" .python-version)" "$(at "$workspace" .python-version)"; do
+          if [ -f "$candidate" ]; then
+            pin="$candidate"
+            break
+          fi
+        done
+        if [ -z "$pin" ]; then
+          echo "::error file=$project::neither '$(message "$UNIT")' nor the root of its uv workspace holds a .python-version: it names the interpreter check-python installs, as rust-toolchain.toml names the toolchain of check-rust; write it with 'uv python pin' and commit it"
+          exit 1
+        fi
+        echo "The interpreter: $(head -n 1 "$pin"), as $pin names it"
+        (cd "$UNIT" && uv python install --no-bin)
+        py="$(cd "$UNIT" && uv python find)"
+        "$py" --version
+        if ! "$py" -I -c 'import sys; sys.exit(sys.version_info < (3, 11))'; then
+          echo "::error file=$(property "$pin")::check-python measures coverage with coverage.py 7.17.4, which runs on Python 3.11 or later, and this names $(message "$("$py" -I -c 'import platform; print(platform.python_version())')")"
+          exit 1
+        fi
+        printf 'PY=%q\n' "$py" >> "$dir/variables"
+
+        ruff="$dir/ruff"
+        mkdir -p "$ruff"
+        "$py" -I - "$(realpath "$GITHUB_WORKSPACE")" "$UNIT" \
+          "$GITHUB_ACTION_PATH/../../../tools/nebensound-repo/rules/ruff.toml" "$ruff" \
+          > "$ruff/found" <<'PYTHON'
+        import json
+        import os
+        import re
+        import sys
+        import tomllib
+
+        root, unit, default, out = sys.argv[1:5]
+        default = os.path.realpath(default)
+
+
+        def escaped(value, property=False):
+            value = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            if property:
+                value = value.replace(":", "%3A").replace(",", "%2C")
+            return value
+
+
+        def fail(path, text):
+            name = escaped(os.path.relpath(path, root), True)
+            print(f"::error file={name}::{escaped(text)}", file=sys.stderr)
+            sys.exit(1)
+
+
+        def load(path):
+            """The Ruff settings a file holds, or None for a pyproject.toml
+            without a [tool.ruff] table."""
+            try:
+                with open(path, "rb") as file:
+                    data = tomllib.load(file)
+            except (OSError, tomllib.TOMLDecodeError) as error:
+                fail(path, f"Ruff's configuration cannot be read: {error}")
+            if os.path.basename(path) == "pyproject.toml":
+                return data.get("tool", {}).get("ruff")
+            return data
+
+
+        # The configuration Ruff finds for the unit, in Ruff's order.
+        found = None
+        folder = unit
+        while found is None:
+            for name in (".ruff.toml", "ruff.toml", "pyproject.toml"):
+                path = os.path.normpath(os.path.join(root, folder, name))
+                if os.path.isfile(path):
+                    settings = load(path)
+                    if settings is not None:
+                        found = (folder, path, settings)
+                        break
+            if folder == ".":
+                break
+            folder = os.path.dirname(folder) or "."
+
+        # The chain of configurations, the repository's first, each without
+        # its `extend`, which names the next one.
+        chain = []
+        if found is not None:
+            folder, path, settings = found
+            seen = []
+            while True:
+                seen.append(os.path.realpath(path))
+                settings = dict(settings)
+                extend = settings.pop("extend", None)
+                chain.append(settings)
+                if extend is None:
+                    break
+                base = os.path.join(
+                    os.path.dirname(path), os.path.expandvars(os.path.expanduser(extend))
+                )
+                if os.path.realpath(base) in seen:
+                    fail(path, f"Ruff's `extend` comes back round to {extend}")
+                if not os.path.isfile(base):
+                    fail(path, f"Ruff's `extend` names {extend}, which does not exist")
+                path = base
+                settings = load(path) or {}
+        else:
+            folder = unit
+
+        if not any("target-version" in settings for settings in chain):
+            try:
+                with open(os.path.join(root, unit, "pyproject.toml"), "rb") as file:
+                    wanted = tomllib.load(file).get("project", {}).get("requires-python", "")
+            except (OSError, tomllib.TOMLDecodeError):
+                wanted = ""
+            match = re.search(r">=\s*3\.(\d+)", str(wanted))
+            if match:
+                if not chain:
+                    chain.append({})
+                chain[0]["target-version"] = f"py3{match.group(1)}"
+
+
+        def key(name):
+            return name if re.fullmatch(r"[A-Za-z0-9_-]+", name) else json.dumps(name)
+
+
+        def value(item):
+            if isinstance(item, bool):
+                return "true" if item else "false"
+            if isinstance(item, (int, float)):
+                return repr(item)
+            if isinstance(item, str):
+                return json.dumps(item, ensure_ascii=False)
+            if isinstance(item, list):
+                return "[" + ", ".join(value(entry) for entry in item) + "]"
+            if isinstance(item, dict):
+                return "{" + ", ".join(f"{key(k)} = {value(v)}" for k, v in item.items()) + "}"
+            fail(found[1], f"Ruff's configuration holds a value check-python cannot pass on: {item!r}")
+
+
+        # The default at the bottom, each configuration over the one below it.
+        below = default
+        for index, settings in reversed(list(enumerate(chain))):
+            path = os.path.join(out, f"ruff-{index}.toml")
+            with open(path, "w", encoding="utf-8") as file:
+                file.write(f"extend = {value(below)}\n")
+                for name, item in settings.items():
+                    file.write(f"{key(name)} = {value(item)}\n")
+            below = path
+        print(below)
+        print(folder)
+        print(os.path.relpath(found[1], root) if found else "")
+        PYTHON
+        {
+          printf 'RUFF_CONFIG=%q\n' "$(sed -n 1p "$ruff/found")"
+          printf 'RUFF_FOLDER=%q\n' "$(sed -n 2p "$ruff/found")"
+        } >> "$dir/variables"
+        own="$(sed -n 3p "$ruff/found")"
+        if [ -n "$own" ]; then
+          echo "Ruff's rules: the pipeline default, and laid over it $own"
+        else
+          echo "Ruff's rules: the pipeline default"
+        fi
+
+    # The project as its lockfile pins it, with its default dependency
+    # groups, into an environment in the temporary folder. A lockfile that no
+    # longer matches pyproject.toml fails here, as it would for anyone else.
+    - name: Install the project
+      id: sync
+      if: steps.python.outcome == 'success'
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+        MANIFEST: ${{ steps.files.outputs.manifest }}
+      run: |
+        set -euo pipefail
+        dir="$RUNNER_TEMP/check-python"
+        . "$dir/variables"
+        status=0
+        (cd "$UNIT" && uv sync --locked) || status=$?
+        if [ "$status" -ne 0 ]; then
+          name="$MANIFEST"
+          name="${name//'%'/'%25'}"
+          name="${name//':'/'%3A'}"
+          name="${name//','/'%2C'}"
+          echo "::error file=$name::uv cannot install the project as its uv.lock pins it (uv sync --locked); its message stands in the log"
+          exit "$status"
+        fi
+
+    # The checks below each run even when one before them failed, so a single
+    # run reports every finding at once. Ruff runs in the folder of its
+    # configuration, where it reads that configuration's paths from, and is
+    # handed exactly the files of the list: `--no-force-exclude` keeps its
+    # `exclude` and `extend-exclude` from taking one of them out. It keeps no
+    # cache in the checkout.
+    - name: Every Python file is formatted
+      if: ${{ !cancelled() && steps.python.outcome == 'success' }}
+      shell: bash
+      env:
+        LIST: ${{ steps.files.outputs.list }}
+      run: |
+        set -euo pipefail
+        dir="$RUNNER_TEMP/check-python"
+        . "$dir/variables"
+        message() {
+          local value="$1"
+          value="${value//'%'/'%25'}"
+          value="${value//$'\r'/'%0D'}"
+          value="${value//$'\n'/'%0A'}"
+          printf '%s' "$value"
+        }
+        property() {
+          local value
+          value="$(message "$1")"
+          value="${value//':'/'%3A'}"
+          value="${value//','/'%2C'}"
+          printf '%s' "$value"
+        }
+        # The files from the folder Ruff runs in, which holds every one of
+        # them, and back.
+        inside() {
+          if [ "$RUFF_FOLDER" = . ]; then printf '%s' "$1"; else printf '%s' "${1#"$RUFF_FOLDER"/}"; fi
+        }
+        outside() {
+          if [ "$RUFF_FOLDER" = . ]; then printf '%s' "$1"; else printf '%s/%s' "$RUFF_FOLDER" "$1"; fi
+        }
+        files=()
+        while IFS= read -r -d '' file; do
+          files+=("$(inside "$file")")
+        done < "$LIST"
+        out="$dir/ruff-format-out"
+        err="$dir/ruff-format-err"
+        status=0
+        (cd "$RUFF_FOLDER" && ruff format --check --no-cache --no-force-exclude \
+          --config "$RUFF_CONFIG" -- "${files[@]}") > "$out" 2> "$err" || status=$?
+        cat "$out" "$err"
+        failed=0
+        while IFS= read -r line; do
+          if [[ "$line" =~ ^Would\ reformat:\ (.+)$ ]]; then
+            echo "::error file=$(property "$(outside "${BASH_REMATCH[1]}")")::not formatted the way Ruff writes it; 'ruff format' fixes it"
+            failed=1
+          fi
+        done < "$out"
+        while IFS= read -r line; do
+          if [[ "$line" =~ ^error:\ Failed\ to\ parse\ (.+):([0-9]+):([0-9]+):\ (.*)$ ]]; then
+            echo "::error file=$(property "$(outside "${BASH_REMATCH[1]}")"),line=${BASH_REMATCH[2]},col=${BASH_REMATCH[3]}::Ruff cannot format it: $(message "${BASH_REMATCH[4]}")"
+            failed=1
+          fi
+        done < "$err"
+        if [ "$status" -ne 0 ] && [ "$failed" -eq 0 ]; then
+          echo "::error::Ruff's formatter failed with exit status $status; its output stands in the log"
+          failed=1
+        fi
+        exit "$failed"
+
+    # Every finding becomes an annotation on its line, naming the rule. A
+    # rule the repository switches off for one line (`# noqa: <code>`) stays
+    # its choice, like `#[allow]` in Rust; a `# ruff: noqa` that takes a
+    # whole file out is held against the declaration by phase 0.
+    - name: Every Python file passes Ruff
+      if: ${{ !cancelled() && steps.python.outcome == 'success' }}
+      shell: bash
+      env:
+        LIST: ${{ steps.files.outputs.list }}
+      run: |
+        set -euo pipefail
+        dir="$RUNNER_TEMP/check-python"
+        . "$dir/variables"
+        inside() {
+          if [ "$RUFF_FOLDER" = . ]; then printf '%s' "$1"; else printf '%s' "${1#"$RUFF_FOLDER"/}"; fi
+        }
+        files=()
+        while IFS= read -r -d '' file; do
+          files+=("$(inside "$file")")
+        done < "$LIST"
+        report="$dir/ruff-check.json"
+        err="$dir/ruff-check-err"
+        status=0
+        (cd "$RUFF_FOLDER" && ruff check --no-fix --no-cache --no-force-exclude \
+          --output-format json --config "$RUFF_CONFIG" -- "${files[@]}") > "$report" 2> "$err" \
+          || status=$?
+        cat "$err"
+        if [ "$status" -gt 1 ] || ! jq --exit-status 'type == "array"' "$report" > /dev/null 2>&1; then
+          cat "$report"
+          echo "::error::Ruff could not lint the files (exit status $status); its message stands in the log"
+          exit 1
+        fi
+        jq --raw-output --arg root "$(realpath "$GITHUB_WORKSPACE")" --arg folder "$RUFF_FOLDER" '
+          def escaped: gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A");
+          def property: escaped | gsub(":"; "%3A") | gsub(","; "%2C");
+          .[]
+          | (if (.filename | startswith("/")) then (.filename | ltrimstr($root + "/"))
+             elif $folder == "." then .filename
+             else "\($folder)/\(.filename)" end) as $file
+          | "\($file):\(.location.row):\(.location.column): \(.code // "error") \(.message)",
+            "::error file=\($file | property),line=\(.location.row),col=\(.location.column)::Ruff \(if .code then "\(.code): " else "" end)\(.message | escaped)"
+        ' "$report"
+        if [ "$(jq 'length' "$report")" -ne 0 ]; then
+          exit 1
+        fi
+        echo "No finding."
+
+    # Pyright runs in strict mode with the repository's configuration laid
+    # over it: the one Pyright finds for the unit, `pyrightconfig.json` in the
+    # unit's folder or the nearest one above it, else a pyproject.toml with a
+    # `[tool.pyright]` table found the same way. Its rule severities, its
+    # Python version and platform, its execution environments and its stub
+    # paths stay the repository's choice, like `#[allow]` in Rust. What would
+    # look away is set aside: `typeCheckingMode` is `strict` whatever it says,
+    # its `ignore`, which would hide every finding of a file, is empty, the
+    # files are exactly the list (`include`), and its `exclude` takes none of
+    # them out. Its `venvPath` and `venv` name the project's environment, so
+    # that imports resolve as installed. A lower mode written in the
+    # configuration or in a file (`# pyright: basic`) is a finding of its own:
+    # Pyright would honour the comment, and the configuration would lower the
+    # mode wherever Pyright runs by hand.
+    #
+    # The configuration that is run lies beside the repository's, so that
+    # its paths mean what they mean there; it is removed when the step ends.
+    - name: Every Python file passes Pyright in strict mode
+      if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+        LIST: ${{ steps.files.outputs.list }}
+      run: |
+        set -euo pipefail
+        dir="$RUNNER_TEMP/check-python"
+        . "$dir/variables"
+        "$PY" -I - "$(realpath "$GITHUB_WORKSPACE")" "$UNIT" "$LIST" "$NODE" "$PYRIGHT" \
+          "$UV_PROJECT_ENVIRONMENT" <<'PYTHON'
+        import json
+        import os
+        import re
+        import subprocess
+        import sys
+        import tomllib
+
+        root, unit, listed, node, pyright, environment = sys.argv[1:7]
+        with open(listed, "rb") as file:
+            files = [name for name in file.read().decode().split("\0") if name]
+
+
+        def escaped(value, property=False):
+            value = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            if property:
+                value = value.replace(":", "%3A").replace(",", "%2C")
+            return value
+
+
+        def annotate(kind, path, text, line=None, column=None):
+            place = f"file={escaped(path, True)}"
+            if line is not None:
+                place += f",line={line}"
+            if column is not None:
+                place += f",col={column}"
+            print(f"::{kind} {place}::{escaped(text)}")
+
+
+        def jsonc(text):
+            """JSON with comments and trailing commas, as Pyright reads its
+            configuration."""
+            out = []
+            index = 0
+            while index < len(text):
+                char = text[index]
+                if char == '"':
+                    end = index + 1
+                    while end < len(text) and text[end] != '"':
+                        end += 2 if text[end] == "\\" else 1
+                    out.append(text[index : end + 1])
+                    index = end + 1
+                elif text.startswith("//", index):
+                    end = text.find("\n", index)
+                    index = len(text) if end < 0 else end
+                elif text.startswith("/*", index):
+                    end = text.find("*/", index + 2)
+                    index = len(text) if end < 0 else end + 2
+                else:
+                    out.append(char)
+                    index += 1
+            return json.loads(re.sub(r",(\s*[}\]])", r"\1", "".join(out)))
+
+
+        def nearest(test):
+            folder = unit
+            while True:
+                path = os.path.normpath(os.path.join(root, folder, ""))
+                found = test(path)
+                if found is not None:
+                    return found
+                if folder == ".":
+                    return None
+                folder = os.path.dirname(folder) or "."
+
+
+        def json_config(folder):
+            path = os.path.join(folder, "pyrightconfig.json")
+            return path if os.path.isfile(path) else None
+
+
+        def toml_config(folder):
+            path = os.path.join(folder, "pyproject.toml")
+            if not os.path.isfile(path):
+                return None
+            with open(path, "rb") as file:
+                try:
+                    data = tomllib.load(file)
+                except tomllib.TOMLDecodeError:
+                    return None
+            return path if "pyright" in data.get("tool", {}) else None
+
+
+        failed = False
+        config = nearest(json_config) or nearest(toml_config)
+        settings = {}
+        if config is not None:
+            shown = os.path.relpath(config, root)
+            try:
+                if config.endswith(".json"):
+                    with open(config, encoding="utf-8") as file:
+                        settings = jsonc(file.read())
+                else:
+                    with open(config, "rb") as file:
+                        settings = tomllib.load(file)["tool"]["pyright"]
+            except (OSError, ValueError) as error:
+                annotate("error", shown, f"Pyright's configuration cannot be read: {error}")
+                sys.exit(1)
+            if not isinstance(settings, dict):
+                annotate("error", shown, "Pyright's configuration is not a table of settings")
+                sys.exit(1)
+            print(f"Pyright: strict mode, with {shown} laid over it")
+            mode = settings.get("typeCheckingMode")
+            if mode is not None and mode != "strict":
+                annotate(
+                    "error",
+                    shown,
+                    f"typeCheckingMode {json.dumps(mode)} lowers Pyright's strict mode, which "
+                    "check-python holds every file to; remove it, and switch single rules off "
+                    "where they have to be",
+                )
+                failed = True
+            folder = os.path.dirname(config)
+        else:
+            print("Pyright: strict mode")
+            folder = os.path.normpath(os.path.join(root, unit))
+
+        # A lower mode in a comment of a file.
+        comment = re.compile(r"^\s*#\s*pyright\s*:(.*)$")
+        for name in files:
+            with open(os.path.join(root, name), encoding="utf-8", errors="replace") as file:
+                for number, text in enumerate(file, start=1):
+                    match = comment.match(text)
+                    if not match:
+                        continue
+                    for part in match.group(1).split(","):
+                        if part.strip() in ("basic", "standard"):
+                            annotate(
+                                "error",
+                                name,
+                                f"'# pyright: {part.strip()}' lowers Pyright's strict mode for "
+                                "this file, which check-python holds every file to; remove it, "
+                                "and switch single rules off where they have to be "
+                                "('# pyright: reportX=false')",
+                                number,
+                            )
+                            failed = True
+
+        settings = dict(settings)
+        settings["typeCheckingMode"] = "strict"
+        settings["include"] = [os.path.join(root, name) for name in files]
+        settings["exclude"] = [".nebensound-check-python-excludes-nothing"]
+        settings["ignore"] = []
+        settings["venvPath"] = os.path.dirname(environment)
+        settings["venv"] = os.path.basename(environment)
+        run = os.path.join(folder, f".nebensound-check-python-pyright-{os.getpid()}.json")
+        with open(run, "w", encoding="utf-8") as file:
+            json.dump(settings, file)
+        try:
+            result = subprocess.run(
+                [node, pyright, "--outputjson", "--project", run],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.remove(run)
+        sys.stderr.write(result.stderr)
+        try:
+            report = json.loads(result.stdout)
+        except ValueError:
+            print(result.stdout)
+            print(
+                f"::error::Pyright could not check the files (exit status {result.returncode}); "
+                "its message stands in the log"
+            )
+            sys.exit(1)
+        real = os.path.realpath(root)
+        for diagnostic in report.get("generalDiagnostics", []):
+            path = diagnostic.get("file", "")
+            name = os.path.relpath(os.path.realpath(path), real) if path else unit
+            start = diagnostic.get("range", {}).get("start", {})
+            line = start.get("line", 0) + 1
+            column = start.get("character", 0) + 1
+            rule = diagnostic.get("rule")
+            text = diagnostic.get("message", "")
+            severity = diagnostic.get("severity")
+            print(f"{name}:{line}:{column}: {severity}: {text}" + (f" ({rule})" if rule else ""))
+            if severity in ("error", "warning"):
+                label = f"Pyright {rule}: " if rule else "Pyright: "
+                annotate(severity, name, label + text, line, column)
+                failed |= severity == "error"
+        summary = report.get("summary", {})
+        print(
+            f"Pyright: {summary.get('filesAnalyzed', 0)} file(s), "
+            f"{summary.get('errorCount', 0)} error(s), {summary.get('warningCount', 0)} warning(s)"
+        )
+        if result.returncode not in (0, 1):
+            print(
+                f"::error::Pyright ended with exit status {result.returncode}; its message stands "
+                "in the log"
+            )
+            failed = True
+        sys.exit(1 if failed else 0)
+        PYTHON
+
+    # The project's own pytest, from its lockfile, run by coverage.py laid
+    # over the project's environment, measuring lines and branches below the
+    # unit. A file an [[exclude]] entry takes out is not collected. pytest
+    # writes no cache into the checkout, and the report it writes is read for
+    # the tests that failed, each an annotation on its file.
+    - name: The tests pass
+      id: tests
+      if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+        MANIFEST: ${{ steps.files.outputs.manifest }}
+        EXCLUDED: ${{ steps.files.outputs.excluded }}
+      run: |
+        set -euo pipefail
+        dir="$RUNNER_TEMP/check-python"
+        . "$dir/variables"
+        root="$(realpath "$GITHUB_WORKSPACE")"
+        if [ "$UNIT" = . ]; then unit="$root"; else unit="$root/$UNIT"; fi
+        name="$MANIFEST"
+        name="${name//'%'/'%25'}"
+        name="${name//':'/'%3A'}"
+        name="${name//','/'%2C'}"
+        if ! "$UV_PROJECT_ENVIRONMENT/bin/python" -I -c \
+          'import importlib.util, sys; sys.exit(importlib.util.find_spec("pytest") is None)'; then
+          echo "::error file=$name::pytest is not in the project's environment: check-python runs the tests with the pytest the project locks; add it to its dev dependency group (uv add --dev pytest)"
+          exit 1
+        fi
+        ignored=()
+        while IFS= read -r -d '' file; do
+          case "$file" in
+            *.py) ignored+=("--ignore=$root/$file") ;;
+          esac
+        done < "$EXCLUDED"
+        out="$dir/pytest-out"
+        status=0
+        (cd "$UNIT" && uv run --no-sync --with "$COVERAGE" \
+          coverage run --branch --source="$unit" --data-file="$dir/coverage-data" \
+          -m pytest -p no:cacheprovider -o junit_family=xunit1 --junit-xml="$dir/junit.xml" \
+          "${ignored[@]}") > "$out" 2>&1 || status=$?
+        cat "$out"
+        "$PY" -I - "$root" "$out" "$dir/junit.xml" "$status" "$name" <<'PYTHON'
+        import os
+        import re
+        import sys
+        import xml.etree.ElementTree as ElementTree
+
+        root, out, report, status, project = sys.argv[1:6]
+        status = int(status)
+
+
+        def escaped(value, property=False):
+            value = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            if property:
+                value = value.replace(":", "%3A").replace(",", "%2C")
+            return value
+
+
+        # The paths of the report start at pytest's rootdir, which it prints.
+        rootdir = None
+        with open(out, encoding="utf-8", errors="replace") as file:
+            for text in file:
+                match = re.match(r"^rootdir: (.*?)(?:, (?:configfile|testpaths|plugins): .*)?$", text.rstrip("\n"))
+                if match:
+                    rootdir = match.group(1)
+                    break
+        found = 0
+        if rootdir is not None and os.path.isfile(report):
+            real = os.path.realpath(root)
+            for case in ElementTree.parse(report).getroot().iter("testcase"):
+                for outcome in ("failure", "error"):
+                    element = case.find(outcome)
+                    if element is None:
+                        continue
+                    test = ".".join(part for part in (case.get("classname"), case.get("name")) if part)
+                    place = ""
+                    relative = case.get("file")
+                    if relative:
+                        path = os.path.relpath(os.path.realpath(os.path.join(rootdir, relative)), real)
+                        line = int(case.get("line") or 0) + 1
+                        # The line of the file the traceback ends in, when it is this file.
+                        for text in reversed((element.text or "").splitlines()):
+                            match = re.match(r"^(.+):(\d+): ", text)
+                            if match and os.path.normpath(match.group(1)) == os.path.normpath(relative):
+                                line = int(match.group(2))
+                                break
+                        place = f" file={escaped(path, True)},line={line}"
+                    what = "failed" if outcome == "failure" else "errored"
+                    detail = (element.get("message") or "").strip().splitlines()
+                    reason = f": {detail[0]}" if detail else ""
+                    print(f"::error{place}::{escaped(f'pytest: {test} {what}{reason}')}")
+                    found += 1
+        if status != 0 and found == 0:
+            reasons = {
+                2: "the run was interrupted, as by a test module that cannot be collected",
+                3: "pytest itself failed",
+                4: "its command line or configuration is not usable",
+                5: "it collected no test",
+            }
+            reason = reasons.get(status, "a test failed")
+            print(
+                f"::error file={project}::{escaped(f'pytest failed with exit status {status}: {reason}; its output stands in the log')}"
+            )
+        sys.exit(1 if status != 0 else 0)
+        PYTHON
+
+    # Every Python file of the list is measured, the tests and scripts as
+    # well, and each has to have every line and every branch covered. A file
+    # coverage.py never saw counts as not covered at all: no test imports it,
+    # or the repository's `omit` leaves it out, which counts for nothing here
+    # and is held against the declaration by phase 0. A file without a
+    # statement has nothing to cover. Lines the repository marks with its
+    # coverage.py exclusions (`# pragma: no cover`, `exclude_also`) are its
+    # choice, like `#[coverage(off)]` in Rust.
+    - name: Every line and branch is covered
+      if: ${{ !cancelled() && steps.tests.outcome != 'skipped' && steps.sync.outcome == 'success' }}
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+        LIST: ${{ steps.files.outputs.list }}
+      run: |
+        set -euo pipefail
+        dir="$RUNNER_TEMP/check-python"
+        . "$dir/variables"
+        data="$dir/coverage-data"
+        shopt -s nullglob
+        parts=("$data".*)
+        if [ "${#parts[@]}" -gt 0 ]; then
+          (cd "$UNIT" && uv run --no-sync --with "$COVERAGE" \
+            coverage combine --data-file="$data" "${parts[@]}")
+        fi
+        if [ ! -s "$data" ]; then
+          echo "::error::coverage.py recorded nothing: the tests did not run"
+          exit 1
+        fi
+        # Its own threshold, if the repository sets one, decides nothing here.
+        (cd "$UNIT" && uv run --no-sync --with "$COVERAGE" \
+          coverage json --data-file="$data" -o "$dir/coverage.json") || true
+        "$PY" -I - "$(realpath "$GITHUB_WORKSPACE")" "$UNIT" "$LIST" "$dir/coverage.json" <<'PYTHON'
+        import ast
+        import json
+        import os
+        import sys
+
+        root, unit, listed, report = sys.argv[1:5]
+
+
+        def escaped(value, property=False):
+            value = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            if property:
+                value = value.replace(":", "%3A").replace(",", "%2C")
+            return value
+
+
+        try:
+            with open(report, encoding="utf-8") as file:
+                measured = json.load(file)["files"]
+        except (OSError, ValueError, KeyError) as error:
+            print(f"::error::coverage.py wrote no report: {escaped(str(error))}")
+            sys.exit(1)
+        real = os.path.realpath(root)
+        here = os.path.join(real, unit)
+        by_path = {}
+        for key, entry in measured.items():
+            path = key if os.path.isabs(key) else os.path.join(here, key)
+            by_path[os.path.relpath(os.path.realpath(path), real)] = entry
+
+
+        def ranges(numbers):
+            spans = []
+            for number in sorted(numbers):
+                if spans and number == spans[-1][1] + 1:
+                    spans[-1][1] = number
+                else:
+                    spans.append([number, number])
+            return ", ".join(str(a) if a == b else f"{a}-{b}" for a, b in spans)
+
+
+        def empty(name):
+            """Whether a file holds no statement beyond its docstring."""
+            with open(os.path.join(real, name), "rb") as file:
+                body = ast.parse(file.read()).body
+            if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+                body = body[1:]
+            return not body
+
+
+        with open(listed, "rb") as file:
+            files = [name for name in file.read().decode().split("\0") if name.endswith(".py")]
+        failed = False
+        for name in files:
+            entry = by_path.get(name)
+            if entry is None:
+                try:
+                    nothing = empty(name)
+                except (OSError, SyntaxError, ValueError):
+                    nothing = False
+                if nothing:
+                    continue
+                print(
+                    f"::error file={escaped(name, True)}::coverage.py: measured none of it: no "
+                    "test runs it, or an `omit` setting leaves it out; every line and branch of "
+                    "every file counts"
+                )
+                failed = True
+                continue
+            lines = entry.get("missing_lines", [])
+            branches = entry.get("missing_branches", [])
+            if not lines and not branches:
+                continue
+            parts = []
+            if lines:
+                parts.append(f"line(s) {ranges(lines)}")
+            if branches:
+                shown = ", ".join(f"{a}->{b if b > 0 else 'exit'}" for a, b in branches)
+                parts.append(f"branch(es) {shown}")
+            first = min(lines + [a for a, _ in branches])
+            summary = entry.get("summary", {})
+            print(f"{name}: {summary.get('percent_covered_display', '?')}% covered")
+            print(
+                f"::error file={escaped(name, True)},line={first}::"
+                + escaped(f"coverage.py: not covered: {' and '.join(parts)}")
+            )
+            failed = True
+        if not failed:
+            print(f"Every line and branch of {len(files)} file(s) is covered.")
+        sys.exit(1 if failed else 0)
+        PYTHON
+
+    # The wheel, built the way `uv build` builds it, installed into a clean
+    # environment of the same interpreter with the project's locked runtime
+    # dependencies (`uv export --frozen --no-dev`, the project itself left
+    # out and added `--no-deps`), and tried there: every command of
+    # `[project.scripts]` answers `--help`, and every package and module at
+    # the top of the wheel imports, from a folder outside the checkout. A
+    # project without a build backend is no installable package and fails.
+    #
+    # No version is stored in the tree and python-service writes none, so
+    # the wheel gets a fixed placeholder version for this step alone:
+    # pyproject.toml holds `version = "0.0.0"` and no `version` in `dynamic`
+    # while the wheel is built, and is put back as committed afterwards. The
+    # wheel is never handed on.
+    - name: The wheel installs and runs
+      if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+        MANIFEST: ${{ steps.files.outputs.manifest }}
+      run: |
+        set -euo pipefail
+        dir="$RUNNER_TEMP/check-python"
+        . "$dir/variables"
+        name="$MANIFEST"
+        name="${name//'%'/'%25'}"
+        name="${name//':'/'%3A'}"
+        name="${name//','/'%2C'}"
+        cd "$UNIT"
+        requirements="$dir/requirements.txt"
+        uv export --frozen --no-dev --no-emit-project --no-editable --no-header \
+          --output-file "$requirements" > /dev/null
+        committed="$dir/pyproject.toml.committed"
+        manifest="$PWD/pyproject.toml"
+        cp "$manifest" "$committed"
+        trap 'cp "$committed" "$manifest"' EXIT
+        "$PY" -I - pyproject.toml "$name" <<'PYTHON'
+        import json
+        import re
+        import sys
+        import tomllib
+
+        path, name = sys.argv[1:3]
+        with open(path, "rb") as file:
+            source = file.read().decode("utf-8")
+        data = tomllib.loads(source)
+        if "build-system" not in data or data.get("tool", {}).get("uv", {}).get("package") is False:
+            print(
+                f"::error file={name}::pyproject.toml declares no build backend ([build-system]), "
+                "or `tool.uv.package = false`, so no wheel can be built: check-python checks "
+                "every Python unit as an installable package; declare one, such as uv_build"
+            )
+            sys.exit(1)
+        dynamic = [entry for entry in data.get("project", {}).get("dynamic", []) if entry != "version"]
+        lines = source.splitlines(keepends=True)
+        out = []
+        inside = False
+        skipping = False
+        for line in lines:
+            header = re.match(r"^\s*\[([^\[\]]+)\]\s*(#.*)?$", line)
+            if header or re.match(r"^\s*\[\[", line):
+                skipping = False
+                inside = bool(header) and header.group(1).strip() == "project"
+                out.append(line)
+                if inside:
+                    out.append('version = "0.0.0"\n')
+                    out.append(f"dynamic = {json.dumps(dynamic)}\n")
+                continue
+            if skipping:
+                if "]" in line:
+                    skipping = False
+                continue
+            if inside and re.match(r"^\s*version\s*=", line):
+                continue
+            if inside and re.match(r"^\s*dynamic\s*=", line):
+                skipping = "[" in line and "]" not in line
+                continue
+            out.append(line)
+        result = "".join(out)
+        try:
+            written = tomllib.loads(result).get("project", {})
+        except tomllib.TOMLDecodeError:
+            written = {}
+        if written.get("version") != "0.0.0" or "version" in written.get("dynamic", []):
+            print(
+                f"::error file={name}::check-python cannot give the wheel its placeholder version: "
+                "it writes `version` into the [project] table, and this pyproject.toml does not "
+                "hold its project's fields in one"
+            )
+            sys.exit(1)
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(result)
+        print("The wheel gets the placeholder version 0.0.0.")
+        PYTHON
+        status=0
+        uv build --wheel --out-dir "$dir/dist" || status=$?
+        cp "$committed" "$manifest"
+        if [ "$status" -ne 0 ]; then
+          echo "::error file=$name::uv build cannot build the wheel; its message stands in the log"
+          exit 1
+        fi
+        wheels=("$dir"/dist/*.whl)
+        wheel="${wheels[0]}"
+        echo "Built $(basename "$wheel")"
+        clean="$dir/clean"
+        uv venv --quiet --python "$PY" "$clean"
+        uv pip install --quiet --python "$clean/bin/python" --requirement "$requirements"
+        uv pip install --quiet --python "$clean/bin/python" --no-deps "$wheel"
+        # What the wheel offers: its commands and the names at its top.
+        "$PY" -I - "$wheel" > "$dir/offered" <<'PYTHON'
+        import configparser
+        import sys
+        import zipfile
+
+        with zipfile.ZipFile(sys.argv[1]) as wheel:
+            names = wheel.namelist()
+            commands = []
+            for name in names:
+                parts = name.split("/")
+                if len(parts) == 2 and parts[0].endswith(".dist-info") and parts[1] == "entry_points.txt":
+                    points = configparser.ConfigParser(interpolation=None)
+                    points.optionxform = str
+                    points.read_string(wheel.read(name).decode("utf-8"))
+                    if points.has_section("console_scripts"):
+                        commands.extend(points.options("console_scripts"))
+        tops = set()
+        for name in names:
+            first, _, rest = name.partition("/")
+            if first.endswith((".dist-info", ".data")):
+                continue
+            if rest:
+                if first.isidentifier():
+                    tops.add(first)
+            elif first.endswith(".py") and first[:-3].isidentifier():
+                tops.add(first[:-3])
+            elif first.endswith((".so", ".pyd")) and first.split(".")[0].isidentifier():
+                tops.add(first.split(".")[0])
+        for command in sorted(commands):
+            print(f"command {command}")
+        for top in sorted(tops):
+            print(f"import {top}")
+        PYTHON
+        failed=0
+        cd "$dir"
+        while read -r kind item; do
+          status=0
+          if [ "$kind" = command ]; then
+            echo "$ $item --help"
+            "$clean/bin/$item" --help || status=$?
+            if [ "$status" -ne 0 ]; then
+              echo "::error file=$name::smoke test of the wheel: '$item --help' failed with exit status $status in a clean environment; its output stands in the log"
+              failed=1
+            fi
+          else
+            echo "$ python -c 'import $item'"
+            "$clean/bin/python" -I -c "import importlib, sys; importlib.import_module(sys.argv[1])" "$item" || status=$?
+            if [ "$status" -ne 0 ]; then
+              echo "::error file=$name::smoke test of the wheel: 'import $item' failed in a clean environment; its output stands in the log"
+              failed=1
+            fi
+          fi
+        done < "$dir/offered"
+        if [ ! -s "$dir/offered" ]; then
+          echo "::error file=$name::smoke test of the wheel: it holds no command and no package to try"
+          failed=1
+        fi
+        exit "$failed"
