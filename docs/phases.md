@@ -236,7 +236,7 @@ its steps are:
    commit the pushed commit contains.
 2. **Create the tags and the drafts.** For each unit, the tag on the pushed
    commit, a lightweight one, and the release as a draft, titled
-   `<unit> <version>` (the repository by its name, such as `pipeline 0.0.35`),
+   `<unit> <version>` (the repository by its name, such as `pipeline 0.4.2`),
    with notes GitHub generates against the previous record. A unit's first
    release carries one fixed sentence instead.
 3. **The publish targets**, while the releases are drafts: an immutable release
