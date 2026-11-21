@@ -1,5 +1,6 @@
-# Pyright's mode lowered twice: in its configuration and in a comment of a
-# file. Both are findings, whatever Pyright then reports.
+# Pyright's mode lowered twice, in its configuration and in a comment of a
+# file, and a file taken out by a `# type: ignore` before its first statement.
+# All three are findings, whatever Pyright then reports.
 [repo]
 audience = "public"
 pipeline = { check = ["python"], dependabot = ["uv"] }

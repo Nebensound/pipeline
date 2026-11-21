@@ -688,11 +688,30 @@ runs:
             print("Pyright: strict mode")
             folder = os.path.normpath(os.path.join(root, unit))
 
-        # A lower mode in a comment of a file.
+        # A lower mode in a comment of a file, and a `# type: ignore` without
+        # rules before the file's first statement, which Pyright takes as
+        # suppressing every diagnostic of the file.
         comment = re.compile(r"^\s*#\s*pyright\s*:(.*)$")
+        blanket = re.compile(r"^\s*#\s*type:\s*ignore(\[\s*\])?(\s|$)")
+        honoured = settings.get("enableTypeIgnoreComments", True) is not False
         for name in files:
             with open(os.path.join(root, name), encoding="utf-8", errors="replace") as file:
+                statement = False
                 for number, text in enumerate(file, start=1):
+                    if not statement and text.strip() and not text.lstrip().startswith("#"):
+                        statement = True
+                    if honoured and not statement and blanket.match(text):
+                        annotate(
+                            "error",
+                            name,
+                            "'# type: ignore' before the first statement takes the whole file "
+                            "out of Pyright, which check-python holds every file to; remove it, "
+                            "and switch single rules off where they have to be "
+                            "('# pyright: ignore[reportX]' on the line)",
+                            number,
+                        )
+                        failed = True
+                        continue
                     match = comment.match(text)
                     if not match:
                         continue
@@ -813,13 +832,13 @@ runs:
           -m pytest -p no:cacheprovider -o junit_family=xunit1 --junit-xml="$dir/junit.xml" \
           "${ignored[@]}") > "$out" 2>&1 || status=$?
         cat "$out"
-        "$PY" -I - "$root" "$out" "$dir/junit.xml" "$status" "$name" <<'PYTHON'
+        "$PY" -I - "$root" "$out" "$dir/junit.xml" "$status" "$name" "$unit" <<'PYTHON'
         import os
         import re
         import sys
         import xml.etree.ElementTree as ElementTree
 
-        root, out, report, status, project = sys.argv[1:6]
+        root, out, report, status, project, unit = sys.argv[1:7]
         status = int(status)
 
 
@@ -830,8 +849,11 @@ runs:
             return value
 
 
-        # The paths of the report start at pytest's rootdir, which it prints.
-        rootdir = None
+        # The paths of the report start at pytest's rootdir, which it prints in
+        # its header. Where the repository's `addopts` hide the header (`-q`,
+        # `--no-header`), the rootdir is the unit's folder, the one of the
+        # pyproject.toml pytest reads in the usual case.
+        rootdir = unit
         with open(out, encoding="utf-8", errors="replace") as file:
             for text in file:
                 match = re.match(r"^rootdir: (.*?)(?:, (?:configfile|testpaths|plugins): .*)?$", text.rstrip("\n"))
@@ -839,7 +861,7 @@ runs:
                     rootdir = match.group(1)
                     break
         found = 0
-        if rootdir is not None and os.path.isfile(report):
+        if os.path.isfile(report):
             real = os.path.realpath(root)
             for case in ElementTree.parse(report).getroot().iter("testcase"):
                 for outcome in ("failure", "error"):
@@ -1003,11 +1025,13 @@ runs:
 
     # The wheel, built the way `uv build` builds it, installed into a clean
     # environment of the same interpreter with the project's locked runtime
-    # dependencies (`uv export --frozen --no-dev`, the project itself left
+    # dependencies (`uv export --frozen --no-default-groups`: no dependency
+    # group, `dev` or another of `default-groups`; the project itself left
     # out and added `--no-deps`), and tried there: every command of
-    # `[project.scripts]` answers `--help`, and every package and module at
-    # the top of the wheel imports, from a folder outside the checkout. A
-    # project without a build backend is no installable package and fails.
+    # `[project.scripts]` answers `--help` within a minute, and every package
+    # and module at the top of the wheel imports, from a folder outside the
+    # checkout, each with nothing on its standard input. A project without a
+    # build backend is no installable package and fails.
     #
     # No version is stored in the tree and python-service writes none, so
     # the wheel gets a fixed placeholder version for this step alone:
@@ -1030,7 +1054,7 @@ runs:
         name="${name//','/'%2C'}"
         cd "$UNIT"
         requirements="$dir/requirements.txt"
-        uv export --frozen --no-dev --no-emit-project --no-editable --no-header \
+        uv export --frozen --no-default-groups --no-emit-project --no-editable --no-header \
           --output-file "$requirements" > /dev/null
         committed="$dir/pyproject.toml.committed"
         manifest="$PWD/pyproject.toml"
@@ -1148,14 +1172,17 @@ runs:
           status=0
           if [ "$kind" = command ]; then
             echo "$ $item --help"
-            "$clean/bin/$item" --help || status=$?
-            if [ "$status" -ne 0 ]; then
+            timeout --kill-after=10 60 "$clean/bin/$item" --help < /dev/null || status=$?
+            if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+              echo "::error file=$name::smoke test of the wheel: '$item --help' did not answer within 60 seconds in a clean environment and was stopped; a command that starts a service has to parse its command line first"
+              failed=1
+            elif [ "$status" -ne 0 ]; then
               echo "::error file=$name::smoke test of the wheel: '$item --help' failed with exit status $status in a clean environment; its output stands in the log"
               failed=1
             fi
           else
             echo "$ python -c 'import $item'"
-            "$clean/bin/python" -I -c "import importlib, sys; importlib.import_module(sys.argv[1])" "$item" || status=$?
+            "$clean/bin/python" -I -c "import importlib, sys; importlib.import_module(sys.argv[1])" "$item" < /dev/null || status=$?
             if [ "$status" -ne 0 ]; then
               echo "::error file=$name::smoke test of the wheel: 'import $item' failed in a clean environment; its output stands in the log"
               failed=1

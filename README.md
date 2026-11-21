@@ -203,9 +203,10 @@ runs on Python 3.11 or later, so the project's interpreter has to be one.
   decides nothing.
 - The wheel builds (`uv build --wheel`) and installs into a clean environment of
   the same interpreter, with the project's locked runtime dependencies
-  (`uv export --frozen --no-dev`); there every command of `[project.scripts]`
-  answers `--help`, and every package and module at the top of the wheel
-  imports. A project without a `[build-system]`, or with
+  (`uv export --frozen --no-default-groups`, no dependency group); there every
+  command of `[project.scripts]` answers `--help` within 60 seconds, and every
+  package and module at the top of the wheel imports, each with nothing on its
+  standard input. A project without a `[build-system]`, or with
   `tool.uv.package = false`, fails: every Python unit is an installable
   package. No version is stored in the tree, so the wheel gets the placeholder
   version `0.0.0` for this step alone, and `pyproject.toml` is put back as
@@ -551,7 +552,9 @@ version and platform, execution environments and stub paths stay the
 repository's choice, and so does `# pyright: reportX=false` in a file. A lower
 mode is a finding, as `typeCheckingMode` in the configuration and as
 `# pyright: basic` or `# pyright: standard` in a file; strict mode holds all
-the same.
+the same. A `# type: ignore` without rules before a file's first statement,
+which takes the whole file out of Pyright, is a finding as well; on a line of
+its own it stays the repository's choice.
 
 Hadolint runs without a default of the pipeline: its own rules contradict no
 other tool of the pipeline, so there is nothing to lay beneath them, and
