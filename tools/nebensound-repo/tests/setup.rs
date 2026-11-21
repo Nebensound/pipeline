@@ -1861,7 +1861,7 @@ fn a_file_that_cannot_be_read_has_no_digest() {
 fn the_checks_of_a_plan_are_named_once() {
     let _alone = alone();
     let analysis = support::analysis(
-        "[repo]\npipeline = \"rust-workspace\"\n",
+        "[repo]\naudience = \"public\"\npipeline = \"rust-workspace\"\n",
         &["README.md", "src/lib.rs"],
     );
     let plan = nebensound_repo::plan::plan(&analysis, &support::central());

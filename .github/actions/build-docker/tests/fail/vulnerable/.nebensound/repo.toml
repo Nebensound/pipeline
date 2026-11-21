@@ -1,4 +1,5 @@
 # An image on a base from 2019 that later releases of its branch fixed. It
 # starts, becomes healthy and runs as nobody, and the scan fails it.
 [repo]
+audience = "public"
 pipeline = { check = ["dockerfile"], build = "docker", dependabot = ["docker"] }

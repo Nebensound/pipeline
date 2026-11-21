@@ -3,6 +3,7 @@
 # other than root with a fresh volume at the path its image declares, and
 # becomes healthy; the two images differ, so they have two digests.
 [repo]
+audience = "public"
 pipeline = "none"
 
 [component.api]

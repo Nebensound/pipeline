@@ -267,10 +267,11 @@ Two properties remain for that:
   required, values `active`, `sandbox` and `archived`, default `active`. Every
   ruleset of this directory leaves `sandbox` and `archived` out.
 
-For whom a repository is meant is declared in the repository (#101), not as a
-property. The properties `language` and `kind` repeat what the declaration and
-the files already say, and no ruleset targets them. Once the first repository
-has switched, the owner deletes both properties; that removes them from every
+For whom a repository is meant is declared in the repository as `audience`
+(see [the declaration](../declaration.md#audience)), not as a property. The
+properties `language` and `kind` repeat what the declaration and the files
+already say, and no ruleset targets them. Once the first repository has
+switched, the owner deletes both properties; that removes them from every
 repository of the organization at once, the `legacy` ones included.
 
 The default of `pipeline` is `central`, so a new repository is bound from the

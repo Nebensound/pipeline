@@ -10,6 +10,7 @@ use support::{analysis, central};
 
 const DECLARATION: &str = r#"
 [repo]
+audience = "public"
 pipeline = "none"
 
 [component.tool]
@@ -119,7 +120,10 @@ fn a_lockfile_goes_to_the_check_its_name_assigns() {
         "flake.lock",
         "web/yarn.lock",
     ];
-    let analysis = analysis("[repo]\npipeline = \"none\"\n", lockfiles);
+    let analysis = analysis(
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n",
+        lockfiles,
+    );
     assert!(!analysis.failed(), "{:?}", analysis.findings());
     let central = central();
     let root = RelativePath::root();

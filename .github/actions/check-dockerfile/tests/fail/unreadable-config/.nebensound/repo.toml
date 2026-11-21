@@ -2,4 +2,5 @@
 # sequence. Hadolint would print a message and run without it; the block fails
 # instead, with an annotation on the configuration.
 [repo]
+audience = "public"
 pipeline = { check = ["dockerfile"], dependabot = ["docker"] }
