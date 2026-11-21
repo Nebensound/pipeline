@@ -391,6 +391,21 @@ fn a_check_is_found_by_extension_or_by_whole_name() {
 }
 
 #[test]
+fn a_lockfile_is_a_whole_name_a_check_covers_that_ends_in_lock() {
+    let register = builtin();
+
+    assert!(register.is_lockfile("Cargo.lock"));
+    assert!(register.is_lockfile("api/uv.lock"));
+    assert!(register.is_lockfile("sub/flake.lock"));
+    // Named by a check, but not a lockfile.
+    assert!(!register.is_lockfile("deploy/Dockerfile"));
+    // A lockfile, but no check covers it.
+    assert!(!register.is_lockfile("yarn.lock"));
+    assert!(!register.is_lockfile("other.lock"));
+    assert!(!register.is_lockfile("Cargo.toml"));
+}
+
+#[test]
 fn some_files_are_left_to_nobody_on_purpose() {
     let central = Central::builtin().expect("what is compiled in");
     let nothing = Declaration::parse("[repo]\n").expect("a declaration");

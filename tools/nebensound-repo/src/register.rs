@@ -369,6 +369,23 @@ impl Register {
             .map(|(ecosystem, _)| ecosystem)
     }
 
+    /// Whether this file is a lockfile the register names: a whole file name
+    /// that a check covers and that ends in `.lock`. A check covers a lockfile
+    /// by its name, never by the extension `.lock`, which formats that have
+    /// nothing in common share; its building block parses it and leaves its
+    /// formatting alone.
+    #[must_use]
+    pub fn is_lockfile(&self, path: &str) -> bool {
+        let name = path.rsplit('/').next().unwrap_or(path);
+        // Matched as exactly as the names are, so `.LOCK` is no lockfile.
+        name.rsplit_once('.')
+            .is_some_and(|(_, ending)| ending == "lock")
+            && self
+                .check
+                .values()
+                .any(|definition| definition.filenames.iter().any(|known| known == name))
+    }
+
     /// The check that covers a file, if any check does.
     #[must_use]
     pub fn check_for(&self, path: &str) -> Option<&CheckName> {

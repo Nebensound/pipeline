@@ -31,6 +31,10 @@
 //!
 //! Only a file the tool reads in a building block counts: Prettier's ignore
 //! file taking out a Rust file takes out nothing Prettier would have looked at.
+//! Nor does a setting count that takes out nothing but lockfiles the register
+//! names: the blocks never hand a lockfile to Prettier and lint with Taplo
+//! without its configuration, so such a setting takes nothing out of a check.
+//! A setting that takes out a lockfile and any other file counts as a whole.
 
 use std::fmt::Display;
 
@@ -38,6 +42,7 @@ use crate::Analysis;
 use crate::annotate::Coverage;
 use crate::finding::{Finding, Rule};
 use crate::path::RelativePath;
+use crate::register::Register;
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use ignore::Match;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
@@ -171,6 +176,20 @@ struct Setting {
     file: RelativePath,
     tool: Tool,
     matcher: Matcher,
+}
+
+impl Setting {
+    /// Why it takes the file out of what its tool reads in a building block,
+    /// or [`None`] when it does not.
+    fn out(&self, file: &RelativePath, coverage: &Coverage) -> Option<String> {
+        let (Coverage::Covered(check) | Coverage::Uncovered(check)) = coverage else {
+            return None;
+        };
+        if !self.tool.checks().contains(&check.as_str()) {
+            return None;
+        }
+        self.matcher.out(file)
+    }
 }
 
 /// An error, as the text a finding carries.
@@ -486,9 +505,10 @@ fn remedy(tool: Tool) -> &'static str {
 }
 
 /// Every file a tool's own setting takes out and no `[[exclude]]` entry
-/// does, and every setting that could not be read.
+/// does, and every setting that could not be read. A setting that takes out
+/// nothing but lockfiles `register` names is left alone.
 #[must_use]
-pub fn findings(analysis: &Analysis, read: &Read<'_>) -> Vec<Finding> {
+pub fn findings(analysis: &Analysis, register: &Register, read: &Read<'_>) -> Vec<Finding> {
     let nodes = analysis.tree.files();
     let files: Vec<&RelativePath> = nodes.iter().map(|(node, _)| &node.path).collect();
 
@@ -516,15 +536,19 @@ pub fn findings(analysis: &Analysis, read: &Read<'_>) -> Vec<Finding> {
         }
     }
 
+    // No building block hands a lockfile to Prettier, and Taplo lints without
+    // its configuration, so a setting that names nothing else takes nothing
+    // out of a check.
+    settings.retain(|setting| {
+        !nodes
+            .iter()
+            .filter(|(node, coverage)| setting.out(&node.path, coverage).is_some())
+            .all(|(node, _)| register.is_lockfile(&node.path.to_string()))
+    });
+
     for (node, coverage) in nodes {
-        let (Coverage::Covered(check) | Coverage::Uncovered(check)) = coverage else {
-            continue;
-        };
         for setting in &settings {
-            if !setting.tool.checks().contains(&check.as_str()) {
-                continue;
-            }
-            if let Some(why) = setting.matcher.out(&node.path) {
+            if let Some(why) = setting.out(&node.path, coverage) {
                 findings.push(
                     Finding::error(
                         Rule::UnexcusedIgnore,
