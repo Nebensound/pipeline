@@ -75,7 +75,7 @@ pub struct Version {
 }
 
 impl Version {
-    /// `0.0.0`, the base of a unit that was never released.
+    /// `0.0.0`, the base of a unit before its first released commit.
     pub const ZERO: Self = Self::new(0, 0, 0);
 
     /// A version from its three numbers.

@@ -259,22 +259,21 @@ first key or table of `.nebensound/repo.toml`:
 ### `version-cargo`
 
 [`.github/actions/version-cargo`](.github/actions/version-cargo) is the version
-writer `cargo`. No manifest in the tree carries a version: tags are the truth,
-and Cargo cannot take a version from outside. So the version is written into
-the checkout of the run, immediately before something builds with it, and never
-committed. The block hands the plan Declare printed to
+writer `cargo`. No manifest in the tree carries a version: the history is the
+truth, and Cargo cannot take a version from outside. So the version is written
+into the checkout of the run, immediately before something builds with it, and
+never committed. The block hands the plan Declare printed to
 `nebensound-repo write-versions --plan`, since its job checks out no history to
 resolve a version from. Every unit of the plan with the writer `cargo` that
 the commit at hand touches gets the version of the commit, on a pull request
 the one its merge would get with `-pr.<number>` behind it (such as
 `0.4.2-pr.17`). A unit the commit does not touch gets a version only where a
 package that gets one depends on it by path, followed through further path
-dependencies: the last version released for it, its newest tag that counts, a
-pre-release included, so that the requirement names a version that exists. A
-unit that was never released gets its pending version instead, the one the
-commits waiting for it come to, on a pull request with `-pr.<number>` behind
-it, so that a repository without any tag passes from its first commit on. With
-that version:
+dependencies: its current version, the highest one the history gives a commit
+up to the commit at hand, a pre-release included, and on a pull request without
+`-pr.<number>`, since the pull request does not touch it. No tag is read for
+it, so a repository without any tag passes from its first commit on. With that
+version:
 
 - `package.version` in the unit's `Cargo.toml` becomes that version.
 - Every path dependency on the package, wherever in the repository it is
@@ -292,11 +291,9 @@ that version:
   the `fuzz/` folder `cargo fuzz init` creates.
 
 Every change keeps the rest of the file as it is written, and a second call
-changes nothing. Any other unit with the writer gets nothing: its manifest
-stays as it is, and the package test of `check-rust` does not package it. A
-unit with commits after its newest tag still gets that tag's version where it
-gets one without being touched; the gap closes once a step sets tags at the
-release.
+changes nothing. Any other unit with the writer gets nothing, and neither does
+one that no commit has touched yet, which has no current version: its manifest
+stays as it is, and the package test of `check-rust` does not package it.
 
 The path dependencies followed are those in `[dependencies]`,
 `[dev-dependencies]` and `[build-dependencies]`. A dependency of the tests
@@ -305,7 +302,8 @@ packaged tests that use it would not compile. A path dependency on a package
 that carries no version at all (a unit with `versioning = "none"`, or one that
 does not select the writer `cargo`) is left to Cargo: the package test fails
 with Cargo's message. That a release must not publish a package that requires
-a version never released belongs to the release stage, not to the writer.
+a version whose release was never published belongs to the release stage, not
+to the writer.
 Only `Cargo.toml` and `Cargo.lock` files change. `check-rust` writes the
 versions the same way for its package test, starting from the units of its
 workspace (`--workspace`). The Build phase calls the block in the job of every

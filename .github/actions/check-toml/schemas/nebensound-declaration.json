@@ -90,6 +90,12 @@
       "pattern": "^[a-z0-9](?:(?:\\.?[a-z0-9-])*\\.?[a-z0-9])?$",
       "type": "string"
     },
+    "Edition": {
+      "description": "How a commit that holds the declaration is read: with which reader, with which meaning of the register's names and with which rules of counting. 1 when it is left out, and 1 is the only edition there is.",
+      "maximum": 1,
+      "minimum": 1,
+      "type": "integer"
+    },
     "Exclusion": {
       "additionalProperties": false,
       "description": "An entry that takes something out of the check.\n\nTwo fields instead of a key against a value: the entry names something and\njustifies it, and both belong visibly named. Being a table also keeps it\nopen — were a third field ever to arrive, the shape would not have to be\nrebuilt for it.",
@@ -381,6 +387,14 @@
         }
       },
       "type": "object"
+    },
+    "edition": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Edition"
+        }
+      ],
+      "description": "How a commit that holds this declaration is read. `1` when it is left\nout, and `1` is the only edition there is."
     },
     "exclude": {
       "description": "What falls out of the coverage check, each with its reason.\n\nIn the declaration of a repository only concrete paths are allowed here:\na pattern would excuse a whole class of files, and extensions are\ndecided by the central list.",

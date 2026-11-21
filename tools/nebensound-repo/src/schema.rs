@@ -17,7 +17,7 @@ use schemars::generate::SchemaSettings;
 use schemars::transform::RecursiveTransform;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 
-use crate::model::{Declaration, ExplicitPipeline, Pipeline, Publish};
+use crate::model::{Declaration, Edition, ExplicitPipeline, Pipeline, Publish};
 use crate::names::{
     BuildName, CheckName, ComponentName, EcosystemName, PresetName, Reason, TargetName,
     VersionWriterName,
@@ -154,6 +154,23 @@ impl JsonSchema for TagVersion {
                             without a leading zero or a prefix, and N a number from 1 without a \
                             leading zero. No other suffix.",
             "pattern": format!(r"^{NUMBER}\.{NUMBER}\.{NUMBER}(?:-pre\.[1-9][0-9]*)?$"),
+        })
+    }
+}
+
+impl JsonSchema for Edition {
+    fn schema_name() -> Cow<'static, str> {
+        "Edition".into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "type": "integer",
+            "description": "How a commit that holds the declaration is read: with which reader, \
+                            with which meaning of the register's names and with which rules of \
+                            counting. 1 when it is left out, and 1 is the only edition there is.",
+            "minimum": 1,
+            "maximum": crate::EDITION,
         })
     }
 }

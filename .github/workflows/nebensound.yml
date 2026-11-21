@@ -70,8 +70,8 @@ jobs:
       # before it builds. A unit that builds carries a version, so it stands
       # under `versions` as well, and it builds only when the plan gives it a
       # version of this run. A unit the commit does not touch has no new
-      # artifact to hand on, also where the writer gives it its last or
-      # pending version for a package that depends on it.
+      # artifact to hand on, also where the writer gives it its current
+      # version for a package that depends on it.
       - name: Name the units that build
         id: builds
         env:

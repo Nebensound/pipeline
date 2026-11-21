@@ -111,12 +111,13 @@ out, and its effect.
 
 ### The top level
 
-| Field       | Type                    | Default  | Effect                                                                               |
-| ----------- | ----------------------- | -------- | ------------------------------------------------------------------------------------ |
-| `repo`      | table                   | required | The repository as a unit. See `[repo]` below.                                        |
-| `component` | table of tables by name | none     | The components, each a unit of its own. See `[component.<name>]` below.              |
-| `include`   | array of tables         | none     | What is pulled back into the check after an exclusion. See `[[include]]` below.      |
-| `exclude`   | array of tables         | none     | What is taken out of the check, each entry with its reason. See `[[exclude]]` below. |
+| Field       | Type                    | Default  | Effect                                                                                          |
+| ----------- | ----------------------- | -------- | ----------------------------------------------------------------------------------------------- |
+| `edition`   | whole number            | `1`      | How the commit that holds the file is read. `1` is the only edition. See [Editions](#editions). |
+| `repo`      | table                   | required | The repository as a unit. See `[repo]` below.                                                   |
+| `component` | table of tables by name | none     | The components, each a unit of its own. See `[component.<name>]` below.                         |
+| `include`   | array of tables         | none     | What is pulled back into the check after an exclusion. See `[[include]]` below.                 |
+| `exclude`   | array of tables         | none     | What is taken out of the check, each entry with its reason. See `[[exclude]]` below.            |
 
 ### `[repo]`
 
@@ -281,8 +282,8 @@ itself is included.
 
 Whether a unit carries a version decides whether phase 0 resolves one for it
 (see [Versions](#versions)), whether the plan names its build, and whether it
-may publish and select version writers. No version is stored in the tree: tags
-are the truth.
+may publish and select version writers. No version is stored in the tree: the
+history is the truth.
 
 ## Releases
 
@@ -333,14 +334,19 @@ under [Versions](#versions). Nothing is tagged or released yet.
 
 ## Versions
 
-Tags are the truth, and no version is stored in the tree. Phase 0 resolves for
-every unit that carries a version which version the commit at hand has, from
-Git alone, and `nebensound-repo plan` lists them under `versions` (see
+The history is the truth, and no version is stored in the tree. Phase 0
+resolves for every unit that carries a version which version the commit at
+hand has, from the commits of the repository and the declarations they hold,
+and from nothing else. `nebensound-repo plan` lists them under `versions` (see
 [the tool's README](../tools/nebensound-repo/README.md#the-plan)).
-`nebensound-repo version` shows them as a table, with the number of commits
-waiting for each unit's next release, and the job `nebensound / Version` writes
-the same table into the summary of every run (see
-[the phases](phases.md#version)).
+`nebensound-repo version` shows them as a table, with each unit's current
+version and, in two stages, the number of commits waiting for its next
+promotion, and the job `nebensound / Version` writes the same table into the
+summary of every run (see [the phases](phases.md#version)).
+
+Tags and releases are records: what the release stages write down. No tag is
+read to decide a version, and a tag is never a base. Phase 0 only holds the
+records against the history (see [Records](#records)).
 
 ### Tag names
 
@@ -351,19 +357,21 @@ the same table into the summary of every run (see
 | A unit a component generates    | `<component>-<entry>-vX.Y.Z` | `<component>-<entry>-vX.Y.Z-pre.N` |
 | A unit the repository generates | `<entry>-vX.Y.Z`             | `<entry>-vX.Y.Z-pre.N`             |
 
-Everything before `X.Y.Z` is the unit's **prefix**: `v`, `<component>-v`, and so
-on. The repository has no name, so a unit it generates is named like a
-component. Tags are matched strictly: three numbers without a leading zero, and
-`N` a number from 1 without a leading zero. A tag belongs to the unit whose
-prefix it starts with and whose version reads after it; one that reads as no
-unit's release belongs to the unit with the longest prefix it starts with. A tag
-that reads `<name>-vX.Y.Z` or `<name>-vX.Y.Z-pre.N` is the release of a unit
-named `<name>` even when the declaration names no such unit any more: the old
-tags of a removed component `viewer` are passed over, not taken for the
+These are the names the release stages give a unit's records. Everything
+before `X.Y.Z` is the unit's **prefix**: `v`, `<component>-v`, and so on. The
+repository has no name, so a unit it generates is named like a component. A
+tag is read as a release strictly: three numbers without a leading zero, and
+`N` a number from 1 without a leading zero. A tag reads as the release of the
+unit whose prefix it starts with when its version reads after it; a tag that
+reads as no unit's release is passed over. A tag that reads
+`<name>-vX.Y.Z` or `<name>-vX.Y.Z-pre.N` is the release of a unit named
+`<name>` even when the declaration names no such unit any more: the old tags
+of a removed component `viewer` are passed over, not taken for the
 repository's because they start with `v`.
 Because a generated unit's prefix carries its parent's name, it can meet another
 unit's prefix (a component `docs-guide` beside the entry `guide` of a component
-`docs`); phase 0 refuses that as `ungeneratable-name`.
+`docs`); phase 0 refuses that as `ungeneratable-name`, since the release stages
+would write both units' records under the same names.
 
 ### How a version is resolved
 
@@ -379,52 +387,53 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
   Its path and its mode at a commit are those of the declaration that commit
   holds, resolved as phase 0 resolves the one at hand: a mode left out comes
   from the unit's publish targets, and a generated unit's path from the tree
-  the commit held. Where a commit's declaration does not name the unit, or
-  cannot be read, its path and its mode at the commit at hand are used. A unit
-  that moves, or a generated unit whose folder or file is renamed, therefore
-  keeps counting the commits from before, and a switch between one stage and
-  two keeps the releases of each period.
-- **Earlier declarations are read with the tool that runs**: its reader and
-  its register. A declaration it cannot read, such as one written for an older
-  reader with a field this one no longer knows, falls under the rule above. A
-  default of the register that changes under the same name changes what the
-  declarations of old commits mean, so it is a breaking change of the pipeline
-  (see [the register](register.md)).
-- **The base** is the unit's highest full release on a released commit that
-  `HEAD` contains. Without such a tag the base is `0.0.0`. A person with write
-  access can push any tag, so only tags on released commits count. Which
-  commit is released depends on how the unit was released at the commit the
-  tag is on:
-  - in one stage there, a commit on the line of `main`;
-  - in two stages there, a commit promoted into `release`: the second parent
-    of a merge commit on the first-parent line of `origin/release`, when it is
-    a commit of the line of `main`. Below the commit `release` was started on,
-    the first-parent line of `origin/release` goes on through the history of
-    `main`; a merge there brought a side branch into `main` and promoted
-    nothing.
+  the commit held. A unit that moves, or a generated unit whose folder or file
+  is renamed, therefore keeps counting the commits from before, and a switch
+  between one stage and two keeps the releases of each period.
+- **Which commits count for a unit**: only those whose own declaration names
+  the unit and gives it a version there. A unit's count therefore starts at
+  the first commit of the line whose declaration names it, from `0.0.0`. A unit
+  declared with `versioning = "none"` for a time starts its count when it gets
+  a version; a unit that is removed and comes back goes on from where it was,
+  and the commits in between do not count. The count never restarts, so no
+  version is given twice. A commit without a declaration does not count. A
+  commit whose declaration cannot be read takes a unit's path and mode from
+  the nearest commit after it on the line whose declaration can be read, not
+  from the commit at hand, and counts for the units that declaration gives a
+  version. What such a commit counts for is thereby fixed once that later
+  commit exists: a later move of the unit or a later switch of its mode does
+  not count it again in a different way. Until a readable declaration follows
+  it, the declaration at hand stands in for it.
+- **Earlier declarations are read in their edition** (see
+  [Editions](#editions)), with the tool that runs: its reader and its
+  register. A declaration it cannot read falls under the rule above. A
+  default of the register cannot change under the same name, since that
+  would change what the declarations of old commits mean: such a change comes
+  as a new name or a new edition (see [the register](register.md)).
+- **The released commits** carry the releases, not tags. Which commit is
+  released depends on how the unit was released at it:
+  - in one stage there, every commit of the line of `main` that touches the
+    unit and that the history gives a version is a full release;
+  - in two stages there, the commit a merge into `release` promotes is the
+    full release, and the touching commits of the line of `main` are its
+    pre-releases. A promoted commit is the second parent of a merge commit on
+    the first-parent line of `origin/release`, when it is a commit of the line
+    of `main`. Below the commit `release` was started on, the first-parent line
+    of `origin/release` goes on through the history of `main`; a merge there
+    brought a side branch into `main` and promoted nothing.
 
-  A full release on a released commit counts whatever its number. Whether the
-  pipeline set it is for the release check to tell, a step of its own. Any
-  other full release with the unit's prefix on a commit `HEAD` contains is the
-  warning `unexpected-tag` and does not count. A pre-release is given only to a
-  commit of the line of `main` where the unit was released in two stages, so
-  one on any other commit `HEAD` contains, or on one where the unit was
-  released in one stage, is the warning `unexpected-tag` as well.
+- **The base** of a unit at a commit is the version of its newest released
+  commit before it that `HEAD` contains, as the history shows it; `0.0.0`
+  before the first.
 
-- **The last release** of a unit is its newest tag that counts, a pre-release
-  included; a unit without one was never released. It is what the version
-  writer `cargo` requires of a path dependency whose unit the commit at hand
-  does not touch, where a package that gets a version needs it, and it stands
-  in the plan as `last`.
-
-- **The pending version** of a unit is the version of the newest commit that
-  waits for it, as that commit resolves when it is the commit at hand: the
-  version of the commit at hand itself when it touches the unit, none when no
-  commit waits. It is what the version writer `cargo` writes for a path
-  dependency whose unit the commit at hand does not touch and that was never
-  released, so that a repository without any tag passes from its first commit
-  on. It stands in the plan as `pending`, with `-pr.<number>` behind it on a
-  pull request.
+- **The current version** of a unit is the highest version the history gives
+  any commit of the line up to `HEAD`, a pre-release included, after a
+  promotion the full version. Every unit has one from the first commit that
+  touches it on. It is what the version writer `cargo` requires of a path
+  dependency whose unit the commit at hand does not touch, where a package
+  that gets a version needs it, and it stands in the plan as `current`. On a
+  pull request it carries `-pr.<number>` only when the pull request touches
+  the unit: it is then the version of the pull request.
 
 - **Only the tip of `main` is promoted.** A merge into `release` whose second
   parent is not the commit `origin/main` points at is the error
@@ -438,8 +447,8 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
   version. The release stage therefore runs phase 0 at the merge and resolves
   on the promoted commit only when that passed; a run on the promoted commit
   alone must not get past a refused merge. Read later, a refused merge that
-  was pushed past the check is taken for a promotion like any other; it got no
-  tag, so the base does not move with it.
+  was pushed past the check is taken for a promotion like any other, and the
+  base moves with it.
 
 - **A commit touches a unit** when it changes a file below the unit's path as
   that commit declares it, or `.nebensound/repo.toml`. The repository is
@@ -479,52 +488,91 @@ unit's prefix (a component `docs-guide` beside the entry `guide` of a component
     `1.0.0-pre.10`, and the next one `1.0.0-pre.11`.
   - In one stage, which gives out no pre-release, a pre-release value is
     ignored once the version the commits before the commit at hand come to has
-    reached its `X.Y.Z`, whichever of their tags are set. Before that it is
-    the error `pre-release-minimum`. A commit at which it was the error still
-    counts for the commits after it, raised by its own change and not lifted,
-    so writing `X.Y.Z` afterwards gives `X.Y.Z`.
-- A commit that carries its unit's base is that release, also when it is read
-  again.
+    reached its `X.Y.Z`. Before that it is the error `pre-release-minimum`. A
+    commit at which it was the error still counts for the commits after it,
+    raised by its own change and not lifted, so writing `X.Y.Z` afterwards
+    gives `X.Y.Z`; it is no release, since the history gives it no version.
 - A commit that does not touch the unit has no version, except the promoted
   commit of a unit released in two stages.
 
 The version is a function of the history, not of the moment: every commit on
 `main` raises on its own, so two runs on `main` at the same time come to
-different numbers without waiting for each other. In one stage a commit comes
-to the same version whether the tags of the commits before it are set yet or
-not.
+different numbers without waiting for each other. No tag is read, so a commit
+comes to the same version whether any tag is set or not, and a repository
+resolves the same versions with all of its tags deleted.
 
-In two stages the base moves only with the tag of a promoted commit. Between
-the merge into `release` and that tag, a commit that lands on `main` would
-still count from the release before. The release stages close this window:
-they share one queue and resolve a version only when a run has its turn, after
-the run before has set its tag. A release stage at a merge into `release`
-resolves on the commit it promotes, once phase 0 has passed at the merge itself
-(see the rule on promoting only the tip of `main` above).
+In two stages no tag is needed to move the base either: a commit that lands on
+`main` after a merge into `release` counts from the promoted release as soon as
+that merge exists. A release stage at a merge into `release` resolves on the
+commit it promotes, once phase 0 has passed at the merge itself (see the rule
+on promoting only the tip of `main` above).
+
+### Records
+
+A tag reads as a release of a unit as described under [Tag names](#tag-names).
+Phase 0 holds every such tag on a commit `HEAD` contains against the history:
+
+- A tag on exactly the commit to which the history gives its version is a
+  faithful record and passes.
+- Any other such tag whose version is not lower than the unit's version at
+  `HEAD`, the version of the commit at hand when it touches the unit and
+  otherwise its current version, is the error
+  [`conflicting-tag`](#conflicting-tag): a release of the unit could meet it.
+- A tag below that stays unnoticed, so the tags of a repository from before it
+  called the pipeline do no harm below its `minimum-version`.
+
+A tag on a commit `HEAD` does not contain is passed over without a finding: it
+lies in history this commit does not have, such as a newer release, and what
+it records is not this commit's to judge.
 
 ### What the history must hold
 
-Phase 0 reads the whole history and every tag. A shallow clone is the error
-`shallow-clone`, and a unit released in two stages needs the branch
-`origin/release` (`missing-release-branch`). Without the branch, a full release
-from a period in which a unit was released in two stages is
-`unexpected-tag`, since no commit of that period can be shown to be promoted.
-A merge into `release` is told apart only with `origin/main` as well; without
-it, the line of `main` is the first-parent line of `HEAD`. The job
-`nebensound / Declare` checks the repository out with its whole history and
-every branch and tag. A release tag on a commit `HEAD` does not contain is
-passed over without a finding: it lies in history this commit does not have,
-such as a newer release, and whether it counts is not this commit's to judge.
+Phase 0 reads the whole history, and every tag to hold it against that
+history. A shallow clone is the error `shallow-clone`, and a unit that is or
+was released in two stages at a commit that counts for it needs the branch
+`origin/release` (`missing-release-branch`): its full releases are the commits
+promoted there, and a deleted branch must not move a version. A merge into
+`release` is told apart only with `origin/main` as well; without it, the line
+of `main` is the first-parent line of `HEAD`. The job `nebensound / Declare`
+checks the repository out with its whole history and every branch and tag.
 
 Versions are resolved for `HEAD`, and every commit of the line, `HEAD`
 included, is read with the declaration it holds. The units come from
 `.nebensound/repo.toml` as it stands in the working tree. A change to the
 declaration that is not committed yet therefore reaches the units but not the
 history, and the versions mix the two: a move, a change of the release mode or a
-new `minimum-version` takes effect only in part, and a finding such as
-`pre-release-minimum` stays where it is until the change is committed. Commit a change to the declaration before reading
-its versions with `check`, `plan`, `explain` or `ui`. In CI the checkout is the
-commit, so the two agree.
+new `minimum-version` takes effect only in part, a unit that no commit declares
+yet has no version, and a finding such as `pre-release-minimum` stays where it
+is until the change is committed. Commit a change to the declaration before
+reading its versions with `check`, `plan`, `explain` or `ui`. In CI the checkout
+is the commit, so the two agree.
+
+## Editions
+
+`edition` at the top level of the declaration says how the commit that holds
+it is read: with which reader, with which meaning of the register's names, and
+with which rules of counting. It is a whole number and optional; left out, it
+is `1`, and `1` is the only edition there is. This repository's declaration and
+the examples leave it out while that holds.
+
+The promise of an edition: within it, the versions of an existing history never
+change with the version of the tool, and a declaration that was valid stays
+readable with the same meaning. A change that would break this comes as a new
+edition, which a repository switches on with a commit and which holds from that
+commit on, while the tool goes on reading the older ones. The tool's tests hold
+the promise: they resolve recorded histories to the versions recorded with them,
+and a change that moves one of them fails.
+
+The promise of edition 1 binds from `v0.1.0` of this repository on, the first
+version meant for callers. Until then the rules of counting may still be
+corrected within edition 1.
+
+A tool that meets an edition it does not know stops phase 0 by name and says
+that a newer pipeline is needed, wherever the declaration that names it stands
+on the line of `main`, not only at `HEAD`. The edition is read before anything
+else of the file, so a declaration written for a newer pipeline says so instead
+of failing on a field this reader does not know. It is a failure to read the
+file, not a finding (see [When the file cannot be read](#when-the-file-cannot-be-read)).
 
 ## Findings
 
@@ -676,27 +724,6 @@ file.
 Warning. A unit has an ecosystem watched and holds no manifest of it. Remove the
 ecosystem from its `dependabot` list. An ecosystem of the base set is exempt.
 
-### `unexpected-tag`
-
-Warning. A tag carries a unit's prefix and is no release of that unit, so it
-does not count: it does not read `<prefix>X.Y.Z` or `<prefix>X.Y.Z-pre.N`, it
-points at something other than a commit, it is a full release on a commit
-that was not released, or it is a pre-release off the line of `main`. Whether
-a commit was released depends on how the unit was released at that commit, as
-its declaration says. In one stage only a commit on the line of `main` is
-released, so a full release on a merged side branch does not count. In two
-stages only a promoted commit is released, so a full release on any other
-commit of `main` does not count, even once a later promotion makes
-`origin/release` contain it. A pre-release is given only to a commit of the
-line of `main` where the unit was released in two stages, so one on a merged
-side branch, or on a commit where the unit was released in one stage, does not
-count either, and does not stop a switch to one stage
-([`unreleased-before-switch`](#unreleased-before-switch)).
-A person with write access can push any tag, so only tags on released commits
-count. A full release on a released commit counts whatever its number; whether
-the pipeline set it is for the release check to tell, a step of its own. Delete
-the tag, or rename it so that it carries no unit's prefix.
-
 ### `unconventional-commit`
 
 Warning. A commit the version of a unit is raised by has a message that is not a
@@ -707,31 +734,36 @@ Commits.
 
 ### `shallow-clone`
 
-Error. The repository is a shallow clone, so the history that counts the
-commits since a release, and the tags of the releases, may not be there. Check
+Error. The repository is a shallow clone, so the history the versions are
+counted from, and the tags held against it, may not be there. Check
 the repository out with its whole history and its tags (`fetch-depth: 0` for
 `actions/checkout`), or run `git fetch --unshallow --tags`.
 
 ### `missing-release-branch`
 
-Error. A unit is released in two stages, and there is no branch
+Error. A unit is or was released in two stages, at the commit at hand or at any
+commit of the line of `main` that counts for it, and there is no branch
 `origin/release`. Its full releases are the commits promoted there, so neither
-its base nor its next version can be told. Create the branch and fetch it, or
-release the unit in one stage.
+its base nor its next version can be told, and a deleted branch must not move a
+version. Restore a deleted branch at the commit it pointed at, or create it
+where it never existed, and fetch it. A branch created anew where one was
+deleted holds none of the old promotions, so every commit after them would
+resolve again from the last full release before them. Only a unit released in
+one stage at every commit that counts for it needs no branch.
 
 ### `unreleased-before-switch`
 
-Error. A unit is released in one stage, and its newest tag is a pre-release:
-it was released in two stages, and its last pre-release never became a full
-release. Only the tip of `main` is promoted
+Error. A unit is released in one stage at the commit at hand, and commits that
+touch it since its last full release were released in two stages at their own
+commit: the history gave them pre-releases that never became a full release.
+The finding names the newest of them. Only the tip of `main` is promoted
 ([`stale-promotion`](#stale-promotion)), and the tip is the switch, so revert
 the switch, promote the tip of `main` into `release`, and switch again. The
-versions then go on from a full release. A pre-release on a commit that the
-commit carrying the base contains was released with the base, whatever its
-number, and does not lead here: the promotion of the tip moves the base past
-every pre-release before it. A pre-release on a commit where the unit was
-released in one stage does not count ([`unexpected-tag`](#unexpected-tag)) and
-does not lead here either.
+versions then go on from a full release. The pre-releases of the commits before
+a promoted commit were released with it and do not lead here: the promotion of
+the tip moves the base past every pre-release before it. A tag that reads as a
+pre-release does not lead here either; the history decides, and a tag is held
+against it as a record ([`conflicting-tag`](#conflicting-tag)).
 
 ### `exhausted-version`
 
@@ -771,7 +803,28 @@ own, is no merge and reports nothing, so the release stage resolves on it only
 once phase 0 has passed at the merge, and tags nothing here. Promote the tip of `main` with a pull request from `main` into
 `release`. Phase 0 tells a merge into `release` by its first parent, which lies
 on the first-parent line of `origin/release`; without `origin/main` it cannot
-tell the tip, and reports nothing.
+tell the tip, and reports nothing. Git keeps no record of where `origin/main`
+pointed, so a refused merge pushed past the check is read later as a promotion
+like any other.
+
+### `conflicting-tag`
+
+Error. A tag reads as a release of a unit, `<prefix>X.Y.Z` or
+`<prefix>X.Y.Z-pre.N`, sits on a commit `HEAD` contains, and the history gives
+that version to another commit, or to none, while the version is not lower than
+the unit's version at `HEAD`: the version of the commit at hand when it touches
+the unit, otherwise its current version. A tag is a record and never moves a
+version, and a release of the unit could meet this one. The finding names the
+tag, its commit and the commit the history gives that version, if any. There
+are two ways out: delete the tag if nobody published it, or raise
+`minimum-version` so that the unit's versions pass it, in the mode the unit is
+released in at `HEAD`. In two stages any value above the tag's version does. In
+one stage, which gives out no pre-release, a pre-release value is the error
+[`pre-release-minimum`](#pre-release-minimum): past a tag `X.Y.Z-pre.N` write
+`X.Y.Z` or higher, and past a tag `X.Y.Z` three numbers above it. The finding
+names the value that applies. A tag on exactly the commit to which the history
+gives its version is a faithful record, and one below the unit's version stays
+unnoticed (see [Records](#records)).
 
 ### `unexcused-ignore`
 
@@ -820,6 +873,13 @@ sentence that names the file and the mistake, and fails:
 - the TOML does not parse;
 - a key is unknown, a required one is missing, or a value has the wrong type;
 - a name, path or pattern breaks the rules above, or a reason is blank;
+- `edition` is a whole number below 1, or names an edition this tool does not
+  know, which says that a newer pipeline is needed. The edition is read before
+  anything else of the file. An edition this tool does not know stops phase 0
+  also where the declaration of an earlier commit of the line of `main` names
+  it (see [Editions](#editions)); any other mistake there makes that
+  declaration one that cannot be read (see
+  [How a version is resolved](#how-a-version-is-resolved));
 - `release` is neither `"single-stage"` nor `"two-stage"`, or
   `minimum-version` is neither `X.Y.Z` nor `X.Y.Z-pre.N`;
 - an `[[exclude]]` entry names a pattern, or the same path stands twice under

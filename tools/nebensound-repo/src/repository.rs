@@ -3,7 +3,8 @@
 //! What a repository holds is decided by **Git**. A directory walk would also
 //! count what nobody versions — `target/`, `node_modules/`, yesterday's
 //! half-finished file — and phase 0 would judge things the repository does not
-//! have. Git also holds the history and the tags every version is read from.
+//! have. Git also holds the history every version is read from, and the tags
+//! that record the releases.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
@@ -391,7 +392,7 @@ impl Repository {
         Ok(analysis)
     }
 
-    /// What Git says about the commit at hand and the releases around it.
+    /// What Git says about the commit at hand and the history around it.
     ///
     /// A repository without a commit has an empty history, and a shallow
     /// clone one that says only that it is shallow: what it holds of the
@@ -418,7 +419,9 @@ impl Repository {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Git`] when git does not run or does not answer.
+    /// Returns [`Error::Git`] when git does not run or does not answer, and
+    /// [`Error::Malformed`] when the declaration of a commit of the line is
+    /// written for an edition this tool does not know.
     pub fn history(&self) -> Result<History, Error> {
         let head = self.commit("HEAD")?;
         if self.git_output(&["rev-parse", "--is-shallow-repository"])? == b"true\n" {
@@ -485,16 +488,32 @@ impl Repository {
         .map(ToOwned::to_owned)
         .collect();
         let mut declarations = BTreeMap::new();
-        for object in line
-            .iter()
-            .filter_map(|commit| commit.declaration.as_deref())
-        {
+        // Oldest first, so that an edition this tool does not know is named
+        // at the commit that switched it on.
+        for commit in line.iter().rev() {
+            let Some(object) = commit.declaration.as_deref() else {
+                continue;
+            };
             if !declarations.contains_key(object) {
-                let text = self.git_output(&["cat-file", "blob", object])?;
-                declarations.insert(
-                    object.to_owned(),
-                    String::from_utf8_lossy(&text).into_owned(),
-                );
+                let text =
+                    String::from_utf8_lossy(&self.git_output(&["cat-file", "blob", object])?)
+                        .into_owned();
+                // The edition says how the commit is read, so one this tool
+                // does not know stops the reading wherever it stands on the
+                // line, not only at `HEAD`. Anything else a declaration of
+                // the history fails on is for the library to fall back from.
+                if let Err(source @ ReadError::UnknownEdition { .. }) =
+                    Declaration::read_edition(&text)
+                {
+                    return Err(Error::Malformed {
+                        path: format!(
+                            "{DECLARATION} at commit {}",
+                            commit.id.chars().take(12).collect::<String>()
+                        ),
+                        source,
+                    });
+                }
+                declarations.insert(object.to_owned(), text);
             }
         }
         Ok(History {

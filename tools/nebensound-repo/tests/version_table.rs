@@ -61,7 +61,7 @@ fn analysed(repository: &Repository) -> Analysis {
 }
 
 /// The version and the waiting commits of one unit, by its prefix.
-fn of(analysis: &Analysis, prefix: &str) -> (Option<String>, usize) {
+fn of(analysis: &Analysis, prefix: &str) -> (Option<String>, Option<usize>) {
     let unit = analysis
         .versions
         .iter()
@@ -92,7 +92,7 @@ fn text_rows(text: &str) -> Vec<Vec<String>> {
 }
 
 /// The rows of the Markdown table, each split into its cells, the escapes
-/// taken back.
+/// taken back. An empty cell is left out, as the text table shows none.
 fn markdown_rows(markdown: &str) -> Vec<Vec<String>> {
     markdown
         .lines()
@@ -101,6 +101,7 @@ fn markdown_rows(markdown: &str) -> Vec<Vec<String>> {
             line.trim_matches('|')
                 .split(" | ")
                 .map(|cell| cell.trim().replace('\\', ""))
+                .filter(|cell| !cell.is_empty())
                 .collect()
         })
         .collect()
@@ -116,12 +117,14 @@ fn the_table_says_what_the_plan_says_in_both_forms() {
 
     let (text, code) = version(&git, &[]);
     assert_eq!(code, 0, "{text}");
+    // Waiting is filled in two stages only: in one stage every commit that
+    // touches the unit is a release of its own.
     assert_eq!(
         text,
-        "Versions\n\n  Unit            Path  Release       Last release  This commit  \
-         Waiting\n  the repository  .     single-stage  0.0.2         0.0.4        2\n  \
-         component app   app   single-stage  0.0.1         none         0\n  component lib   \
-         lib   two-stage     0.0.1         0.0.2-pre.2  2\n"
+        "Versions\n\n  Unit            Path  Release       Current      This commit  \
+         Waiting\n  the repository  .     single-stage  0.0.4        0.0.4\n  \
+         component app   app   single-stage  0.0.1        none\n  component lib   \
+         lib   two-stage     0.0.2-pre.2  0.0.2-pre.2  2\n"
     );
 
     let (markdown, code) = version(&git, &["--markdown"]);
@@ -129,14 +132,14 @@ fn the_table_says_what_the_plan_says_in_both_forms() {
     assert!(markdown.starts_with("## Versions\n\n"), "{markdown}");
     assert!(
         markdown.contains(
-            "| Unit | Path | Release | Last release | This commit | Waiting |\n| --- | --- | --- \
-             | --- | --- | --- |\n"
+            "| Unit | Path | Release | Current | This commit | Waiting |\n| --- | --- | --- | \
+             --- | --- | --- |\n"
         ),
         "{markdown}"
     );
     assert!(
         markdown.contains(
-            "| component lib | lib | two\\-stage | 0\\.0\\.1 | 0\\.0\\.2\\-pre\\.2 | 2 |"
+            "| component lib | lib | two\\-stage | 0\\.0\\.2\\-pre\\.2 | 0\\.0\\.2\\-pre\\.2 | 2 |"
         ),
         "{markdown}"
     );
@@ -161,25 +164,77 @@ fn the_table_says_what_the_plan_says_in_both_forms() {
 }
 
 #[test]
-fn waiting_counts_the_touching_commits_since_the_last_release() {
+fn waiting_after_a_switch_to_two_stages_counts_from_the_last_release_in_one_stage() {
+    let git = Git::new();
+    git.write(&[
+        (
+            ".nebensound/repo.toml",
+            &UNITS.replace("release  = \"two-stage\"\n", ""),
+        ),
+        ("README.md", "# Units\n"),
+        ("app/a.md", "# App\n"),
+        ("lib/b.md", "# Lib\n"),
+    ]);
+    git.commit("chore: start");
+    for number in 2..=4 {
+        git.write(&[("lib/b.md", &format!("# Lib\n\n{number}.\n"))]);
+        git.commit(&format!("fix: lib {number}"));
+    }
+    let analysis = analysed(&Repository::at(git.path()));
+    assert_eq!(of(&analysis, "lib-v"), (Some("0.0.4".to_owned()), None));
+
+    // A `release` branch that holds no promotion yet.
+    let first = git.run(&["rev-list", "--max-parents=0", "HEAD"]);
+    git.run(&["branch", "release", first.trim()]);
+    git.run(&["update-ref", "refs/remotes/origin/release", "release"]);
+    git.write(&[
+        (".nebensound/repo.toml", UNITS),
+        ("lib/b.md", "# Lib\n\nIn two stages.\n"),
+    ]);
+    git.commit("feat: lib in two stages");
+    let analysis = analysed(&Repository::at(git.path()));
+    // There was no promotion, yet one commit waits: the four releases in one
+    // stage are full releases, and the next promotion takes in only this one.
+    assert_eq!(
+        of(&analysis, "lib-v"),
+        (Some("0.0.5-pre.1".to_owned()), Some(1))
+    );
+
+    git.write(&[("lib/b.md", "# Lib\n\nAgain.\n")]);
+    git.commit("fix: lib again");
+    let analysis = analysed(&Repository::at(git.path()));
+    assert_eq!(
+        of(&analysis, "lib-v"),
+        (Some("0.0.5-pre.2".to_owned()), Some(2))
+    );
+
+    git.promote();
+    let analysis = analysed(&Repository::at(git.path()));
+    assert_eq!(of(&analysis, "lib-v"), (Some("0.0.5".to_owned()), Some(0)));
+}
+
+#[test]
+fn waiting_counts_the_touching_commits_since_the_last_full_release() {
     let git = released();
     let analysis = analysed(&Repository::at(git.path()));
-    // The commit at hand carries the releases of the repository and of lib,
-    // and app has not been touched since its release, so nothing waits.
-    assert_eq!(of(&analysis, "v"), (Some("0.0.2".to_owned()), 0));
-    assert_eq!(of(&analysis, "app-v"), (None, 0));
-    assert_eq!(of(&analysis, "lib-v"), (Some("0.0.1".to_owned()), 0));
+    // The commit at hand is promoted, so nothing waits for lib. In one stage
+    // every commit that touches the unit is a release, and nothing waits.
+    assert_eq!(of(&analysis, "v"), (Some("0.0.2".to_owned()), None));
+    assert_eq!(of(&analysis, "app-v"), (None, None));
+    assert_eq!(of(&analysis, "lib-v"), (Some("0.0.1".to_owned()), Some(0)));
 
     git.write(&[("app/a.md", "# App\n\nOne.\n")]);
     git.commit("fix: app one");
     git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
     git.commit("fix: lib one");
     let analysis = analysed(&Repository::at(git.path()));
-    // The tags of these two commits are not set yet: both wait for the
-    // repository, one each for the components.
-    assert_eq!(of(&analysis, "v"), (Some("0.0.4".to_owned()), 2));
-    assert_eq!(of(&analysis, "app-v"), (None, 1));
-    assert_eq!(of(&analysis, "lib-v"), (Some("0.0.2-pre.1".to_owned()), 1));
+    // No tag of these two commits is set, and none is needed.
+    assert_eq!(of(&analysis, "v"), (Some("0.0.4".to_owned()), None));
+    assert_eq!(of(&analysis, "app-v"), (None, None));
+    assert_eq!(
+        of(&analysis, "lib-v"),
+        (Some("0.0.2-pre.1".to_owned()), Some(1))
+    );
 }
 
 #[test]
@@ -209,16 +264,15 @@ fn a_pull_request_shows_the_version_its_squash_merge_would_get() {
     let message = "feat(lib)!: a breaking change\n\nThe description.";
 
     // Read as it is, the merge touches nothing, and the tag on the branch is
-    // one off the line of main.
+    // a record of a version the history gives no commit.
     let as_it_is = Repository::at(git.path())
         .analyse(&central())
         .expect("the fixture reads");
-    assert_eq!(of(&as_it_is, "lib-v"), (None, 0));
+    assert_eq!(of(&as_it_is, "lib-v"), (None, Some(0)));
     assert!(
-        as_it_is
-            .findings()
-            .iter()
-            .any(|finding| finding.to_string().contains("lib-v9.9.9")),
+        as_it_is.findings().iter().any(|finding| finding
+            .to_string()
+            .starts_with("error[conflicting-tag] component lib: the tag \"lib-v9.9.9\"")),
         "{:?}",
         as_it_is.findings()
     );
@@ -228,17 +282,25 @@ fn a_pull_request_shows_the_version_its_squash_merge_would_get() {
     let merged = analysed(&Repository::at(git.path()).as_pull_request(message));
     assert!(merged.findings().is_empty(), "{:?}", merged.findings());
     let pull_request = |prefix| of(&merged, prefix);
-    assert_eq!(pull_request("v"), (Some("0.0.4".to_owned()), 2));
-    assert_eq!(pull_request("app-v"), (None, 1));
-    assert_eq!(pull_request("lib-v"), (Some("0.0.2-pre.1".to_owned()), 1));
+    assert_eq!(pull_request("v"), (Some("0.0.4".to_owned()), None));
+    assert_eq!(pull_request("app-v"), (None, None));
+    assert_eq!(
+        pull_request("lib-v"),
+        (Some("0.0.2-pre.1".to_owned()), Some(1))
+    );
 
+    // The current version carries the number of the pull request only where
+    // the pull request touches the unit: it is that version then.
     let (text, code) = version(&git, &["--pull-request", "17", "--message", message]);
     assert_eq!(code, 0, "{text}");
     let rows = text_rows(&text);
     assert_eq!(rows[0][4], "This pull request");
-    assert_eq!(rows[1][4], "0.0.4-pr.17");
-    assert_eq!(rows[2][4], "none");
-    assert_eq!(rows[3][4], "0.0.2-pre.1-pr.17");
+    assert_eq!(rows[1][3..5], ["0.0.4-pr.17", "0.0.4-pr.17"]);
+    assert_eq!(rows[2][3..5], ["0.0.2", "none"]);
+    assert_eq!(
+        rows[3][3..],
+        ["0.0.2-pre.1-pr.17", "0.0.2-pre.1-pr.17", "1"]
+    );
     let (markdown, code) = version(
         &git,
         &["--markdown", "--pull-request", "17", "--message", message],
@@ -324,7 +386,7 @@ fn the_repository_always_has_a_row_also_before_its_first_commit() {
     assert_eq!(code, 0, "{text}");
     assert_eq!(
         text_rows(&text)[1],
-        ["the repository", ".", "single-stage", "none", "none", "0"]
+        ["the repository", ".", "single-stage", "none", "none"]
     );
 }
 
@@ -405,28 +467,31 @@ fn a_pull_request_version_is_the_merge_version_with_its_number() {
 }
 
 #[test]
-fn the_last_release_is_the_newest_tag_that_counts_a_pre_release_included() {
+fn the_current_version_is_the_highest_the_history_gives_a_pre_release_included() {
     let git = released();
     git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
-    let pre = git.commit("feat: lib one");
-    git.tag("lib-v0.1.0-pre.1", &pre);
+    git.commit("feat: lib one");
     git.write(&[("app/a.md", "# App\n\nOne.\n")]);
     git.commit("fix: app one");
+    // Without a single tag in the repository.
+    for tag in git.run(&["tag", "--list"]).lines() {
+        git.run(&["tag", "--delete", tag]);
+    }
 
     let analysis = analysed(&Repository::at(git.path()));
-    let last = |prefix: &str| {
+    let current = |prefix: &str| {
         analysis
             .versions
             .iter()
             .find(|unit| unit.prefix == prefix)
-            .and_then(|unit| unit.last)
-            .map(|last| last.to_string())
+            .and_then(|unit| unit.current)
+            .map(|current| current.to_string())
     };
 
-    // `lib` is not touched: its last release is the pre-release, above its
-    // last full release.
-    assert_eq!(of(&analysis, "lib-v"), (None, 1));
-    assert_eq!(last("lib-v").as_deref(), Some("0.1.0-pre.1"));
-    assert_eq!(last("app-v").as_deref(), Some("0.0.1"));
-    assert_eq!(last("v").as_deref(), Some("0.0.2"));
+    // `lib` is not touched: its current version is the pre-release, above
+    // its last full release.
+    assert_eq!(of(&analysis, "lib-v"), (None, Some(1)));
+    assert_eq!(current("lib-v").as_deref(), Some("0.0.2-pre.1"));
+    assert_eq!(current("app-v").as_deref(), Some("0.0.2"));
+    assert_eq!(current("v").as_deref(), Some("0.0.4"));
 }

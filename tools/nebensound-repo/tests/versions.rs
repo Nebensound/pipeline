@@ -1,9 +1,11 @@
-//! Which version every unit carries, read from real Git repositories: tags,
-//! the line of `main` and the branch `origin/release`.
+//! Which version every unit carries, read from real Git repositories: the line
+//! of `main`, the declaration each of its commits holds and the branch
+//! `origin/release`. Tags are records, held against the history and never
+//! read for a version.
 //!
 //! Each fixture is built commit by commit in a temporary directory and tagged
 //! the way the release stages tag it, so that what is checked is the history a
-//! repository really has.
+//! repository really has, and that a faithful record changes nothing.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
@@ -45,29 +47,24 @@ fn version(git: &Git, prefix: &str) -> Option<String> {
         .unwrap_or_else(|| panic!("no unit with the prefix {prefix}"))
 }
 
-/// The last full release of one unit at the commit at hand.
-fn base(analysis: &Analysis, prefix: &str) -> String {
+/// The current version of one unit at the commit at hand: the highest one
+/// the history gives a commit of the line up to it.
+fn current(analysis: &Analysis, prefix: &str) -> Option<String> {
     analysis
         .versions
         .iter()
         .find(|unit| unit.prefix == prefix)
         .map_or_else(
             || panic!("no unit with the prefix {prefix}"),
-            |unit| unit.base.to_string(),
+            |unit| unit.current.as_ref().map(ToString::to_string),
         )
 }
 
-/// The pending version of one unit at the commit at hand: that of the
-/// newest commit that waits for it.
-fn pending(analysis: &Analysis, prefix: &str) -> Option<String> {
-    analysis
-        .versions
-        .iter()
-        .find(|unit| unit.prefix == prefix)
-        .map_or_else(
-            || panic!("no unit with the prefix {prefix}"),
-            |unit| unit.pending.as_ref().map(ToString::to_string),
-        )
+/// Deletes every tag of the fixture.
+fn delete_tags(git: &Git) {
+    for tag in git.run(&["tag", "--list"]).lines() {
+        git.run(&["tag", "--delete", tag]);
+    }
 }
 
 /// The findings of one rule.
@@ -159,9 +156,9 @@ fn one_unit_goes_through_several_single_stage_releases() {
     let feature = git.head();
     assert_eq!(release(&git, "v"), "0.1.1");
 
-    // The run of this commit is late with its tag: the next one comes to the
-    // number it would have had all the same, raised by each commit since the
-    // last tag on its own.
+    // The run of this commit is late with its tag, or sets none: the next
+    // one comes to the number it would have had all the same. A tag is a
+    // record and moves nothing.
     git.write(&[("README.md", "# One\n\nFixed.\n")]);
     git.commit("fix: a correction");
     let late = git.head();
@@ -169,14 +166,10 @@ fn one_unit_goes_through_several_single_stage_releases() {
 
     git.write(&[("README.md", "# One\n\nBroken.\n")]);
     git.commit("refactor!: a breaking change");
-    let analysis = analysed(&git);
-    assert_eq!(versions(&analysis)["v"].as_deref(), Some("0.2.0"));
-    assert_eq!(base(&analysis, "v"), "0.1.1");
+    assert_eq!(version(&git, "v").as_deref(), Some("0.2.0"));
 
     git.tag("v0.1.2", &late);
-    let analysis = analysed(&git);
-    assert_eq!(versions(&analysis)["v"].as_deref(), Some("0.2.0"));
-    assert_eq!(base(&analysis, "v"), "0.1.2");
+    assert_eq!(version(&git, "v").as_deref(), Some("0.2.0"));
     git.tag("v0.2.0", &git.head());
 
     // No change leads to 1.0.0; minimum-version takes the step, and from
@@ -194,10 +187,14 @@ fn one_unit_goes_through_several_single_stage_releases() {
     git.commit("fix!: a breaking correction");
     assert_eq!(release(&git, "v"), "2.0.0");
 
-    // A commit that carries its release is that release, also on a second
-    // run.
+    // A commit comes to the same version on a second run, and with all of
+    // the tags deleted.
     git.run(&["checkout", "--quiet", "--detach", &feature]);
     assert_eq!(version(&git, "v").as_deref(), Some("0.1.1"));
+    delete_tags(&git);
+    assert_eq!(version(&git, "v").as_deref(), Some("0.1.1"));
+    git.run(&["checkout", "--quiet", "main"]);
+    assert_eq!(version(&git, "v").as_deref(), Some("2.0.0"));
 }
 
 #[test]
@@ -225,30 +222,31 @@ fn a_two_stage_unit_goes_through_pre_releases_a_promotion_and_the_next_pre_relea
     assert_eq!(version(&git, "lib-v"), None);
     // The first commit and the change of the declaration touched it before.
     assert_eq!(version(&git, "app-v").as_deref(), Some("0.0.3"));
-    // Pending is the version of the newest commit that waits for the unit,
-    // and the version of the commit at hand where it touches the unit.
+    // The current version is the highest one the history gives a commit up
+    // to the commit at hand, a pre-release included, and the version of the
+    // commit at hand where it touches the unit.
     let analysis = analysed(&git);
-    assert_eq!(pending(&analysis, "lib-v").as_deref(), Some("1.0.0-pre.3"));
-    assert_eq!(pending(&analysis, "app-v").as_deref(), Some("0.0.3"));
+    assert_eq!(current(&analysis, "lib-v").as_deref(), Some("1.0.0-pre.3"));
+    assert_eq!(current(&analysis, "app-v").as_deref(), Some("0.0.3"));
 
     git.write(&[("lib/b.md", "# Lib\n\nNew.\n")]);
     git.commit("feat: something new in the library");
     assert_eq!(release(&git, "lib-v"), "1.0.0-pre.4");
 
-    // The promoted commit is the full release of the target.
-    let promoted = git.promote();
+    // The promoted commit is the full release of the target, as soon as the
+    // merge into release exists: no tag is needed for it.
+    delete_tags(&git);
+    git.promote();
     let analysis = analysed(&git);
     assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("1.0.0"));
-    assert_eq!(base(&analysis, "lib-v"), "0.0.0");
-    git.tag("lib-v1.0.0", &promoted);
-    let analysis = analysed(&git);
-    assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("1.0.0"));
-    assert_eq!(base(&analysis, "lib-v"), "1.0.0");
+    assert_eq!(current(&analysis, "lib-v").as_deref(), Some("1.0.0"));
 
-    // The next merge starts the next pre-release from it.
+    // The next merge starts the next pre-release from it, with no tag in the
+    // repository.
     git.write(&[("lib/b.md", "# Lib\n\nFixed again.\n")]);
     git.commit("fix: the next correction");
-    assert_eq!(release(&git, "lib-v"), "1.0.1-pre.1");
+    assert_eq!(version(&git, "lib-v").as_deref(), Some("1.0.1-pre.1"));
+    assert!(git.run(&["tag", "--list"]).is_empty());
 
     git.write(&[("lib/b.md", "# Lib\n\nAnother feature.\n")]);
     git.commit("feat: the next feature");
@@ -274,8 +272,10 @@ fn a_promoted_commit_releases_what_came_before_it_and_nothing_twice() {
     git.commit("docs: still beside the library");
     git.promote();
     assert_eq!(version(&git, "lib-v"), None);
-    // No commit waits for it, so nothing is pending.
-    assert_eq!(pending(&analysed(&git), "lib-v"), None);
+    // Its current version is the full release.
+    let analysis = analysed(&git);
+    assert_eq!(current(&analysis, "lib-v").as_deref(), Some("0.0.1"));
+    assert_eq!(analysis.versions[2].waiting, Some(0));
 }
 
 #[test]
@@ -347,18 +347,22 @@ fn the_declaration_touches_every_unit_and_a_merge_touches_none() {
     assert!(found(&analysis, Rule::UnconventionalCommit).is_empty());
 }
 
+/// The findings `conflicting-tag`, each with the tag it names.
+fn conflicting(analysis: &Analysis) -> Vec<String> {
+    found(analysis, Rule::ConflictingTag)
+}
+
 #[test]
-fn a_release_on_a_merged_side_branch_is_ignored() {
+fn a_release_tag_on_a_merged_side_branch_moves_nothing_and_conflicts() {
     let git = units();
     git.promote();
     git.tag("app-v0.0.1", &git.head());
     git.run(&["checkout", "--quiet", "-b", "side"]);
     git.write(&[("app/a.md", "# App\n\nOn the side.\n")]);
     let side = git.commit("feat: on a side branch");
-    // In one stage only a commit of the first-parent line is released.
+    // Only a commit of the first-parent line of main is released or given a
+    // pre-release, so nothing in the history gives these versions to it.
     git.tag("app-v3.0.0", &side);
-    // In either mode only a commit of that line is given a pre-release; in
-    // one stage it would otherwise stop the unit as one never promoted.
     git.tag("app-v0.0.9-pre.1", &side);
     git.tag("lib-v0.0.9-pre.1", &side);
     git.run(&["checkout", "--quiet", "main"]);
@@ -376,37 +380,41 @@ fn a_release_on_a_merged_side_branch_is_ignored() {
     git.write(&[("app/a.md", "# App\n\nAfter the merge.\n")]);
     git.commit("fix: after the merge");
     let analysis = analysed(&git);
-    let unexpected = found(&analysis, Rule::UnexpectedTag);
-    assert_eq!(unexpected.len(), 3, "{unexpected:#?}");
-    for (tag, unit, why) in [
+    let conflicting = conflicting(&analysis);
+    assert_eq!(conflicting.len(), 3, "{conflicting:#?}");
+    for (tag, unit, floor) in [
         (
             "app-v3.0.0",
             "component app",
-            "full release on a commit off",
+            "raise minimum-version above 3.0.0, as three numbers without a pre-release",
         ),
         (
             "app-v0.0.9-pre.1",
             "component app",
-            "pre-release on a commit off",
+            "raise minimum-version to 0.0.9 or higher",
         ),
         (
             "lib-v0.0.9-pre.1",
             "component lib",
-            "pre-release on a commit off",
+            "raise minimum-version above 0.0.9-pre.1",
         ),
     ] {
         assert!(
-            unexpected.iter().any(|finding| finding
-                .starts_with(&format!("warning[unexpected-tag] {unit}"))
-                && finding.contains(&format!("\"{tag}\""))
-                && finding.contains(why)),
-            "{tag}: {unexpected:#?}"
+            conflicting.iter().any(|finding| finding
+                .starts_with(&format!("error[conflicting-tag] {unit}: the tag \"{tag}\""))
+                && finding.contains(&side[..12])
+                && finding.contains("to no commit")
+                && finding.contains("Delete the tag if nobody published it")
+                && finding.contains(floor)),
+            "{tag}: {conflicting:#?}"
         );
     }
-    assert!(!analysis.failed(), "{:?}", analysis.findings());
-    assert_eq!(base(&analysis, "app-v"), "0.0.1");
-    // The commit after the merge is the one since the base that touched it.
+    assert!(analysis.failed());
+    // The commit after the merge is the one since the release that touched
+    // the app, and the tags move nothing.
     assert_eq!(versions(&analysis)["app-v"].as_deref(), Some("0.0.2"));
+    delete_tags(&git);
+    assert_eq!(version(&git, "app-v").as_deref(), Some("0.0.2"));
 }
 
 /// The declaration of [`units`] with `lib` released in one stage.
@@ -415,7 +423,7 @@ fn single_stage() -> String {
 }
 
 #[test]
-fn a_full_release_counts_in_two_stages_only_where_it_was_released() {
+fn a_switch_to_two_stages_goes_on_from_the_releases_of_one_stage() {
     let git = units_declared(&single_stage());
     assert_eq!(release(&git, "lib-v"), "0.0.1");
     git.write(&[("lib/b.md", "# Lib\n\nBefore the switch.\n")]);
@@ -426,122 +434,279 @@ fn a_full_release_counts_in_two_stages_only_where_it_was_released() {
     git.commit("feat: release the library in two stages");
     assert_eq!(release(&git, "lib-v"), "0.0.3-pre.1");
     // A full release pushed by hand on a commit where the library was
-    // already released in two stages, before anything was promoted.
+    // already released in two stages, before anything was promoted: the
+    // history gives it 0.0.3-pre.2, so it is a conflicting record.
     git.write(&[("lib/b.md", "# Lib\n\nThe first cycle.\n")]);
     let early = git.commit("fix: the first cycle");
-    assert_eq!(release(&git, "lib-v"), "0.0.3-pre.2");
     git.tag("lib-v5.0.0", &early);
     let analysis = analysed(&git);
-    assert_eq!(base(&analysis, "lib-v"), "0.0.2");
+    assert_eq!(conflicting(&analysis).len(), 1, "{:?}", analysis.findings());
+    assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.3-pre.2"));
+    // The way out: nobody published it, so it is deleted.
+    git.run(&["tag", "--delete", "lib-v5.0.0"]);
+    assert_eq!(release(&git, "lib-v"), "0.0.3-pre.2");
     git.write(&[("lib/b.md", "# Lib\n\nStill the first cycle.\n")]);
     git.commit("fix: still the first cycle");
     assert_eq!(release(&git, "lib-v"), "0.0.3-pre.3");
     git.promote();
     assert_eq!(release(&git, "lib-v"), "0.0.3");
 
-    // And one on a commit of main after the first promotion, never promoted
-    // itself.
     git.write(&[("lib/b.md", "# Lib\n\nThe second cycle.\n")]);
-    let stray = git.commit("fix: the second cycle");
-    git.tag("lib-v6.0.0", &stray);
+    git.commit("fix: the second cycle");
+    assert_eq!(release(&git, "lib-v"), "0.0.4-pre.1");
     git.write(&[("lib/b.md", "# Lib\n\nStill the second cycle.\n")]);
     git.commit("fix: still the second cycle");
-    // The promotion makes origin/release contain both; that does not make
-    // them releases.
+    assert_eq!(release(&git, "lib-v"), "0.0.4-pre.2");
     git.promote();
-
     let analysis = analysed(&git);
-    let unexpected = found(&analysis, Rule::UnexpectedTag);
-    assert_eq!(unexpected.len(), 2, "{unexpected:#?}");
-    for tag in ["lib-v5.0.0", "lib-v6.0.0"] {
-        assert!(
-            unexpected.iter().any(|finding| finding
-                .starts_with("warning[unexpected-tag] component lib")
-                && finding.contains(&format!("\"{tag}\""))
-                && finding.contains("never promoted")),
-            "{tag}: {unexpected:#?}"
-        );
-    }
-    // The releases from before the switch and the promoted one still count.
-    assert_eq!(base(&analysis, "lib-v"), "0.0.3");
+    assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
     assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.4"));
+    // The same with every record deleted.
+    delete_tags(&git);
+    assert_eq!(version(&git, "lib-v").as_deref(), Some("0.0.4"));
 }
 
 #[test]
-fn a_pre_release_on_a_commit_released_in_one_stage_is_ignored() {
+fn a_tag_is_held_against_the_version_at_the_commit_at_hand() {
     let git = units_declared(&single_stage());
+    // A tag on exactly the commit the history gives its version to is a
+    // faithful record.
     assert_eq!(release(&git, "lib-v"), "0.0.1");
     let first = git.head();
     git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
-    git.commit("fix: lib one");
-    assert_eq!(release(&git, "lib-v"), "0.0.2");
-    // Pushed by hand onto a commit where the library was released in one
-    // stage, which gives out no pre-release.
-    git.tag("lib-v0.0.9-pre.1", &first);
-    git.write(&[("lib/b.md", "# Lib\n\nTwo.\n")]);
-    git.commit("fix: lib two");
-
-    let analysis = analysed(&git);
-    let unexpected = found(&analysis, Rule::UnexpectedTag);
-    assert_eq!(unexpected.len(), 1, "{:?}", analysis.findings());
-    assert!(
-        unexpected[0].contains("\"lib-v0.0.9-pre.1\"")
-            && unexpected[0].contains("released in one stage"),
-        "{unexpected:?}"
-    );
-    // It does not stop the unit as a pre-release that never became a full
-    // release would.
-    assert!(found(&analysis, Rule::UnreleasedBeforeSwitch).is_empty());
-    assert!(!analysis.failed());
-    assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.3"));
-
-    // Released in two stages from then on, it still does not count: the
-    // library was released in one stage at its commit.
-    git.write(&[(".nebensound/repo.toml", UNITS)]);
-    git.commit("feat: release lib in two stages");
-    let analysis = analysed(&git);
-    assert_eq!(found(&analysis, Rule::UnexpectedTag).len(), 1);
-    assert_eq!(base(&analysis, "lib-v"), "0.0.2");
-}
-
-#[test]
-fn a_full_release_on_a_released_commit_counts_whatever_its_number() {
-    // Whether the pipeline set it is the release check's to tell.
-    let git = units_declared(&single_stage());
-    assert_eq!(release(&git, "lib-v"), "0.0.1");
+    let one = git.commit("fix: lib one");
+    assert_eq!(version(&git, "lib-v").as_deref(), Some("0.0.2"));
     git.write(&[("app/a.md", "# App\n\nOne.\n")]);
     let untouched = git.commit("fix: app only");
-    git.tag("lib-v4.0.0", &untouched);
-    git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
-    git.commit("fix: lib one");
 
+    // One below the unit's current version on another commit stays
+    // unnoticed: the tags of a repository from before it called the pipeline
+    // do no harm below its minimum-version.
+    git.tag("lib-v0.0.1-pre.1", &first);
+    git.tag("lib-v0.0.2-pre.1", &untouched);
     let analysis = analysed(&git);
-    assert!(found(&analysis, Rule::UnexpectedTag).is_empty());
-    assert_eq!(base(&analysis, "lib-v"), "4.0.0");
-    assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("4.0.1"));
+    assert!(!analysis.failed(), "{:?}", analysis.findings());
+    assert_eq!(current(&analysis, "lib-v").as_deref(), Some("0.0.2"));
+
+    // A tag with a higher number on a commit of the line, and one with the
+    // current version on another commit than its own, move no version: they
+    // are the error, and phase 0 stops.
+    git.tag("lib-v4.0.0", &untouched);
+    git.tag("lib-v0.0.2", &first);
+    let analysis = analysed(&git);
+    let conflicting = conflicting(&analysis);
+    assert_eq!(conflicting.len(), 2, "{conflicting:#?}");
+    assert!(
+        conflicting
+            .iter()
+            .any(|finding| finding.contains("\"lib-v4.0.0\"")
+                && finding.contains(&untouched[..12])
+                && finding.contains("to no commit")
+                && finding.contains("current version (0.0.2)")
+                && finding.contains("raise minimum-version above 4.0.0")),
+        "{conflicting:#?}"
+    );
+    assert!(
+        conflicting
+            .iter()
+            .any(|finding| finding.contains("\"lib-v0.0.2\"")
+                && finding.contains(&first[..12])
+                && finding.contains(&format!("to the commit {}", &one[..12]))),
+        "{conflicting:#?}"
+    );
+    assert!(analysis.failed());
+    assert_eq!(versions(&analysis)["lib-v"], None);
+    assert_eq!(current(&analysis, "lib-v").as_deref(), Some("0.0.2"));
+    let (text, code) = call(&["nebensound-repo", "-C", git.root(), "plan"]);
+    assert_eq!(code, 1, "{text}");
+
+    // Measured against the version of the commit at hand where it touches
+    // the unit: the next commit of the library is 0.0.3, past the tag of the
+    // current version, and still below the higher one.
+    git.run(&["tag", "--delete", "lib-v4.0.0"]);
+    git.write(&[("lib/b.md", "# Lib\n\nTwo.\n")]);
+    git.commit("fix: lib two");
+    let analysis = analysed(&git);
+    assert!(!analysis.failed(), "{:?}", analysis.findings());
+    assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.3"));
+    git.tag("lib-v0.0.3", &one);
+    assert_eq!(found(&analysed(&git), Rule::ConflictingTag).len(), 1);
+
+    // The other way out: a minimum-version above the tag.
+    git.tag("lib-v4.0.0", &untouched);
+    git.write(&[(
+        ".nebensound/repo.toml",
+        &single_stage().replace(
+            "path     = \"lib\"\n",
+            "path     = \"lib\"\nminimum-version = \"5.0.0\"\n",
+        ),
+    )]);
+    git.commit("chore: lift the library above its old tags");
+    let analysis = analysed(&git);
+    assert!(!analysis.failed(), "{:?}", analysis.findings());
+    assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("5.0.0"));
 }
 
 #[test]
-fn a_commit_whose_declaration_does_not_read_takes_what_the_commit_at_hand_says() {
+fn the_floor_a_conflicting_tag_names_lifts_past_it_in_either_mode() {
+    // One stage gives out no pre-release: past a pre-release tag the finding
+    // names its three numbers, and a pre-release value above it would be the
+    // error pre-release-minimum.
+    let git = units_declared(&single_stage());
+    let first = git.head();
+    git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
+    git.commit("fix: lib one");
+    git.tag("lib-v0.0.5-pre.1", &first);
+    let analysis = analysed(&git);
+    let named = conflicting(&analysis);
+    assert!(
+        named.len() == 1 && named[0].ends_with("raise minimum-version to 0.0.5 or higher"),
+        "{named:#?}"
+    );
+    let floored = |floor: &str| {
+        single_stage().replace(
+            "path     = \"lib\"\n",
+            &format!("path     = \"lib\"\nminimum-version = \"{floor}\"\n"),
+        )
+    };
+    git.write(&[(".nebensound/repo.toml", &floored("0.0.5"))]);
+    git.commit("chore: lift the library past its old pre-release");
+    assert_eq!(version(&git, "lib-v").as_deref(), Some("0.0.5"));
+
+    // Past a full tag it takes three numbers above it.
+    git.tag("lib-v0.0.7", &first);
+    let analysis = analysed(&git);
+    let named = conflicting(&analysis);
+    assert!(
+        named.len() == 1
+            && named[0].ends_with(
+                "raise minimum-version above 0.0.7, as three numbers without a pre-release, \
+                 since this unit is released in one stage, which gives out none"
+            ),
+        "{named:#?}"
+    );
+    git.write(&[(".nebensound/repo.toml", &floored("0.0.8"))]);
+    git.commit("chore: lift the library past its old release");
+    assert_eq!(version(&git, "lib-v").as_deref(), Some("0.0.8"));
+
+    // In two stages any value above the tag does, a pre-release included.
+    let git = units();
+    let first = git.head();
+    git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
+    git.commit("fix: lib one");
+    git.tag("lib-v0.0.1-pre.4", &first);
+    let analysis = analysed(&git);
+    let named = conflicting(&analysis);
+    assert!(
+        named.len() == 1 && named[0].ends_with("raise minimum-version above 0.0.1-pre.4"),
+        "{named:#?}"
+    );
+    git.write(&[(".nebensound/repo.toml", &lib_floored("0.0.1-pre.5"))]);
+    git.commit("chore: lift the library past its old pre-release");
+    assert_eq!(version(&git, "lib-v").as_deref(), Some("0.0.1-pre.5"));
+}
+
+#[test]
+fn a_commit_whose_declaration_does_not_read_takes_what_the_next_readable_one_says() {
     // The first commits hold a declaration this reader cannot read, as one
     // written for another reader would be: a field it does not know.
     let git = units_declared(&single_stage().replace("[repo]\n", "[repo]\nlegacy-field = true\n"));
-    git.tag("lib-v0.0.1", &git.head());
     git.write(&[("app/a.md", "# App\n\nOne.\n")]);
     git.commit("fix: app only");
     git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
     git.commit("fix: lib one");
-    git.write(&[(".nebensound/repo.toml", &single_stage())]);
-    git.commit("chore: drop the field");
 
-    // Measured against the path of the commit at hand, `fix: lib one`
-    // touches the library and `fix: app only` does not; in the mode of the
-    // commit at hand, one stage, the tag on the first commit counts.
+    // No readable declaration follows them yet, so the one at hand stands in:
+    // here the checkout's, not yet committed. Measured against its path,
+    // `fix: lib one` touches the library and `fix: app only` does not.
+    git.write(&[(".nebensound/repo.toml", &single_stage())]);
     let analysis = analysed(&git);
-    assert!(found(&analysis, Rule::UnexpectedTag).is_empty());
-    assert_eq!(base(&analysis, "lib-v"), "0.0.1");
+    assert!(!analysis.failed(), "{:?}", analysis.findings());
+    assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.2"));
+    assert_eq!(current(&analysis, "app-v").as_deref(), Some("0.0.2"));
+
+    git.commit("chore: drop the field");
+    let analysis = analysed(&git);
+    assert!(!analysis.failed(), "{:?}", analysis.findings());
     assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.3"));
     assert_eq!(versions(&analysis)["app-v"].as_deref(), Some("0.0.3"));
+
+    // From now on those commits count with the path the readable declaration
+    // after them gives, `lib`: the move does not count them again at `libs`,
+    // where `fix: lib one` would not touch the library, and the library goes
+    // on from 0.0.3 instead of giving it out again.
+    git.run(&["mv", "lib", "libs"]);
+    git.write(&[(
+        ".nebensound/repo.toml",
+        &single_stage().replace("path     = \"lib\"\n", "path     = \"libs\"\n"),
+    )]);
+    git.commit("refactor: move the library");
+    assert_eq!(version(&git, "lib-v").as_deref(), Some("0.0.4"));
+}
+
+#[test]
+fn edition_1_resolves_like_a_declaration_without_one() {
+    // The same history twice, once with `edition = 1` in every declaration.
+    let resolved = |declaration: &str| {
+        let git = units_declared(declaration);
+        git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
+        git.commit("feat: lib one");
+        git.promote();
+        git.write(&[("app/a.md", "# App\n\nOne.\n")]);
+        git.commit("fix!: app one");
+        let analysis = analysed(&git);
+        assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
+        analysis.versions
+    };
+    let without = resolved(UNITS);
+    assert_eq!(resolved(&format!("edition = 1\n\n{UNITS}")), without);
+    assert_eq!(
+        without
+            .iter()
+            .map(|unit| unit.version.map(|version| version.to_string()))
+            .collect::<Vec<_>>(),
+        [Some("0.0.3".to_owned()), Some("0.0.2".to_owned()), None]
+    );
+}
+
+#[test]
+fn an_edition_this_tool_does_not_know_stops_wherever_it_stands_on_the_line() {
+    let refused = |git: &Git| {
+        Repository::at(git.path())
+            .analyse(&central())
+            .expect_err("a newer pipeline is needed")
+            .to_string()
+    };
+    let newer = "it is written for edition 2, and this tool knows edition 1 only: a newer \
+                 pipeline is needed to read it";
+    let git = units();
+    git.write(&[(".nebensound/repo.toml", &format!("edition = 2\n\n{UNITS}"))]);
+    let switched = git.commit("feat: switch to edition 2");
+    assert_eq!(refused(&git), format!(".nebensound/repo.toml: {newer}"));
+
+    // The edition says how its commit is read, so it stops phase 0 also
+    // behind the commit at hand, named at the commit that switched it on.
+    git.write(&[(".nebensound/repo.toml", UNITS)]);
+    git.commit("revert: back to edition 1");
+    let message = format!(
+        ".nebensound/repo.toml at commit {}: {newer}",
+        &switched[..12]
+    );
+    assert_eq!(refused(&git), message);
+    let (text, code) = call(&["nebensound-repo", "-C", git.root(), "plan"]);
+    assert_ne!(code, 0, "{text}");
+    assert!(text.contains(&message), "{text}");
+
+    // Any other mistake in an earlier declaration makes it one that does not
+    // read, which counts with what the next readable declaration says.
+    let git = units();
+    git.write(&[(".nebensound/repo.toml", &format!("edition = 0\n\n{UNITS}"))]);
+    git.commit("fix: an edition that does not exist");
+    git.write(&[(".nebensound/repo.toml", UNITS)]);
+    git.commit("fix: no edition");
+    let analysis = analysed(&git);
+    assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
+    assert_eq!(versions(&analysis)["v"].as_deref(), Some("0.0.3"));
 }
 
 #[test]
@@ -570,7 +735,6 @@ fn a_switch_to_one_stage_and_back_keeps_the_releases_of_each_period() {
     git.commit("feat: release lib in two stages again");
     let analysis = analysed(&git);
     assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
-    assert_eq!(base(&analysis, "lib-v"), "0.0.3");
     assert_eq!(release(&git, "lib-v"), "0.0.4-pre.1");
     git.promote();
     assert_eq!(release(&git, "lib-v"), "0.0.4");
@@ -580,8 +744,9 @@ fn a_switch_to_one_stage_and_back_keeps_the_releases_of_each_period() {
     git.commit("feat: release lib in one stage again");
     let analysis = analysed(&git);
     assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
-    assert_eq!(base(&analysis, "lib-v"), "0.0.4");
     assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.5"));
+    delete_tags(&git);
+    assert_eq!(version(&git, "lib-v").as_deref(), Some("0.0.5"));
 }
 
 #[test]
@@ -629,21 +794,21 @@ fn the_merges_of_main_below_the_start_of_release_promoted_nothing() {
     git.write(&[("lib/b.md", "# Lib\n\nThree.\n")]);
     git.commit("fix: three");
     git.promote();
-    // A full release pushed by hand on the tip of the side branch.
+    // A full release pushed by hand on the tip of the side branch: the
+    // history gives that commit nothing, so it is no release.
     git.tag("lib-v7.0.0", &side);
 
     let analysis = analysed(&git);
-    let unexpected = found(&analysis, Rule::UnexpectedTag);
-    assert_eq!(unexpected.len(), 1, "{unexpected:?}");
+    let conflicting = conflicting(&analysis);
+    assert_eq!(conflicting.len(), 1, "{conflicting:?}");
     assert!(
-        unexpected[0].starts_with("warning[unexpected-tag] component lib")
-            && unexpected[0].contains("\"lib-v7.0.0\"")
-            && unexpected[0].contains("never promoted"),
-        "{unexpected:?}"
+        conflicting[0].starts_with("error[conflicting-tag] component lib")
+            && conflicting[0].contains("\"lib-v7.0.0\"")
+            && conflicting[0].contains("to no commit"),
+        "{conflicting:?}"
     );
     // The releases from before the switch count, and the promoted commit
-    // goes on from the newest of them.
-    assert_eq!(base(&analysis, "lib-v"), "0.0.3");
+    // goes on from the newest of them, not from the side branch.
     assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.4"));
 }
 
@@ -669,23 +834,23 @@ fn the_pull_request_into_release_reads_the_line_of_main() {
     assert_eq!(release(&git, "lib-v"), "0.0.2-pre.1");
 
     // Its first parent is release, whose first-parent line holds the merges
-    // of release; the commits of main and their tags are those the merge
-    // brings in.
+    // of release; the commits of main are those the merge brings in.
     git.merge_into_release();
     let analysis = analysed(&git);
     assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
-    assert_eq!(base(&analysis, "v"), "0.0.4");
-    assert_eq!(base(&analysis, "app-v"), "0.0.2");
-    assert_eq!(base(&analysis, "lib-v"), "0.0.1");
+    assert_eq!(current(&analysis, "v").as_deref(), Some("0.0.4"));
+    assert_eq!(current(&analysis, "app-v").as_deref(), Some("0.0.2"));
+    assert_eq!(current(&analysis, "lib-v").as_deref(), Some("0.0.2-pre.1"));
     // A merge touches nothing and is no promoted commit of main.
     assert!(versions(&analysis).values().all(Option::is_none));
 
-    // Once it is merged and origin/release points at it, the same holds for
-    // the merge itself.
+    // Once it is merged and origin/release points at it, the commit it
+    // promotes is the full release, with no tag set yet.
     git.run(&["update-ref", "refs/remotes/origin/release", "HEAD"]);
     let analysis = analysed(&git);
     assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
-    assert_eq!(base(&analysis, "lib-v"), "0.0.1");
+    assert_eq!(current(&analysis, "lib-v").as_deref(), Some("0.0.2"));
+    assert!(versions(&analysis).values().all(Option::is_none));
 }
 
 #[test]
@@ -705,12 +870,12 @@ fn the_pull_request_into_release_keeps_a_switch_to_one_stage() {
     git.commit("feat: release app in one stage");
     assert_eq!(release(&git, "app-v"), "0.0.2");
 
-    // On release's own line the only tag of app is the pre-release on the
-    // first commit; on the line of main it was promoted and released since.
+    // On release's own line app was released in two stages last; on the
+    // line of main it was promoted and released in one stage since.
     git.merge_into_release();
     let analysis = analysed(&git);
     assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
-    assert_eq!(base(&analysis, "app-v"), "0.0.2");
+    assert_eq!(current(&analysis, "app-v").as_deref(), Some("0.0.2"));
 }
 
 #[test]
@@ -722,8 +887,7 @@ fn a_pull_request_into_main_onto_the_start_of_release_reads_its_own_line() {
     git.run(&["update-ref", "refs/remotes/origin/main", "main"]);
     git.run(&["checkout", "--quiet", "-b", "feature"]);
     git.write(&[("app/a.md", "# App\n\nA feature.\n")]);
-    let feature = git.commit("feat: a feature");
-    git.tag("app-v9.0.0", &feature);
+    git.commit("feat: a feature");
     git.run(&["checkout", "--quiet", "--detach", "main"]);
     git.run(&[
         "merge",
@@ -734,15 +898,12 @@ fn a_pull_request_into_main_onto_the_start_of_release_reads_its_own_line() {
         "feature",
     ]);
 
+    // Read as a merge into release, the feature would be a commit of the
+    // line and give the app a version.
     let analysis = analysed(&git);
-    let unexpected = found(&analysis, Rule::UnexpectedTag);
-    assert_eq!(unexpected.len(), 1, "{unexpected:?}");
-    assert!(
-        unexpected[0].contains("\"app-v9.0.0\"")
-            && unexpected[0].contains("off the first-parent line of main"),
-        "{unexpected:?}"
-    );
-    assert_eq!(base(&analysis, "app-v"), "0.0.0");
+    assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
+    assert_eq!(current(&analysis, "app-v").as_deref(), Some("0.0.1"));
+    assert_eq!(versions(&analysis)["app-v"], None);
 }
 
 #[test]
@@ -798,24 +959,25 @@ fn a_merge_into_release_of_an_older_commit_of_main_is_refused() {
     git.run(&["checkout", "--quiet", "--detach", &older]);
     assert_eq!(version(&git, "lib-v").as_deref(), Some("0.0.2"));
 
-    // The merge does not count as a promotion: the commits of main go on
-    // from the release before, and give no number out again.
+    // Read later, for the same reason, the merge is taken for a promotion
+    // like any other, and with no tag read the base moves with it: the
+    // commits of main go on from the older commit's full release. Here that
+    // gives no number out again; that it cannot in any history is the case
+    // left open in #81.
     git.run(&["branch", "--force", "release", &merge]);
     git.run(&["checkout", "--quiet", "main"]);
     git.write(&[("lib/b.md", "# Lib\n\nThree.\n")]);
     git.commit("fix: lib three");
-    let analysis = analysed(&git);
-    assert_eq!(base(&analysis, "lib-v"), "0.0.1");
-    step(&git, "0.0.2-pre.3");
+    step(&git, "0.0.3-pre.2");
     // The tip is promoted as ever.
     git.merge_into_release();
     assert!(analysed(&git).findings().is_empty());
     git.run(&["checkout", "--quiet", "main"]);
     git.promote();
-    step(&git, "0.0.2");
+    step(&git, "0.0.3");
     git.write(&[("lib/b.md", "# Lib\n\nFour.\n")]);
     git.commit("fix: lib four");
-    step(&git, "0.0.3-pre.1");
+    step(&git, "0.0.4-pre.1");
 }
 
 #[test]
@@ -972,9 +1134,10 @@ fn generated_units_follow_the_children_each_commit_held() {
     git.write(&[("docs/handbook/c.md", "# Handbook\n")]);
     git.commit("feat: add a handbook");
     assert_eq!(version(&git, "docs-guide-v"), None);
-    // The first commit counts as well: it wrote the declaration, which
-    // touches every unit.
-    assert_eq!(release(&git, "docs-handbook-v"), "0.0.2");
+    // Its count starts here: before this commit no declaration named it,
+    // although the first one wrote the declaration, which touches every
+    // unit.
+    assert_eq!(release(&git, "docs-handbook-v"), "0.0.1");
 
     git.remove("docs/guide/b.md");
     git.commit("fix: drop the guide's second page");
@@ -984,8 +1147,7 @@ fn generated_units_follow_the_children_each_commit_held() {
     git.remove("docs/guide/a.md");
     git.commit("fix: drop the guide");
     let analysis = analysed(&git);
-    assert!(!analysis.failed(), "{:?}", analysis.findings());
-    assert!(found(&analysis, Rule::UnexpectedTag).is_empty());
+    assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
     assert_eq!(
         versions(&analysis),
         BTreeMap::from([
@@ -1001,7 +1163,10 @@ fn generated_units_follow_the_children_each_commit_held() {
         &format!("{declared}minimum-version = \"0.2.0\"\n"),
     )]);
     git.commit("feat: lift the docs");
-    assert_eq!(base(&analysed(&git), "docs-handbook-v"), "0.0.2");
+    assert_eq!(
+        current(&analysed(&git), "docs-handbook-v").as_deref(),
+        Some("0.2.0")
+    );
     assert_eq!(release(&git, "docs-handbook-v"), "0.2.0");
 }
 
@@ -1082,7 +1247,6 @@ fn a_generated_unit_carries_its_parents_name_in_its_prefix() {
     git.write(&[("docs/guide.md", "# Guide\n\nMore.\n")]);
     git.commit("fix: only the guide");
     let analysis = analysed(&git);
-    assert_eq!(base(&analysis, "docs-guide-v"), "0.0.1");
     assert_eq!(
         versions(&analysis)["docs-guide-v"].as_deref(),
         Some("0.0.2")
@@ -1096,21 +1260,21 @@ fn a_generated_unit_carries_its_parents_name_in_its_prefix() {
         plan["versions"],
         serde_json::json!([
             {"kind": "repository", "name": null, "path": ".", "prefix": "v",
-             "release": "single-stage", "base": "0.0.0", "last": null, "version": "0.0.2",
-             "pending": "0.0.2", "writers": []},
+             "release": "single-stage", "current": "0.0.2", "version": "0.0.2",
+             "writers": []},
             {"kind": "component", "name": "guide", "path": "docs/guide.md",
-             "prefix": "docs-guide-v", "release": "single-stage", "base": "0.0.1",
-             "last": "0.0.1", "version": "0.0.2", "pending": "0.0.2", "writers": []},
-            // Not touched and never released: the first commit waits for it.
+             "prefix": "docs-guide-v", "release": "single-stage", "current": "0.0.2",
+             "version": "0.0.2", "writers": []},
+            // Not touched: its current version is what the first commit gave it.
             {"kind": "component", "name": "handbook", "path": "docs/handbook.md",
-             "prefix": "docs-handbook-v", "release": "single-stage", "base": "0.0.0",
-             "last": null, "version": null, "pending": "0.0.1", "writers": []}
+             "prefix": "docs-handbook-v", "release": "single-stage", "current": "0.0.1",
+             "version": null, "writers": []}
         ])
     );
 }
 
 #[test]
-fn a_hand_pushed_tag_is_ignored_with_a_warning() {
+fn only_a_tag_that_reads_as_a_release_on_a_commit_of_this_history_is_held() {
     let git = Git::new();
     git.write(&[
         (".nebensound/repo.toml", &format!("{UNITS}\n[component.tool]\npath = \"tool\"\npipeline = \"none\"\nversioning = \"none\"\n")),
@@ -1131,7 +1295,7 @@ fn a_hand_pushed_tag_is_ignored_with_a_warning() {
     git.write(&[("README.md", "# Units\n\nEven more.\n")]);
     let more = git.commit("docs: even more");
 
-    // An annotated tag counts as well as a lightweight one.
+    // An annotated tag is a faithful record as well as a lightweight one.
     git.run(&[
         "tag",
         "--annotate",
@@ -1143,7 +1307,7 @@ fn a_hand_pushed_tag_is_ignored_with_a_warning() {
     // A full release of a two-stage unit on a commit that was never promoted,
     // after the first promotion.
     git.tag("lib-v5.0.0", &more);
-    // Not a version the pipeline makes.
+    // Not a version the pipeline makes, so the release of no unit.
     git.tag("v1.0", &first);
     git.tag("app-v1.0.0-rc.1", &first);
     // Not on a commit at all.
@@ -1156,27 +1320,59 @@ fn a_hand_pushed_tag_is_ignored_with_a_warning() {
     git.tag("nightly", &first);
 
     let analysis = analysed(&git);
-    let unexpected = found(&analysis, Rule::UnexpectedTag);
-    assert_eq!(unexpected.len(), 4, "{unexpected:#?}");
-    for (tag, unit) in [
-        ("lib-v5.0.0", "component lib"),
-        ("v1.0", "the repository"),
-        ("app-v1.0.0-rc.1", "component app"),
-        ("v2.0.0", "the repository"),
-    ] {
-        assert!(
-            unexpected
-                .iter()
-                .any(|finding| finding.contains(&format!("\"{tag}\""))
-                    && finding.contains(unit)
-                    && finding.starts_with("warning[unexpected-tag]")),
-            "{tag}: {unexpected:#?}"
-        );
-    }
-    assert!(!analysis.failed(), "{:?}", analysis.findings());
-    assert_eq!(base(&analysis, "v"), "0.0.1");
-    assert_eq!(base(&analysis, "lib-v"), "0.0.0");
+    let conflicting = conflicting(&analysis);
+    assert_eq!(conflicting.len(), 1, "{:?}", analysis.findings());
+    assert!(
+        conflicting[0].starts_with("error[conflicting-tag] component lib: the tag \"lib-v5.0.0\"")
+            && conflicting[0].contains(&more[..12])
+            && conflicting[0].contains("current version (0.0.1)"),
+        "{conflicting:?}"
+    );
+    assert_eq!(analysis.findings().len(), 1, "{:?}", analysis.findings());
     assert_eq!(versions(&analysis)["v"].as_deref(), Some("0.0.3"));
+    assert_eq!(current(&analysis, "lib-v").as_deref(), Some("0.0.1"));
+}
+
+#[test]
+fn a_unit_no_commit_has_given_a_version_yet_has_none_and_every_tag_conflicts() {
+    // The declaration of `tool` comes in through a merge commit, which
+    // touches nothing, and its own commit lies off the line of main.
+    let git = units();
+    git.run(&["checkout", "--quiet", "-b", "side"]);
+    git.write(&[
+        (
+            ".nebensound/repo.toml",
+            &format!("{UNITS}\n[component.tool]\npath     = \"tool\"\npipeline = \"none\"\n"),
+        ),
+        ("tool/t.md", "# Tool\n"),
+    ]);
+    let side = git.commit("feat: add the tool");
+    git.run(&["checkout", "--quiet", "main"]);
+    git.run(&[
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "--message",
+        "Merge the tool",
+        "side",
+    ]);
+    let analysis = analysed(&git);
+    assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
+    assert_eq!(versions(&analysis)["tool-v"], None);
+    assert_eq!(current(&analysis, "tool-v"), None);
+
+    // So any tag that reads as one of its releases could meet a release.
+    git.tag("tool-v0.0.1", &side);
+    let analysis = analysed(&git);
+    let conflicting = conflicting(&analysis);
+    assert_eq!(conflicting.len(), 1, "{:?}", analysis.findings());
+    assert!(
+        conflicting[0]
+            .starts_with("error[conflicting-tag] component tool: the tag \"tool-v0.0.1\"")
+            && conflicting[0].contains("to no commit")
+            && conflicting[0].contains("current version (none yet)"),
+        "{conflicting:?}"
+    );
 }
 
 #[test]
@@ -1198,25 +1394,15 @@ fn the_tags_of_a_removed_unit_are_passed_over() {
     git.remove("viewer/a.md");
     git.commit("refactor: drop the viewer");
     // Its tags start with the repository's prefix `v` and still name the
-    // releases of the unit it was, in full and before.
+    // releases of the unit it was, in full and before: they are no release
+    // of the repository, and neither is a tag that reads as no version.
+    git.tag("viewer-v9.0.0", &first);
     git.tag("viewer-v0.0.2-pre.1", &first);
-    // Not the release of any unit, so still the repository's.
     git.tag("v1.0", &first);
     git.tag("viewer-v1", &first);
 
     let analysis = analysed(&git);
-    let unexpected = found(&analysis, Rule::UnexpectedTag);
-    assert_eq!(unexpected.len(), 2, "{unexpected:#?}");
-    for tag in ["v1.0", "viewer-v1"] {
-        assert!(
-            unexpected
-                .iter()
-                .any(|finding| finding.contains(&format!("\"{tag}\""))
-                    && finding.contains("the repository")),
-            "{tag}: {unexpected:#?}"
-        );
-    }
-    assert_eq!(base(&analysis, "v"), "0.0.1");
+    assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
     assert_eq!(versions(&analysis)["v"].as_deref(), Some("0.0.2"));
 }
 
@@ -1292,8 +1478,63 @@ fn a_two_stage_unit_without_the_branch_release_is_an_error() {
         "{missing:?}"
     );
     assert_eq!(versions(&analysis)["lib-v"], None);
+    assert_eq!(current(&analysis, "lib-v"), None);
     assert_eq!(versions(&analysis)["app-v"].as_deref(), Some("0.0.1"));
-    assert!(found(&analysis, Rule::UnexpectedTag).is_empty());
+    // Nothing is told of the unit, so nothing is held against its tags.
+    assert!(conflicting(&analysis).is_empty());
+
+    // Released in one stage from now on, it still was in two stages at a
+    // commit that counts for it: a deleted branch must not move a version.
+    git.write(&[(".nebensound/repo.toml", &single_stage())]);
+    git.commit("chore: release the library in one stage");
+    let analysis = analysed(&git);
+    let missing = found(&analysis, Rule::MissingReleaseBranch);
+    assert_eq!(missing.len(), 1, "{:?}", analysis.findings());
+    assert!(
+        missing[0].starts_with("error[missing-release-branch] component lib")
+            && missing[0].contains("is or was released in two stages"),
+        "{missing:?}"
+    );
+    assert_eq!(versions(&analysis)["lib-v"], None);
+    assert_eq!(versions(&analysis)["app-v"].as_deref(), Some("0.0.2"));
+}
+
+#[test]
+fn a_deleted_branch_release_is_restored_where_it_pointed() {
+    let git = units();
+    git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
+    git.commit("fix: lib one");
+    git.promote();
+    git.write(&[("lib/b.md", "# Lib\n\nTwo.\n")]);
+    git.commit("fix: lib two");
+    let before = analysed(&git);
+    assert!(before.findings().is_empty(), "{:?}", before.findings());
+    assert_eq!(versions(&before)["lib-v"].as_deref(), Some("0.0.2-pre.1"));
+    assert_eq!(current(&before, "lib-v").as_deref(), Some("0.0.2-pre.1"));
+
+    let pointed = git.run(&["rev-parse", "release"]).trim().to_owned();
+    git.run(&["branch", "--delete", "--force", "release"]);
+    git.run(&["update-ref", "-d", "refs/remotes/origin/release"]);
+    let analysis = analysed(&git);
+    let missing = found(&analysis, Rule::MissingReleaseBranch);
+    assert_eq!(missing.len(), 1, "{:?}", analysis.findings());
+    // A branch created anew at the tip of main would hold none of the old
+    // promotions and move the versions after them, so the way out restores
+    // a deleted branch where it pointed.
+    assert!(
+        missing[0].contains("Restore a deleted branch at the commit it pointed at")
+            && missing[0].contains("create it where it never existed"),
+        "{missing:?}"
+    );
+    assert_eq!(versions(&analysis)["lib-v"], None);
+
+    // As the message says: restored and fetched, nothing has moved.
+    git.run(&["branch", "release", &pointed]);
+    git.run(&["update-ref", "refs/remotes/origin/release", "release"]);
+    let after = analysed(&git);
+    assert!(after.findings().is_empty(), "{:?}", after.findings());
+    assert_eq!(versions(&after), versions(&before));
+    assert_eq!(current(&after, "lib-v").as_deref(), Some("0.0.2-pre.1"));
 }
 
 #[test]
@@ -1308,13 +1549,21 @@ fn switching_to_one_stage_before_promoting_is_an_error() {
     let switch = found(&analysis, Rule::UnreleasedBeforeSwitch);
     assert_eq!(switch.len(), 1, "{:?}", analysis.findings());
     assert!(
-        switch[0].contains("lib-v0.0.1-pre.1") && switch[0].contains("revert the switch"),
+        switch[0].starts_with("error[unreleased-before-switch] component lib")
+            && switch[0].contains("up to lib-v0.0.1-pre.1,")
+            && switch[0].contains("revert the switch"),
         "{switch:?}"
     );
     assert_eq!(versions(&analysis)["lib-v"], None);
     // Nothing is released in two stages any more, and the branch release
     // holds what was: it is not pointless.
     assert!(found(&analysis, Rule::PointlessReleaseBranch).is_empty());
+    // The same without the tag: the history alone tells it.
+    delete_tags(&git);
+    assert_eq!(
+        found(&analysed(&git), Rule::UnreleasedBeforeSwitch).len(),
+        1
+    );
 
     // As the message says: the switch reverted, the tip promoted, and the
     // switch again goes on from the full release.
@@ -1331,35 +1580,35 @@ fn switching_to_one_stage_before_promoting_is_an_error() {
 }
 
 #[test]
-fn a_pre_release_the_base_holds_does_not_stop_a_switch_to_one_stage() {
+fn the_pre_releases_a_promotion_released_do_not_stop_a_switch_to_one_stage() {
     let git = units();
     git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
     git.commit("fix: lib one");
     assert_eq!(release(&git, "lib-v"), "0.0.1-pre.2");
     git.promote();
     assert_eq!(release(&git, "lib-v"), "0.0.1");
-    // Pushed by hand onto the promoted commit, above every full release.
-    git.tag("lib-v3.0.0-pre.1", &git.head());
     let single = UNITS.replace("release  = \"two-stage\"\n", "");
     git.write(&[(".nebensound/repo.toml", &single)]);
     git.commit("chore: release the library in one stage");
 
-    // The promotion released that commit with every pre-release on it.
+    // The promotion released that commit with every pre-release before it.
     let analysis = analysed(&git);
     assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
-    assert_eq!(base(&analysis, "lib-v"), "0.0.1");
     assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.2"));
+    assert_eq!(analysis.versions[2].waiting, None);
 }
 
 #[test]
-fn a_stray_pre_release_after_the_base_is_cleared_by_the_way_out() {
+fn a_pre_release_pushed_by_hand_is_a_conflicting_record_and_no_pre_release() {
     let git = units();
     git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
     git.commit("fix: lib one");
     assert_eq!(release(&git, "lib-v"), "0.0.1-pre.2");
     git.promote();
     assert_eq!(release(&git, "lib-v"), "0.0.1");
-    // Pushed by hand onto a commit of main after the promotion.
+    // Pushed by hand onto a commit of main after the promotion, which the
+    // history gives no pre-release: it does not stop a switch to one stage,
+    // as a pre-release given to a commit would.
     git.write(&[("app/a.md", "# App\n\nOne.\n")]);
     let stray = git.commit("fix: app one");
     git.tag("lib-v3.0.0-pre.1", &stray);
@@ -1367,45 +1616,50 @@ fn a_stray_pre_release_after_the_base_is_cleared_by_the_way_out() {
     git.write(&[(".nebensound/repo.toml", &single)]);
     git.commit("chore: release the library in one stage");
     let analysis = analysed(&git);
-    let switch = found(&analysis, Rule::UnreleasedBeforeSwitch);
-    assert_eq!(switch.len(), 1, "{:?}", analysis.findings());
-    assert!(switch[0].contains("lib-v3.0.0-pre.1"), "{switch:?}");
+    assert!(found(&analysis, Rule::UnreleasedBeforeSwitch).is_empty());
+    let conflicting = conflicting(&analysis);
+    assert_eq!(conflicting.len(), 1, "{:?}", analysis.findings());
+    assert!(
+        conflicting[0].contains("\"lib-v3.0.0-pre.1\"") && conflicting[0].contains(&stray[..12]),
+        "{conflicting:?}"
+    );
+    assert_eq!(analysis.findings().len(), 1, "{:?}", analysis.findings());
 
-    // The way out the message names: the promotion of the tip moves the base
-    // past the stray pre-release.
-    git.write(&[(".nebensound/repo.toml", UNITS)]);
-    git.commit("revert: release the library in two stages again");
-    assert_eq!(release(&git, "lib-v"), "0.0.2-pre.2");
-    git.promote();
-    assert_eq!(release(&git, "lib-v"), "0.0.2");
-    git.write(&[(".nebensound/repo.toml", &single)]);
-    git.commit("chore: release the library in one stage");
+    // The way out the message names: nobody published it, so it goes.
+    git.run(&["tag", "--delete", "lib-v3.0.0-pre.1"]);
     let analysis = analysed(&git);
     assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
-    assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.3"));
+    assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.2"));
 }
 
 #[test]
 fn a_version_field_at_its_largest_number_is_an_error() {
     let max = u64::MAX;
-    let git = units();
+    let git = units_declared(&lib_floored(&format!("{max}.0.0")).replace(
+        "[repo]\n",
+        &format!("[repo]\nminimum-version = \"{max}.0.0\"\n"),
+    ));
     git.write(&[("lib/b.md", "# Lib\n\nReleased.\n")]);
     git.commit("fix: something to promote");
-    let promoted = git.promote();
-    git.tag(&format!("v{max}.0.0"), &promoted);
-    git.tag(&format!("lib-v{max}.0.0"), &promoted);
+    git.promote();
+    assert_eq!(version(&git, "lib-v"), Some(format!("{max}.0.0")));
     git.write(&[("lib/b.md", "# Lib\n\nBroken.\n")]);
     git.commit("feat!: one major version too many");
 
     let analysis = analysed(&git);
     let exhausted = found(&analysis, Rule::ExhaustedVersion);
     assert_eq!(exhausted.len(), 2, "{:?}", analysis.findings());
-    assert!(
-        exhausted
-            .iter()
-            .all(|finding| finding.contains(&format!("{max}.0.0 cannot be raised"))),
-        "{exhausted:?}"
-    );
+    for (unit, version) in [
+        ("the repository", format!("{max}.0.1")),
+        ("component lib", format!("{max}.0.0")),
+    ] {
+        assert!(
+            exhausted.iter().any(|finding| finding.starts_with(&format!(
+                "error[exhausted-version] {unit}: {version} cannot be raised"
+            ))),
+            "{unit}: {exhausted:?}"
+        );
+    }
     assert_eq!(versions(&analysis)["v"], None);
     assert_eq!(versions(&analysis)["lib-v"], None);
     assert!(analysis.failed());
@@ -1429,23 +1683,58 @@ fn a_branch_release_without_a_two_stage_unit_is_a_warning() {
 }
 
 #[test]
-fn a_commit_without_a_declaration_still_counts() {
-    // The repository adopted the declaration later; what came before is part
-    // of its history all the same, and names no floor.
+fn a_commit_without_a_declaration_does_not_count() {
+    // The repository adopted the declaration later; what came before names
+    // no unit, and the count starts at the declaration.
     let git = Git::new();
     git.write(&[("README.md", "# Late\n")]);
     git.commit("chore: before the declaration");
-    git.write(&[(
-        ".nebensound/repo.toml",
-        "[repo]\npipeline = \"none\"\nminimum-version = \"0.1.0\"\n",
-    )]);
+    git.write(&[(".nebensound/repo.toml", QUIET)]);
     git.commit("feat: declare the repository");
-    assert_eq!(version(&git, "v").as_deref(), Some("0.1.0"));
+    assert_eq!(version(&git, "v").as_deref(), Some("0.0.1"));
 
-    // Without the floor in its own declaration, the first commit is 0.0.1.
+    // The commit before it, with the declaration in the working tree only,
+    // has no version: its own history declares nothing.
     git.run(&["checkout", "--quiet", "--detach", "HEAD~1"]);
     git.write(&[(".nebensound/repo.toml", QUIET)]);
-    assert_eq!(version(&git, "v").as_deref(), Some("0.0.1"));
+    let analysis = analysed(&git);
+    assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
+    assert_eq!(versions(&analysis)["v"], None);
+    assert_eq!(current(&analysis, "v"), None);
+}
+
+#[test]
+fn a_unit_counts_only_the_commits_that_give_it_a_version() {
+    let none = UNITS.replace(
+        "path     = \"app\"\npipeline = \"none\"\n",
+        "path     = \"app\"\npipeline = \"none\"\nversioning = \"none\"\n",
+    );
+    let without = UNITS.replace(
+        "[component.app]\npath     = \"app\"\npipeline = \"none\"\n",
+        "",
+    );
+    // Declared without a version for a time: its count starts when it gets
+    // one.
+    let git = units_declared(&none);
+    git.write(&[("app/a.md", "# App\n\nOne.\n")]);
+    git.commit("fix: app without a version");
+    git.write(&[(".nebensound/repo.toml", UNITS)]);
+    git.commit("feat: give the app a version");
+    assert_eq!(release(&git, "app-v"), "0.0.1");
+    git.write(&[("app/a.md", "# App\n\nTwo.\n")]);
+    git.commit("fix: app two");
+    assert_eq!(release(&git, "app-v"), "0.0.2");
+
+    // Removed, and back: it goes on from where it was, and the commits in
+    // between do not count, so the count never restarts.
+    git.write(&[(".nebensound/repo.toml", &without)]);
+    git.commit("refactor: the app is no unit any more");
+    git.write(&[("app/a.md", "# App\n\nThree.\n")]);
+    git.commit("fix: app as plain files");
+    git.write(&[(".nebensound/repo.toml", UNITS)]);
+    git.commit("feat: the app is a unit again");
+    assert_eq!(release(&git, "app-v"), "0.0.3");
+    assert_eq!(release(&git, "v"), "0.0.7");
 }
 
 #[test]
@@ -1457,7 +1746,7 @@ fn a_repository_without_a_commit_has_no_version_yet() {
         .expect("the fixture reads");
     assert_eq!(analysis.versions.len(), 1);
     assert_eq!(analysis.versions[0].version, None);
-    assert_eq!(analysis.versions[0].base.to_string(), "0.0.0");
+    assert_eq!(analysis.versions[0].current, None);
     assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
 }
 
@@ -1563,13 +1852,11 @@ struct Walker {
     holder: BTreeMap<(String, String), String>,
     /// The tags runs have not set yet, with their commits.
     late: Vec<(String, String)>,
-    /// The older commits of main a refused merge brought into release.
-    refused: Vec<String>,
     /// How often it promoted, moved a floor, set a tag late, wrote a
     /// pre-release floor in two stages, moved a unit, switched a unit's mode,
-    /// wrote a pre-release floor in one stage, pushed a pre-release onto a
-    /// commit released in one stage, and merged an older commit into release.
-    happened: [usize; 9],
+    /// wrote a pre-release floor in one stage, and pushed a pre-release onto
+    /// a commit released in one stage.
+    happened: [usize; 8],
 }
 
 impl Walker {
@@ -1596,8 +1883,7 @@ impl Walker {
             got: BTreeMap::new(),
             holder: BTreeMap::new(),
             late: Vec::new(),
-            refused: Vec::new(),
-            happened: [0; 9],
+            happened: [0; 8],
         }
     }
 
@@ -1684,50 +1970,26 @@ impl Walker {
     }
 
     /// A pre-release pushed by hand onto the commit at hand, for a unit that
-    /// is released in one stage there. It never counts.
+    /// is released in one stage there. It moves no version: it is the error
+    /// `conflicting-tag`, and the person deletes it again.
     fn push_stray(&mut self, step: usize) {
-        for unit in &self.units {
-            if !unit.two_stage {
-                self.happened[7] += 1;
-                let tag = format!("{}-v99.0.0-pre.{}", unit.name, step + 1);
-                self.git.tag(&tag, &self.git.head());
-                return;
-            }
-        }
-    }
-
-    /// An older commit of main merged into release, past the check that
-    /// refuses it at the pull request and at the merge. It does not count as
-    /// a promotion, and no release stage tags it. Returns whether there was a
-    /// commit to merge: one after the last promotion, short of the tip.
-    fn merge_older(&mut self) -> bool {
-        let pending = self
-            .git
-            .run(&["rev-list", "--first-parent", "main", "^release"]);
-        let older: Vec<&str> = pending.lines().skip(1).collect();
-        if older.is_empty() {
-            return false;
-        }
-        self.happened[8] += 1;
-        let bound = u64::try_from(older.len()).expect("small");
-        let pick = usize::try_from(self.random.below(bound)).expect("small");
-        let commit = older[pick].to_owned();
-        let merge = self.git.merge_into_release_from(&commit);
-        for _ in ["pull request", "merge"] {
-            let analysis = analysed(&self.git);
-            assert!(
-                !found(&analysis, Rule::StalePromotion).is_empty(),
-                "seed {}: {:?}",
-                self.seed,
-                analysis.findings()
-            );
-            self.git
-                .run(&["update-ref", "refs/remotes/origin/release", &merge]);
-        }
-        self.git.run(&["branch", "--force", "release", &merge]);
-        self.git.run(&["checkout", "--quiet", "main"]);
-        self.refused.push(commit);
-        true
+        let Some(unit) = self.units.iter().find(|unit| !unit.two_stage) else {
+            return;
+        };
+        self.happened[7] += 1;
+        let tag = format!("{}-v99.0.0-pre.{}", unit.name, step + 1);
+        let before = versions(&analysed(&self.git));
+        self.git.tag(&tag, &self.git.head());
+        let analysis = analysed(&self.git);
+        let conflicting = found(&analysis, Rule::ConflictingTag);
+        assert!(
+            conflicting.len() == 1 && conflicting[0].contains(&format!("\"{tag}\"")),
+            "seed {}: {:?}",
+            self.seed,
+            analysis.findings()
+        );
+        assert_eq!(versions(&analysis), before, "seed {}", self.seed);
+        self.git.run(&["tag", "--delete", &tag]);
     }
 
     /// The unit's folder moves, and the declaration with it.
@@ -1780,6 +2042,11 @@ impl Walker {
     }
 
     /// One step: a promotion, or a commit of some kind.
+    ///
+    /// No older commit of main is merged into release past the check that
+    /// refuses it: read later, such a merge is taken for a promotion and
+    /// moves the base, which can give a version out twice. That case is left
+    /// open in #81; the refusal itself is checked on its own.
     fn step(&mut self, step: usize) {
         let choice = self.random.below(12);
         let unit = usize::try_from(self.random.below(2)).expect("small");
@@ -1793,7 +2060,6 @@ impl Walker {
             1 | 2 => self.move_floor(unit),
             3 => self.move_unit(unit),
             4 => self.switch(unit),
-            5 if self.merge_older() => return,
             _ => self.change_files(step),
         }
         let message = [
@@ -1818,20 +2084,12 @@ impl Walker {
     }
 
     /// Read again at every commit of main, each commit still comes to what it
-    /// got: the version is a function of the history, not of the moment. A
-    /// commit phase 0 refused is refused again and got nothing.
-    ///
-    /// An older commit a refused merge brought into release is the exception:
-    /// Git keeps no record of where main pointed at the merge, so read again
-    /// it takes itself for promoted. Its release stage never ran, so that
-    /// version was never given out.
+    /// got: the version is a function of the history, not of the moment, and
+    /// of no tag. A commit phase 0 refused is refused again and got nothing.
     fn read_again(&self) {
         let seed = self.seed;
         let line = self.git.run(&["rev-list", "--first-parent", "main"]);
         for commit in line.lines() {
-            if self.refused.iter().any(|refused| refused == commit) {
-                continue;
-            }
             self.git.run(&["checkout", "--quiet", "--detach", commit]);
             let Some(touched) = touched(&self.git) else {
                 assert!(
@@ -1853,16 +2111,16 @@ impl Walker {
 
 /// One walk through a history: commits that touch the units at random, with
 /// every kind of message, a floor of either unit raised, lowered or taken
-/// away now and then, pre-release floors in either mode, promotions, older
-/// commits of main merged into release and refused, units that move to
-/// another folder, switches from one stage to two and back, pre-releases
-/// pushed by hand onto commits released in one stage, and tags that some runs
-/// set late. No version may be given to two commits, and read again at the
-/// end every commit still comes to the version it got.
+/// away now and then, pre-release floors in either mode, promotions, units
+/// that move to another folder, switches from one stage to two and back,
+/// pre-releases pushed by hand onto commits released in one stage, and tags
+/// that some runs set late. No version may be given to two commits, and read
+/// again at the end every commit still comes to the version it got, with
+/// every tag and with none.
 ///
 /// Returns how often each kind of step happened ([`Walker::happened`]), so
 /// that the test can show that every one of them did.
-fn walk(seed: u64, steps: usize) -> [usize; 9] {
+fn walk(seed: u64, steps: usize) -> [usize; 8] {
     let mut walker = Walker::new(seed);
     walker.record(false);
     for step in 0..steps {
@@ -1870,12 +2128,14 @@ fn walk(seed: u64, steps: usize) -> [usize; 9] {
     }
     walker.flush();
     walker.read_again();
+    delete_tags(&walker.git);
+    walker.read_again();
     walker.happened
 }
 
 #[test]
 fn two_different_commits_never_resolve_to_the_same_version_of_a_unit() {
-    let mut seen = [0; 9];
+    let mut seen = [0; 8];
     for seed in [0x9e37_79b9, 0x85eb_ca6b, 0xc2b2_ae35, 0x27d4_eb2f] {
         for (total, count) in seen.iter_mut().zip(walk(seed, 24)) {
             *total += count;
@@ -1889,6 +2149,8 @@ fn a_lowered_floor_and_a_late_tag_give_no_version_twice() {
     let git = Git::new();
     git.write(&[(".nebensound/repo.toml", QUIET), ("README.md", "# One\n")]);
     git.commit("chore: start");
+    // A tag from before the floor, of a release made elsewhere: below the
+    // versions from the floor on, it stays unnoticed.
     git.tag("v1.0.0", &git.head());
 
     git.write(&[(
@@ -1899,7 +2161,7 @@ fn a_lowered_floor_and_a_late_tag_give_no_version_twice() {
     assert_eq!(version(&git, "v").as_deref(), Some("3.0.0"));
 
     // Its tag is late, and the floor is taken away meanwhile. Lowering it has
-    // no effect: since the base, 3.0.0 is still the highest floor named.
+    // no effect: the versions have passed it.
     git.write(&[(".nebensound/repo.toml", QUIET)]);
     git.commit("fix: drop the floor");
     assert_eq!(release(&git, "v"), "3.0.1");
@@ -1913,14 +2175,18 @@ fn a_lowered_floor_and_a_late_tag_give_no_version_twice() {
 
 #[test]
 fn a_lowered_floor_in_two_stages_gives_no_version_twice() {
-    let git = units();
+    // The first full release, a step a person takes with minimum-version.
+    let git = units_declared(&lib_floored("1.0.0"));
     git.write(&[("lib/b.md", "# Lib\n\nFirst.\n")]);
     git.commit("feat: the first library");
-    // The first full release, set by a person on a promoted commit.
-    let first = git.promote();
-    git.tag("lib-v1.0.0", &first);
+    git.promote();
+    assert_eq!(release(&git, "lib-v"), "1.0.0");
 
-    let mut given = vec!["lib-v1.0.0".to_owned()];
+    let mut given = vec![
+        "lib-v1.0.0-pre.1".to_owned(),
+        "lib-v1.0.0-pre.2".to_owned(),
+        "lib-v1.0.0".to_owned(),
+    ];
     let mut step = |git: &Git, expected: &str| {
         let tag = format!("lib-v{}", release(git, "lib-v"));
         assert_eq!(tag, format!("lib-v{expected}"));
@@ -2130,7 +2396,6 @@ fn a_pre_release_floor_in_one_stage_is_measured_against_the_versions_not_the_tag
     git.write(&[(".nebensound/repo.toml", &floor("0.5.1-pre.1"))]);
     git.commit("chore: name a pre-release floor the app has passed");
     let analysis = analysed(&git);
-    assert_eq!(base(&analysis, "app-v"), "0.5.0");
     assert!(
         found(&analysis, Rule::PreReleaseMinimum).is_empty(),
         "{:?}",
@@ -2142,7 +2407,6 @@ fn a_pre_release_floor_in_one_stage_is_measured_against_the_versions_not_the_tag
         git.tag(&format!("app-v{version}"), commit);
     }
     let analysis = analysed(&git);
-    assert_eq!(base(&analysis, "app-v"), "0.5.2");
     assert!(
         found(&analysis, Rule::PreReleaseMinimum).is_empty(),
         "{:?}",

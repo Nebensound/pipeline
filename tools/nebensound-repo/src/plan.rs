@@ -62,8 +62,9 @@ pub struct Plan {
     pub units: Vec<Planned>,
     /// The version of every unit that carries one, in the same order.
     pub versions: Vec<Versioned>,
-    /// The pull request the plan is built for, if any: every `version` and
-    /// `pending` of [`Plan::to_json`] then carries `-pr.<number>` behind it.
+    /// The pull request the plan is built for, if any: every `version` of
+    /// [`Plan::to_json`], and the `current` of a unit the pull request
+    /// touches, then carries `-pr.<number>` behind it.
     pub pull_request: Option<u64>,
 }
 
@@ -149,16 +150,16 @@ impl Plan {
     /// entry per check that is started, because a matrix takes a list and
     /// cannot unfold a list inside one.
     ///
-    /// `versions` is one entry per unit that carries a version: what its tags
-    /// start with, how it is released, its last full release as `base`, the
-    /// last version released for it as `last` (its newest counted tag, a
-    /// pre-release included, null when it was never released), the `version`
-    /// of the commit at hand, null when the commit does not touch the unit,
-    /// the `pending` version, that of the newest commit waiting for the unit
-    /// (the `version` of the commit at hand where it has one, null when no
-    /// commit waits), and the `writers` that copy it into the unit's files.
-    /// For a pull request `version` and `pending` carry `-pr.<number>` behind
-    /// them, `version` being the one its squash merge would get.
+    /// `versions` is one entry per unit that carries a version: what the
+    /// names of its records start with as `prefix`, how it is released, its
+    /// `current` version (the highest version the history gives any commit of
+    /// the line up to the commit at hand, null before the first commit that
+    /// touches the unit), the `version` of the commit at hand, null when the
+    /// commit does not touch the unit, and the `writers` that copy it into
+    /// the unit's files. For a pull request `version` carries `-pr.<number>`
+    /// behind it, being the one its squash merge would get, and so does
+    /// `current` where the pull request touches the unit: it is that version
+    /// then.
     ///
     /// One line, so that it can be handed on as a step output as it is. Keys
     /// stand in alphabetical order; nothing that reads JSON depends on it.
@@ -192,16 +193,21 @@ impl Plan {
                 let mut entry = identity(&unit.name, &unit.path);
                 entry["prefix"] = json!(unit.prefix);
                 entry["release"] = json!(unit.release.as_str());
-                entry["base"] = json!(unit.base.to_string());
-                entry["last"] = json!(unit.last.as_ref().map(TagVersion::to_string));
                 let written = |version: &TagVersion| {
                     self.pull_request.map_or_else(
                         || version.to_string(),
                         |number| of_pull_request(version, number),
                     )
                 };
+                // The current version is the commit's own where it has one,
+                // and only that one carries the number of a pull request.
+                entry["current"] = json!(
+                    unit.version
+                        .as_ref()
+                        .map(written)
+                        .or_else(|| { unit.current.as_ref().map(TagVersion::to_string) })
+                );
                 entry["version"] = json!(unit.version.as_ref().map(written));
-                entry["pending"] = json!(unit.pending.as_ref().map(written));
                 entry["writers"] = writers.iter().map(VersionWriterName::as_str).collect();
                 entry
             })

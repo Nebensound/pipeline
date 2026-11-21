@@ -7,7 +7,7 @@
 # it as a library switches the default features off and gets neither the
 # downloads of `setup` nor the JSON Schema.
 #
-# No manifest carries a `version`: versions come from tags.
+# No manifest carries a `version`: versions come from the history.
 [package]
 name         = "nebensound-repo"
 description  = "Reads a repository, runs phase 0 on it and shows the result."

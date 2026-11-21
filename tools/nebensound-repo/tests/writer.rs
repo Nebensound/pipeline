@@ -567,8 +567,8 @@ fn a_unit_nothing_written_depends_on_gets_nothing() {
 
 #[test]
 fn a_commit_that_touches_neither_package_writes_nothing() {
-    // `app` was released, `lib` never was, and the commit touches neither:
-    // nothing that gets a version needs `lib`, so there is no error.
+    // The commit touches neither `app` nor `lib`: nothing that gets a
+    // version needs `lib`, so nothing is written.
     let git = Git::new();
     git.write(&two_packages());
     git.commit("feat: start");
@@ -655,7 +655,7 @@ fn a_dependency_is_followed_through_further_path_dependencies() {
         assert!(
             text.contains(&format!(
                 "component {unit} is not touched by this commit: the package {unit} at \
-                 crates/{unit} gets its last release 0.0.1"
+                 crates/{unit} gets its current version 0.0.1"
             )),
             "{text}"
         );
@@ -674,13 +674,10 @@ fn a_dependency_is_followed_through_further_path_dependencies() {
 }
 
 #[test]
-fn a_dependency_two_steps_away_never_released_gets_its_pending_version() {
-    // `app` and `mid` are released, `lib` never was and changed since the
-    // start: two commits wait for it, so it gets 0.0.2, followed from `app`
-    // through `mid`.
+fn a_dependency_two_steps_away_gets_its_current_version() {
+    // `lib` changed since the start, `mid` did not: `lib` is at 0.0.2 and
+    // `mid` at 0.0.1, followed from `app` through `mid`. No tag is set.
     let git = three_packages();
-    git.tag("crates-app-v0.0.1", &git.head());
-    git.tag("crates-mid-v0.0.1", &git.head());
     git.write(&[(
         "crates/lib/src/lib.rs",
         "//! A library, changed.\n\n/// One.\n#[must_use]\npub fn one() -> u8 {\n    1\n}\n",
@@ -694,15 +691,14 @@ fn a_dependency_two_steps_away_never_released_gets_its_pending_version() {
     assert!(
         text.contains(
             "component mid is not touched by this commit: the package mid at crates/mid gets its \
-             last release 0.0.1"
+             current version 0.0.1"
         ),
         "{text}"
     );
     assert!(
         text.contains(
-            "component lib is not touched by this commit and was never released: the package lib \
-             at crates/lib gets 0.0.2, the version the commits waiting for it come to (workspace \
-             root: .)."
+            "component lib is not touched by this commit: the package lib at crates/lib gets its \
+             current version 0.0.2 (workspace root: .)."
         ),
         "{text}"
     );
@@ -720,9 +716,10 @@ fn a_dependency_two_steps_away_never_released_gets_its_pending_version() {
 }
 
 #[test]
-fn a_dependency_with_commits_after_its_last_release_still_gets_that_release() {
+fn a_dependency_with_commits_after_its_tag_gets_its_current_version() {
     // `lib` changed after its tag, and the commit at hand touches `app` alone:
-    // `lib` gets its last release all the same.
+    // `lib` gets the version the history gives its newest commit, whatever
+    // the tags record.
     let git = Git::new();
     git.write(&two_packages());
     git.commit("feat: start");
@@ -740,10 +737,10 @@ fn a_dependency_with_commits_after_its_last_release_still_gets_that_release() {
     assert_eq!(code, 0, "{text}");
     let app = read(git.path(), "crates/app/Cargo.toml");
     assert!(
-        app.contains("lib = { path = \"../lib\", version = \"0.0.1\" }"),
+        app.contains("lib = { path = \"../lib\", version = \"0.0.2\" }"),
         "{app}"
     );
-    assert_eq!(reported(git.path(), "lib"), "0.0.1");
+    assert_eq!(reported(git.path(), "lib"), "0.0.2");
 }
 
 #[test]
@@ -790,8 +787,9 @@ fn a_path_dependency_on_a_package_without_a_version_is_left_to_cargo() {
 fn the_workspace_dependencies_of_a_unit_that_gets_nothing_get_the_requirement() {
     // `app` is touched and depends on `member`, which inherits `lib` from the
     // workspace `ws`. `ws` is a package that gets nothing: its package stays
-    // as it is, and its `[workspace.dependencies]` require the last release
-    // of `lib`, since `member` gets a version and inherits from there.
+    // as it is, and its `[workspace.dependencies]` require the current
+    // version of `lib`, since `member` gets a version and inherits from
+    // there.
     let ws = "[package]\nname = \"ws\"\nedition = \"2024\"\n\n[workspace]\nmembers = \
               [\"member\"]\n\n[workspace.dependencies]\nlib = { path = \"../lib\" }\n";
     let git = Git::new();
@@ -836,7 +834,7 @@ fn the_workspace_dependencies_of_a_unit_that_gets_nothing_get_the_requirement() 
         "{text}"
     );
     assert!(
-        text.contains("the package member at ws/member gets its last release 0.0.1"),
+        text.contains("the package member at ws/member gets its current version 0.0.1"),
         "{text}"
     );
     assert_eq!(
@@ -1006,7 +1004,7 @@ fn a_call_for_one_workspace_is_not_failed_by_another() {
 fn a_call_for_one_workspace_follows_its_path_dependencies_out_of_it() {
     // `b` depends by path on `lib` in the workspace `a`, and the commit
     // touches both and not `app`. For `b`, `lib` gets the version of the
-    // commit, since the commit touches it, though it was never released.
+    // commit, since the commit touches it.
     let git = two_workspaces("lib = { path = \"../a/lib\" }");
     git.write(&[
         (
@@ -1193,15 +1191,15 @@ fn a_call_for_a_member_starts_from_its_whole_workspace() {
     cargo(git.path(), &["build", "--locked"]);
 }
 
-/// [`two_packages`] with both released at `0.0.1`, then a commit on `main`
-/// that touches `app` and not `lib`.
+/// [`two_packages`] with both released at `0.0.1` by their first commit, then
+/// a commit on `main` that touches `app` and not `lib`. No tag records either
+/// release: none is needed.
 fn app_changed_after_a_release() -> Git {
     let git = Git::new();
     git.write(&two_packages());
     git.commit("feat: start");
-    git.tag("crates-lib-v0.0.1", &git.head());
-    git.tag("crates-app-v0.0.1", &git.head());
     change_the_app_of_two(&git);
+    assert!(git.run(&["tag", "--list"]).is_empty());
     git
 }
 
@@ -1334,9 +1332,10 @@ fn a_stranger_on_crates_io(root: &Path, name: &str, version: &str) -> tempfile::
 }
 
 /// [`two_packages`] with the versions of a plan written, where the commit
-/// touches `app` alone and `lib` gets `written`, and a stranger's crate `lib`
-/// at `stranger` on crates.io, a version the requirement on `lib` matches and
-/// that sorts above it: the package test still builds `app` against `lib`.
+/// touches `app`, `lib` gets `written` as `lib` describes it, and a
+/// stranger's crate `lib` at `stranger` on crates.io, a version the
+/// requirement on `lib` matches and that sorts above it: the package test
+/// still builds `app` against `lib`.
 fn beside_a_stranger(app: &str, lib: &str, written: &str, stranger: &str) {
     let dir = repository(&two_packages());
     let root = dir.path().to_str().expect("a path in UTF-8");
@@ -1346,9 +1345,8 @@ fn beside_a_stranger(app: &str, lib: &str, written: &str, stranger: &str) {
         &file,
         format!(
             "{{\"versions\": [{{\"name\": \"app\", \"path\": \"crates/app\", \"version\": \
-             \"{app}\", \"last\": null, \"pending\": \"{app}\", \"writers\": [\"cargo\"]}}, \
-             {{\"name\": \"lib\", \"path\": \"crates/lib\", \"version\": null, {lib}, \
-             \"writers\": [\"cargo\"]}}]}}"
+             \"{app}\", \"current\": \"{app}\", \"writers\": [\"cargo\"]}}, {{\"name\": \
+             \"lib\", \"path\": \"crates/lib\", {lib}, \"writers\": [\"cargo\"]}}]}}"
         ),
     )
     .expect("written");
@@ -1393,10 +1391,11 @@ fn beside_a_stranger(app: &str, lib: &str, written: &str, stranger: &str) {
 
 #[test]
 fn a_strangers_crate_does_not_stand_in_for_a_sibling_on_a_pull_request() {
-    // `^0.0.1-pr.7` matches the stranger's 0.0.1, which sorts above it.
+    // The pull request touches `lib` as well: `^0.0.1-pr.7` matches the
+    // stranger's 0.0.1, which sorts above it.
     beside_a_stranger(
         "0.0.2-pr.7",
-        "\"last\": null, \"pending\": \"0.0.1-pr.7\"",
+        "\"version\": \"0.0.1-pr.7\", \"current\": \"0.0.1-pr.7\"",
         "0.0.1-pr.7",
         "0.0.1",
     );
@@ -1404,17 +1403,18 @@ fn a_strangers_crate_does_not_stand_in_for_a_sibling_on_a_pull_request() {
 
 #[test]
 fn a_strangers_crate_does_not_stand_in_for_a_sibling_on_main() {
-    // `^0.6.0` matches the stranger's 0.6.5, a higher version.
+    // `lib` is not touched: `^0.6.0` matches the stranger's 0.6.5, a higher
+    // version.
     beside_a_stranger(
         "0.6.1",
-        "\"last\": \"0.6.0\", \"pending\": null",
+        "\"version\": null, \"current\": \"0.6.0\"",
         "0.6.0",
         "0.6.5",
     );
 }
 
 #[test]
-fn a_dependency_the_commit_does_not_touch_is_required_at_its_last_release_on_main() {
+fn a_dependency_the_commit_does_not_touch_is_required_at_its_current_version_on_main() {
     let git = app_changed_after_a_release();
 
     let (text, code) = call(&["nebensound-repo", "-C", git.root(), "write-versions"]);
@@ -1423,7 +1423,7 @@ fn a_dependency_the_commit_does_not_touch_is_required_at_its_last_release_on_mai
     assert!(
         text.contains(
             "component lib is not touched by this commit: the package lib at crates/lib \
-             gets its last release 0.0.1"
+             gets its current version 0.0.1"
         ),
         "{text}"
     );
@@ -1438,7 +1438,7 @@ fn a_dependency_the_commit_does_not_touch_is_required_at_its_last_release_on_mai
 }
 
 #[test]
-fn a_dependency_the_commit_does_not_touch_is_required_at_its_last_release_on_a_pull_request() {
+fn a_dependency_the_commit_does_not_touch_is_required_at_its_current_version_on_a_pull_request() {
     // The same change, made on a branch and built as GitHub builds a pull
     // request: the merge commit, detached, read as its squash merge.
     let git = app_changed_after_a_release();
@@ -1476,10 +1476,10 @@ fn a_dependency_the_commit_does_not_touch_is_required_at_its_last_release_on_a_p
     let versions = &parsed["versions"];
     assert_eq!(versions[1]["path"], "crates/app");
     assert_eq!(versions[1]["version"], "0.0.2-pr.5");
-    assert_eq!(versions[1]["last"], "0.0.1");
+    assert_eq!(versions[1]["current"], "0.0.2-pr.5");
     assert_eq!(versions[2]["path"], "crates/lib");
     assert_eq!(versions[2]["version"], serde_json::Value::Null);
-    assert_eq!(versions[2]["last"], "0.0.1");
+    assert_eq!(versions[2]["current"], "0.0.1");
     let handed = tempfile::tempdir().expect("a folder for the plan");
     let file = handed.path().join("plan.json");
     fs::write(&file, &plan).expect("the plan is written");
@@ -1509,9 +1509,9 @@ fn a_dependency_the_commit_does_not_touch_is_required_at_its_last_release_on_a_p
 }
 
 #[test]
-fn a_dependency_never_released_and_not_touched_gets_its_pending_version() {
+fn a_dependency_not_touched_gets_its_current_version_without_any_tag() {
     // No tag at all: the repository passes from its first commits on. `lib`
-    // is waited for by the first commit alone, so it gets 0.0.1.
+    // is touched by the first commit alone, so it gets 0.0.1.
     let renamed_in_the_workspace = format!(
         "{WORKSPACE}\n[workspace.dependencies]\nfoo = {{ path = \"crates/lib\", package = \
          \"lib\" }}\n"
@@ -1563,8 +1563,8 @@ fn a_dependency_never_released_and_not_touched_gets_its_pending_version() {
         );
         assert!(
             text.contains(
-                "component lib is not touched by this commit and was never released: the package \
-                 lib at crates/lib gets 0.0.1"
+                "component lib is not touched by this commit: the package lib at crates/lib gets \
+                 its current version 0.0.1"
             ),
             "{text}"
         );
@@ -1582,8 +1582,8 @@ fn a_dependency_never_released_and_not_touched_gets_its_pending_version() {
 #[test]
 fn a_dependency_of_the_tests_alone_gets_a_version_as_well() {
     // Cargo drops a path dev-dependency without a version from the package,
-    // and the tests of the packaged copy that use it would not compile. A
-    // never-released `lib` gets its pending version, and the packaged tests
+    // and the tests of the packaged copy that use it would not compile.
+    // `lib`, not touched, gets its current version, and the packaged tests
     // pass.
     let app = "[package]\nname = \"app\"\nedition = \"2024\"\n\n[dev-dependencies]\nlib = { path \
                = \"../lib\" }\n";
@@ -1616,10 +1616,10 @@ fn a_dependency_of_the_tests_alone_gets_a_version_as_well() {
 }
 
 #[test]
-fn a_never_released_dependency_gets_its_pending_version_on_a_pull_request() {
+fn an_untouched_dependency_gets_its_current_version_on_a_pull_request() {
     // No tag at all, and a pull request that touches `app` alone: `lib` gets
-    // the version the first commit gives it, with the number of the pull
-    // request behind it.
+    // the version the first commit gives it. Only what the pull request
+    // touches carries its number.
     let git = Git::new();
     git.write(&two_packages());
     git.commit("feat: start");
@@ -1651,11 +1651,10 @@ fn a_never_released_dependency_gets_its_pending_version_on_a_pull_request() {
     let versions = &parsed["versions"];
     assert_eq!(versions[1]["path"], "crates/app");
     assert_eq!(versions[1]["version"], "0.0.2-pr.7");
-    assert_eq!(versions[1]["pending"], "0.0.2-pr.7");
+    assert_eq!(versions[1]["current"], "0.0.2-pr.7");
     assert_eq!(versions[2]["path"], "crates/lib");
     assert_eq!(versions[2]["version"], serde_json::Value::Null);
-    assert_eq!(versions[2]["last"], serde_json::Value::Null);
-    assert_eq!(versions[2]["pending"], "0.0.1-pr.7");
+    assert_eq!(versions[2]["current"], "0.0.1");
     let handed = tempfile::tempdir().expect("a folder for the plan");
     let file = handed.path().join("plan.json");
     fs::write(&file, &plan).expect("the plan is written");
@@ -1672,23 +1671,19 @@ fn a_never_released_dependency_gets_its_pending_version_on_a_pull_request() {
     assert_eq!(code, 0, "{text}");
     let app = read(git.path(), "crates/app/Cargo.toml");
     assert!(
-        app.contains("lib = { path = \"../lib\", version = \"0.0.1-pr.7\" }"),
+        app.contains("lib = { path = \"../lib\", version = \"0.0.1\" }"),
         "{app}"
     );
     cargo(git.path(), &["build", "--locked"]);
-    assert_eq!(reported(git.path(), "lib"), "0.0.1-pr.7");
-    package_test(
-        git.path(),
-        &[("lib", "0.0.1-pr.7"), ("app", "0.0.2-pr.7")],
-        &[],
-    );
+    assert_eq!(reported(git.path(), "lib"), "0.0.1");
+    package_test(git.path(), &[("lib", "0.0.1"), ("app", "0.0.2-pr.7")], &[]);
 }
 
 #[test]
 fn a_dependency_with_no_version_at_all_is_left_to_cargo() {
-    // A plan where `lib` is not touched, was never released and no commit
-    // waits for it: it has no version, nothing is written for it, and the
-    // requirement on it is Cargo's to refuse.
+    // A plan where `lib` is not touched and no commit has touched it yet:
+    // it has no version, nothing is written for it, and the requirement on
+    // it is Cargo's to refuse.
     let dir = repository(&two_packages());
     let root = dir.path().to_str().expect("a path in UTF-8");
     let handed = tempfile::tempdir().expect("a folder for the plan");
@@ -1696,9 +1691,8 @@ fn a_dependency_with_no_version_at_all_is_left_to_cargo() {
     fs::write(
         &file,
         "{\"versions\": [{\"name\": \"app\", \"path\": \"crates/app\", \"version\": \"0.0.2\", \
-         \"last\": null, \"pending\": \"0.0.2\", \"writers\": [\"cargo\"]}, {\"name\": \"lib\", \
-         \"path\": \"crates/lib\", \"version\": null, \"last\": null, \"pending\": null, \
-         \"writers\": [\"cargo\"]}]}",
+         \"current\": \"0.0.2\", \"writers\": [\"cargo\"]}, {\"name\": \"lib\", \"path\": \
+         \"crates/lib\", \"version\": null, \"current\": null, \"writers\": [\"cargo\"]}]}",
     )
     .expect("written");
 
@@ -1714,8 +1708,8 @@ fn a_dependency_with_no_version_at_all_is_left_to_cargo() {
     assert_eq!(code, 0, "{text}");
     assert!(
         text.contains(
-            "component lib is not touched by this commit, was never released and no commit waits \
-             for it, so it has no version to be written."
+            "component lib is not touched by this commit and no commit has touched it yet, so it \
+             has no version to be written."
         ),
         "{text}"
     );
@@ -2277,7 +2271,7 @@ fn a_manifest_without_a_package_says_so() {
 }
 
 #[test]
-fn a_dependency_without_a_package_says_so_when_it_gets_its_last_release() {
+fn a_dependency_without_a_package_says_so_when_it_gets_its_current_version() {
     let mut files = two_packages();
     files.retain(|(path, _)| *path != "crates/lib/Cargo.toml");
     files.push(("crates/lib/Cargo.toml", "[package]\nedition = \"2024\"\n"));
@@ -2363,11 +2357,8 @@ fn a_plan_for_a_pull_request_hands_on_the_versions_of_its_merge() {
         .find(|order| order.unit == "component lib")
         .expect("lib carries a version");
     assert_eq!(lib.version, None);
-    assert_eq!(
-        lib.last.map(|last| last.to_string()).as_deref(),
-        Some("0.0.1")
-    );
-    // Released and not changed since: no commit waits for it.
-    assert_eq!(lib.pending, None);
-    assert_eq!(app.pending.as_deref(), Some("0.0.2-pr.9"));
+    // Not touched: its current version, without the number of the pull
+    // request, which only what the pull request touches carries.
+    assert_eq!(lib.current.as_deref(), Some("0.0.1"));
+    assert_eq!(app.current.as_deref(), Some("0.0.2-pr.9"));
 }

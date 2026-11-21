@@ -273,7 +273,7 @@ pub struct Built {
 /// build is `build` and whose entry under `versions`, the one of the same
 /// kind and name, gives it a version of this run. A unit the commit does not
 /// touch has the version `null` there and builds nothing, also where a
-/// version writer gives it its last or pending version for a dependent.
+/// version writer gives it its current version for a dependent.
 ///
 /// # Errors
 ///

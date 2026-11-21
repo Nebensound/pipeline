@@ -477,9 +477,10 @@ fn generate_children(declared: &[Unit], tree: &Tree, findings: &mut Vec<Finding>
             UnitName::Repository => None,
         })
         .collect();
-    // Two units with one prefix would share their tags, and with them their
-    // versions. A declared name is unique and so is its prefix; a generated
-    // unit's prefix also carries its parent's name, and can meet another one.
+    // Two units with one prefix would share the names of their records, the
+    // tags and releases the release stages write. A declared name is unique
+    // and so is its prefix; a generated unit's prefix also carries its
+    // parent's name, and can meet another one.
     let mut prefixes: BTreeSet<String> = declared.iter().map(Unit::tag_prefix).collect();
     let mut generated = Vec::new();
 
