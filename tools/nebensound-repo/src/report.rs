@@ -318,6 +318,14 @@ pub fn explain(analysis: &Analysis, path: &RelativePath) -> Option<String> {
         .collect::<Vec<_>>()
         .join(", ");
     let mut lines = vec![shown(&node.path.to_string()), String::new()];
+    // The audience is the repository's, so it holds for every path.
+    lines.push(format!(
+        "{}{}",
+        column(2, "Audience"),
+        analysis
+            .audience
+            .map_or("none declared", crate::Audience::as_str)
+    ));
     lines.push(format!("{}{units}", column(2, "Units")));
     // Every unit containing the path is released on its own terms, so each
     // says how, and where that came from.

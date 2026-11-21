@@ -119,6 +119,12 @@ pub enum Rule {
     /// An exclusion that takes code out of a Rust package, and not the whole
     /// package.
     PartialPackageExclusion,
+    /// A declaration at the commit at hand that does not say for whom the
+    /// repository is meant.
+    MissingAudience,
+    /// A declared audience that does not fit what the run knows of the
+    /// repository: `public` exactly when the repository is public.
+    MismatchedAudience,
 }
 
 impl Rule {
@@ -158,6 +164,8 @@ impl Rule {
             Self::UnexcusedIgnore => "unexcused-ignore",
             Self::UnreadableIgnoreFile => "unreadable-ignore-file",
             Self::PartialPackageExclusion => "partial-package-exclusion",
+            Self::MissingAudience => "missing-audience",
+            Self::MismatchedAudience => "mismatched-audience",
         }
     }
 }

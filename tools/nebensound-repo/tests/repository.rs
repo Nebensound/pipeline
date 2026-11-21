@@ -18,7 +18,8 @@ fn the_built_in_central_data_reads() {
 
 #[test]
 fn broken_central_data_says_so() {
-    let error = central_from("this is not a register", "[repo]\n").expect_err("not readable");
+    let error = central_from("this is not a register", "[repo]\naudience = \"public\"\n")
+        .expect_err("not readable");
 
     assert!(error.to_string().contains("built-in register"), "{error}");
 }
@@ -156,7 +157,7 @@ fn a_declaration_that_is_not_a_regular_file() {
 fn a_declaration_that_points_somewhere_else_is_refused() {
     // A pull request could aim the declaration out of the checkout, or at a
     // device that never ends. What is read is what stands in the repository.
-    let dir = directory(&[("elsewhere.toml", "[repo]\n")]);
+    let dir = directory(&[("elsewhere.toml", "[repo]\naudience = \"public\"\n")]);
     fs::create_dir_all(dir.path().join(".nebensound")).expect("a folder");
     std::os::unix::fs::symlink(
         "../elsewhere.toml",
@@ -206,7 +207,10 @@ fn a_declaration_below_something_that_is_not_a_folder() {
 
 #[test]
 fn a_declaration_that_does_not_match_the_shape() {
-    let dir = directory(&[(".nebensound/repo.toml", "[repo]\nversioning = \"yearly\"\n")]);
+    let dir = directory(&[(
+        ".nebensound/repo.toml",
+        "[repo]\naudience = \"public\"\nversioning = \"yearly\"\n",
+    )]);
 
     let error = Repository::at(dir.path())
         .declaration()

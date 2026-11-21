@@ -87,6 +87,7 @@ fn release(git: &Git, prefix: &str) -> String {
 
 /// A repository and two components, `lib` released in two stages.
 const UNITS: &str = r#"[repo]
+audience = "public"
 pipeline = "none"
 
 [component.app]
@@ -144,7 +145,7 @@ fn one_unit_goes_through_several_single_stage_releases() {
     // version to it.
     git.write(&[(
         ".nebensound/repo.toml",
-        "[repo]\npipeline = \"none\"\nminimum-version = \"0.1.0\"\n",
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\nminimum-version = \"0.1.0\"\n",
     )]);
     git.commit("feat: take the step to 0.1.0");
     assert_eq!(release(&git, "v"), "0.1.0");
@@ -176,7 +177,7 @@ fn one_unit_goes_through_several_single_stage_releases() {
     // there each change raises its own field.
     git.write(&[(
         ".nebensound/repo.toml",
-        "[repo]\npipeline = \"none\"\nminimum-version = \"1.0.0\"\n",
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\nminimum-version = \"1.0.0\"\n",
     )]);
     git.commit("feat!: take the step to 1.0.0");
     assert_eq!(release(&git, "v"), "1.0.0");
@@ -610,7 +611,10 @@ fn the_floor_a_conflicting_tag_names_lifts_past_it_in_either_mode() {
 fn a_commit_whose_declaration_does_not_read_takes_what_the_next_readable_one_says() {
     // The first commits hold a declaration this reader cannot read, as one
     // written for another reader would be: a field it does not know.
-    let git = units_declared(&single_stage().replace("[repo]\n", "[repo]\nlegacy-field = true\n"));
+    let git = units_declared(&single_stage().replace(
+        "[repo]\naudience = \"public\"\n",
+        "[repo]\naudience = \"public\"\nlegacy-field = true\n",
+    ));
     git.write(&[("app/a.md", "# App\n\nOne.\n")]);
     git.commit("fix: app only");
     git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
@@ -1083,7 +1087,7 @@ fn a_generated_unit_whose_folder_moves_keeps_counting() {
     git.write(&[
         (
             ".nebensound/repo.toml",
-            "[repo]\npipeline = \"none\"\n\n[component.docs]\npath = \"docs\"\npipeline = \
+            "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.docs]\npath = \"docs\"\npipeline = \
              \"none\"\nversioning = \"child-folders\"\n",
         ),
         ("README.md", "# Docs\n"),
@@ -1116,7 +1120,7 @@ fn generated_units_follow_the_children_each_commit_held() {
     // Each commit of the line generates the units of its own tree, whether
     // it adds a file to a child, adds a child, removes a file from one or
     // removes a child, and whatever declaration it holds.
-    let declared = "[repo]\npipeline = \"none\"\n\n[component.docs]\npath = \"docs\"\npipeline = \
+    let declared = "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.docs]\npath = \"docs\"\npipeline = \
                     \"none\"\nversioning = \"child-folders\"\n";
     let git = Git::new();
     git.write(&[
@@ -1176,7 +1180,7 @@ fn a_generated_unit_takes_the_pre_release_floor_of_its_parent() {
     git.write(&[
         (
             ".nebensound/repo.toml",
-            "[repo]\npipeline = \"none\"\n\n[component.docs]\npath = \"docs\"\npipeline = \
+            "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.docs]\npath = \"docs\"\npipeline = \
              \"none\"\nversioning = \"child-files\"\nminimum-version = \"1.0.0-pre.1\"\n",
         ),
         ("README.md", "# Docs\n"),
@@ -1190,7 +1194,7 @@ fn a_generated_unit_takes_the_pre_release_floor_of_its_parent() {
     // Where the parent writes it, since the unit has nowhere to write one.
     assert!(
         refused[0].starts_with(
-            "error[pre-release-minimum] component guide: .nebensound/repo.toml, line 8, column 19: "
+            "error[pre-release-minimum] component guide: .nebensound/repo.toml, line 9, column 19: "
         ),
         "{refused:#?}"
     );
@@ -1234,7 +1238,7 @@ fn a_generated_unit_carries_its_parents_name_in_its_prefix() {
     git.write(&[
         (
             ".nebensound/repo.toml",
-            "[repo]\npipeline = \"none\"\n\n[component.docs]\npath = \"docs\"\npipeline = \
+            "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.docs]\npath = \"docs\"\npipeline = \
              \"none\"\nversioning = \"child-files\"\n",
         ),
         ("README.md", "# Docs\n"),
@@ -1636,8 +1640,8 @@ fn a_pre_release_pushed_by_hand_is_a_conflicting_record_and_no_pre_release() {
 fn a_version_field_at_its_largest_number_is_an_error() {
     let max = u64::MAX;
     let git = units_declared(&lib_floored(&format!("{max}.0.0")).replace(
-        "[repo]\n",
-        &format!("[repo]\nminimum-version = \"{max}.0.0\"\n"),
+        "[repo]\naudience = \"public\"\n",
+        &format!("[repo]\naudience = \"public\"\nminimum-version = \"{max}.0.0\"\n"),
     ));
     git.write(&[("lib/b.md", "# Lib\n\nReleased.\n")]);
     git.commit("fix: something to promote");
@@ -1825,7 +1829,7 @@ struct Walked {
 
 /// The declaration of the walk's units as they stand.
 fn declared(units: &[Walked; 2]) -> String {
-    let mut text = String::from("[repo]\npipeline = \"none\"\n");
+    let mut text = String::from("[repo]\naudience = \"public\"\npipeline = \"none\"\n");
     for unit in units {
         let release = if unit.two_stage {
             "release  = \"two-stage\"\n"
@@ -2155,7 +2159,7 @@ fn a_lowered_floor_and_a_late_tag_give_no_version_twice() {
 
     git.write(&[(
         ".nebensound/repo.toml",
-        "[repo]\npipeline = \"none\"\nminimum-version = \"3.0.0\"\n",
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\nminimum-version = \"3.0.0\"\n",
     )]);
     let lifted = git.commit("feat: aim at 3.0.0");
     assert_eq!(version(&git, "v").as_deref(), Some("3.0.0"));
@@ -2298,8 +2302,8 @@ fn a_pre_release_number_at_its_largest_is_an_error() {
 fn a_pre_release_floor_in_one_stage_is_an_error_until_the_versions_reach_it() {
     let declaration = |repo: &str, app: &str| {
         floored(&[app.to_owned(), String::new()]).replace(
-            "[repo]\npipeline = \"none\"\n",
-            &format!("[repo]\npipeline = \"none\"\n{repo}"),
+            "[repo]\naudience = \"public\"\npipeline = \"none\"\n",
+            &format!("[repo]\naudience = \"public\"\npipeline = \"none\"\n{repo}"),
         )
     };
     let git = units_declared(&declaration(
@@ -2311,8 +2315,8 @@ fn a_pre_release_floor_in_one_stage_is_an_error_until_the_versions_reach_it() {
     let refused = found(&analysis, Rule::PreReleaseMinimum);
     assert_eq!(refused.len(), 2, "{refused:#?}");
     for (unit, place, written) in [
-        ("the repository", "line 3, column 19", "1.0.0"),
-        ("component app", "line 7, column 19", "2.0.0"),
+        ("the repository", "line 4, column 19", "1.0.0"),
+        ("component app", "line 8, column 19", "2.0.0"),
     ] {
         assert!(
             refused.iter().any(|finding| finding.starts_with(&format!(
@@ -2330,7 +2334,7 @@ fn a_pre_release_floor_in_one_stage_is_an_error_until_the_versions_reach_it() {
     assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("0.0.1-pre.1"));
     let (text, code) = call(&["nebensound-repo", "-C", git.root(), "check"]);
     assert_eq!(code, 1, "{text}");
-    assert!(text.contains("line 7, column 19"), "{text}");
+    assert!(text.contains("line 8, column 19"), "{text}");
 
     // Taking the floor away is lowering it, which has no effect; the error
     // then points at the unit's table.
@@ -2344,7 +2348,7 @@ fn a_pre_release_floor_in_one_stage_is_an_error_until_the_versions_reach_it() {
     assert_eq!(refused.len(), 1, "{refused:#?}");
     assert!(
         refused[0].starts_with(
-            "error[pre-release-minimum] component app: .nebensound/repo.toml, line 5, column 1: "
+            "error[pre-release-minimum] component app: .nebensound/repo.toml, line 6, column 1: "
         ),
         "{refused:#?}"
     );

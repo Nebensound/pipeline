@@ -7,9 +7,10 @@ setting, why it is set, and the `gh api` call that reads it back.
 The last part lists the settings that every repository of the organization
 carries, with the calls that read them back across the organization.
 
-Organization rulesets, the repository custom property and organization secrets
-are not repository settings and are not described here. They get their own
-documents with the issues that introduce them.
+Organization rulesets and organization secrets are not repository settings
+and are not described here. They get their own documents with the issues that
+introduce them. Which repository properties remain, and why, is said under
+[Repository properties](#repository-properties).
 
 ## Immutable releases
 
@@ -140,6 +141,40 @@ Set it for one repository:
 
 ```sh
 gh api -X PATCH repos/Nebensound/<repository> -F delete_branch_on_merge=true
+```
+
+## Repository properties
+
+A fact about a repository lives in one place, so that none is kept twice (see
+[Where a fact lives](declaration.md#where-a-fact-lives)). A repository property
+on GitHub holds only what GitHub has to decide without reading the
+repository's tree, which is what an organization ruleset targets. Two
+properties remain for that:
+
+- **`lifecycle`**: whether the repository is gated at all.
+- **`pipeline`**: whether the repository has switched to the central pipeline.
+
+For whom a repository is meant is declared in its `.nebensound/repo.toml` as
+`audience` (see [Audience](declaration.md#audience)), not as a property. A
+property that repeats a fact of the declaration would be a copy for
+administration, and no step of the pipeline reads a property to decide
+anything.
+
+The properties `language` and `kind` repeat what the declaration and the files
+already say, and no ruleset targets them. The organization owner removes them;
+deleting a property's definition removes it from every repository of the
+organization at once:
+
+```sh
+gh api -X DELETE orgs/Nebensound/properties/schema/language
+gh api -X DELETE orgs/Nebensound/properties/schema/kind
+```
+
+Read back which properties the organization still defines (`lifecycle` and
+`pipeline` are expected):
+
+```sh
+gh api orgs/Nebensound/properties/schema --jq '.[].property_name'
 ```
 
 ## Checklist for the organization owner

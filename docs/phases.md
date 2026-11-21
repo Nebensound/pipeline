@@ -33,7 +33,10 @@ it and hands the result on:
    ([`.github/actions/tool`](../.github/actions/tool)).
 2. `nebensound-repo check` reads `.nebensound/repo.toml`, resolves it against
    the register and checks it against what Git tracks, and resolves the version
-   of every unit from the history, holding the tags against it. It prints the
+   of every unit from the history, holding the tags against it. It is given
+   the visibility GitHub shows for the repository, taken from the event or,
+   where the event does not carry it, from the API, and holds the declared
+   audience against it (see [Audience](declaration.md#audience)). It prints the
    resolved configuration, the annotated tree, the findings and a summary line.
    [The reference of the declaration](declaration.md) describes every field and
    every finding.
@@ -49,7 +52,10 @@ it and hands the result on:
    whose build is not `null` and that the plan gives a version of this run go
    on to the Build phase, each with the version writers it selects, and the
    whole plan is handed on with them: a later job checks out no history, so a
-   version writer takes the versions from the plan.
+   version writer takes the versions from the plan. The plan also carries for
+   whom the repository is meant.
+5. On a pull request that changes the audience, the old and the new value are
+   named in the summary of the run, as a notice.
 
 An error ends the phase here: there is no plan, no check runs, nothing is
 built, and `nebensound / Check` and `nebensound / Build` fail. A warning stops

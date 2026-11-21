@@ -20,12 +20,15 @@
 //! resolves it for the commit at hand, with the version writers that copy it
 //! into the unit's files before it builds. On a pull request that is the
 //! version its squash merge would get, with `-pr.<number>` behind it.
+//!
+//! And it carries for whom the repository is meant, at the commit at hand and
+//! at the one before, for what holds only for some repositories.
 
 use crate::finding::UnitName;
 use crate::names::{BuildName, CheckName, VersionWriterName};
 use crate::path::RelativePath;
 use crate::resolve::Unit;
-use crate::{Analysis, Central, TagVersion, UnitVersion};
+use crate::{Analysis, Audience, Central, TagVersion, UnitVersion};
 use serde_json::{Value, json};
 
 use crate::versions::of_pull_request;
@@ -66,6 +69,11 @@ pub struct Plan {
     /// [`Plan::to_json`], and the `current` of a unit the pull request
     /// touches, then carries `-pr.<number>` behind it.
     pub pull_request: Option<u64>,
+    /// For whom the repository is meant, as the declaration at hand says.
+    pub audience: Option<Audience>,
+    /// For whom the declaration of the commit before says it is meant: on a
+    /// pull request the tip of its base branch.
+    pub previous_audience: Option<Audience>,
 }
 
 /// Builds the plan from an analysis.
@@ -116,6 +124,8 @@ pub fn plan(analysis: &Analysis, central: &Central) -> Plan {
         units: planned,
         versions,
         pull_request: None,
+        audience: analysis.audience,
+        previous_audience: analysis.previous_audience,
     }
 }
 
@@ -160,6 +170,11 @@ impl Plan {
     /// behind it, being the one its squash merge would get, and so does
     /// `current` where the pull request touches the unit: it is that version
     /// then.
+    ///
+    /// `audience` is for whom the repository is meant, as the declaration at
+    /// hand says, and `previous_audience` what the declaration of the commit
+    /// before says, null when it names none: on a pull request the tip of its
+    /// base branch, so that a change of the value can be shown.
     ///
     /// One line, so that it can be handed on as a step output as it is. Keys
     /// stand in alphabetical order; nothing that reads JSON depends on it.
@@ -214,7 +229,14 @@ impl Plan {
             .collect();
         // Writing a value cannot fail: every key is a string, and nothing here
         // has a serializer of its own that could refuse.
-        json!({ "units": units, "checks": checks, "versions": versions }).to_string()
+        json!({
+            "audience": self.audience.map(Audience::as_str),
+            "checks": checks,
+            "previous_audience": self.previous_audience.map(Audience::as_str),
+            "units": units,
+            "versions": versions,
+        })
+        .to_string()
     }
 }
 

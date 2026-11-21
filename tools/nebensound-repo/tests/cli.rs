@@ -215,7 +215,7 @@ fn broken_built_in_data_says_so() {
     let code = nebensound_repo::run_against(
         ["nebensound-repo", "-C", root(&dir)],
         "this is not a register",
-        "[repo]\n",
+        "[repo]\naudience = \"public\"\n",
         Output::Elsewhere,
         &mut out,
     );

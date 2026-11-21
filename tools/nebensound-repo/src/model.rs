@@ -113,6 +113,11 @@ pub struct Exclusion {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Repo {
+    /// For whom the repository is meant. Phase 0 demands it in the
+    /// declaration of the commit at hand; a declaration of an earlier commit
+    /// is read without it, since it takes no part in resolving versions.
+    #[serde(default)]
+    pub audience: Option<Audience>,
     /// What runs for it.
     #[serde(default)]
     pub pipeline: Option<Pipeline>,
@@ -170,6 +175,43 @@ pub struct Component {
     /// Checks that may find nothing without failing, each with its reason.
     #[serde(default)]
     pub allow_unused: BTreeMap<CheckName, Reason>,
+}
+
+/// For whom a repository is meant: which layer of rules holds for it.
+///
+/// Written down rather than read off GitHub: GitHub knows whether a
+/// repository is public, not whether a customer sees it.
+#[cfg_attr(feature = "program", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub enum Audience {
+    /// Open source of the organization: the repository is public.
+    #[serde(rename = "public")]
+    Public,
+    /// Private, for the organization alone.
+    #[serde(rename = "internal")]
+    Internal,
+    /// Private, and a customer can see it. For rules it includes everything
+    /// that holds for `internal`.
+    #[serde(rename = "customer")]
+    Customer,
+}
+
+impl Audience {
+    /// The value as written in the file.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Public => "public",
+            Self::Internal => "internal",
+            Self::Customer => "customer",
+        }
+    }
+}
+
+impl fmt::Display for Audience {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 /// How a unit's version reaches a full release.

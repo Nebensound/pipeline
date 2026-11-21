@@ -22,11 +22,23 @@ outputs:
 runs:
   using: composite
   steps:
+    # Phase 0 holds the declared audience against what the run knows of the
+    # repository: how GitHub shows it, `public` exactly when it is public. The
+    # event names it; one that does not carry the repository is answered by
+    # the API, which the token may always read the repository's metadata
+    # from. On a developer's machine nobody passes it, and nothing is
+    # compared.
     - name: Run phase 0
       shell: bash
+      env:
+        VISIBILITY: ${{ github.event.repository.visibility }}
+        GH_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
-        nebensound-repo -C "$GITHUB_WORKSPACE" check
+        if [ -z "$VISIBILITY" ]; then
+          VISIBILITY="$(gh api "repos/$GITHUB_REPOSITORY" --jq .visibility)"
+        fi
+        nebensound-repo -C "$GITHUB_WORKSPACE" check --visibility "$VISIBILITY"
 
     # Only reached when phase 0 passed. Every Rust package `[[exclude]]` takes
     # out as a whole is named in the summary of the run, with its reason: a
@@ -82,3 +94,22 @@ runs:
         plan="$("${call[@]}")"
         echo "$plan"
         echo "plan=$plan" >> "$GITHUB_OUTPUT"
+
+    # Only reached when phase 0 passed. A pull request that changes for whom
+    # the repository is meant names the old and the new value in the summary
+    # of the run, as a notice: the value decides which rules hold for the
+    # repository, so a reviewer should not have to find it in the diff. The
+    # plan carries both, the one before being that of the base branch. Both
+    # are one of a few fixed words, so nothing needs escaping.
+    - name: Name a change of the audience
+      shell: bash
+      env:
+        NUMBER: ${{ github.event.pull_request.number }}
+        PLAN: ${{ steps.plan.outputs.plan }}
+      run: |
+        set -euo pipefail
+        if [ -z "$NUMBER" ]; then
+          exit 0
+        fi
+        jq -r 'select(.audience != .previous_audience)
+          | "::notice title=Audience changed::This pull request changes the audience of the repository from \(.previous_audience // "none declared") to \(.audience)."' <<< "$PLAN"
