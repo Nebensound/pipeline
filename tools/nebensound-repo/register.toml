@@ -283,9 +283,15 @@ dependabot = []
 # resolution happens. In a workspace that is the root, and a member has nothing
 # of its own — counting its Cargo.toml as a manifest would mean taking every
 # package for an ecosystem of its own.
+#
+# The lockfile of a Cargo.toml is the Cargo.lock in the root of the workspace
+# its package belongs to; phase 0 warns when Git does not track it. Its name is
+# one a check above covers: what a lockfile is, is said there, and an ecosystem
+# that names another is refused.
 [ecosystem.cargo]
 package-ecosystem = "cargo"
 manifests         = ["Cargo.lock"]
+lockfile          = { manifest = "Cargo.toml", name = "Cargo.lock", stands = "cargo-workspace-root" }
 
 [ecosystem.uv]
 package-ecosystem = "uv"

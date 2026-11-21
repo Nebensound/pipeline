@@ -95,6 +95,9 @@ pub enum Rule {
     UnwatchedManifest,
     /// A watched ecosystem whose manifest does not exist.
     PointlessWatch,
+    /// A manifest whose lockfile, as the register names it, Git does not
+    /// track.
+    MissingLockfile,
     /// A commit message that is not a Conventional Commit.
     UnconventionalCommit,
     /// A clone without the whole history, so no version can be told.
@@ -166,6 +169,7 @@ impl Rule {
             Self::BuildWithoutFile => "build-without-file",
             Self::UnwatchedManifest => "unwatched-manifest",
             Self::PointlessWatch => "pointless-watch",
+            Self::MissingLockfile => "missing-lockfile",
             Self::UnconventionalCommit => "unconventional-commit",
             Self::ShallowClone => "shallow-clone",
             Self::MissingReleaseBranch => "missing-release-branch",

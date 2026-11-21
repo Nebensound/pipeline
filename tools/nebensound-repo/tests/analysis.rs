@@ -894,6 +894,7 @@ fn every_rule_has_a_code_of_its_own() {
         Rule::BuildWithoutFile,
         Rule::UnwatchedManifest,
         Rule::PointlessWatch,
+        Rule::MissingLockfile,
         Rule::UnconventionalCommit,
         Rule::ShallowClone,
         Rule::MissingReleaseBranch,

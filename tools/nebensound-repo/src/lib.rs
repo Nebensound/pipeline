@@ -34,6 +34,7 @@ pub mod files;
 pub mod finding;
 pub mod history;
 pub mod ignored;
+pub mod lockfiles;
 pub mod model;
 pub mod names;
 pub mod output;
@@ -61,6 +62,7 @@ pub mod ui;
 pub mod validate;
 pub mod version;
 pub mod versions;
+pub mod workspace;
 pub mod writer;
 
 pub use annotate::{Annotated, Coverage, Kind, Node, annotate};
