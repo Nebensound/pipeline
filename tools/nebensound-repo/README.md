@@ -26,11 +26,13 @@ the JSON Schema of `schema`. Building and installing the tool take no flag. What
 builds on the library alone switches the default features off and compiles
 neither.
 
-`rules/` holds the defaults that `check-markdown` and `check-yaml` lay a
-repository's own linter configuration over. The blocks read them from there,
-and the tool compiles them in to show how a repository's rules stand to them
+`rules/` holds the defaults that `check-markdown`, `check-yaml` and
+`check-python` lay a repository's own linter configuration over. The blocks
+read them from there, and the tool compiles the ones of Markdownlint and
+yamllint in to show how a repository's rules stand to them
 ([The rules](#the-rules)), so both speak of the same files, and a change to
-one of them is a change to the tool, which builds it again.
+one of them is a change to the tool, which builds it again. Ruff's default is
+not shown yet.
 
 The tool itself is not to be published: whoever needs it is to get it through
 the composite action under `.github/actions/phase0`. A second distribution
