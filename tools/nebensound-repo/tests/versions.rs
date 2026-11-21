@@ -627,7 +627,7 @@ fn an_edition_this_tool_does_not_know_stops_wherever_it_stands_on_the_line() {
     assert!(text.contains(&message), "{text}");
 
     // Any other mistake in an earlier declaration makes it one that does not
-    // read, which counts with what the commit at hand says.
+    // read, which counts with what the next readable declaration says.
     let git = units();
     git.write(&[(".nebensound/repo.toml", &format!("edition = 0\n\n{UNITS}"))]);
     git.commit("fix: an edition that does not exist");

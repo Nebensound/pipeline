@@ -178,7 +178,7 @@ the commit at hand, a pre-release included, after a promotion the full version,
 `none` before the first commit that touches the unit; `This commit` the version
 of the commit at hand, `none` when the commit does not touch the unit;
 `Waiting`, for a unit released in two stages, the commits since its last
-promotion that touch it, the commit at hand included, which is what its next
+full release that touch it, the commit at hand included, which is what its next
 full release takes in. In one stage every commit that touches the unit is a
 release of its own, and the cell stays empty. `--markdown` prints the same rows
 as a Markdown table with a short legend, which the job `Version` writes into

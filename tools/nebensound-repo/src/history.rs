@@ -320,8 +320,9 @@ pub struct UnitVersion {
     /// touch the unit, or when a finding stands in the way.
     pub version: Option<TagVersion>,
     /// For a unit released in two stages, how many commits since its last
-    /// promotion touch it, the commit at hand included: what its next full
-    /// release takes in. [`None`] for a unit released in one stage, where
+    /// full release touch it, the commit at hand included: what its next full
+    /// release takes in. After a switch from one stage before any promotion,
+    /// that is the last release in one stage. [`None`] for a unit released in one stage, where
     /// every touching commit is a release of its own, and when the history
     /// cannot be read for it: no `release` branch.
     pub waiting: Option<usize>,

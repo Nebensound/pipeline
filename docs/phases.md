@@ -70,7 +70,7 @@ row per unit that carries a version:
 | Release     | `single-stage` or `two-stage`.                                                                                                                   |
 | Current     | The highest version the history gives a commit up to the commit at hand, a pre-release included; `none` before the first commit that touches it. |
 | This commit | The version of the commit at hand, `none` when the commit does not touch the unit.                                                               |
-| Waiting     | In two stages only: the commits since the last promotion that touch the unit, the commit at hand included. Empty in one stage.                   |
+| Waiting     | In two stages only: the commits since the last full release that touch the unit, the commit at hand included. Empty in one stage.                |
 
 [The reference of the declaration](declaration.md#versions) describes how each
 value is resolved. The repository always carries a version, so the table always

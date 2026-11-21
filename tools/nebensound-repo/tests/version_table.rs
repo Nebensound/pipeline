@@ -164,7 +164,57 @@ fn the_table_says_what_the_plan_says_in_both_forms() {
 }
 
 #[test]
-fn waiting_counts_the_touching_commits_since_the_last_promotion() {
+fn waiting_after_a_switch_to_two_stages_counts_from_the_last_release_in_one_stage() {
+    let git = Git::new();
+    git.write(&[
+        (
+            ".nebensound/repo.toml",
+            &UNITS.replace("release  = \"two-stage\"\n", ""),
+        ),
+        ("README.md", "# Units\n"),
+        ("app/a.md", "# App\n"),
+        ("lib/b.md", "# Lib\n"),
+    ]);
+    git.commit("chore: start");
+    for number in 2..=4 {
+        git.write(&[("lib/b.md", &format!("# Lib\n\n{number}.\n"))]);
+        git.commit(&format!("fix: lib {number}"));
+    }
+    let analysis = analysed(&Repository::at(git.path()));
+    assert_eq!(of(&analysis, "lib-v"), (Some("0.0.4".to_owned()), None));
+
+    // A `release` branch that holds no promotion yet.
+    let first = git.run(&["rev-list", "--max-parents=0", "HEAD"]);
+    git.run(&["branch", "release", first.trim()]);
+    git.run(&["update-ref", "refs/remotes/origin/release", "release"]);
+    git.write(&[
+        (".nebensound/repo.toml", UNITS),
+        ("lib/b.md", "# Lib\n\nIn two stages.\n"),
+    ]);
+    git.commit("feat: lib in two stages");
+    let analysis = analysed(&Repository::at(git.path()));
+    // There was no promotion, yet one commit waits: the four releases in one
+    // stage are full releases, and the next promotion takes in only this one.
+    assert_eq!(
+        of(&analysis, "lib-v"),
+        (Some("0.0.5-pre.1".to_owned()), Some(1))
+    );
+
+    git.write(&[("lib/b.md", "# Lib\n\nAgain.\n")]);
+    git.commit("fix: lib again");
+    let analysis = analysed(&Repository::at(git.path()));
+    assert_eq!(
+        of(&analysis, "lib-v"),
+        (Some("0.0.5-pre.2".to_owned()), Some(2))
+    );
+
+    git.promote();
+    let analysis = analysed(&Repository::at(git.path()));
+    assert_eq!(of(&analysis, "lib-v"), (Some("0.0.5".to_owned()), Some(0)));
+}
+
+#[test]
+fn waiting_counts_the_touching_commits_since_the_last_full_release() {
     let git = released();
     let analysis = analysed(&Repository::at(git.path()));
     // The commit at hand is promoted, so nothing waits for lib. In one stage

@@ -134,7 +134,7 @@ pub fn markdown(versions: &[UnitVersion], pull_request: Option<u64>) -> String {
     lines.push(
         "Current is the highest version the history gives a commit up to this one. A unit this \
          commit does not touch has no version of its own here. Waiting, for a unit released in \
-         two stages, is the commits since its last promotion that touch it, this commit \
+         two stages, is the commits since its last full release that touch it, this commit \
          included."
             .to_owned(),
     );
