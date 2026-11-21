@@ -72,7 +72,8 @@ pub struct Plan {
     /// For whom the repository is meant, as the declaration at hand says.
     pub audience: Option<Audience>,
     /// For whom the declaration of the commit before says it is meant: on a
-    /// pull request the tip of its base branch.
+    /// pull request into `main` the tip of `main`, on one from `main` into
+    /// `release` the commit of `main` it merges.
     pub previous_audience: Option<Audience>,
 }
 
@@ -173,8 +174,10 @@ impl Plan {
     ///
     /// `audience` is for whom the repository is meant, as the declaration at
     /// hand says, and `previous_audience` what the declaration of the commit
-    /// before says, null when it names none: on a pull request the tip of its
-    /// base branch, so that a change of the value can be shown.
+    /// before says, null when it names none: on a pull request into `main` the
+    /// tip of `main`, so that a change of the value can be shown. On one from
+    /// `main` into `release` it is the commit of `main` it merges, so a
+    /// promotion shows no change.
     ///
     /// One line, so that it can be handed on as a step output as it is. Keys
     /// stand in alphabetical order; nothing that reads JSON depends on it.

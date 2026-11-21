@@ -452,8 +452,9 @@ pub struct Analysis {
     /// [`None`] when it does not say, which is the error `missing-audience`.
     pub audience: Option<Audience>,
     /// For whom the declaration of the commit before the commit at hand on
-    /// the line says the repository is meant: on a pull request the tip of its
-    /// base branch. [`None`] until a history is added with
+    /// the line says the repository is meant: on a pull request into `main`
+    /// the tip of `main`, on one from `main` into `release` the commit of
+    /// `main` it merges. [`None`] until a history is added with
     /// [`Analysis::with_history`], and when that declaration names none.
     pub previous_audience: Option<Audience>,
 }

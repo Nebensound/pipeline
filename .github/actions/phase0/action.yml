@@ -40,29 +40,6 @@ runs:
         fi
         nebensound-repo -C "$GITHUB_WORKSPACE" check --visibility "$VISIBILITY"
 
-    # Only reached when phase 0 passed. Every Rust package `[[exclude]]` takes
-    # out as a whole is named in the summary of the run, with its reason: a
-    # notice, not a warning, since the declaration gives the reason.
-    # `check-rust` leaves such a package out of every step and compiles it
-    # only as a dependency of others.
-    - name: Name the excluded packages
-      shell: bash
-      run: |
-        set -euo pipefail
-        # The tool writes a refusal where the list would go: into the log
-        # with it, or the step fails without saying why.
-        if ! list="$(nebensound-repo -C "$GITHUB_WORKSPACE" excluded-packages)"; then
-          echo "$list" >&2
-          exit 1
-        fi
-        echo "$list"
-        # A workflow command ends at a line break and reads `%` as the start
-        # of an escape, so a reason holding either is escaped.
-        jq -r '.[]
-          | "The Rust package at \(.path) is excluded from every step of check-rust: \(.reason)"
-          | gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A")
-          | "::notice title=Excluded package::\(.)"' <<< "$list"
-
     # Only reached when phase 0 passed: a declaration with errors gets no plan.
     #
     # On a pull request the checkout is the merge commit GitHub builds for it,
@@ -99,8 +76,15 @@ runs:
     # the repository is meant names the old and the new value in the summary
     # of the run, as a notice: the value decides which rules hold for the
     # repository, so a reviewer should not have to find it in the diff. The
-    # plan carries both, the one before being that of the base branch. Both
-    # are one of a few fixed words, so nothing needs escaping.
+    # plan carries both, the one before being that of the base branch on a
+    # pull request into `main`. On one from `main` into `release` it is that
+    # of the commit of `main` it merges, so a promotion names no change: the
+    # change was named on its pull request into `main`. Both are one of a few
+    # fixed words, so nothing needs escaping.
+    #
+    # The step runs before the excluded packages are named: GitHub keeps only
+    # the first annotations of a job, and a long list of them would hide this
+    # one. The line also goes into the step summary, which keeps all of it.
     - name: Name a change of the audience
       shell: bash
       env:
@@ -111,5 +95,32 @@ runs:
         if [ -z "$NUMBER" ]; then
           exit 0
         fi
-        jq -r 'select(.audience != .previous_audience)
-          | "::notice title=Audience changed::This pull request changes the audience of the repository from \(.previous_audience // "none declared") to \(.audience)."' <<< "$PLAN"
+        line="$(jq -r 'select(.audience != .previous_audience)
+          | "This pull request changes the audience of the repository from \(.previous_audience // "none declared") to \(.audience)."' <<< "$PLAN")"
+        if [ -n "$line" ]; then
+          echo "::notice title=Audience changed::$line"
+          echo "$line" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    # Only reached when phase 0 passed. Every Rust package `[[exclude]]` takes
+    # out as a whole is named in the summary of the run, with its reason: a
+    # notice, not a warning, since the declaration gives the reason.
+    # `check-rust` leaves such a package out of every step and compiles it
+    # only as a dependency of others.
+    - name: Name the excluded packages
+      shell: bash
+      run: |
+        set -euo pipefail
+        # The tool writes a refusal where the list would go: into the log
+        # with it, or the step fails without saying why.
+        if ! list="$(nebensound-repo -C "$GITHUB_WORKSPACE" excluded-packages)"; then
+          echo "$list" >&2
+          exit 1
+        fi
+        echo "$list"
+        # A workflow command ends at a line break and reads `%` as the start
+        # of an escape, so a reason holding either is escaped.
+        jq -r '.[]
+          | "The Rust package at \(.path) is excluded from every step of check-rust: \(.reason)"
+          | gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A")
+          | "::notice title=Excluded package::\(.)"' <<< "$list"

@@ -40,10 +40,7 @@ it and hands the result on:
    resolved configuration, the annotated tree, the findings and a summary line.
    [The reference of the declaration](declaration.md) describes every field and
    every finding.
-3. When phase 0 found no error, every Rust package `[[exclude]]` takes out as a
-   whole (`nebensound-repo excluded-packages`) is named in the summary of the
-   run with its reason, as a notice.
-4. Then `nebensound-repo plan` prints the plan: every unit, with the checks
+3. When phase 0 found no error, `nebensound-repo plan` prints the plan: every unit, with the checks
    started for it and the build it names, and the version of every unit that
    carries one, its current version and the version writers it selects. On a
    pull request the plan is built the way the job Version reads it (see below):
@@ -54,8 +51,13 @@ it and hands the result on:
    whole plan is handed on with them: a later job checks out no history, so a
    version writer takes the versions from the plan. The plan also carries for
    whom the repository is meant.
-5. On a pull request that changes the audience, the old and the new value are
-   named in the summary of the run, as a notice.
+4. On a pull request into `main` that changes the audience, the old and the new
+   value are named in the summary of the run, as a notice and in the step
+   summary. A promotion into `release` names no change: it was named on the
+   pull request into `main`.
+5. Then every Rust package `[[exclude]]` takes out as a
+   whole (`nebensound-repo excluded-packages`) is named in the summary of the
+   run with its reason, as a notice.
 
 An error ends the phase here: there is no plan, no check runs, nothing is
 built, and `nebensound / Check` and `nebensound / Build` fail. A warning stops

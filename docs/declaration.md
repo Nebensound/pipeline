@@ -257,8 +257,10 @@ public, but not whether a customer sees it, so the declaration says it.
   [`mismatched-audience`](#mismatched-audience). On a developer's machine
   nothing is compared: `nebensound-repo check` compares only when it is given
   `--visibility`, which the job `nebensound / Declare` passes.
-- A pull request that changes the value names the old and the new value in the
-  summary of the run, as a notice.
+- A pull request into `main` that changes the value names the old and the new
+  value in the summary of the run, as a notice and in the step summary. A pull
+  request from `main` into `release` names no change: the change was named on
+  its pull request into `main`.
 - The plan carries the value as `audience` (see
   [the tool's README](../tools/nebensound-repo/README.md#the-plan)), and
   `nebensound-repo explain` shows it for every path.

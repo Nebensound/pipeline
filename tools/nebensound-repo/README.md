@@ -143,8 +143,10 @@ they are resolved from the history is described in
 says (see [the reference](../../docs/declaration.md#audience)), and
 `previous_audience` what the declaration of the commit before it on the line
 says, `null` when that commit names none or there is none. On a pull request
-that is the tip of its base branch, so Declare names a change of the value in
-the summary of the run from the two.
+into `main` that is the tip of `main`, so Declare names a change of the value in
+the summary of the run from the two. On a pull request from `main` into
+`release` it is the commit of `main` the merge brings in, so a promotion names
+no change: the change was named on its pull request into `main`.
 
 `--pull-request <number> --message <message>` builds the plan for a pull
 request, reading `HEAD` the way [`version`](#the-versions) does: every `version`
