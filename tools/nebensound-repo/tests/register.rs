@@ -281,7 +281,7 @@ const COVERAGE_TABLE: &[Coverage] = &[
     (
         "json",
         &[".json", ".jsonc", ".geojson"],
-        &["composer.lock", "flake.lock"],
+        &["composer.lock", "flake.lock", "Pipfile.lock"],
     ),
     ("markdown", &[".md", ".markdown"], &[]),
     ("php", &[".php"], &[]),
@@ -291,7 +291,11 @@ const COVERAGE_TABLE: &[Coverage] = &[
     ("rust", &[".rs"], &[]),
     ("shell", &[".sh", ".bash"], &[]),
     ("sql", &[".sql"], &[]),
-    ("toml", &[".toml"], &["Cargo.lock", "uv.lock"]),
+    (
+        "toml",
+        &[".toml"],
+        &["Cargo.lock", "uv.lock", "poetry.lock", "pdm.lock"],
+    ),
     ("typst", &[".typ"], &[]),
     ("yaml", &[".yml", ".yaml"], &[]),
 ];
@@ -377,6 +381,9 @@ fn a_check_is_found_by_extension_or_by_whole_name() {
     assert_eq!(register.check_for("api/uv.lock"), Some(&named("toml")));
     assert_eq!(register.check_for("composer.lock"), Some(&named("json")));
     assert_eq!(register.check_for("sub/flake.lock"), Some(&named("json")));
+    assert_eq!(register.check_for("poetry.lock"), Some(&named("toml")));
+    assert_eq!(register.check_for("api/pdm.lock"), Some(&named("toml")));
+    assert_eq!(register.check_for("Pipfile.lock"), Some(&named("json")));
     // A lockfile is assigned by its name, never by the extension `.lock`.
     assert_eq!(register.check_for("yarn.lock"), None);
     assert_eq!(register.check_for("Gemfile.lock"), None);

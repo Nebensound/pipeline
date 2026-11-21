@@ -114,9 +114,12 @@ fn a_lockfile_goes_to_the_check_its_name_assigns() {
         ".nebensound/repo.toml",
         "Cargo.lock",
         "Gemfile.lock",
+        "Pipfile.lock",
         "app/uv.lock",
         "composer.lock",
         "flake.lock",
+        "pdm.lock",
+        "poetry.lock",
         "web/yarn.lock",
     ];
     let analysis = analysis("[repo]\npipeline = \"none\"\n", lockfiles);
@@ -127,8 +130,17 @@ fn a_lockfile_goes_to_the_check_its_name_assigns() {
     let toml = files(&analysis, &central, "toml", &root).unwrap();
     assert_eq!(
         names(&toml),
-        [".nebensound/repo.toml", "Cargo.lock", "app/uv.lock"]
+        [
+            ".nebensound/repo.toml",
+            "Cargo.lock",
+            "app/uv.lock",
+            "pdm.lock",
+            "poetry.lock"
+        ]
     );
     let json = files(&analysis, &central, "json", &root).unwrap();
-    assert_eq!(names(&json), ["composer.lock", "flake.lock"]);
+    assert_eq!(
+        names(&json),
+        ["Pipfile.lock", "composer.lock", "flake.lock"]
+    );
 }

@@ -1,0 +1,1 @@
+::error file=pdm.lock*::fails taplo lint*

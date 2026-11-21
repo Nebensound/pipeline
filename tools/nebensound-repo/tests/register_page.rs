@@ -99,7 +99,7 @@ fn the_page_names_what_the_register_says() {
         &[
             "`json`",
             "`.json`, `.jsonc`, `.geojson`",
-            "`composer.lock`, `flake.lock`",
+            "`composer.lock`, `flake.lock`, `Pipfile.lock`",
             "`biome`, `jq`, `prettier`",
         ],
         &[
