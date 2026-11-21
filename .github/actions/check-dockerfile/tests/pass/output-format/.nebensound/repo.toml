@@ -1,5 +1,7 @@
 # The repository's configuration names an output format of its own. Hadolint
 # writes it as well, before the JSON report the block reads; the block sends
-# it nowhere, and the report still reads.
+# it nowhere, and the report still reads. The label key is a style finding
+# (DL3048), so the tty format prints a line: had it landed in the report, the
+# report would no longer read as JSON and the case would fail.
 [repo]
 pipeline = { check = ["dockerfile"], dependabot = ["docker"] }
