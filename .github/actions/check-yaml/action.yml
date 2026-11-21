@@ -269,8 +269,14 @@ runs:
     # as an invalid reference. `$/` is how this repository reaches its own
     # building blocks at the commit that is running, so the finding would be
     # wrong in every workflow here. Every other finding on the same line and
-    # every other malformed `uses:` is still reported. The two patterns go once
-    # actionlint knows the form.
+    # every other malformed `uses:` is still reported.
+    #
+    # A third is taken out for exactly one key: actionlint 1.7.12 does not
+    # know `queue` in a `concurrency` section yet, which GitHub documents and
+    # the central workflow uses, so that a waiting run is never replaced.
+    # Every other unknown key of the section is still reported, and so is
+    # every other finding about it. The three patterns go once actionlint
+    # knows the form and the key.
     - name: Every workflow passes actionlint
       if: ${{ !cancelled() && steps.actionlint.outcome == 'success' }}
       shell: bash
@@ -281,6 +287,7 @@ runs:
         xargs -0 "$RUNNER_TEMP/check-yaml-tools/bin/actionlint" \
           -ignore '^specifying action "\$/[^"]+" in invalid format because ref is missing' \
           -ignore '^reusable workflow call "\$/[^"]+" at "uses" is not following the format' \
+          -ignore '^unexpected key "queue" for "concurrency" section\. ' \
           -format '{{range $err := .}}::error file={{$err.Filepath}},line={{$err.Line}},col={{$err.Column}}::{{$err.Message}} [{{$err.Kind}}]\n{{end}}' \
           -- < "$WORKFLOWS"
 

@@ -1,0 +1,20 @@
+name: ci
+
+on:
+  push:
+
+# Only `queue` is excused: a misspelt key beside it is still a finding.
+concurrency:
+  group: ci
+  cancel-in-progres: false
+  queue: max
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Say hello
+        run: echo "A misspelt key beside the queue."

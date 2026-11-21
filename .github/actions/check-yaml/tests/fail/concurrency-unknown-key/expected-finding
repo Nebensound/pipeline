@@ -1,0 +1,2 @@
+# The key `queue` is excused, and the misspelt one beside it is not.
+::error file=.github/workflows/ci.yml,line=9,col=3::unexpected key "cancel-in-progres" for "concurrency" section*

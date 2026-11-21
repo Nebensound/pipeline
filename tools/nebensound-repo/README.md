@@ -102,6 +102,7 @@ a run has to start, and where.
       "path": ".",
       "prefix": "v",
       "release": "single-stage",
+      "targets": [],
       "version": "0.3.2",
       "writers": []
     },
@@ -112,6 +113,7 @@ a run has to start, and where.
       "path": "tool",
       "prefix": "tool-v",
       "release": "two-stage",
+      "targets": ["crates.io"],
       "version": null,
       "writers": ["cargo"]
     }
@@ -133,11 +135,14 @@ start with, `release` how it is released, `current` its current version, the
 highest one the history gives a commit of the line up to the commit at hand, a
 pre-release included (`null` before the first commit that touches the unit),
 `version` the version of the commit at hand, `null` when the commit does not
-touch the unit, and `writers` the version writers the unit selects. `current`
+touch the unit, `writers` the version writers the unit selects, and `targets`
+the publish targets its artifact goes to, `[]` for `publish = false`. `current`
 is what the version writer `cargo` requires of a path dependency whose unit
-the commit does not touch, where a package that gets a version needs it. How
-they are resolved from the history is described in
-[the reference of the declaration](../../docs/declaration.md#versions).
+the commit does not touch, where a package that gets a version needs it. The
+release stage on `main` releases each unit whose `version` is not `null`, as
+its `prefix` and `release` say, and `Check` fails for every entry of `targets`
+that has no building block. How they are resolved from the history is
+described in [the reference of the declaration](../../docs/declaration.md#versions).
 
 `audience` is for whom the repository is meant, as the declaration at hand
 says (see [the reference](../../docs/declaration.md#audience)), and

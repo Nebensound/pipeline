@@ -5,26 +5,34 @@ that the workflow's reference does not state elsewhere. The caller file itself
 is in [the README](../README.md#calling-the-pipeline); what runs and under which name is
 in [the phases](phases.md).
 
-## Pinning while no release exists
+## Pinning before `v0.1.0`
 
-The reference in the caller file is pinned to an exact version. Until the first
-release there is none, so pin the full 40-character SHA of a commit on `main`
-and write the commit's date behind it as a comment, so that a reader sees how old
-the pin is without looking the commit up:
+The reference in the caller file is pinned to an exact version. This
+repository releases every merge to `main`, as `v0.0.N` until `v0.1.0`, the
+first version meant for callers. Until then, pin the full 40-character SHA of a
+commit on `main` and write the commit's date behind it as a comment, so that a
+reader sees how old the pin is without looking the commit up:
 
 ```yaml
 jobs:
   nebensound:
     uses: Nebensound/pipeline/.github/workflows/nebensound.yml@<full commit SHA> # 2026-11-19
     permissions:
-      contents: read
+      contents: write
 ```
 
 The date is the commit's, as `git log -1 --format=%cs <SHA>` prints it, not the
-day of the pin. A shortened SHA or a branch name is not a pin. Without a
-release, nothing raises the pin: raise it by hand, to the then current commit
-of `main`. From the first release on, pin the release tag, such as `v0.0.1`,
-which Dependabot raises as a pull request.
+day of the pin. A shortened SHA or a branch name is not a pin. Raise the pin by
+hand, to the then current commit of `main`. From `v0.1.0` on, pin the release
+tag, which Dependabot raises as a pull request.
+
+The job grants `contents: write`, which the release stage on `main` needs to
+write tags and releases. Only the workflow's job `Publish` asks for it, after a
+push to `main`; every other job, and every job of a pull request, keeps a read
+token (see [the phases](phases.md#pull-request-and-push)). A caller that raises
+its pin to a commit with `Publish` grants `contents: write` in the same change:
+GitHub refuses every run, pull requests included, whose called workflow asks
+for more than the caller grants.
 
 ## The schema line runs ahead of the pin
 
