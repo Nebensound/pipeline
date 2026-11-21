@@ -44,6 +44,7 @@ pub mod plan;
 pub mod programs;
 pub mod reference;
 pub mod register;
+pub mod release_fields;
 pub mod report;
 pub mod repository;
 pub mod resolve;

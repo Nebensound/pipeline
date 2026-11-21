@@ -719,6 +719,7 @@ fn every_rule_has_a_code_of_its_own() {
         Rule::TargetDemandsCheck,
         Rule::PublishWithoutVersion,
         Rule::VersionWriterWithoutVersion,
+        Rule::ReleaseFieldWithoutVersion,
         Rule::BuildWithoutVersionWriter,
         Rule::UnwatchedManifest,
         Rule::PointlessWatch,
