@@ -14,6 +14,7 @@ use crate::model::Declaration;
 use crate::names::CheckName;
 use crate::resolve::{Origin, Resolution, Unit};
 use crate::tree::Tree;
+use crate::version::FeatTypes;
 
 /// Checks a resolution against the tree it was resolved for.
 #[must_use]
@@ -447,6 +448,9 @@ pub struct Analysis {
     /// The version of every unit that carries one, at the commit at hand.
     /// Empty until a history is added with [`Analysis::with_history`].
     pub versions: Vec<UnitVersion>,
+    /// The commit types that count like `feat` in the declaration at hand,
+    /// beside `feat` itself.
+    pub feat_types: FeatTypes,
 }
 
 impl Analysis {
@@ -458,7 +462,8 @@ impl Analysis {
     /// since a unit's path and release mode at that commit count.
     #[must_use]
     pub fn with_history(mut self, history: &History, central: &Central) -> Self {
-        let resolved = crate::history::versions(&self.units, history, central.register());
+        let resolved =
+            crate::history::versions(&self.units, &self.feat_types, history, central.register());
         self.versions = resolved.units;
         self.loose.extend(resolved.findings);
         self
@@ -503,6 +508,7 @@ pub fn analyse(declaration: &Declaration, central: &Central, tree: &Tree) -> Ana
         tree: annotated,
         loose,
         versions: Vec::new(),
+        feat_types: declaration.repo.feat_types.clone(),
     }
 }
 

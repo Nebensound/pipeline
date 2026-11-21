@@ -38,6 +38,9 @@
 //!   as that commit declares it, or the declaration itself. The repository is
 //!   touched by every commit. Only the line counts, and a merge commit touches
 //!   nothing.
+//! - The **change** of a commit follows from its message as a Conventional
+//!   Commit, read with the commit types that count like `feat` in the
+//!   declaration that commit holds (`feat-types`).
 //! - **One stage**: a commit that touches the unit is the base raised once per
 //!   touching commit since the base, each by its own change.
 //! - **Two stages**: the target is the base raised once by the highest change
@@ -80,7 +83,7 @@ use crate::path::RelativePath;
 use crate::register::Register;
 use crate::resolve::{Origin, Unit, resolve};
 use crate::tree::Tree;
-use crate::version::{Change, TagVersion, Unconventional, Version, change_of};
+use crate::version::{Change, FeatTypes, TagVersion, Unconventional, Version, change_of};
 
 /// Where the declaration lies. A commit that changes it touches every unit:
 /// what the declaration says about a unit is part of the unit.
@@ -467,6 +470,52 @@ impl<'h> Tracked<'h> {
     }
 }
 
+/// Every declaration the line holds, by the object it is held in: [`None`]
+/// for one that does not read.
+type Parsed<'h> = BTreeMap<&'h str, Option<Declaration>>;
+
+/// Every declaration the line holds, read once.
+fn parsed(history: &History) -> Parsed<'_> {
+    history
+        .declarations
+        .iter()
+        .map(|(object, text)| (object.as_str(), Declaration::parse(text).ok()))
+        .collect()
+}
+
+/// What each commit of the line asks of a version, by its position: its
+/// message read with the commit types that count like `feat` in the
+/// declaration that commit holds, as every field that decides a version is.
+///
+/// A commit whose declaration does not read takes them from the nearest
+/// commit after it on the line whose declaration reads, as it takes a unit's
+/// path and mode, and from the declaration at hand while none follows. A
+/// commit without a declaration counts for no unit, so what it is read with
+/// never decides a version.
+fn changes(
+    history: &History,
+    parsed: &Parsed<'_>,
+    at_hand: &FeatTypes,
+) -> Vec<Result<Change, Unconventional>> {
+    // The line runs from the commit at hand back, so the nearest readable
+    // declaration after a commit is the last one met before it.
+    let mut later = at_hand;
+    history
+        .line
+        .iter()
+        .map(|commit| {
+            if let Some(Some(declaration)) = commit
+                .declaration
+                .as_deref()
+                .and_then(|object| parsed.get(object))
+            {
+                later = &declaration.repo.feat_types;
+            }
+            change_of(&commit.message, later)
+        })
+        .collect()
+}
+
 /// What each commit of the line declares, in the order of the line.
 ///
 /// Each declaration is resolved with the register and with the tree its
@@ -474,15 +523,12 @@ impl<'h> Tracked<'h> {
 /// tree of a commit follows from the one after it on the line by taking back
 /// what that one added and removed. At a merge into `release` the commit of
 /// `main` it merges holds the tree of the merge, so nothing is taken back.
-fn views(history: &History, register: &Register) -> Vec<At> {
-    let reads: BTreeMap<&str, Option<Read>> = history
-        .declarations
-        .iter()
-        .map(|(object, text)| {
-            let read = Declaration::parse(text)
-                .ok()
-                .map(|declaration| Read::new(declaration, register));
-            (object.as_str(), read)
+fn views(history: &History, parsed: Parsed<'_>, register: &Register) -> Vec<At> {
+    let reads: BTreeMap<&str, Option<Read>> = parsed
+        .into_iter()
+        .map(|(object, declaration)| {
+            let read = declaration.map(|declaration| Read::new(declaration, register));
+            (object, read)
         })
         .collect();
     // A file whose name no declaration could write down generates nothing.
@@ -692,9 +738,16 @@ fn owner(unit: &Unit) -> &UnitName {
 }
 
 /// Resolves the version of every unit that carries one. The register resolves
-/// the declaration each commit of the line held.
+/// the declaration each commit of the line held. `feat_types` are those of the
+/// declaration at hand, which stands in for a commit whose declaration does
+/// not read while no readable one follows it.
 #[must_use]
-pub fn versions(units: &[Unit], history: &History, register: &Register) -> Versions {
+pub fn versions(
+    units: &[Unit],
+    feat_types: &FeatTypes,
+    history: &History,
+    register: &Register,
+) -> Versions {
     let mut findings = Vec::new();
     if history.shallow {
         findings.push(Finding::error(
@@ -724,17 +777,15 @@ pub fn versions(units: &[Unit], history: &History, register: &Register) -> Versi
         .enumerate()
         .map(|(position, commit)| (commit.id.as_str(), position))
         .collect();
+    let parsed = parsed(history);
+    let changes = changes(history, &parsed, feat_types);
     let context = Context {
         history,
         head,
         in_head: head.map_or_else(BTreeSet::new, |head| history.contained_in(&head.id)),
         promoted: history.promotions(&on_line),
-        views: views(history, register),
-        changes: history
-            .line
-            .iter()
-            .map(|commit| change_of(&commit.message))
-            .collect(),
+        views: views(history, parsed, register),
+        changes,
     };
 
     let mut warned = BTreeSet::new();

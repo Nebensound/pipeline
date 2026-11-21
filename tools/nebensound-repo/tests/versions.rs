@@ -2435,3 +2435,24 @@ fn a_pre_release_floor_in_one_stage_is_measured_against_the_versions_not_the_tag
     git.commit("docs: beside the app");
     assert_eq!(refused(&git), 1);
 }
+
+#[test]
+fn a_commit_whose_declaration_does_not_read_takes_the_types_at_hand_while_none_follows() {
+    let rules =
+        "[repo]\npipeline = \"none\"\nminimum-version = \"1.0.0\"\nfeat-types = [\"rule\"]\n";
+    let git = Git::new();
+    git.write(&[(".nebensound/repo.toml", rules), ("README.md", "# Rules\n")]);
+    git.commit("chore: start");
+    git.write(&[(".nebensound/repo.toml", "[repo\n")]);
+    git.commit("rule: a declaration that does not read");
+
+    // No readable declaration follows the commit at hand, so the one in the
+    // working tree stands in for it, with its list.
+    git.write(&[(".nebensound/repo.toml", rules)]);
+    assert_eq!(version(&git, "v").as_deref(), Some("1.1.0"));
+    git.write(&[(
+        ".nebensound/repo.toml",
+        &rules.replace("feat-types = [\"rule\"]\n", ""),
+    )]);
+    assert_eq!(version(&git, "v").as_deref(), Some("1.0.1"));
+}
