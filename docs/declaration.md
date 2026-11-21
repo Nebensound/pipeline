@@ -592,11 +592,15 @@ code, the unit or path it is about, and a sentence. A finding that points at a
 place in a file adds its line and column, counted from 1:
 `error[partial-package-exclusion] at .nebensound/repo.toml:12:8: …`. The report of phase 0 shows
 each finding under the path it is about in the tree, and lists them all under
-`Findings`. In a workflow run (`GITHUB_ACTIONS=true`) the list holds each
-finding as an annotation of the run instead, `::error` or `::warning` titled
-with its code, so that it shows on the run and on the pull request. It names
-the file where the finding stands at a file the repository holds, with line and
-column where it has them.
+`Findings`. In a workflow run (`GITHUB_ACTIONS=true`, with no terminal
+attached) the list holds each finding as an annotation of the run instead,
+`::error` or `::warning` titled with its code, so that it shows on the run and
+on the pull request. It names the file where the finding stands at a file the
+repository holds, with line and column where it has them. Its message starts
+with the code in brackets, since the log shows the message without the title:
+`[missing-minimum-file] at LICENSE: …`. GitHub keeps only a limited number of
+annotations per step, so a long list may show only in part on the run and the
+pull request; the log of the step always holds every finding.
 
 ### `unknown-preset`
 

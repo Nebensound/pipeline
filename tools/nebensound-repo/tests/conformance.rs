@@ -140,6 +140,25 @@ fn a_name_with_capitals_or_underscores_gets_the_warning_with_the_suggested_name(
 }
 
 #[test]
+fn a_suggestion_that_would_not_conform_itself_is_left_out() {
+    let files = paths(&["README.md"]);
+    for name in ["über", "My Repo", "_.-"] {
+        let found = findings(&known(name, "main"), &files);
+        let warning = found
+            .iter()
+            .find(|finding| finding.rule == Rule::NonconformingName)
+            .expect("a warning about the name");
+        assert!(warning.message.contains(name), "{warning}");
+        assert!(
+            warning
+                .message
+                .ends_with("lowercase letters and digits joined by single hyphens"),
+            "{warning}"
+        );
+    }
+}
+
+#[test]
 fn a_conforming_name_and_main_get_no_warning() {
     let found = findings(&known("pipeline", "main"), &paths(&[]));
     assert!(
@@ -512,13 +531,16 @@ fn in_a_run_every_finding_is_an_annotation() {
     assert_eq!(code, 1, "{text}");
     // A finding at a file of the tree names that file.
     assert!(
-        text.contains("\n::error file=src/main.rs,title=uncovered-file::at src/main.rs: "),
+        text.contains(
+            "\n::error file=src/main.rs,title=uncovered-file::[uncovered-file] at src/main.rs: "
+        ),
         "{text}"
     );
     // One about the repository names none.
     assert!(
         text.contains(
-            "\n::warning title=nonconforming-name::the repository is named My_Tool, and a name"
+            "\n::warning title=nonconforming-name::[nonconforming-name] the repository is named \
+             My_Tool, and a name"
         ),
         "{text}"
     );
@@ -526,7 +548,8 @@ fn in_a_run_every_finding_is_an_annotation() {
     // nowhere.
     assert!(
         text.contains(
-            "\n::warning title=missing-minimum-file::at LICENSE: the repository holds no licence"
+            "\n::warning title=missing-minimum-file::[missing-minimum-file] at LICENSE: the \
+             repository holds no licence"
         ),
         "{text}"
     );
@@ -577,17 +600,18 @@ fn an_annotation_names_the_place_in_its_file_and_escapes_what_would_end_it() {
     assert_eq!(
         text,
         "Findings\n\n\
-         ::warning title=pointless-exclusion::at docs: a folder\n\
-         ::error file=docs/a.md,line=3,col=7,title=partial-package-exclusion::at docs/a.md:3:7: \
-         100%25 wrong\\nhere\n\
-         ::warning file=docs/b%2Cc%3Ad.md,title=pointless-exclusion::at docs/b,c:d.md: odd name"
+         ::warning title=pointless-exclusion::[pointless-exclusion] at docs: a folder\n\
+         ::error file=docs/a.md,line=3,col=7,title=partial-package-exclusion::\
+         [partial-package-exclusion] at docs/a.md:3:7: 100%25 wrong\\nhere\n\
+         ::warning file=docs/b%2Cc%3Ad.md,title=pointless-exclusion::[pointless-exclusion] \
+         at docs/b,c:d.md: odd name"
     );
 }
 
 #[test]
-fn a_run_is_told_by_its_environment_before_the_terminal() {
+fn a_terminal_is_told_before_the_run_it_is_attached_in() {
     assert_eq!(Output::detect(true, false), Output::Workflow);
-    assert_eq!(Output::detect(true, true), Output::Workflow);
+    assert_eq!(Output::detect(true, true), Output::Terminal);
     assert_eq!(Output::detect(false, true), Output::Terminal);
     assert_eq!(Output::detect(false, false), Output::Elsewhere);
 }

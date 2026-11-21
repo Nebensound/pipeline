@@ -326,14 +326,16 @@ pub fn annotation(finding: &Finding, file: Option<(&RelativePath, Option<Positio
             properties.push(format!("line={line},col={column}"));
         }
     }
-    properties.push(format!("title={}", property(finding.rule.code())));
-    // The severity is the command and the code the title, so the message is
-    // what the finding is about and what it says.
+    let code = finding.rule.code();
+    properties.push(format!("title={}", property(code)));
+    // The severity is the command and the code the title. The log shows only
+    // the message, though, so the message carries the code as well: the key a
+    // reader looks the finding up by.
     let place = finding.place();
     let message = if place.is_empty() {
-        finding.message.clone()
+        format!("[{code}] {}", finding.message)
     } else {
-        format!("{}: {}", place.trim_start(), finding.message)
+        format!("[{code}] {}: {}", place.trim_start(), finding.message)
     };
     format!(
         "::{} {}::{}",

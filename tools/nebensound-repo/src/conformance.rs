@@ -205,12 +205,20 @@ pub fn findings<'a>(
     if let Told::Known(name) = &identity.name
         && !conforming_name(name)
     {
+        // The suggestion conforms only when the name keeps to GitHub's own
+        // alphabet. A name read from a local path can hold anything, and a
+        // suggestion that does not conform itself is left out.
+        let suggested = suggested_name(name);
+        let suggestion = if conforming_name(&suggested) {
+            format!("; {suggested} would conform")
+        } else {
+            String::new()
+        };
         found.push(Finding::warning(
             Rule::NonconformingName,
             format!(
                 "the repository is named {name}, and a name is lowercase letters and digits \
-                 joined by single hyphens; {} would conform",
-                suggested_name(name)
+                 joined by single hyphens{suggestion}"
             ),
         ));
     }
