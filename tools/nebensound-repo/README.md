@@ -77,6 +77,7 @@ a run has to start, and where.
     { "check": "json", "kind": "repository", "name": null, "path": "." },
     { "check": "rust", "kind": "component", "name": "tool", "path": "tool" }
   ],
+  "previous_audience": "public",
   "units": [
     {
       "build": null,
@@ -114,8 +115,7 @@ a run has to start, and where.
       "version": null,
       "writers": ["cargo"]
     }
-  ],
-  "previous_audience": "public"
+  ]
 }
 ```
 
