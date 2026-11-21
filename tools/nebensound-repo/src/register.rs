@@ -15,6 +15,7 @@ use crate::names::{
     ArtifactKind, BuildName, CheckName, EcosystemName, Extension, PresetName, ProgramName,
     RuntimeName, TargetName, VersionWriterName,
 };
+use crate::path::RelativePath;
 use crate::programs::{Program, Runtime, at_least, download_problem, is_version};
 
 /// The vocabulary as it stands in `register.toml`.
@@ -88,6 +89,10 @@ pub struct Build {
     /// sources hold.
     #[serde(default)]
     pub requires_version: Vec<VersionWriterName>,
+    /// The files a unit it builds must hold, each relative to the unit's
+    /// path: what the build reads and fails without.
+    #[serde(default)]
+    pub requires_file: Vec<RelativePath>,
     /// The programs it calls, each pinned under `[program.*]`.
     #[serde(default)]
     pub programs: Vec<ProgramName>,

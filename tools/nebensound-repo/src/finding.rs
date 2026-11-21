@@ -88,6 +88,9 @@ pub enum Rule {
     /// A build without a version writer it needs, so that its artifact would
     /// carry a version the run did not write.
     BuildWithoutVersionWriter,
+    /// A build without a file it reads in the unit, so that its build job would
+    /// fail.
+    BuildWithoutFile,
     /// A manifest whose ecosystem no unit has watched.
     UnwatchedManifest,
     /// A watched ecosystem whose manifest does not exist.
@@ -160,6 +163,7 @@ impl Rule {
             Self::VersionWriterWithoutVersion => "version-writer-without-version",
             Self::ReleaseFieldWithoutVersion => "release-field-without-version",
             Self::BuildWithoutVersionWriter => "build-without-version-writer",
+            Self::BuildWithoutFile => "build-without-file",
             Self::UnwatchedManifest => "unwatched-manifest",
             Self::PointlessWatch => "pointless-watch",
             Self::UnconventionalCommit => "unconventional-commit",

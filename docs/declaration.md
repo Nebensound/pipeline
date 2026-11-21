@@ -821,6 +821,18 @@ children inherit. A unit that carries no version of its own and generates no
 children is not reported: it gets no build job, so nothing it builds can carry
 a wrong version.
 
+### `build-without-file`
+
+Error. A unit gets a build job for its build, and does not hold a file that
+build reads below the unit's path. The build `docker` builds the image from
+`deploy/Dockerfile` below the unit's path and from nothing else, so without it
+the build job fails before it builds. The register names the files each build
+needs (see [Builds](register.md#builds)). Add the file at the path the finding
+names, or choose a build that fits the unit. Only the units the plan builds are
+held to it: a unit that carries a version of its own and generates no children.
+A generated unit needs the file below its own path; the unit that generated it
+leaves the building to its children and needs none.
+
 ### `unwatched-manifest`
 
 Warning. A file is the manifest of an ecosystem (`Cargo.lock` for `cargo`, for
