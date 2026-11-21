@@ -6,12 +6,17 @@ name: gate
 # workflow to an exact version. This one calls the workflow at its own commit,
 # so a change to the pipeline is checked by the pipeline it changes — a broken
 # one fails its own pull request instead of everyone else's.
+#
+# The job grants `contents: write` for the release stage on main: only its job
+# Publish asks for it, and every other job, and every job of a pull request,
+# keeps a read token.
 
 on:
   pull_request:
   push:
     branches:
       - main
+      - release
 
 permissions:
   contents: read
@@ -20,4 +25,4 @@ jobs:
   nebensound:
     uses: $/.github/workflows/nebensound.yml
     permissions:
-      contents: read
+      contents: write

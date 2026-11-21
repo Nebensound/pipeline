@@ -18,7 +18,8 @@
 //! block. Each list stands in the job of its kind, the one whose units it
 //! fails for: a list in another job leaves the units of its own kind without
 //! the step. A version writer is held the same way by the step
-//! `Version writers not written yet`. Every block brings its test cases, at
+//! `Version writers not written yet`, and a publish target by the step
+//! `Publish targets not written yet`. Every block brings its test cases, at
 //! least one passing and one failing. Beside the blocks lie only the
 //! workflow's own machinery ([`MACHINERY`]), which belongs to no register
 //! entry; it is called from `nebensound.yml` all the same.
@@ -55,6 +56,9 @@ const WRITTEN_BUILDS: &str = "WRITTEN_BUILDS";
 
 /// The step that fails for every version writer without a block.
 const WRITERS_NOT_WRITTEN: &str = "Version writers not written yet";
+
+/// The step that fails for every publish target without a block.
+const TARGETS_NOT_WRITTEN: &str = "Publish targets not written yet";
 
 /// The keys of a step that calls a block, in the form `nebensound.yml`
 /// documents for it. Any other key changes what the block does in the job:
@@ -255,13 +259,15 @@ struct Calls {
     writers: Result<Vec<String>, String>,
     /// The list of written builds, or why there is none.
     builds: Result<Vec<String>, String>,
+    /// The list of written publish targets, or why there is none.
+    targets: Result<Vec<String>, String>,
     /// Every list of written checks or builds that stands outside the job of
     /// its kind, one sentence each.
     misplaced: Vec<String>,
 }
 
 /// The steps that call a block, and the lists of written checks, version
-/// writers and builds.
+/// writers, builds and publish targets.
 fn calls(workflow: &str) -> Result<Calls, Error> {
     let documents = YamlLoader::load_from_str(workflow)
         .map_err(|error| Error::new(format!("nebensound.yml is no YAML: {error}")))?;
@@ -275,6 +281,7 @@ fn calls(workflow: &str) -> Result<Calls, Error> {
     let mut written = Vec::new();
     let mut writers = Vec::new();
     let mut builds = Vec::new();
+    let mut targets = Vec::new();
     let mut misplaced = Vec::new();
     let string = |yaml: &Yaml| yaml.as_str().unwrap_or_default().to_owned();
     for (key, job) in jobs {
@@ -324,6 +331,7 @@ fn calls(workflow: &str) -> Result<Calls, Error> {
                     }
                 }
                 WRITERS_NOT_WRITTEN => writers.push(string(&env["WRITTEN"])),
+                TARGETS_NOT_WRITTEN => targets.push(string(&env["WRITTEN"])),
                 _ => {}
             }
         }
@@ -333,6 +341,7 @@ fn calls(workflow: &str) -> Result<Calls, Error> {
         written: listed(&written, NOT_WRITTEN, WRITTEN_CHECKS, "checks"),
         writers: listed(&writers, WRITERS_NOT_WRITTEN, "WRITTEN", "version writers"),
         builds: listed(&builds, NOT_WRITTEN, WRITTEN_BUILDS, "builds"),
+        targets: listed(&targets, TARGETS_NOT_WRITTEN, "WRITTEN", "publish targets"),
         misplaced,
     })
 }
@@ -375,12 +384,14 @@ pub fn compare(register: &str, workflow: &str, directories: &[Directory]) -> Res
         written,
         writers,
         builds,
+        targets,
         misplaced,
     } = calls(workflow)?;
     problems.extend(misplaced);
     let written = names_of(written, &mut problems);
     let writers = names_of(writers, &mut problems);
     let builds = names_of(builds, &mut problems);
+    let targets = names_of(targets, &mut problems);
     let names: BTreeSet<&str> = directories.iter().map(|dir| dir.name.as_str()).collect();
     let mut blocks = Vec::new();
 
@@ -456,16 +467,28 @@ pub fn compare(register: &str, workflow: &str, directories: &[Directory]) -> Res
         (&written, "check", NOT_WRITTEN, ""),
         (&builds, "build", NOT_WRITTEN, "the build "),
         (&writers, "version", WRITERS_NOT_WRITTEN, ""),
+        (&targets, "publish", TARGETS_NOT_WRITTEN, ""),
     ] {
-        problems.extend(
-            list.iter()
-                .filter(|name| !names.contains(format!("{prefix}-{name}").as_str()))
-                .map(|name| {
-                    format!("`{step}` counts {what}`{name}` as written, but it has no block")
-                }),
-        );
+        problems.extend(without_block(list, &names, prefix, step, what));
     }
     Ok(Layout { blocks, problems })
+}
+
+/// Every name a list of written ones counts that has no block, one sentence
+/// each. A block is named after its entry with the dots turned into hyphens,
+/// as a target such as `crates.io` is.
+fn without_block<'a>(
+    list: &'a BTreeSet<String>,
+    names: &'a BTreeSet<&str>,
+    prefix: &'a str,
+    step: &'a str,
+    what: &'a str,
+) -> impl Iterator<Item = String> + 'a {
+    list.iter()
+        .filter(move |name| {
+            !names.contains(format!("{prefix}-{}", name.replace('.', "-")).as_str())
+        })
+        .map(move |name| format!("`{step}` counts {what}`{name}` as written, but it has no block"))
 }
 
 /// What is wrong with the steps that call the block `name` of the entry

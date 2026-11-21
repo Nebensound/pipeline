@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+
+# A waiting run of a push keeps its place; a pull request cancels its older run.
+concurrency:
+  group: >-
+    ${{ github.event_name == 'pull_request'
+    && format('ci-{0}', github.ref) || 'ci' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  queue: ${{ github.event_name == 'pull_request' && 'single' || 'max' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: test
+      queue: max
+    steps:
+      - name: Say hello
+        run: echo "A workflow whose concurrency waits in a queue."

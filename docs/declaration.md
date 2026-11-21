@@ -180,7 +180,7 @@ set.
 | `version`    | array of version writer names    | `[]`    | The version writers that receive the unit's version as a derived copy. Phase 0 demands that the unit, or the children it generates, carries a version. Only `cargo` is written so far.                                                                                                                                                      |
 | `check`      | array of check names             | `[]`    | Checks beyond the base set. Each is in force for every file of the unit and runs in the Check phase.                                                                                                                                                                                                                                        |
 | `build`      | build name                       | none    | The build that produces the unit's artifact. The plan names it for a unit that carries a version of its own and generates no children, and that unit gets a job in the Build phase of every run that gives it a version, the runs of a commit that touches it. Phase 0 demands that `version` selects every version writer the build needs. |
-| `publish`    | `false` or array of target names | `false` | Where the artifact goes: `false` for nowhere, said out loud, or a list of targets. `publish = true` is an error, since it names no target. Nothing is published yet.                                                                                                                                                                        |
+| `publish`    | `false` or array of target names | `false` | Where the artifact goes: `false` for nowhere, said out loud, or a list of targets. `publish = true` is an error, since it names no target. A target without a building block fails `nebensound / Check` by name, and no target has one yet.                                                                                                 |
 | `dependabot` | array of ecosystem names         | `[]`    | The ecosystems Dependabot is to watch for this unit, beyond the base set. Phase 0 compares them with the manifests the unit holds. Nothing writes a Dependabot configuration from them yet.                                                                                                                                                 |
 
 ### `[[include]]`
@@ -330,7 +330,8 @@ minimum version, each with where it came from: written on the unit, the default
 of its publish targets, or inherited from the unit that generated it.
 
 Both fields take effect where the version of a commit is resolved, as described
-under [Versions](#versions). Nothing is tagged or released yet.
+under [Versions](#versions). The release stage on `main` writes the records of
+those versions (see [Records](#records)).
 
 ## Versions
 
@@ -524,6 +525,13 @@ Phase 0 holds every such tag on a commit `HEAD` contains against the history:
 A tag on a commit `HEAD` does not contain is passed over without a finding: it
 lies in history this commit does not have, such as a newer release, and what
 it records is not this commit's to judge.
+
+The release stage on `main` writes the records: after a push to `main`, every
+unit the pushed commit touches gets a lightweight tag on that commit, the
+commit the history gives its version, and a GitHub Release of it, a
+pre-release for a unit released in two stages. A unit the commit does not
+touch gets none, so every record it writes is a faithful one. See
+[the phases](phases.md#publish).
 
 ### What the history must hold
 

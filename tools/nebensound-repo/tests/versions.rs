@@ -1261,14 +1261,14 @@ fn a_generated_unit_carries_its_parents_name_in_its_prefix() {
         serde_json::json!([
             {"kind": "repository", "name": null, "path": ".", "prefix": "v",
              "release": "single-stage", "current": "0.0.2", "version": "0.0.2",
-             "writers": []},
+             "writers": [], "targets": []},
             {"kind": "component", "name": "guide", "path": "docs/guide.md",
              "prefix": "docs-guide-v", "release": "single-stage", "current": "0.0.2",
-             "version": "0.0.2", "writers": []},
+             "version": "0.0.2", "writers": [], "targets": []},
             // Not touched: its current version is what the first commit gave it.
             {"kind": "component", "name": "handbook", "path": "docs/handbook.md",
              "prefix": "docs-handbook-v", "release": "single-stage", "current": "0.0.1",
-             "version": null, "writers": []}
+             "version": null, "writers": [], "targets": []}
         ])
     );
 }
