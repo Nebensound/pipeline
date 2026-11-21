@@ -382,10 +382,22 @@ fn a_release_tag_on_a_merged_side_branch_moves_nothing_and_conflicts() {
     let analysis = analysed(&git);
     let conflicting = conflicting(&analysis);
     assert_eq!(conflicting.len(), 3, "{conflicting:#?}");
-    for (tag, unit) in [
-        ("app-v3.0.0", "component app"),
-        ("app-v0.0.9-pre.1", "component app"),
-        ("lib-v0.0.9-pre.1", "component lib"),
+    for (tag, unit, floor) in [
+        (
+            "app-v3.0.0",
+            "component app",
+            "raise minimum-version above 3.0.0, as three numbers without a pre-release",
+        ),
+        (
+            "app-v0.0.9-pre.1",
+            "component app",
+            "raise minimum-version to 0.0.9 or higher",
+        ),
+        (
+            "lib-v0.0.9-pre.1",
+            "component lib",
+            "raise minimum-version above 0.0.9-pre.1",
+        ),
     ] {
         assert!(
             conflicting.iter().any(|finding| finding
@@ -393,7 +405,7 @@ fn a_release_tag_on_a_merged_side_branch_moves_nothing_and_conflicts() {
                 && finding.contains(&side[..12])
                 && finding.contains("to no commit")
                 && finding.contains("Delete the tag if nobody published it")
-                && finding.contains("raise minimum-version above")),
+                && finding.contains(floor)),
             "{tag}: {conflicting:#?}"
         );
     }
@@ -533,6 +545,65 @@ fn a_tag_is_held_against_the_version_at_the_commit_at_hand() {
     let analysis = analysed(&git);
     assert!(!analysis.failed(), "{:?}", analysis.findings());
     assert_eq!(versions(&analysis)["lib-v"].as_deref(), Some("5.0.0"));
+}
+
+#[test]
+fn the_floor_a_conflicting_tag_names_lifts_past_it_in_either_mode() {
+    // One stage gives out no pre-release: past a pre-release tag the finding
+    // names its three numbers, and a pre-release value above it would be the
+    // error pre-release-minimum.
+    let git = units_declared(&single_stage());
+    let first = git.head();
+    git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
+    git.commit("fix: lib one");
+    git.tag("lib-v0.0.5-pre.1", &first);
+    let analysis = analysed(&git);
+    let named = conflicting(&analysis);
+    assert!(
+        named.len() == 1 && named[0].ends_with("raise minimum-version to 0.0.5 or higher"),
+        "{named:#?}"
+    );
+    let floored = |floor: &str| {
+        single_stage().replace(
+            "path     = \"lib\"\n",
+            &format!("path     = \"lib\"\nminimum-version = \"{floor}\"\n"),
+        )
+    };
+    git.write(&[(".nebensound/repo.toml", &floored("0.0.5"))]);
+    git.commit("chore: lift the library past its old pre-release");
+    assert_eq!(version(&git, "lib-v").as_deref(), Some("0.0.5"));
+
+    // Past a full tag it takes three numbers above it.
+    git.tag("lib-v0.0.7", &first);
+    let analysis = analysed(&git);
+    let named = conflicting(&analysis);
+    assert!(
+        named.len() == 1
+            && named[0].ends_with(
+                "raise minimum-version above 0.0.7, as three numbers without a pre-release, \
+                 since this unit is released in one stage, which gives out none"
+            ),
+        "{named:#?}"
+    );
+    git.write(&[(".nebensound/repo.toml", &floored("0.0.8"))]);
+    git.commit("chore: lift the library past its old release");
+    assert_eq!(version(&git, "lib-v").as_deref(), Some("0.0.8"));
+
+    // In two stages any value above the tag does, a pre-release included.
+    let git = units();
+    let first = git.head();
+    git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
+    git.commit("fix: lib one");
+    git.tag("lib-v0.0.1-pre.4", &first);
+    let analysis = analysed(&git);
+    let named = conflicting(&analysis);
+    assert!(
+        named.len() == 1 && named[0].ends_with("raise minimum-version above 0.0.1-pre.4"),
+        "{named:#?}"
+    );
+    git.write(&[(".nebensound/repo.toml", &lib_floored("0.0.1-pre.5"))]);
+    git.commit("chore: lift the library past its old pre-release");
+    assert_eq!(version(&git, "lib-v").as_deref(), Some("0.0.1-pre.5"));
 }
 
 #[test]

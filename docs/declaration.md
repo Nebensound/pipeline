@@ -800,10 +800,14 @@ the unit, otherwise its current version. A tag is a record and never moves a
 version, and a release of the unit could meet this one. The finding names the
 tag, its commit and the commit the history gives that version, if any. There
 are two ways out: delete the tag if nobody published it, or raise
-`minimum-version` above its version, so that the unit's versions pass it. A
-tag on exactly the commit to which the history gives its version is a faithful
-record, and one below the unit's version stays unnoticed (see
-[Records](#records)).
+`minimum-version` so that the unit's versions pass it, in the mode the unit is
+released in at `HEAD`. In two stages any value above the tag's version does. In
+one stage, which gives out no pre-release, a pre-release value is the error
+[`pre-release-minimum`](#pre-release-minimum): past a tag `X.Y.Z-pre.N` write
+`X.Y.Z` or higher, and past a tag `X.Y.Z` three numbers above it. The finding
+names the value that applies. A tag on exactly the commit to which the history
+gives its version is a faithful record, and one below the unit's version stays
+unnoticed (see [Records](#records)).
 
 ### `unexcused-ignore`
 

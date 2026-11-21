@@ -1283,13 +1283,34 @@ fn hold_records(
                      commit {}, and the history gives {version} {holder}. A tag is a record and \
                      never moves a version, and this one is not lower than the unit's current \
                      version ({current}), so a release of the unit could meet it. Delete the \
-                     tag if nobody published it, or raise minimum-version above {version}",
+                     tag if nobody published it, or {}",
                     tag.name,
-                    short(commit)
+                    short(commit),
+                    floor_past(version, entry.release)
                 ),
             )
             .about(entry.name.clone()),
         );
+    }
+}
+
+/// The way past a conflicting tag through `minimum-version`, in the mode the
+/// unit is released in at the commit at hand, which is where the value is
+/// written. In two stages any value above the tag lifts the unit's versions
+/// past it. One stage gives out no pre-release, so a pre-release value there
+/// is the error `pre-release-minimum`: past a pre-release tag its three
+/// numbers are the lowest value that works, past a full one only three numbers
+/// above it do.
+fn floor_past(tag: TagVersion, release: Release) -> String {
+    match release {
+        Release::TwoStage => format!("raise minimum-version above {tag}"),
+        Release::SingleStage if tag.is_pre() => {
+            format!("raise minimum-version to {} or higher", tag.version)
+        }
+        Release::SingleStage => format!(
+            "raise minimum-version above {tag}, as three numbers without a pre-release, since \
+             this unit is released in one stage, which gives out none"
+        ),
     }
 }
 
