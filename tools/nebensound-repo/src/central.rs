@@ -112,8 +112,8 @@ impl Central {
         // The policy is a table only the defaults hold: it is taken out before
         // the rest is read as a declaration, whose shape does not know it, so
         // that a repository's declaration refuses it as an unknown key.
-        Declaration::read_edition(defaults)?;
         let mut table: toml::Table = toml::from_str(defaults).map_err(ReadError::from)?;
+        Declaration::read_edition(defaults)?;
         let policy = table
             .remove("dependabot")
             .ok_or_else(|| CentralError::Policy {

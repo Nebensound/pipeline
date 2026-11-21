@@ -386,6 +386,13 @@ fn include_takes_an_extension_back_into_the_check() {
     );
     assert_eq!(codes(&pointless), ["pointless-inclusion"]);
 
+    // A file it matches that nothing takes out is not pulled back either.
+    let matching_but_pointless = run(
+        "[[include]]\npath = \"README.md\"\n\n[repo]\naudience = \"public\"\n",
+        &["README.md"],
+    );
+    assert_eq!(codes(&matching_but_pointless), ["pointless-inclusion"]);
+
     // Saying the same thing twice says the same thing. Judged one entry at a
     // time, each copy would look pointless because the other one still pulls
     // the file back — so every copy has to go before the question is asked.

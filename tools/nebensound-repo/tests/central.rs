@@ -3,6 +3,7 @@
 // A test that cannot read its own defaults has nothing to say.
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
+use nebensound_repo::central::CentralError;
 use nebensound_repo::names::{Extension, Reason};
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::pattern::{Pattern, PatternError};
@@ -186,25 +187,39 @@ fn only_the_central_list_may_excuse_a_file_while_it_is_empty() {
 
 #[test]
 fn the_defaults_have_to_write_their_base_set_out() {
-    assert!(Central::parse(REGISTER, "[repo]\npipeline = \"none\"\n").is_err());
-    assert!(Central::parse(REGISTER, "[repo]\n").is_err());
+    // Each with a policy, so that the base set is what stops them.
+    let with_policy = |defaults: &str| format!("{defaults}{POLICY}");
+    for defaults in ["[repo]\npipeline = \"none\"\n", "[repo]\n"] {
+        assert!(matches!(
+            Central::parse(REGISTER, &with_policy(defaults)),
+            Err(CentralError::BaseSetNotWrittenOut)
+        ));
+    }
     assert!(
-        Central::parse(REGISTER, "[repo]\npipeline = { check = [\"rustc\"] }\n").is_err(),
+        matches!(
+            Central::parse(
+                REGISTER,
+                &with_policy("[repo]\npipeline = { check = [\"rustc\"] }\n")
+            ),
+            Err(CentralError::UnknownBaseCheck { check }) if check == "rustc"
+        ),
         "a check the register does not know"
     );
     assert!(
-        Central::parse(
-            REGISTER,
-            "[repo]\npipeline = { check = [], dependabot = [\"crago\"] }\n"
-        )
-        .is_err(),
+        matches!(
+            Central::parse(
+                REGISTER,
+                &with_policy("[repo]\npipeline = { check = [], dependabot = [\"crago\"] }\n")
+            ),
+            Err(CentralError::UnknownBaseCheck { check }) if check == "crago"
+        ),
         "an ecosystem the register does not know"
     );
     assert!(Central::parse("not toml", "[repo]\n").is_err());
     assert!(Central::parse(REGISTER, "not toml").is_err());
 
     for message in [
-        Central::parse(REGISTER, "[repo]\n")
+        Central::parse(REGISTER, &with_policy("[repo]\n"))
             .unwrap_err()
             .to_string(),
         Central::parse("not toml", "[repo]\n")

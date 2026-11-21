@@ -621,6 +621,12 @@ fn a_policy_dependabot_would_not_take_does_not_read() {
     assert!(error.to_string().contains("stands twice"), "{error}");
     let error = Central::parse(
         BUILTIN_REGISTER,
+        &format!("{BUILTIN_DEFAULTS}\n[[exclude]]\npath = \"*.tiff\"\nmeaning = \"none\"\n"),
+    )
+    .expect_err("a key the declaration does not know");
+    assert!(matches!(error, CentralError::Defaults(_)), "{error}");
+    let error = Central::parse(
+        BUILTIN_REGISTER,
         &format!("edition = 2\n{BUILTIN_DEFAULTS}"),
     )
     .expect_err("a newer edition");
