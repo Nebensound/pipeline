@@ -11,9 +11,9 @@
 //! build for and gives a version of the run, the way a build job does: after
 //! the blocks of the version writers the unit selects, each with the plan, and
 //! only when they passed; it gets the plan as well when it takes one. A
-//! passing case passes when the block succeeds
-//! everywhere. A failing case passes when the block fails and every line of
-//! its [`FINDING`] file matches a line the block printed.
+//! passing case passes when the block succeeds everywhere. A failing case
+//! passes when the block fails and every line of its [`FINDING`] file matches
+//! a line the block printed.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
