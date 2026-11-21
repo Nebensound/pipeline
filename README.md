@@ -376,8 +376,10 @@ read the unit's version of the run from it.
 
 - The Dockerfile is `deploy/Dockerfile` below the unit's path, and the build
   context is the repository root. Each unit has its own, so several services of
-  one workspace each build their own image. A unit without `deploy/Dockerfile`
-  fails by name.
+  one workspace each build their own image. Phase 0 refuses a unit without
+  `deploy/Dockerfile`
+  ([`build-without-file`](docs/declaration.md#build-without-file)), and the
+  block's first step still fails on one by name.
 - The image is built once, for `linux/amd64` only, on an `x86_64` runner, by a
   BuildKit of its own pinned by digest, without a cache, without provenance and
   without an SBOM, into an OCI layout. It carries the labels

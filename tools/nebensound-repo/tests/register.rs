@@ -12,7 +12,7 @@ use nebensound_repo::names::{
     BuildName, CheckName, EcosystemName, PresetName, TargetName, VersionWriterName,
 };
 use nebensound_repo::path::RelativePath;
-use nebensound_repo::register::{Register, RegisterError};
+use nebensound_repo::register::{BUILTIN_REGISTER, Register, RegisterError};
 use nebensound_repo::{Central, Ruling, Tree};
 
 fn refuses(source: &str) -> String {
@@ -635,6 +635,42 @@ fn a_build_names_the_programs_it_calls() {
     // The image is scanned before it is handed on.
     assert_eq!(calls("docker"), ["trivy"]);
     assert!(calls("cargo-package").is_empty());
+}
+
+#[test]
+fn a_build_names_the_files_it_reads_in_the_unit() {
+    let register = builtin();
+    let reads = |name: &str| {
+        register
+            .build
+            .get(&BuildName::new(name).expect("a name"))
+            .unwrap_or_else(|| panic!("the {name} build"))
+            .requires_file
+            .clone()
+    };
+
+    // The image is built from deploy/Dockerfile below the unit, and nothing
+    // else.
+    assert_eq!(
+        reads("docker"),
+        [RelativePath::new("deploy/Dockerfile").expect("a path")]
+    );
+    assert!(reads("cargo-package").is_empty());
+}
+
+#[test]
+fn a_file_a_build_needs_is_a_path_inside_the_unit() {
+    let builtin = BUILTIN_REGISTER;
+    let docker = "requires-file = [\"deploy/Dockerfile\"]";
+    assert!(
+        builtin.contains(docker),
+        "the docker build reads its Dockerfile"
+    );
+    for outside in ["/deploy/Dockerfile", "../Dockerfile"] {
+        let message =
+            refuses(&builtin.replace(docker, &format!("requires-file = [\"{outside}\"]")));
+        assert!(message.contains("not readable"), "{outside}: {message}");
+    }
 }
 
 #[test]

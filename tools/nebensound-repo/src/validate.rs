@@ -48,6 +48,7 @@ fn findings_for(
     publication_is_reachable(resolution, central, &mut findings);
     version_writers_have_a_version(resolution, &mut findings);
     builds_have_their_version_writers(resolution, central, &mut findings);
+    builds_have_their_files(resolution, central, tree, &mut findings);
     findings
 }
 
@@ -353,6 +354,58 @@ fn builds_have_their_version_writers(
             )
             .about(unit.name.clone()),
         );
+    }
+}
+
+/// A build reads files below the unit's path and fails without them; the
+/// register names them per build. Phase 0 holds each unit the plan builds
+/// against them, so that the gap shows on the pull request before a build job
+/// starts and fails on it.
+///
+/// Only the units the plan builds are held to it: a unit that carries a version
+/// of its own and generates no children. A generated unit is one of them, and
+/// needs the files below its own path; the unit that generated it leaves the
+/// building to its children and needs none.
+fn builds_have_their_files(
+    resolution: &Resolution,
+    central: &Central,
+    tree: &Tree,
+    findings: &mut Vec<Finding>,
+) {
+    for unit in &resolution.units {
+        if !unit.carries_version || unit.versioning.generates_children() {
+            continue;
+        }
+        // An unknown build is reported when the pipeline is resolved.
+        let Some((build, definition)) = unit
+            .pipeline
+            .build
+            .as_ref()
+            .and_then(|build| central.register().build.get_key_value(build))
+        else {
+            continue;
+        };
+        for required in &definition.requires_file {
+            let file = required
+                .segments()
+                .iter()
+                .fold(unit.path.clone(), |path, segment| path.join(segment));
+            if tree.files().any(|held| *held == file) {
+                continue;
+            }
+            findings.push(
+                Finding::error(
+                    Rule::BuildWithoutFile,
+                    format!(
+                        "this unit builds {build}, which reads {required} below the unit's path, \
+                         and the unit holds no such file; its build job would fail before it \
+                         builds"
+                    ),
+                )
+                .about(unit.name.clone())
+                .at(file),
+            );
+        }
     }
 }
 

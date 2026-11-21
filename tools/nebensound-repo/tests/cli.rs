@@ -355,6 +355,27 @@ fn an_ignore_file_that_takes_out_more_than_the_declaration_fails_phase_0() {
 }
 
 #[test]
+fn a_container_build_without_its_dockerfile_fails_phase_0() {
+    let declaration = "[repo]\npipeline = { check = [\"dockerfile\"], build = \"docker\", \
+                       dependabot = [\"docker\"] }\n";
+    let dir = repository(&[
+        (".nebensound/repo.toml", declaration),
+        ("README.md", "# x\n"),
+        ("Dockerfile", "FROM scratch\n"),
+    ]);
+    let (text, code) = call(&["nebensound-repo", "-C", root(&dir), "check"]);
+
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains(
+            "error[build-without-file] the repository at deploy/Dockerfile: this unit builds \
+             docker, which reads deploy/Dockerfile below the unit's path"
+        ),
+        "{text}"
+    );
+}
+
+#[test]
 fn a_file_an_ignore_setting_names_is_read_from_the_repository() {
     let dir = repository(&[
         (".nebensound/repo.toml", QUIET),

@@ -652,6 +652,176 @@ fn every_preset_that_builds_passes_with_the_writers_it_selects() {
     assert!(seen > 0, "some preset builds");
 }
 
+/// The units a finding of `rule` is about, each with the path it names.
+fn reported(analysis: &Analysis, rule: Rule) -> Vec<(String, String)> {
+    analysis
+        .findings()
+        .into_iter()
+        .filter(|finding| finding.rule == rule)
+        .map(|finding| {
+            (
+                finding
+                    .unit
+                    .as_ref()
+                    .map_or_else(String::new, ToString::to_string),
+                finding
+                    .path
+                    .as_ref()
+                    .map_or_else(String::new, ToString::to_string),
+            )
+        })
+        .collect()
+}
+
+const DOCKER: &str = "[repo]\npipeline = { check = [\"dockerfile\"], build = \"docker\", \
+                      dependabot = [\"docker\"] }\n";
+
+#[test]
+fn a_container_build_needs_its_dockerfile() {
+    // The build docker reads deploy/Dockerfile below the unit and nothing
+    // else; without it the build job would fail before it builds.
+    let without = run(DOCKER, &["README.md", "Dockerfile"]);
+    assert_eq!(codes(&without), ["build-without-file"]);
+    assert!(without.failed());
+    let finding = found(&without, Rule::BuildWithoutFile).expect("the finding");
+    assert_eq!(finding.severity, Severity::Error);
+    assert_eq!(finding.unit, Some(UnitName::Repository));
+    assert_eq!(
+        finding.path,
+        Some(RelativePath::new("deploy/Dockerfile").expect("a path"))
+    );
+    assert!(finding.message.contains("builds docker"), "{finding}");
+    assert!(finding.message.contains("deploy/Dockerfile"), "{finding}");
+
+    // A folder of that name is no Dockerfile.
+    let folder = run(DOCKER, &["README.md", "deploy/Dockerfile/Dockerfile"]);
+    assert_eq!(
+        reported(&folder, Rule::BuildWithoutFile),
+        [("the repository".to_owned(), "deploy/Dockerfile".to_owned())]
+    );
+
+    // With the file in place, nothing is wrong.
+    let with = run(DOCKER, &["README.md", "deploy/Dockerfile"]);
+    assert!(with.findings().is_empty(), "{:?}", with.findings());
+
+    // A build that reads no file needs none.
+    let crate_only = run(
+        "[repo]\npipeline = { dependabot = [\"cargo\"] }\n\n\
+         [component.thing]\npath = \"crates/thing\"\n\
+         pipeline = { version = [\"cargo\"], check = [\"rust\"], \
+         build = \"cargo-package\" }\n",
+        CRATE_FILES,
+    );
+    assert!(
+        !codes(&crate_only).contains(&"build-without-file"),
+        "{:?}",
+        crate_only.findings()
+    );
+
+    // A build the register does not know is reported as that, and only that.
+    let unknown = run(
+        "[repo]\npipeline = { check = [\"dockerfile\"], build = \"nothing-like-it\", \
+         dependabot = [\"docker\"] }\n",
+        &["README.md", "Dockerfile"],
+    );
+    assert!(
+        codes(&unknown).contains(&"unknown-register-entry"),
+        "{:?}",
+        unknown.findings()
+    );
+    assert!(
+        !codes(&unknown).contains(&"build-without-file"),
+        "{:?}",
+        unknown.findings()
+    );
+}
+
+#[test]
+fn each_service_needs_the_dockerfile_below_its_own_path() {
+    let analysis = run(
+        "[repo]\npipeline = \"none\"\n\n\
+         [component.api]\npath = \"api\"\n\
+         pipeline = { check = [\"dockerfile\"], build = \"docker\", dependabot = [\"docker\"] }\n\n\
+         [component.web]\npath = \"web\"\n\
+         pipeline = { check = [\"dockerfile\"], build = \"docker\", dependabot = [\"docker\"] }\n",
+        &["README.md", "api/deploy/Dockerfile", "web/Dockerfile"],
+    );
+    // The one of api does not stand in for web's.
+    assert_eq!(
+        reported(&analysis, Rule::BuildWithoutFile),
+        [(
+            "component web".to_owned(),
+            "web/deploy/Dockerfile".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn every_generated_unit_needs_its_own_dockerfile() {
+    // The children are what the plan builds, each from the files below its own
+    // path; the generator leaves the building to them and needs none.
+    let analysis = run(
+        "[repo]\npipeline = \"none\"\n\n\
+         [component.services]\npath = \"services\"\nversioning = \"child-folders\"\n\
+         pipeline = { check = [\"dockerfile\"], build = \"docker\", dependabot = [\"docker\"] }\n",
+        &[
+            "README.md",
+            "services/api/deploy/Dockerfile",
+            "services/web/Dockerfile",
+        ],
+    );
+    assert_eq!(
+        reported(&analysis, Rule::BuildWithoutFile),
+        [(
+            "component web".to_owned(),
+            "services/web/deploy/Dockerfile".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn a_unit_that_is_never_built_needs_no_file_for_its_build() {
+    let analysis = run(
+        "[repo]\npipeline = \"none\"\n\n\
+         [component.api]\npath = \"api\"\nversioning = \"none\"\n\
+         pipeline = { check = [\"dockerfile\"], build = \"docker\", dependabot = [\"docker\"] }\n",
+        &["README.md", "api/Dockerfile"],
+    );
+    assert!(!unit(&analysis, "api").carries_version);
+    assert!(
+        !codes(&analysis).contains(&"build-without-file"),
+        "{:?}",
+        analysis.findings()
+    );
+}
+
+#[test]
+fn every_preset_that_builds_a_container_asks_for_its_dockerfile() {
+    let central = central();
+    let docker = nebensound_repo::names::BuildName::new("docker").expect("a name");
+    let mut seen = 0;
+    for (name, preset) in &central.register().preset {
+        if preset.build.as_ref() != Some(&docker) {
+            continue;
+        }
+        let declaration = format!("[repo]\npipeline = \"{name}\"\n");
+        let without = run(&declaration, &["README.md"]);
+        assert_eq!(
+            reported(&without, Rule::BuildWithoutFile),
+            [("the repository".to_owned(), "deploy/Dockerfile".to_owned())],
+            "{name}"
+        );
+        let with = run(&declaration, &["README.md", "deploy/Dockerfile"]);
+        assert!(
+            !codes(&with).contains(&"build-without-file"),
+            "{name}: {:?}",
+            with.findings()
+        );
+        seen += 1;
+    }
+    assert!(seen > 0, "some preset builds a container");
+}
+
 #[test]
 fn a_finding_says_what_it_is_about() {
     let analysis = run(
@@ -701,6 +871,7 @@ fn every_rule_has_a_code_of_its_own() {
         Rule::PublishWithoutVersion,
         Rule::VersionWriterWithoutVersion,
         Rule::BuildWithoutVersionWriter,
+        Rule::BuildWithoutFile,
         Rule::UnwatchedManifest,
         Rule::PointlessWatch,
         Rule::UnconventionalCommit,
