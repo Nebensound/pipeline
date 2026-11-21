@@ -1,0 +1,10 @@
+{
+  "name": "nebensound-repo",
+  "description": "Skills that work with the tool nebensound-repo: switching a repository to the central pipeline.",
+  "author": {
+    "name": "Nebensound"
+  },
+  "homepage": "https://github.com/Nebensound/pipeline#the-adoption-skill",
+  "repository": "https://github.com/Nebensound/pipeline",
+  "license": "EUPL-1.2"
+}

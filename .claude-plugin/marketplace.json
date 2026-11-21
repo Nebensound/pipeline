@@ -1,0 +1,14 @@
+{
+  "name": "nebensound-pipeline",
+  "description": "Skills for repositories that call Nebensound's central pipeline.",
+  "owner": {
+    "name": "Nebensound"
+  },
+  "plugins": [
+    {
+      "name": "nebensound-repo",
+      "source": "./plugins/nebensound-repo",
+      "description": "Skills that work with the tool nebensound-repo: switching a repository to the central pipeline."
+    }
+  ]
+}

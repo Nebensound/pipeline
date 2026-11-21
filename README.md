@@ -90,6 +90,32 @@ so the repository's own tags `vX.Y.Z` are the only ones, and its Build phase has
 nothing to build. The version writer `cargo` and the build `cargo-package` are
 held to their test cases instead.
 
+## The adoption skill
+
+Switching a repository to the pipeline is written down once, as a skill for
+Claude Code: [`adopt`](plugins/nebensound-repo/skills/adopt/SKILL.md). It runs
+`nebensound-repo init` and `nebensound-repo check` on the repository, settles
+what the tool states as certain, asks the rest one question at a time, and ends
+with one pull request whose phase 0 passes and whose description lists the
+decisions it asked for. What only phase 0 needs goes into that pull request;
+everything else becomes an issue of its own in the adopted repository. It never
+merges, never touches the branch `release` and never changes a repository
+setting. `init` arrives with #26; until then the skill stops at that step.
+
+This repository is the marketplace `nebensound-pipeline`
+([`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json)), and the
+skill belongs to its plugin `nebensound-repo`, named after the tool it uses:
+
+```sh
+claude plugin marketplace add Nebensound/pipeline
+claude plugin install nebensound-repo@nebensound-pipeline
+```
+
+In a session inside the repository to switch, `/nebensound-repo:adopt` starts
+it. The plugin carries no version, like everything in this tree: Claude Code
+names an installed copy after the commit it came from, so an update of the
+plugin brings the skill as it stands on `main`.
+
 ## Building blocks
 
 Every check block checks one unit, and exactly the files `nebensound-repo files
