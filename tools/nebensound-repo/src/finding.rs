@@ -82,6 +82,9 @@ pub enum Rule {
     PublishWithoutVersion,
     /// A version writer on a unit that carries no version to copy.
     VersionWriterWithoutVersion,
+    /// A `release` or `minimum-version` on a unit that carries no version for
+    /// it to act on.
+    ReleaseFieldWithoutVersion,
     /// A build without a version writer it needs, so that its artifact would
     /// carry a version the run did not write.
     BuildWithoutVersionWriter,
@@ -149,6 +152,7 @@ impl Rule {
             Self::TargetDemandsCheck => "target-demands-check",
             Self::PublishWithoutVersion => "publish-without-version",
             Self::VersionWriterWithoutVersion => "version-writer-without-version",
+            Self::ReleaseFieldWithoutVersion => "release-field-without-version",
             Self::BuildWithoutVersionWriter => "build-without-version-writer",
             Self::UnwatchedManifest => "unwatched-manifest",
             Self::PointlessWatch => "pointless-watch",

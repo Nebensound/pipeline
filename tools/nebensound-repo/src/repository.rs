@@ -20,7 +20,7 @@ use crate::register::{BUILTIN_DEFAULTS, BUILTIN_REGISTER};
 use crate::{Analysis, Central, Declaration, History, ReadError, Tree, analyse};
 use thiserror::Error;
 
-use crate::{ignored, packages};
+use crate::{ignored, packages, release_fields};
 
 /// Where the declaration of a repository lies.
 pub const DECLARATION: &str = crate::history::DECLARATION;
@@ -387,6 +387,11 @@ impl Repository {
             &declaration_path(),
             &source,
             &read,
+        ));
+        found.extend(release_fields::findings(
+            &analysis,
+            &declaration_path(),
+            &source,
         ));
         let loose = analysis.tree.attach(found);
         analysis.loose.extend(loose);

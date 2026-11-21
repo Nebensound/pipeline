@@ -325,10 +325,15 @@ A repository that moves to the pipeline with releases made elsewhere sets
 `minimum-version` above the highest version it ever gave out, pre-releases
 included, so that no version is given out twice.
 
-A generated unit takes both from the unit that generated it. The report of phase
-0 and `nebensound-repo explain` show for every unit how it is released and its
-minimum version, each with where it came from: written on the unit, the default
-of its publish targets, or inherited from the unit that generated it.
+A generated unit takes both from the unit that generated it. On a unit that
+carries no version and generates no children, neither field has a version to act
+on; phase 0 warns about each with
+[`release-field-without-version`](#release-field-without-version).
+
+The report of phase 0 and `nebensound-repo explain` show for every unit how it
+is released and its minimum version, each with where it came from: written on
+the unit, the default of its publish targets, or inherited from the unit that
+generated it.
 
 Both fields take effect where the version of a commit is resolved, as described
 under [Versions](#versions). Nothing is tagged or released yet.
@@ -723,6 +728,15 @@ Error. A unit selects a version writer, carries no version of its own and
 generates no children that carry one, so there is nothing to copy. Give it a
 `versioning` value that includes `self`, or let it generate children, or remove
 the version writer.
+
+### `release-field-without-version`
+
+Warning. A unit writes `release` or `minimum-version`, carries no version of its
+own and generates no children that would take the field over, so nothing ever
+reads the value. The finding stands at the field in `.nebensound/repo.toml`,
+with the line and column of its value, once for each of the two fields the unit
+writes. It is about the declaration at hand and changes no version. Give the unit
+a `versioning` value that includes `self`, or remove the field.
 
 ### `build-without-version-writer`
 
