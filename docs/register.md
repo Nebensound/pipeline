@@ -63,26 +63,26 @@ A check covers every file with one of its extensions or file names. A file
 that no check covers has to be excluded. The programs are what the check calls
 (see [Programs](#programs)).
 
-| Check        | Extensions                                               | File names                                         | Programs                                                 |
-| ------------ | -------------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------- |
-| `asciidoc`   | `.adoc`, `.asciidoc`                                     | none                                               | none                                                     |
-| `cpp`        | `.c`, `.h`, `.cpp`, `.hpp`, `.cc`, `.hh`, `.cxx`, `.ino` | none                                               | none                                                     |
-| `css`        | `.css`, `.scss`                                          | none                                               | `prettier`, `stylelint`                                  |
-| `dockerfile` | `.dockerfile`                                            | `Dockerfile`, `Containerfile`                      | `dockerfmt`, `hadolint`                                  |
-| `html`       | `.html`, `.htm`                                          | none                                               | `html-validate`, `lychee`, `prettier`                    |
-| `javascript` | `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.tsx`             | none                                               | none                                                     |
-| `json`       | `.json`, `.jsonc`, `.geojson`                            | `composer.lock`, `flake.lock`, `Pipfile.lock`      | `biome`, `jq`, `prettier`                                |
-| `markdown`   | `.md`, `.markdown`                                       | none                                               | `lychee`, `markdownlint-cli2`, `prettier`                |
-| `php`        | `.php`                                                   | none                                               | none                                                     |
-| `python`     | `.py`, `.pyi`                                            | none                                               | `coverage`, `pyright`, `ruff`, `uv`                      |
-| `qml`        | `.qml`                                                   | none                                               | none                                                     |
-| `r`          | `.r`                                                     | none                                               | none                                                     |
-| `rust`       | `.rs`                                                    | none                                               | `cargo-llvm-cov`                                         |
-| `shell`      | `.sh`, `.bash`                                           | none                                               | none                                                     |
-| `sql`        | `.sql`                                                   | none                                               | none                                                     |
-| `toml`       | `.toml`                                                  | `Cargo.lock`, `uv.lock`, `poetry.lock`, `pdm.lock` | `taplo`                                                  |
-| `typst`      | `.typ`                                                   | none                                               | none                                                     |
-| `yaml`       | `.yml`, `.yaml`                                          | none                                               | `actionlint`, `check-jsonschema`, `prettier`, `yamllint` |
+| Check        | Extensions                                               | File names                                                    | Programs                                                 |
+| ------------ | -------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------- |
+| `asciidoc`   | `.adoc`, `.asciidoc`                                     | none                                                          | none                                                     |
+| `cpp`        | `.c`, `.h`, `.cpp`, `.hpp`, `.cc`, `.hh`, `.cxx`, `.ino` | none                                                          | none                                                     |
+| `css`        | `.css`, `.scss`                                          | none                                                          | `prettier`, `stylelint`                                  |
+| `dockerfile` | `.dockerfile`                                            | `Dockerfile`, `Containerfile`                                 | `dockerfmt`, `hadolint`                                  |
+| `html`       | `.html`, `.htm`                                          | none                                                          | `html-validate`, `lychee`, `prettier`                    |
+| `javascript` | `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.tsx`             | none                                                          | none                                                     |
+| `json`       | `.json`, `.jsonc`, `.geojson`                            | `composer.lock`, `flake.lock`, `Pipfile.lock`                 | `biome`, `jq`, `prettier`                                |
+| `markdown`   | `.md`, `.markdown`                                       | none                                                          | `lychee`, `markdownlint-cli2`, `prettier`                |
+| `php`        | `.php`                                                   | none                                                          | none                                                     |
+| `python`     | `.py`, `.pyi`                                            | none                                                          | `coverage`, `pyright`, `ruff`, `uv`                      |
+| `qml`        | `.qml`                                                   | none                                                          | none                                                     |
+| `r`          | `.r`                                                     | none                                                          | none                                                     |
+| `rust`       | `.rs`                                                    | none                                                          | `cargo-llvm-cov`                                         |
+| `shell`      | `.sh`, `.bash`                                           | none                                                          | none                                                     |
+| `sql`        | `.sql`                                                   | none                                                          | none                                                     |
+| `toml`       | `.toml`                                                  | `Cargo.lock`, `uv.lock`, `poetry.lock`, `pdm.lock`, `Pipfile` | `taplo`                                                  |
+| `typst`      | `.typ`                                                   | none                                                          | none                                                     |
+| `yaml`       | `.yml`, `.yaml`                                          | none                                                          | `actionlint`, `check-jsonschema`, `prettier`, `yamllint` |
 
 ## Programs
 

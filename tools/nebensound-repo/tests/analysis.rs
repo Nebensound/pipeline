@@ -341,6 +341,74 @@ fn a_language_the_register_knows_nothing_about_reports_rather_than_hides() {
 }
 
 #[test]
+fn a_pipfile_is_toml_and_needs_no_exclusion() {
+    let analysis = run(
+        "[repo]\naudience = \"public\"\n",
+        &["README.md", "Pipfile", "api/Pipfile"],
+    );
+    assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
+}
+
+/// The Python project files that stay a gap on purpose: dependency lists that a
+/// uv project keeps in `pyproject.toml` and `uv.lock`, and settings files whose
+/// content belongs in `pyproject.toml`.
+const PYTHON_GAPS: &[&str] = &[
+    "requirements.txt",
+    "requirements-dev.txt",
+    "requirements/base.txt",
+    "constraints.txt",
+    ".coveragerc",
+    "pytest.ini",
+    "tox.ini",
+    "setup.cfg",
+];
+
+/// The codes phase 0 reports for one of [`PYTHON_GAPS`], with the gap itself
+/// or without it. The manifest of the ecosystem `pip` also warns while nothing
+/// watches it, excluded or not; that belongs to the manifests of `pip`, not to
+/// the gap.
+fn expected(name: &str, gap: bool) -> Vec<&'static str> {
+    let mut codes = Vec::new();
+    if gap {
+        codes.push("language-without-check");
+    }
+    if name == "requirements.txt" {
+        codes.push("unwatched-manifest");
+    }
+    codes
+}
+
+#[test]
+fn each_python_file_that_stays_a_gap_is_reported_where_it_lies() {
+    for name in PYTHON_GAPS {
+        let analysis = run("[repo]\naudience = \"public\"\n", &["README.md", name]);
+        assert_eq!(codes(&analysis), expected(name, true), "{name}");
+        let finding = found(&analysis, Rule::LanguageWithoutCheck).expect("the gap");
+        assert_eq!(
+            finding.path,
+            Some(RelativePath::new(name).expect("a path")),
+            "{name}"
+        );
+        assert!(analysis.failed(), "{name}");
+    }
+}
+
+#[test]
+fn a_python_file_that_stays_a_gap_is_excluded_by_its_repository() {
+    for name in PYTHON_GAPS {
+        let analysis = run(
+            &format!(
+                "[repo]\naudience = \"public\"\n\n[[exclude]]\npath = \"{name}\"\n\
+                 reason = \"kept by this repository for a reason of its own\"\n"
+            ),
+            &["README.md", name],
+        );
+        assert_eq!(codes(&analysis), expected(name, false), "{name}");
+        assert!(!analysis.failed(), "{name}");
+    }
+}
+
+#[test]
 fn an_empty_marker_keeps_a_folder_and_one_with_content_is_a_gap() {
     let paths = ["README.md", "assets/.gitkeep"];
     let empty = tree(&paths).with_empty([RelativePath::new("assets/.gitkeep").expect("a path")]);

@@ -195,6 +195,36 @@ fn taplo_include_leaves_out_no_file_taplo_does_not_read_by_default() {
 }
 
 #[test]
+fn a_taplo_exclude_naming_a_pipfile_takes_it_out() {
+    // A Pipfile is no lockfile: check-toml formats and lints it like any
+    // `.toml` file, so leaving it out of Taplo needs a reason.
+    let found = found(
+        QUIET,
+        &with(&[
+            ("Pipfile", "[packages]\n"),
+            ("taplo.toml", "exclude = [\"Pipfile\"]\n"),
+        ]),
+    );
+
+    assert_eq!(summary(&found), ["unexcused-ignore Pipfile"]);
+}
+
+#[test]
+fn taplo_include_leaves_out_no_pipfile() {
+    // Taplo reads no Pipfile by default, and check-toml hands it over through
+    // standard input, where `include` does not apply.
+    let found = found(
+        QUIET,
+        &with(&[
+            ("Pipfile", "[packages]\n"),
+            (".taplo.toml", "include = [\"**/*.toml\"]\n"),
+        ]),
+    );
+
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
 fn a_prettierignore_naming_only_a_json_lockfile_takes_nothing_out() {
     let found = found(
         &excusing(".prettierignore"),

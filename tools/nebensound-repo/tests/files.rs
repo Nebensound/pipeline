@@ -148,3 +148,28 @@ fn a_lockfile_goes_to_the_check_its_name_assigns() {
         ["Pipfile.lock", "composer.lock", "flake.lock"]
     );
 }
+
+#[test]
+fn a_pipfile_goes_to_toml_beside_the_toml_files() {
+    let analysis = analysis(
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n",
+        &[
+            ".nebensound/repo.toml",
+            "Pipfile",
+            "api/Pipfile",
+            "pyproject.toml",
+        ],
+    );
+    assert!(!analysis.failed(), "{:?}", analysis.findings());
+
+    let toml = files(&analysis, &central(), "toml", &RelativePath::root()).unwrap();
+    assert_eq!(
+        names(&toml),
+        [
+            ".nebensound/repo.toml",
+            "Pipfile",
+            "api/Pipfile",
+            "pyproject.toml"
+        ]
+    );
+}
