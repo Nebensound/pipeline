@@ -1,19 +1,20 @@
-//! The TOML check: every `.toml` file and every TOML lockfile passes
-//! `taplo lint`, against a schema where one is assigned, and every `.toml`
-//! file is formatted the way Taplo writes it.
+//! The TOML check: every `.toml` file and `Pipfile` and every TOML lockfile
+//! passes `taplo lint`, against a schema where one is assigned, and every
+//! `.toml` file and `Pipfile` is formatted the way Taplo writes it.
 //!
 //! Every file is checked on its own, so that one run reports every
 //! unformatted and every invalid file, and a finding carries Taplo's own
 //! diagnostic. Taplo reads every file from standard input: given a path,
 //! Taplo 0.10.0 silently skips a file outside its default `include` of
-//! `**/*.toml` (every lockfile) and one the repository's `taplo.toml` leaves
-//! out, and reports success for both. So a repository's `include` and
-//! `exclude` take nothing out of this check.
+//! `**/*.toml` (every lockfile and every `Pipfile`) and one the repository's
+//! `taplo.toml` leaves out, and reports success for both. So a repository's
+//! `include` and `exclude` take nothing out of this check.
 //!
-//! Formatting: `.toml` files are formatted the way Taplo writes them, with
-//! the repository's `taplo.toml`, which Taplo finds at the repository root;
-//! `--stdin-filepath` keeps its per-path rules working. A lockfile is not
-//! format-checked.
+//! Formatting: `.toml` files and every `Pipfile` are formatted the way Taplo
+//! writes them, with the repository's `taplo.toml`, which Taplo finds at the
+//! repository root; `--stdin-filepath` keeps its per-path rules working.
+//! Since `taplo format` skips a `Pipfile` given as a path, the finding on one
+//! names the standard-input form. A lockfile is not format-checked.
 //!
 //! Lint: every file parses and holds no conflicting keys. It runs without the
 //! repository's configuration, so that no `[schema] enabled = false` there can
@@ -110,19 +111,28 @@ pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
             ];
             let ran = session.execute(&taplo, &args, Some(file), "Taplo");
             if !ran.success {
-                report(
-                    session,
-                    file,
-                    &ran.text,
-                    "does not parse, or is not formatted the way Taplo writes it; 'taplo format' \
-                     fixes the latter",
+                let message = format!(
+                    "does not parse, or is not formatted the way Taplo writes it; {}",
+                    format_hint(file)
                 );
+                report(session, file, &ran.text, &message);
                 passed = false;
             }
         }
         passed &= lint(session, &taplo, file, &schemas, &cache);
     }
     passed
+}
+
+/// How the formatting of a file is fixed. `taplo format` given a `Pipfile` as
+/// a path skips it, as it lies outside Taplo's default `include`, so the hint
+/// on one names the standard-input form, which prints the fixed file.
+fn format_hint(file: &str) -> String {
+    if name_of(file) == "Pipfile" {
+        format!("'taplo format --stdin-filepath {file} - < {file}' prints the fixed file")
+    } else {
+        "'taplo format' fixes the latter".to_owned()
+    }
 }
 
 /// `taplo lint` over one file, against the schema assigned to it.

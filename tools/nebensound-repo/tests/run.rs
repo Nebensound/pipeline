@@ -585,6 +585,42 @@ fn every_kind_of_toml_finding_is_reported_with_taplos_diagnostic() {
 }
 
 #[test]
+fn a_pipfile_is_formatted_and_linted_and_its_finding_names_the_standard_input_form() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture
+        .everything()
+        .file("Pipfile", "show = 1\n")
+        .file("a%b/Pipfile", "unformatted\n");
+    // Linted like any TOML file. Taplo's output is shown only with a finding,
+    // so the lint fails here.
+    let (code, text) = fixture.run(Check::Toml, &["Pipfile"], true);
+    assert_eq!(code, 1, "{text}");
+    has(&text, "::error file=Pipfile::fails taplo lint");
+    // No lockfile: a Pipfile is format-checked as well. `taplo format
+    // a%b/Pipfile` would skip the file, so the hint names the standard-input
+    // form; the path in it is escaped like the rest of the message.
+    let (code, text) = fixture.run(Check::Toml, &["a%b/Pipfile"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "taplo format --check --colors never --stdin-filepath a%b/Pipfile -",
+    );
+    has(
+        &text,
+        "::error file=a%25b/Pipfile::does not parse, or is not formatted the way Taplo writes \
+         it; 'taplo format --stdin-filepath a%25b/Pipfile - < a%25b/Pipfile' prints the fixed \
+         file%0AERROR operation failed error=the input was not properly formatted",
+    );
+    let (_, text) = fixture.run(Check::Toml, &["a%b/Pipfile"], false);
+    has(
+        &text,
+        "a%b/Pipfile: error: does not parse, or is not formatted the way Taplo writes it; \
+         'taplo format --stdin-filepath a%b/Pipfile - < a%b/Pipfile' prints the fixed file",
+    );
+}
+
+#[test]
 fn a_file_that_cannot_be_read_is_a_finding() {
     let _alone = alone();
     let fixture = Fixture::new();

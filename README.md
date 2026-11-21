@@ -358,8 +358,9 @@ keeps in with an `[[include]]` is checked in every step, coverage included.
 ### `check-toml`
 
 [`.github/actions/check-toml`](.github/actions/check-toml) checks every `.toml`
-file of the unit, and `Cargo.lock`, `uv.lock`, `poetry.lock` and `pdm.lock`,
-with Taplo 0.10.0, the release binary the register pins by SHA-256:
+file and every `Pipfile` of the unit, and `Cargo.lock`, `uv.lock`,
+`poetry.lock` and `pdm.lock`, with Taplo 0.10.0, the release binary the register
+pins by SHA-256:
 
 - Taplo reads each file from standard input. Given a path, it silently skips
   every `.lock` file and every `Pipfile` (all of them are fed through standard
