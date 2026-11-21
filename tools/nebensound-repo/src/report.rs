@@ -116,6 +116,16 @@ fn minimum_version(unit: &Unit) -> String {
     }
 }
 
+/// The commit types that count like `feat` beside `feat` itself, as the
+/// declaration at hand lists them.
+fn feat_types(analysis: &Analysis) -> String {
+    let types = analysis.feat_types.types();
+    if types.is_empty() {
+        return "none".to_owned();
+    }
+    listed(types)
+}
+
 fn unit_lines(unit: &Unit) -> Vec<String> {
     let mut lines = vec![format!(
         "{}{}",
@@ -190,6 +200,13 @@ pub fn configuration(analysis: &Analysis, central: &Central) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     lines.push(format!("{}{watched}", column(2, "Base watch")));
+    // The list holds for the whole repository: every unit's version is raised
+    // by the same reading of a commit.
+    lines.push(format!(
+        "{}{}",
+        column(2, "Feat types"),
+        feat_types(analysis)
+    ));
     for unit in &analysis.units {
         lines.push(String::new());
         lines.extend(unit_lines(unit));
@@ -342,6 +359,11 @@ pub fn explain(analysis: &Analysis, path: &RelativePath) -> Option<String> {
             minimum_version(unit)
         ));
     }
+    lines.push(format!(
+        "{}{}",
+        column(2, "Feat types"),
+        feat_types(analysis)
+    ));
     lines.push(format!("{}{}", column(2, "Checks"), names(&node.checks)));
     match node.coverage() {
         Some(coverage) => lines.push(format!(

@@ -24,7 +24,7 @@ use crate::names::{
 };
 use crate::path::RelativePath;
 use crate::pattern::Pattern;
-use crate::version::TagVersion;
+use crate::version::{CommitType, FeatTypes, TagVersion};
 
 /// The schema of `.nebensound/repo.toml`, as JSON Schema draft 7.
 ///
@@ -171,6 +171,40 @@ impl JsonSchema for Edition {
                             counting. 1 when it is left out, and 1 is the only edition there is.",
             "minimum": 1,
             "maximum": crate::EDITION,
+        })
+    }
+}
+
+impl JsonSchema for CommitType {
+    fn schema_name() -> Cow<'static, str> {
+        "CommitType".into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "type": "string",
+            "description": "A commit type as a Conventional Commit writes it before the colon: \
+                            letters only, compared without regard to case. Neither feat nor fix.",
+            "pattern": "^[A-Za-z]+$",
+            "not": { "pattern": "^(?:[Ff][Ee][Aa][Tt]|[Ff][Ii][Xx])$" },
+        })
+    }
+}
+
+/// The list is looser here than in phase 0: `uniqueItems` compares with
+/// regard to case, and phase 0 refuses `rule` beside `Rule` as well.
+impl JsonSchema for FeatTypes {
+    fn schema_name() -> Cow<'static, str> {
+        "FeatTypes".into()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "type": "array",
+            "description": "Commit types that count like feat in this repository, beside feat \
+                            itself. Each commit is read with the list its own declaration holds.",
+            "items": generator.subschema_for::<CommitType>(),
+            "uniqueItems": true,
         })
     }
 }

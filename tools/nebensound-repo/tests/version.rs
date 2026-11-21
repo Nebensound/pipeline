@@ -3,8 +3,12 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
+use nebensound_repo::Declaration;
 use nebensound_repo::Version;
-use nebensound_repo::version::{Change, TagVersion, Unconventional, VersionError, change_of};
+use nebensound_repo::version::{
+    Change, CommitType, CommitTypeError, FeatTypes, TagVersion, Unconventional, VersionError,
+    change_of,
+};
 
 #[test]
 fn three_numbers_read_as_a_version() {
@@ -81,7 +85,7 @@ fn versions_are_ordered_number_by_number() {
 }
 
 fn change(message: &str) -> Change {
-    change_of(message).unwrap_or_else(|error| panic!("{message:?}: {error}"))
+    change_of(message, &FeatTypes::default()).unwrap_or_else(|error| panic!("{message:?}: {error}"))
 }
 
 #[test]
@@ -137,7 +141,7 @@ fn a_message_that_is_not_conventional_is_refused_with_its_header() {
         "fix(plan)x: something behind the scope",
         "Revert \"feat: something\"",
     ] {
-        let refused = change_of(message).expect_err(message);
+        let refused = change_of(message, &FeatTypes::default()).expect_err(message);
         let header = message.lines().next().unwrap_or_default();
         assert_eq!(
             refused,
@@ -146,6 +150,147 @@ fn a_message_that_is_not_conventional_is_refused_with_its_header() {
             }
         );
         assert!(refused.to_string().contains("not a Conventional Commit"));
+    }
+}
+
+/// The commit types of `feat-types`, as a declaration lists them.
+fn feat_types(types: &[&str]) -> FeatTypes {
+    FeatTypes::new(
+        types
+            .iter()
+            .map(|kind| CommitType::new(kind).unwrap_or_else(|error| panic!("{kind}: {error}")))
+            .collect(),
+    )
+    .expect("each type once")
+}
+
+fn change_with(message: &str, types: &[&str]) -> Change {
+    change_of(message, &feat_types(types)).unwrap_or_else(|error| panic!("{message:?}: {error}"))
+}
+
+#[test]
+fn a_listed_type_counts_like_feat() {
+    let rules = ["rule", "announcement"];
+
+    assert_eq!(change_with("rule: a new rule", &rules), Change::Minor);
+    assert_eq!(
+        change_with("announcement(plan): with a scope", &rules),
+        Change::Minor
+    );
+    assert_eq!(
+        change_with("RULE: the type ignores case", &rules),
+        Change::Minor
+    );
+    assert_eq!(
+        change_with("feat: feat itself still counts", &rules),
+        Change::Minor
+    );
+    // Every type that is not listed counts as everything else.
+    assert_eq!(change_with("fix: a correction", &rules), Change::Patch);
+    assert_eq!(
+        change_with("rules: not the type listed", &rules),
+        Change::Patch
+    );
+    // Without the list, the same message is a patch.
+    assert_eq!(change("rule: a new rule"), Change::Patch);
+}
+
+#[test]
+fn the_breaking_marker_stays_the_same_for_a_listed_type() {
+    let rules = ["rule"];
+
+    assert_eq!(change_with("rule!: a breaking rule", &rules), Change::Major);
+    assert_eq!(
+        change_with("rule: a rule\n\nBREAKING CHANGE: it breaks", &rules),
+        Change::Major
+    );
+    assert_eq!(
+        change_with("other!: breaking without the list", &rules),
+        Change::Major
+    );
+}
+
+#[test]
+fn a_commit_type_is_letters_only_and_neither_feat_nor_fix() {
+    let kind = CommitType::new("Rule").expect("letters only");
+    assert_eq!(kind.as_str(), "Rule");
+    assert_eq!(kind.to_string(), "Rule");
+
+    for value in [
+        "",
+        "rule-change",
+        "rule1",
+        "rule change",
+        "r\u{e9}gle",
+        "rule:",
+    ] {
+        let refused = CommitType::new(value).expect_err(value);
+        assert_eq!(
+            refused,
+            CommitTypeError::Letters {
+                value: value.to_owned()
+            }
+        );
+        assert!(refused.to_string().contains("letters"), "{refused}");
+    }
+    for value in ["feat", "fix", "FEAT", "Fix"] {
+        let refused = CommitType::new(value).expect_err(value);
+        assert_eq!(
+            refused,
+            CommitTypeError::Implied {
+                value: value.to_owned()
+            }
+        );
+        assert!(refused.to_string().contains("is not listed"), "{refused}");
+    }
+}
+
+#[test]
+fn a_commit_type_stands_once_in_the_list() {
+    let twice = vec![
+        CommitType::new("rule").expect("letters only"),
+        CommitType::new("announcement").expect("letters only"),
+        CommitType::new("Rule").expect("letters only"),
+    ];
+
+    let refused = FeatTypes::new(twice).expect_err("rule stands twice");
+
+    assert_eq!(
+        refused,
+        CommitTypeError::Twice {
+            value: "Rule".to_owned()
+        }
+    );
+    assert!(refused.to_string().contains("listed twice"), "{refused}");
+}
+
+#[test]
+fn the_declaration_reads_the_list_of_its_repository() {
+    let declaration = Declaration::parse("[repo]\nfeat-types = [\"rule\", \"announcement\"]\n")
+        .expect("it reads");
+    let types: Vec<&str> = declaration
+        .repo
+        .feat_types
+        .types()
+        .iter()
+        .map(CommitType::as_str)
+        .collect();
+    assert_eq!(types, ["rule", "announcement"]);
+
+    let without = Declaration::parse("[repo]\n").expect("it reads");
+    assert_eq!(without.repo.feat_types, FeatTypes::default());
+
+    for (list, mistake) in [
+        ("[\"feat\"]", "is not listed"),
+        ("[\"rule-change\"]", "letters"),
+        ("[\"rule\", \"RULE\"]", "listed twice"),
+        ("\"rule\"", "sequence"),
+        ("[1]", "a string"),
+    ] {
+        let refused = Declaration::parse(&format!("[repo]\nfeat-types = {list}\n"))
+            .expect_err(list)
+            .to_string();
+        assert!(refused.contains(mistake), "{list}: {refused}");
     }
 }
 

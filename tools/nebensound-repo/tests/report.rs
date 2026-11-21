@@ -172,6 +172,44 @@ fn explain_says_what_holds_for_a_file_and_why() {
     assert!(report::explain(&analysis, &path("nowhere")).is_none());
 }
 
+/// The line of a labelled row.
+fn row<'a>(text: &'a str, label: &str) -> &'a str {
+    text.lines()
+        .find(|line| line.trim_start().starts_with(label))
+        .unwrap_or_else(|| panic!("no {label} row:\n{text}"))
+}
+
+#[test]
+fn the_report_and_explain_show_the_types_that_count_like_feat() {
+    let listed = "[repo]\npipeline = \"none\"\nfeat-types = [\"rule\", \"announcement\"]\n";
+    let written = analysis(listed, &["README.md"]);
+
+    let configuration = report::configuration(&written, &central());
+    assert!(
+        row(&configuration, "Feat types").ends_with("rule, announcement"),
+        "{configuration}"
+    );
+    let explained = report::explain(&written, &path("README.md")).expect("the file is in the tree");
+    assert!(
+        row(&explained, "Feat types").ends_with("rule, announcement"),
+        "{explained}"
+    );
+
+    // Without the field, both say that nothing beside feat counts like it.
+    let left_out = analysis(MIXED, MIXED_FILES);
+    let configuration = report::configuration(&left_out, &central());
+    assert!(
+        row(&configuration, "Feat types").ends_with("none"),
+        "{configuration}"
+    );
+    let explained =
+        report::explain(&left_out, &path("README.md")).expect("the file is in the tree");
+    assert!(
+        row(&explained, "Feat types").ends_with("none"),
+        "{explained}"
+    );
+}
+
 #[test]
 fn explain_counts_several_entries() {
     let analysis = analysis(WORKSPACE, WORKSPACE_FILES);

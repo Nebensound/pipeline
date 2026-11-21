@@ -127,6 +127,7 @@ out, and its effect.
 | `versioning`      | string                               | `"self"`                       | Which units around the repository carry a version. Only the values that include `self` are open to the repository. See [Versioning](#versioning).        |
 | `release`         | string                               | decided by the publish targets | `"single-stage"` or `"two-stage"`: how the unit's version reaches a full release. See [Releases](#releases).                                             |
 | `minimum-version` | version `"X.Y.Z"` or `"X.Y.Z-pre.N"` | none                           | The version the unit gets is never lower than this. See [Releases](#releases).                                                                           |
+| `feat-types`      | array of commit types                | none                           | Commit types that count like `feat` for every unit, beside `feat` itself. See [How a version is resolved](#how-a-version-is-resolved).                   |
 | `allow-unused`    | table of check → reason              | none                           | Checks of this unit's own pipeline that may find no file without failing, each with the reason why it stays. Without an entry, such a check is an error. |
 | `component`       | table                                | none                           | The pipeline a component can ask for with `pipeline = { repo = true }`. See `[repo.component]` below.                                                    |
 
@@ -466,6 +467,20 @@ would write both units' records under the same names.
   | `1.0.0` and above        | major                                                                | minor  | patch           |
 
   No change leads to `1.0.0`; that step is taken with `minimum-version`.
+
+  A repository whose changes are not features names its own types for the
+  column `feat` with `feat-types` in `[repo]`. With `feat-types = ["rule"]`, a
+  commit `rule: …` raises like `feat`, and `rule!: …` like a breaking change.
+  A type is written as a Conventional Commit writes it, letters only, and is
+  compared without regard to case; each type stands once, and `feat` and `fix`
+  are not listed. Nothing else can be declared: the breaking marker is the same
+  for every type, and a type that is not listed counts as everything else. Each
+  commit is read with the list its own declaration holds, like every field
+  above that decides a version: the list counts from the commit that writes it
+  on, a commit before it counts without it, and a commit whose declaration
+  cannot be read takes the list from the nearest commit after it whose
+  declaration can, and from the declaration at hand until one follows. A
+  declaration without the field reads every commit as before.
 
 - **One stage**: a commit that touches the unit is the base raised once per
   touching commit since the base, each by its own change.
@@ -882,6 +897,8 @@ sentence that names the file and the mistake, and fails:
   [How a version is resolved](#how-a-version-is-resolved));
 - `release` is neither `"single-stage"` nor `"two-stage"`, or
   `minimum-version` is neither `X.Y.Z` nor `X.Y.Z-pre.N`;
+- an entry of `feat-types` is not letters only, is `feat` or `fix`, or stands
+  twice;
 - an `[[exclude]]` entry names a pattern, or the same path stands twice under
   `[[exclude]]`;
 - a pipeline combines `repo = true` with other keys, or says `repo = false`, or
