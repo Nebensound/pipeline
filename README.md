@@ -362,11 +362,16 @@ file of the unit, and `Cargo.lock`, `uv.lock`, `poetry.lock` and `pdm.lock`,
 with Taplo 0.10.0, the release binary the register pins by SHA-256:
 
 - Taplo reads each file from standard input. Given a path, it silently skips
-  every `.lock` file (the lockfiles are fed through standard input all the
-  same) and every file the `include` or `exclude` of the repository's
-  `taplo.toml` leaves out, and reports success.
+  every `.lock` file and every `Pipfile` (all of them are fed through standard
+  input all the same) and every file the `include` or `exclude` of the
+  repository's `taplo.toml` leaves out, and reports success.
 - `.toml` files are formatted the way Taplo writes them, with the repository's
-  `taplo.toml`. Lockfiles are not format-checked: the tool that writes them
+  `taplo.toml`, and so is `Pipfile`, TOML without an extension that the register
+  gives `toml` by name. Since `taplo format Pipfile` skips the file, a
+  `Pipfile` is formatted by hand through standard input,
+  `taplo format --stdin-filepath Pipfile - < Pipfile > Pipfile.new`, then moved
+  over the original; or the `include` of `taplo.toml` names `**/Pipfile` beside
+  `**/*.toml`. Lockfiles are not format-checked: the tool that writes them
   (Cargo, uv, Poetry, PDM) decides their layout. Every file of the check whose
   name ends in `.lock` is such a lockfile, as the register gives `toml` no
   other.
@@ -705,32 +710,32 @@ that also keeps `exclude_path` from taking a file out in the block: phase 0
 matches it against the path from the root, such as `docs/a.md`, the string the
 block hands lychee. A setting that takes out less is fine. Phase 0 reads:
 
-| Tool              | Setting                                                                                     |
-| ----------------- | ------------------------------------------------------------------------------------------- |
-| Prettier          | `.prettierignore` at the root                                                               |
-| Taplo             | `include` and `exclude` in `.taplo.toml` or `taplo.toml` at the root                        |
-| markdownlint-cli2 | `ignores` in `.markdownlint-cli2.jsonc` or `.markdownlint-cli2.yaml`, in every folder       |
-| yamllint          | `ignore` and `ignore-from-file` in `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at root |
-| lychee            | `exclude_path` in `lychee.toml` at the root                                                 |
-| Pyright           | `include`, `ignore`, `exclude` in `pyrightconfig.json` or `[tool.pyright]`, in every folder |
-| coverage.py       | `omit` in `.coveragerc`, `setup.cfg`, `tox.ini` or `pyproject.toml`, in every folder        |
-| Ruff              | `# ruff: noqa` or `# flake8: noqa` without rule codes, in the Python file itself            |
-| Ruff              | `exclude`, `extend-exclude` in `.ruff.toml`, `ruff.toml` or `[tool.ruff]`, in every folder  |
-| Ruff              | `include`, `lint.exclude`, `format.exclude` in the configuration that governs a file        |
-| rustfmt           | `ignore` in `.rustfmt.toml` or `rustfmt.toml`, in every folder                              |
-| Stylelint         | `.stylelintignore` at the root; `ignoreFiles` in the configuration of every folder          |
-| html-validate     | `.htmlvalidateignore` in every folder                                                       |
+| Tool              | Setting                                                                                                  |
+| ----------------- | -------------------------------------------------------------------------------------------------------- |
+| Prettier          | `.prettierignore` at the root                                                                            |
+| Taplo             | `include` and `exclude` in `.taplo.toml` or `taplo.toml` at the root                                     |
+| markdownlint-cli2 | `ignores` in `.markdownlint-cli2.jsonc` or `.markdownlint-cli2.yaml`, in every folder                    |
+| yamllint          | `ignore` and `ignore-from-file` in `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at root              |
+| lychee            | `exclude_path` in `lychee.toml` at the root                                                              |
+| Pyright           | `include`, `ignore`, `exclude` in `pyrightconfig.json` or `[tool.pyright]`, in every folder              |
+| coverage.py       | `omit` in `.coveragerc`, `.coveragerc.toml`, `setup.cfg`, `tox.ini` or `pyproject.toml`, in every folder |
+| Ruff              | `# ruff: noqa` or `# flake8: noqa` without rule codes, in the Python file itself                         |
+| Ruff              | `exclude`, `extend-exclude` in `.ruff.toml`, `ruff.toml` or `[tool.ruff]`, in every folder               |
+| Ruff              | `include`, `lint.exclude`, `format.exclude` in the configuration that governs a file                     |
+| rustfmt           | `ignore` in `.rustfmt.toml` or `rustfmt.toml`, in every folder                                           |
+| Stylelint         | `.stylelintignore` at the root; `ignoreFiles` in the configuration of every folder                       |
+| html-validate     | `.htmlvalidateignore` in every folder                                                                    |
 
 Only the files the tool reads in a block count: a `.prettierignore` that takes
 out a Rust file takes out nothing Prettier would have looked at. Taplo's
 `include` counts only against `.toml` files, the ones Taplo reads without it; a
-lockfile of the `toml` check (`Cargo.lock`, `uv.lock`, `poetry.lock`,
-`pdm.lock`) is taken out of Taplo only by `exclude`. A setting that takes out
-nothing but lockfiles the register names, such as a `.prettierignore` naming
-`composer.lock` or an `exclude` naming `Cargo.lock`, takes nothing out of a
-check: no block hands a lockfile to Prettier, and Taplo lints without its
-configuration. One that takes out another file as well is reported at that file
-only. Where
+`Pipfile` or a lockfile of the `toml` check (`Cargo.lock`, `uv.lock`,
+`poetry.lock`, `pdm.lock`) is taken out of Taplo only by `exclude`. A setting
+that takes out nothing but lockfiles the register names, such as a
+`.prettierignore` naming `composer.lock` or an `exclude` naming `Cargo.lock`,
+takes nothing out of a check: no block hands a lockfile to Prettier, and Taplo
+lints without its configuration. One that takes out another file as well is
+reported at that file only. Where
 yamllint's file sets neither `ignore` nor `ignore-from-file`, phase 0 reads them
 in the file its `extends` names, as yamllint does. rustfmt's `ignore` is read in
 every folder, relative to that folder, since which configuration rustfmt applies
@@ -743,7 +748,24 @@ governs; a configuration in JavaScript is not judged, the block sets its
 `ignoreFiles` aside all the same, and a file that something it extends would
 still take out fails in the block. html-validate's `.htmlvalidateignore` is
 read in every folder, relative to that folder, as html-validate's command line
-reads it. Ruff's `exclude` and `extend-exclude` are read in the configuration
+reads it. coverage.py takes its settings from the first of `.coveragerc` (or the
+file `--rcfile` or `COVERAGE_RCFILE` names), `.coveragerc.toml`, `setup.cfg`,
+`tox.ini` and `pyproject.toml` in the folder it runs in that exists, where
+`setup.cfg`, `tox.ini` and `pyproject.toml` count only when they hold settings
+of its own; since that depends on where it runs, phase 0 reads `omit` of the
+run and report sections in every one of them in every folder, relative to that
+folder. In `.coveragerc` the sections are `[coverage:run]` and
+`[coverage:report]`, or `[run]` and `[report]` where the prefixed section is
+missing; in `setup.cfg` and `tox.ini` `[coverage:run]` and
+`[coverage:report]`; in `pyproject.toml` `[tool.coverage.run]` and
+`[tool.coverage.report]`; and in `.coveragerc.toml` the latter, or `[run]` and
+`[report]` where the prefixed table is missing, as coverage.py looks them up.
+coverage.py picks the section before it reads `omit`, so a prefixed section
+without `omit` hides the plain one. In the INI files, an `omit` under
+`[DEFAULT]` counts as set in the section picked, since Python's configparser
+hands it on to every section, and a section name keeps the spaces inside its
+brackets, so `[ run ]` is not `[run]`.
+Ruff's `exclude` and `extend-exclude` are read in the configuration
 Ruff finds in each folder (the first of `.ruff.toml`, `ruff.toml` and a
 `pyproject.toml` with a `[tool.ruff]` table), relative to that folder, `*`
 crossing a `/` and a pattern without a `/` naming a file or folder of that name

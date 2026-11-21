@@ -1,9 +1,9 @@
 name: check-toml
 description: >-
-  The TOML check over one unit: every `.toml` file and every `Cargo.lock`,
-  `uv.lock`, `poetry.lock` and `pdm.lock` the unit holds passes `taplo lint`,
-  against a schema where one is assigned, and every `.toml` file is formatted
-  the way Taplo writes it.
+  The TOML check over one unit: every `.toml` file and `Pipfile` and every
+  `Cargo.lock`, `uv.lock`, `poetry.lock` and `pdm.lock` the unit holds passes
+  `taplo lint`, against a schema where one is assigned, and every `.toml` file
+  and `Pipfile` is formatted the way Taplo writes it.
 
 # One input, and it is not a setting: where the unit is. It comes from the plan
 # of phase 0. The calling job checks the repository out and puts the tool on the

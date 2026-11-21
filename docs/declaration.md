@@ -99,6 +99,25 @@ for `py.typed`, the empty marker of a Python package that ships its type hints;
 `.python-version`, which names the interpreter uv installs, stands on the list
 whatever it holds.
 
+`Pipfile` is TOML without an extension and belongs to `toml` by its name. It is
+no lockfile, so unlike `Pipfile.lock` it is formatted like any `.toml` file; the
+README of the pipeline says how to format it by hand. Other files a Python
+project commonly holds stay a gap on purpose: phase 0 reports each of them as
+`language-without-check` until the repository excludes it by its path, with a
+reason of its own.
+
+- `requirements.txt`, the other `requirements*.txt`, the files in a
+  `requirements/` folder and `constraints.txt`: a uv project keeps its
+  dependencies in `pyproject.toml` and `uv.lock`. A repository that keeps such a
+  list, for example one that `uv export` writes for an image, says why in its
+  exclusion. As the manifest of the ecosystem `pip`, `requirements.txt` is also
+  held to `unwatched-manifest`.
+- `.coveragerc`, `pytest.ini`, `tox.ini` and `setup.cfg`: coverage.py and
+  pytest read the same settings from `pyproject.toml`, and a second file can
+  silently take precedence over it, since both tools take the first file they
+  find and never merge. Phase 0 still reads coverage.py's `omit` in
+  `.coveragerc`, `setup.cfg` and `tox.ini`, excluded or not.
+
 ### Where a check runs
 
 The checks in force for a file are the base set and the checks of every unit

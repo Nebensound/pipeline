@@ -294,7 +294,13 @@ const COVERAGE_TABLE: &[Coverage] = &[
     (
         "toml",
         &[".toml"],
-        &["Cargo.lock", "uv.lock", "poetry.lock", "pdm.lock"],
+        &[
+            "Cargo.lock",
+            "uv.lock",
+            "poetry.lock",
+            "pdm.lock",
+            "Pipfile",
+        ],
     ),
     ("typst", &[".typ"], &[]),
     ("yaml", &[".yml", ".yaml"], &[]),
@@ -384,6 +390,9 @@ fn a_check_is_found_by_extension_or_by_whole_name() {
     assert_eq!(register.check_for("poetry.lock"), Some(&named("toml")));
     assert_eq!(register.check_for("api/pdm.lock"), Some(&named("toml")));
     assert_eq!(register.check_for("Pipfile.lock"), Some(&named("json")));
+    // TOML without an extension, named whole like a lockfile.
+    assert_eq!(register.check_for("Pipfile"), Some(&named("toml")));
+    assert_eq!(register.check_for("api/Pipfile"), Some(&named("toml")));
     // A lockfile is assigned by its name, never by the extension `.lock`.
     assert_eq!(register.check_for("yarn.lock"), None);
     assert_eq!(register.check_for("Gemfile.lock"), None);
@@ -409,6 +418,7 @@ fn a_lockfile_is_a_whole_name_a_check_covers_that_ends_in_lock() {
     assert!(register.is_lockfile("Pipfile.lock"));
     // Named by a check, but not a lockfile.
     assert!(!register.is_lockfile("deploy/Dockerfile"));
+    assert!(!register.is_lockfile("api/Pipfile"));
     // A lockfile, but no check covers it.
     assert!(!register.is_lockfile("yarn.lock"));
     assert!(!register.is_lockfile("other.lock"));

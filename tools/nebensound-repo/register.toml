@@ -31,7 +31,8 @@ programs   = ["actionlint", "check-jsonschema", "prettier", "yamllint"]
 # shared by formats that have nothing in common. composer.lock, flake.lock and
 # Pipfile.lock are JSON; Cargo.lock, uv.lock, poetry.lock and pdm.lock are
 # TOML; yarn.lock and Gemfile.lock are in formats of their own and stand on the
-# list of types nobody checks, in defaults.toml.
+# list of types nobody checks, in defaults.toml. Pipfile is TOML without an
+# extension and no lockfile, so it is linted and formatted like a .toml file.
 [check.json]
 extensions = [".json", ".jsonc", ".geojson"]
 filenames  = ["composer.lock", "flake.lock", "Pipfile.lock"]
@@ -39,7 +40,7 @@ programs   = ["biome", "jq", "prettier"]
 
 [check.toml]
 extensions = [".toml"]
-filenames  = ["Cargo.lock", "uv.lock", "poetry.lock", "pdm.lock"]
+filenames  = ["Cargo.lock", "uv.lock", "poetry.lock", "pdm.lock", "Pipfile"]
 programs   = ["taplo"]
 
 # The toolchain, rustfmt and Clippy are the ones the workspace pins in its
