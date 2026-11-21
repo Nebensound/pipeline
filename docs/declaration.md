@@ -980,7 +980,10 @@ nothing out of a check. A `.rs` file
 that rustfmt's `ignore` takes out is excused only by an entry that takes out its
 whole package (see
 [`partial-package-exclusion`](#partial-package-exclusion)); inside a package,
-`#[rustfmt::skip]` is the means.
+`#[rustfmt::skip]` is the means. A Python file that holds `# ruff: noqa`
+without rule codes takes itself out of Ruff's linter, which honours the line in
+`check-python` as well: give the file an `[[exclude]]` entry, or switch single
+rules off instead (`# ruff: noqa: <code>`).
 [The README](../README.md#exclusions) lists the settings phase 0 reads.
 
 ### `unreadable-ignore-file`

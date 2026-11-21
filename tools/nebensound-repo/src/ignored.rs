@@ -530,14 +530,15 @@ fn pyright(config: Pyright, base: &RelativePath) -> Result<Option<Matcher>, Stri
         .iter()
         .flat_map(|entry| [entry.clone(), entry.clone()])
         .collect();
-    Ok(Some(Matcher::Globs {
-        base: base.clone(),
-        include: None,
-        exclude: Globs {
-            set: set.build().map_err(text)?,
-            written,
-        },
-    }))
+    set.build()
+        .map(|set| {
+            Some(Matcher::Globs {
+                base: base.clone(),
+                include: None,
+                exclude: Globs { set, written },
+            })
+        })
+        .map_err(text)
 }
 
 fn pyright_json(source: &str, base: &RelativePath) -> Result<Option<Matcher>, String> {
@@ -882,10 +883,7 @@ pub fn findings(analysis: &Analysis, register: &Register, read: &Read<'_>) -> Ve
     for (node, coverage) in &nodes {
         let python = matches!(coverage, Coverage::Covered(check) | Coverage::Uncovered(check)
             if Tool::Ruff.checks().contains(&check.as_str()));
-        if let Some(matcher) = python
-            .then(|| read(&node.path).ok())
-            .flatten()
-            .and_then(|source| noqa(&node.path, &source))
+        if let Some(Ok(Some(matcher))) = python.then(|| read_setting(&node.path, Tool::Ruff, read))
         {
             settings.push(Setting {
                 file: node.path.clone(),
