@@ -82,11 +82,12 @@ Which check covers a file is decided by its extension, compared in lowercase
 none. The register lists every check with its extensions and file names.
 
 A lockfile is assigned by its name, never by the extension `.lock`, because
-that extension is shared by formats that have nothing in common: `Cargo.lock`
-and `uv.lock` belong to `toml`, `composer.lock` and `flake.lock` to `json`, and
-`yarn.lock` and `Gemfile.lock` are in a format of their own that no check
-covers, so they stand on the list of what nobody checks. A lockfile has to
-parse; it is not formatted, since the tool that writes it decides its layout.
+that extension is shared by formats that have nothing in common: `Cargo.lock`,
+`uv.lock`, `poetry.lock` and `pdm.lock` belong to `toml`, `composer.lock`,
+`flake.lock` and `Pipfile.lock` to `json`, and `yarn.lock` and `Gemfile.lock`
+are in a format of their own that no check covers, so they stand on the list of
+what nobody checks. A lockfile has to parse; it is not formatted, since the tool
+that writes it decides its layout.
 
 A marker file that keeps an otherwise empty folder, `.gitkeep` or `.keep`,
 stands on the list of what nobody checks as long as it is empty: it needs no

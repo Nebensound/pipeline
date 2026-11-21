@@ -218,11 +218,26 @@ fn a_taplo_exclude_naming_only_a_toml_lockfile_takes_nothing_out() {
 }
 
 #[test]
+fn a_prettierignore_naming_only_a_python_json_lockfile_takes_nothing_out() {
+    let found = found(
+        &excusing(".prettierignore"),
+        &with(&[
+            ("Pipfile.lock", "{}\n"),
+            (".prettierignore", "Pipfile.lock\n"),
+        ]),
+    );
+
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
 fn a_pattern_that_matches_only_lockfiles_takes_nothing_out() {
     let found = found(
         QUIET,
         &with(&[
             ("api/uv.lock", "version = 1\n"),
+            ("api/poetry.lock", "[metadata]\n"),
+            ("web/pdm.lock", "[metadata]\n"),
             ("taplo.toml", "exclude = [\"**/*.lock\"]\n"),
         ]),
     );

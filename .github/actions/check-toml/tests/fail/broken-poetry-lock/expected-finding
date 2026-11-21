@@ -1,0 +1,1 @@
+::error file=poetry.lock*::fails taplo lint*

@@ -130,8 +130,8 @@ Every step runs even when one before it failed, so one run shows every finding.
 ### `check-json`
 
 [`.github/actions/check-json`](.github/actions/check-json) checks every
-`.json`, `.jsonc` and `.geojson` file of the unit, and every `composer.lock` and
-`flake.lock`:
+`.json`, `.jsonc` and `.geojson` file of the unit, and every `composer.lock`,
+`flake.lock` and `Pipfile.lock`:
 
 - `.json` and `.geojson` are strict JSON, exactly one value per file, judged by
   `jq`.
@@ -139,9 +139,11 @@ Every step runs even when one before it failed, so one run shows every finding.
   plus comments, trailing commas allowed. Biome judges it as a parser only, with
   the action's own configuration and no lint rule; a repository's Biome
   configuration is not read.
-- `composer.lock` and `flake.lock` are strict JSON like `.json`, judged by `jq`,
-  but not format-checked: the tool that writes them decides their layout
-  (Composer indents with four spaces).
+- `composer.lock`, `flake.lock` and `Pipfile.lock` are strict JSON like
+  `.json`, judged by `jq`, but not format-checked: the tool that writes them
+  decides their layout (Composer and pipenv indent with four spaces). Every file
+  of the check whose name ends in `.lock` is such a lockfile, as the register
+  gives `json` no other.
 - The three extensions are formatted the way Prettier writes them, with the
   repository's Prettier configuration, without its ignore files, and with
   `requirePragma`, `checkIgnorePragma`, `rangeStart` and `rangeEnd` set aside,
@@ -223,8 +225,8 @@ keeps in with an `[[include]]` is checked in every step, coverage included.
 ### `check-toml`
 
 [`.github/actions/check-toml`](.github/actions/check-toml) checks every `.toml`
-file of the unit, and `Cargo.lock` and `uv.lock`, with Taplo 0.10.0, the
-release binary pinned by SHA-256:
+file of the unit, and `Cargo.lock`, `uv.lock`, `poetry.lock` and `pdm.lock`,
+with Taplo 0.10.0, the release binary pinned by SHA-256:
 
 - Taplo reads each file from standard input. Given a path, it silently skips
   every `.lock` file (the lockfiles are fed through standard input all the
@@ -232,7 +234,9 @@ release binary pinned by SHA-256:
   `taplo.toml` leaves out, and reports success.
 - `.toml` files are formatted the way Taplo writes them, with the repository's
   `taplo.toml`. Lockfiles are not format-checked: the tool that writes them
-  (Cargo, uv) decides their layout.
+  (Cargo, uv, Poetry, PDM) decides their layout. Every file of the check whose
+  name ends in `.lock` is such a lockfile, as the register gives `toml` no
+  other.
 - Every file passes `taplo lint`, run without the repository's configuration so
   that it cannot switch the schema validation off.
 - Schemas are assigned by the action, so far to `Cargo.toml` by file name and
@@ -519,12 +523,13 @@ block hands lychee. A setting that takes out less is fine. Phase 0 reads:
 Only the files the tool reads in a block count: a `.prettierignore` that takes
 out a Rust file takes out nothing Prettier would have looked at. Taplo's
 `include` counts only against `.toml` files, the ones Taplo reads without it; a
-`Cargo.lock` or `uv.lock` is taken out of Taplo only by `exclude`. A setting
-that takes out nothing but lockfiles the register names, such as a
-`.prettierignore` naming `composer.lock` or an `exclude` naming `Cargo.lock`,
-takes nothing out of a check: no block hands a lockfile to Prettier, and Taplo
-lints without its configuration. One that takes out another file as well is
-reported at that file only. Where
+lockfile of the `toml` check (`Cargo.lock`, `uv.lock`, `poetry.lock`,
+`pdm.lock`) is taken out of Taplo only by `exclude`. A setting that takes out
+nothing but lockfiles the register names, such as a `.prettierignore` naming
+`composer.lock` or an `exclude` naming `Cargo.lock`, takes nothing out of a
+check: no block hands a lockfile to Prettier, and Taplo lints without its
+configuration. One that takes out another file as well is reported at that file
+only. Where
 yamllint's file sets neither `ignore` nor `ignore-from-file`, phase 0 reads them
 in the file its `extends` names, as yamllint does. rustfmt's `ignore` is read in
 every folder, relative to that folder, since which configuration rustfmt applies
