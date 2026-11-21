@@ -1,4 +1,5 @@
 # A Dockerfile by its extension, in a folder: the tag `latest` is DL3007, a
 # warning, at or above Hadolint's default threshold `info`.
 [repo]
+audience = "public"
 pipeline = { check = ["dockerfile"] }

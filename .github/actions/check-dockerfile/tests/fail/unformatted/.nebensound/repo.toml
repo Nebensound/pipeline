@@ -1,2 +1,3 @@
 [repo]
+audience = "public"
 pipeline = { check = ["dockerfile"], dependabot = ["docker"] }

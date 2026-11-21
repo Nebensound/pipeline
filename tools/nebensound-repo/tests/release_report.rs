@@ -12,6 +12,7 @@ use support::{Git, analysis, call, central, repository};
 /// One unit of each kind: the repository, declared components whose release
 /// mode their targets decide or that write it, and generated units.
 const KINDS: &str = r#"[repo]
+audience = "public"
 pipeline        = "rust-workspace"
 minimum-version = "0.1.0"
 
@@ -148,7 +149,7 @@ fn explain_says_what_a_generated_unit_inherited() {
 #[test]
 fn a_written_value_equal_to_the_default_says_so() {
     let analysis = analysis(
-        "[repo]\npipeline = \"none\"\nrelease = \"single-stage\"\n",
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\nrelease = \"single-stage\"\n",
         &["README.md"],
     );
     let text = report::explain(&analysis, &path("README.md")).expect("the file is in the tree");

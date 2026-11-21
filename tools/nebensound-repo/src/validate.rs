@@ -7,10 +7,11 @@
 use std::collections::BTreeSet;
 
 use crate::annotate::{Annotated, Coverage, annotate};
+use crate::audience::Visibility;
 use crate::central::{Central, Ruling};
 use crate::finding::{Finding, Rule, UnitName};
 use crate::history::{History, UnitVersion};
-use crate::model::Declaration;
+use crate::model::{Audience, Declaration};
 use crate::names::CheckName;
 use crate::resolve::{Origin, Resolution, Unit};
 use crate::tree::Tree;
@@ -448,6 +449,15 @@ pub struct Analysis {
     /// The version of every unit that carries one, at the commit at hand.
     /// Empty until a history is added with [`Analysis::with_history`].
     pub versions: Vec<UnitVersion>,
+    /// For whom the repository is meant, as the declaration at hand says;
+    /// [`None`] when it does not say, which is the error `missing-audience`.
+    pub audience: Option<Audience>,
+    /// For whom the declaration of the commit before the commit at hand on
+    /// the line says the repository is meant: on a pull request into `main`
+    /// the tip of `main`, on one from `main` into `release` the commit of
+    /// `main` it merges. [`None`] until a history is added with
+    /// [`Analysis::with_history`], and when that declaration names none.
+    pub previous_audience: Option<Audience>,
     /// The commit types that count like `feat` in the declaration at hand,
     /// beside `feat` itself.
     pub feat_types: FeatTypes,
@@ -466,6 +476,21 @@ impl Analysis {
             crate::history::versions(&self.units, &self.feat_types, history, central.register());
         self.versions = resolved.units;
         self.loose.extend(resolved.findings);
+        self.previous_audience = crate::audience::previous(history);
+        self
+    }
+
+    /// The same analysis with the declared audience held against what a run
+    /// knows of the repository: `public` is declared exactly when the
+    /// repository is public. A difference is the error `mismatched-audience`.
+    /// On a developer's machine nobody calls it, and nothing is compared.
+    #[must_use]
+    pub fn with_visibility(mut self, visibility: Visibility) -> Self {
+        let found: Vec<Finding> = crate::audience::against(self.audience, visibility)
+            .into_iter()
+            .collect();
+        let loose = self.tree.attach(found);
+        self.loose.extend(loose);
         self
     }
 
@@ -495,6 +520,7 @@ pub fn analyse(declaration: &Declaration, central: &Central, tree: &Tree) -> Ana
     let resolution = crate::resolve::resolve(declaration, central.register(), tree);
     let mut annotated = annotate(declaration, &resolution, central, tree);
     let mut findings = resolution.findings.clone();
+    findings.extend(crate::audience::missing(declaration));
     findings.extend(findings_for(
         declaration,
         &resolution,
@@ -508,6 +534,8 @@ pub fn analyse(declaration: &Declaration, central: &Central, tree: &Tree) -> Ana
         tree: annotated,
         loose,
         versions: Vec::new(),
+        audience: declaration.repo.audience,
+        previous_audience: None,
         feat_types: declaration.repo.feat_types.clone(),
     }
 }
