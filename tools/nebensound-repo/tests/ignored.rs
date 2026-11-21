@@ -860,6 +860,67 @@ fn coverage_omit_takes_out_what_coverage_would_not_measure() {
 }
 
 #[test]
+fn coverage_reads_coveragerc_with_and_without_the_prefix() {
+    let found = found(
+        &excusing(".coveragerc"),
+        &python(&[
+            (
+                ".coveragerc",
+                "[coverage:run]\nomit = src/app.py\n[run]\nomit = src/old.py\nbranch = True\n\
+                 [report]\nomit = src/gen/*\n[coverage:report]\nskip_empty = true\n",
+            ),
+            ("svc/.coveragerc", "[coverage:report]\nomit =\n    gen/*\n"),
+            ("deep/.coveragerc", "[run]\nomit = down/legacy.py\n"),
+        ]),
+    );
+
+    // coverage.py picks the section before the option: the first of
+    // `[coverage:run]` and `[run]` that exists, and `omit` from that one
+    // alone, so a `[coverage:report]` without it hides `[report]`.
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore deep/down/legacy.py",
+            "unexcused-ignore src/app.py",
+            "unexcused-ignore svc/gen/c.py",
+        ]
+    );
+}
+
+#[test]
+fn coverage_hands_an_omit_under_default_on_to_every_section() {
+    let found = found(
+        &excusing(".coveragerc"),
+        &python(&[
+            (
+                ".coveragerc",
+                "[DEFAULT]\nomit = src/app.py\n[coverage:run]\nbranch = True\n\
+                 [run]\nomit = src/old.py\n",
+            ),
+            (
+                "svc/setup.cfg",
+                "[DEFAULT]\nomit = gen/*\n[coverage:report]\nskip_empty = true\n",
+            ),
+            (
+                "deep/tox.ini",
+                "[DEFAULT]\nomit = down/legacy.py\n[run]\nbranch = True\n",
+            ),
+        ]),
+    );
+
+    // configparser hands `[DEFAULT]` on to every section that exists, so
+    // `[coverage:run]` sets `omit` and wins over `[run]`; in `tox.ini` no
+    // section coverage.py reads exists, so the default takes nothing out.
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore src/app.py",
+            "unexcused-ignore svc/gen/c.py"
+        ]
+    );
+}
+
+#[test]
 fn coverage_reads_its_sections_in_setup_cfg_tox_ini_and_pyproject() {
     let found = found(
         &format!(
@@ -886,6 +947,45 @@ fn coverage_reads_its_sections_in_setup_cfg_tox_ini_and_pyproject() {
             "unexcused-ignore svc/gen/c.py",
             "unexcused-ignore svc/src/x.py",
         ]
+    );
+}
+
+#[test]
+fn coverage_reads_coveragerc_toml_with_and_without_the_prefix() {
+    let found = found(
+        &excusing(".coveragerc.toml"),
+        &python(&[
+            (
+                ".coveragerc.toml",
+                "[tool.coverage.run]\nomit = [\"src/app.py\"]\n\n[run]\nomit = [\"src/old.py\"]\n\n\
+                 [report]\nomit = [\"src/gen/*\"]\n",
+            ),
+            ("svc/.coveragerc.toml", "[run]\nomit = [\"gen/*\"]\n"),
+            (
+                "deep/pyproject.toml",
+                "[run]\nomit = [\"down/legacy.py\"]\n[report]\nomit = \"down/legacy.py\"\n",
+            ),
+        ]),
+    );
+
+    // coverage.py looks up `[run]` only where `[tool.coverage.run]` is
+    // missing, and only in its own file: a `[run]` in `pyproject.toml` is not
+    // its. The file needs no exclusion of its own to be read.
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore src/app.py",
+            "unexcused-ignore src/gen/a.py",
+            "unexcused-ignore src/gen/sub/b.py",
+            "unexcused-ignore svc/gen/c.py",
+        ]
+    );
+    let message = &found[0].message;
+    assert!(
+        message.contains(
+            ".coveragerc.toml takes this file out of coverage.py through the pattern `src/app.py`"
+        ),
+        "{message}"
     );
 }
 
@@ -919,10 +1019,23 @@ fn coverage_patterns_follow_its_own_rules() {
 fn coverage_settings_without_omit_take_nothing_out() {
     for (file, source) in [
         (".coveragerc", "[run]\nbranch = True\n"),
+        (
+            ".coveragerc",
+            "[coverage:run]\nbranch = True\n[run]\nomit = src/old.py\n",
+        ),
+        (
+            ".coveragerc",
+            "[DEFAULT]\nomit = src/old.py\n[ run ]\nbranch = True\n[ coverage:report ]\nomit = src/app.py\n",
+        ),
         ("setup.cfg", "[metadata]\nname = a\n    continued\n"),
         ("pyproject.toml", "[project]\nname = \"a\"\n"),
         ("pyproject.toml", "[tool.coverage]\n"),
         ("pyproject.toml", "[tool.coverage.run]\nbranch = true\n"),
+        (".coveragerc.toml", "[run]\nbranch = true\n"),
+        (
+            ".coveragerc.toml",
+            "[tool.coverage.run]\nbranch = true\n[run]\nomit = [\"src/app.py\"]\n",
+        ),
     ] {
         let found = found(&excusing(file), &python(&[(file, source)]));
 
@@ -938,6 +1051,8 @@ fn a_coverage_configuration_that_does_not_read_is_reported() {
         (".coveragerc", "[run]\nomit = a[z-a].py\n"),
         (".coveragerc", "[run]\nomit = src/a[z-a].py\n"),
         ("pyproject.toml", "[tool.coverage.run]\nomit = \"a.py\"\n"),
+        (".coveragerc.toml", "[run]\nomit = \"a.py\"\n"),
+        (".coveragerc.toml", "[run\nomit = [\"a.py\"]\n"),
     ] {
         let found = found(&excusing(file), &python(&[(file, source)]));
 

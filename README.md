@@ -681,21 +681,21 @@ that also keeps `exclude_path` from taking a file out in the block: phase 0
 matches it against the path from the root, such as `docs/a.md`, the string the
 block hands lychee. A setting that takes out less is fine. Phase 0 reads:
 
-| Tool              | Setting                                                                                     |
-| ----------------- | ------------------------------------------------------------------------------------------- |
-| Prettier          | `.prettierignore` at the root                                                               |
-| Taplo             | `include` and `exclude` in `.taplo.toml` or `taplo.toml` at the root                        |
-| markdownlint-cli2 | `ignores` in `.markdownlint-cli2.jsonc` or `.markdownlint-cli2.yaml`, in every folder       |
-| yamllint          | `ignore` and `ignore-from-file` in `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at root |
-| lychee            | `exclude_path` in `lychee.toml` at the root                                                 |
-| Pyright           | `include`, `ignore`, `exclude` in `pyrightconfig.json` or `[tool.pyright]`, in every folder |
-| coverage.py       | `omit` in `.coveragerc`, `setup.cfg`, `tox.ini` or `pyproject.toml`, in every folder        |
-| Ruff              | `# ruff: noqa` or `# flake8: noqa` without rule codes, in the Python file itself            |
-| Ruff              | `exclude`, `extend-exclude` in `.ruff.toml`, `ruff.toml` or `[tool.ruff]`, in every folder  |
-| Ruff              | `include`, `lint.exclude`, `format.exclude` in the configuration that governs a file        |
-| rustfmt           | `ignore` in `.rustfmt.toml` or `rustfmt.toml`, in every folder                              |
-| Stylelint         | `.stylelintignore` at the root; `ignoreFiles` in the configuration of every folder          |
-| html-validate     | `.htmlvalidateignore` in every folder                                                       |
+| Tool              | Setting                                                                                                  |
+| ----------------- | -------------------------------------------------------------------------------------------------------- |
+| Prettier          | `.prettierignore` at the root                                                                            |
+| Taplo             | `include` and `exclude` in `.taplo.toml` or `taplo.toml` at the root                                     |
+| markdownlint-cli2 | `ignores` in `.markdownlint-cli2.jsonc` or `.markdownlint-cli2.yaml`, in every folder                    |
+| yamllint          | `ignore` and `ignore-from-file` in `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at root              |
+| lychee            | `exclude_path` in `lychee.toml` at the root                                                              |
+| Pyright           | `include`, `ignore`, `exclude` in `pyrightconfig.json` or `[tool.pyright]`, in every folder              |
+| coverage.py       | `omit` in `.coveragerc`, `.coveragerc.toml`, `setup.cfg`, `tox.ini` or `pyproject.toml`, in every folder |
+| Ruff              | `# ruff: noqa` or `# flake8: noqa` without rule codes, in the Python file itself                         |
+| Ruff              | `exclude`, `extend-exclude` in `.ruff.toml`, `ruff.toml` or `[tool.ruff]`, in every folder               |
+| Ruff              | `include`, `lint.exclude`, `format.exclude` in the configuration that governs a file                     |
+| rustfmt           | `ignore` in `.rustfmt.toml` or `rustfmt.toml`, in every folder                                           |
+| Stylelint         | `.stylelintignore` at the root; `ignoreFiles` in the configuration of every folder                       |
+| html-validate     | `.htmlvalidateignore` in every folder                                                                    |
 
 Only the files the tool reads in a block count: a `.prettierignore` that takes
 out a Rust file takes out nothing Prettier would have looked at. Taplo's
@@ -719,7 +719,24 @@ governs; a configuration in JavaScript is not judged, the block sets its
 `ignoreFiles` aside all the same, and a file that something it extends would
 still take out fails in the block. html-validate's `.htmlvalidateignore` is
 read in every folder, relative to that folder, as html-validate's command line
-reads it. Ruff's `exclude` and `extend-exclude` are read in the configuration
+reads it. coverage.py takes its settings from the first of `.coveragerc` (or the
+file `--rcfile` or `COVERAGE_RCFILE` names), `.coveragerc.toml`, `setup.cfg`,
+`tox.ini` and `pyproject.toml` in the folder it runs in that exists, where
+`setup.cfg`, `tox.ini` and `pyproject.toml` count only when they hold settings
+of its own; since that depends on where it runs, phase 0 reads `omit` of the
+run and report sections in every one of them in every folder, relative to that
+folder. In `.coveragerc` the sections are `[coverage:run]` and
+`[coverage:report]`, or `[run]` and `[report]` where the prefixed section is
+missing; in `setup.cfg` and `tox.ini` `[coverage:run]` and
+`[coverage:report]`; in `pyproject.toml` `[tool.coverage.run]` and
+`[tool.coverage.report]`; and in `.coveragerc.toml` the latter, or `[run]` and
+`[report]` where the prefixed table is missing, as coverage.py looks them up.
+coverage.py picks the section before it reads `omit`, so a prefixed section
+without `omit` hides the plain one. In the INI files, an `omit` under
+`[DEFAULT]` counts as set in the section picked, since Python's configparser
+hands it on to every section, and a section name keeps the spaces inside its
+brackets, so `[ run ]` is not `[run]`.
+Ruff's `exclude` and `extend-exclude` are read in the configuration
 Ruff finds in each folder (the first of `.ruff.toml`, `ruff.toml` and a
 `pyproject.toml` with a `[tool.ruff]` table), relative to that folder, `*`
 crossing a `/` and a pattern without a `/` naming a file or folder of that name
