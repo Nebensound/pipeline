@@ -122,9 +122,9 @@ looks like those, such as `vendor-drop`, is held as well.
 Tags are records: no version is read from a tag; the versions come from the
 history (see [the declaration](../declaration.md#versions)), so moving a tag
 would not change a version. What a tag holds is what a caller pins and what the
-release stage wrote, and this ruleset keeps both where they were set. Measured on the test
-repository: moving `v0.0.1` and `tool-v0.0.1` was refused with "Cannot update
-this protected ref", deleting them with "Cannot delete this tag", and a tag
+release stage wrote, and this ruleset keeps both where they were set. Measured
+on the test repository: moving `v0.0.1` and `tool-v0.0.1` was refused with
+"Cannot update this protected ref", deleting them with "Cannot delete this tag", and a tag
 that matches neither pattern was created and deleted freely.
 
 It does not protect against creating a tag. The release stage creates its tags
@@ -156,10 +156,12 @@ through, and a pull request afterwards could not be merged before the three
 checks had passed. The repository's first pull request, the one that adds the
 caller, reports them itself, but it can merge only once they pass (see
 [Properties](#properties) for a repository the pipeline cannot pass yet). That
-measurement was taken with an administrating account and no bypass; a creator
-who is not an administrator was not measured separately. `release-guard` keeps
-the rule on creation, so `release` can be created only at a commit that has
-passed the three checks.
+measurement was taken with an administrating account, which `required-checks`
+does not exempt but the two `Grundschutz Standard-Branch` rulesets do (role
+Admin, bypass `always`); a creator who is not an administrator was not
+measured, and [#119](https://github.com/Nebensound/pipeline/issues/119)
+tracks it. `release-guard` keeps the rule on creation, so `release` can be
+created only at a commit that has passed the three checks.
 
 It does not protect against a workflow of the repository reporting the names
 itself, which the next section explains, nor against what the first push into
@@ -345,7 +347,10 @@ Every ruleset file was applied at repository level to a temporary public test
 repository with `gh api -X POST repos/Nebensound/<test repository>/rulesets
 --input <file>` and read back, which gave what is stated in the sections above.
 The measurements below were taken on a second, empty test repository, with the
-account of an organization administrator and no bypass actor.
+account of an organization administrator. Of the rulesets applied there, only
+`required-checks` has no bypass actor; both `Grundschutz Standard-Branch`
+rulesets, the organization's and the repository-level copy, let the role Admin
+bypass them.
 
 - **Applied and read back.** `required-checks.json` in its present form, with
   `do_not_enforce_on_create` set to `true`, and
@@ -356,13 +361,16 @@ account of an organization administrator and no bypass actor.
   repository-level `required-checks`, and `deletion`, `non_fast_forward` and
   `pull_request` from both the repository-level copy and the live ruleset of
   the organization of the same name, which binds the repository as well.
-- **Half one, the first push.** With both rulesets active, `git push origin
-main` into the empty repository created the default branch and went through.
-  No ruleset refused it, so none was taken away. The ruleset of the
-  organization and its copy name the repository role Admin as a bypass, which
-  the account has; whether they would refuse a creator who is not an
-  administrator was not measured. `required-checks` has no bypass and did not
-  refuse the push.
+- **Half one, the first push.** With both rulesets active, the first push,
+  `git push origin main` into the empty repository, created the default branch
+  and went through. Its rule suite (`rulesets/rule-suites`) records `pass`, not
+  `bypass`, for every rule of the three rulesets that bind the branch:
+  `pull_request`, `non_fast_forward` and `deletion` of both
+  `Grundschutz Standard-Branch` rulesets, and `required_status_checks` of
+  `required-checks`. So nothing was refused and no bypass was used on the
+  creation. That shows nothing for a creator who is not an
+  administrator, whom the Admin bypass does not cover. Tracked in
+  [#119](https://github.com/Nebensound/pipeline/issues/119).
 - **Half two, a pull request.** A pull request from a second branch into the
   default branch showed `mergeable: MERGEABLE` and `mergeStateStatus: BLOCKED`.
   A merge by the API, once with `squash` and once with `merge`, and a merge by
