@@ -17,7 +17,7 @@ const FILES: &[&str] = &["README.md", "notes/a.md", "notes/b.md"];
 /// both fields.
 fn declaring(versioning: &str) -> String {
     format!(
-        "[repo]\nrelease = \"single-stage\"\nminimum-version = \"1.0.0\"\n\n\
+        "[repo]\naudience = \"public\"\nrelease = \"single-stage\"\nminimum-version = \"1.0.0\"\n\n\
          [component.notes]\npath = \"notes\"\npipeline = \"none\"\nversioning = \"{versioning}\"\n\
          release = \"single-stage\"\nminimum-version = \"0.1.0\"\n"
     )
@@ -50,21 +50,21 @@ fn a_unit_without_a_version_is_warned_at_each_of_the_two_fields() {
     assert_eq!(
         found[0].position,
         Some(Position {
-            line: 9,
+            line: 10,
             column: 11
         })
     );
     assert_eq!(
         found[1].position,
         Some(Position {
-            line: 10,
+            line: 11,
             column: 19
         })
     );
     assert_eq!(
         found[0].to_string(),
         "warning[release-field-without-version] component notes at \
-         .nebensound/repo.toml:9:11: this unit writes release and carries no version of its \
+         .nebensound/repo.toml:10:11: this unit writes release and carries no version of its \
          own, nor generates children that would take it over; nothing ever reads the value. \
          Give it a versioning value that includes self, or remove release"
     );
@@ -77,14 +77,14 @@ fn a_unit_without_a_version_is_warned_at_each_of_the_two_fields() {
 
 #[test]
 fn each_field_is_warned_on_its_own() {
-    let release = "[repo]\n\n[component.notes]\npath = \"notes\"\npipeline = \"none\"\n\
+    let release = "[repo]\naudience = \"public\"\n\n[component.notes]\npath = \"notes\"\npipeline = \"none\"\n\
                    versioning = \"none\"\nrelease = \"two-stage\"\n";
     let found_release = found(release);
     assert_eq!(found_release.len(), 1, "{found_release:?}");
     assert!(found_release[0].message.contains("writes release"));
 
     // Written as an inline table, the place is found all the same.
-    let minimum = "[repo]\n\n[component]\nnotes = { path = \"notes\", pipeline = \"none\", \
+    let minimum = "[repo]\naudience = \"public\"\n\n[component]\nnotes = { path = \"notes\", pipeline = \"none\", \
                    versioning = \"none\", minimum-version = \"2.0.0\" }\n";
     let found_minimum = found(minimum);
     assert_eq!(found_minimum.len(), 1, "{found_minimum:?}");
@@ -92,7 +92,7 @@ fn each_field_is_warned_on_its_own() {
     assert_eq!(
         found_minimum[0].position,
         Some(Position {
-            line: 4,
+            line: 5,
             column: 85
         })
     );
@@ -116,7 +116,7 @@ fn a_unit_that_hands_both_fields_to_its_children_is_not_warned() {
 
 #[test]
 fn a_unit_without_a_version_that_writes_neither_field_is_not_warned() {
-    let source = "[repo]\n\n[component.notes]\npath = \"notes\"\npipeline = \"none\"\n\
+    let source = "[repo]\naudience = \"public\"\n\n[component.notes]\npath = \"notes\"\npipeline = \"none\"\n\
                   versioning = \"none\"\n";
     assert!(found(source).is_empty());
 }
@@ -151,8 +151,8 @@ fn phase_0_reports_the_warning_and_passes() {
     let (text, code) = call(&["nebensound-repo", "-C", root, "check"]);
     assert_eq!(code, 0, "a warning stops nothing: {text}");
     for place in [
-        "warning[release-field-without-version] component notes at .nebensound/repo.toml:9:11: ",
-        "warning[release-field-without-version] component notes at .nebensound/repo.toml:10:19: ",
+        "warning[release-field-without-version] component notes at .nebensound/repo.toml:10:11: ",
+        "warning[release-field-without-version] component notes at .nebensound/repo.toml:11:19: ",
     ] {
         assert!(text.contains(place), "{text}");
     }
