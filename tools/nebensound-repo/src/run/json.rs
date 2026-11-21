@@ -11,12 +11,11 @@ pub const BIOME: &str = include_str!("../../run/biome.json");
 
 /// Runs the check; whether it found nothing.
 pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
+    // A missing program is named and fails the check, and the parts whose
+    // programs were found still run, so that one run reports every finding.
     let jq = session.tool("jq", false);
     let biome = session.tool("biome", false);
     let prettier = session.tool("prettier", false);
-    let (Some(jq), Some(biome), Some(prettier)) = (jq, biome, prettier) else {
-        return false;
-    };
     let Some(temp) = session.folder(|_| {
         vec![
             ("nothing-ignored".to_owned(), Some(Vec::new())),
@@ -33,9 +32,12 @@ pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
     let files: Vec<&str> = files.iter().map(String::as_str).collect();
     // Each part runs even when one before it failed, so that one run reports
     // every broken and every unformatted file at once.
-    let parsed = strict(session, &jq, &files);
-    let commented = commented(session, &biome, &temp.join("biome"), &files);
-    let formatted = formatted(session, &prettier, &temp.join("nothing-ignored"), &files);
+    let parsed = jq.is_some_and(|jq| strict(session, &jq, &files));
+    let commented =
+        biome.is_some_and(|biome| commented(session, &biome, &temp.join("biome"), &files));
+    let formatted = prettier.is_some_and(|prettier| {
+        formatted(session, &prettier, &temp.join("nothing-ignored"), &files)
+    });
     parsed && commented && formatted
 }
 

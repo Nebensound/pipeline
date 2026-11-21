@@ -6,6 +6,8 @@
 use std::ffi::OsString;
 use std::path::Path;
 
+use serde::Deserialize;
+
 use super::{Entry, Session, Tool};
 use crate::rules;
 use crate::setup::find;
@@ -24,7 +26,9 @@ use crate::setup::find;
 /// Its rules hold, but its `ignore` and `ignore-from-file` take nothing out:
 /// yamllint would skip what they name even when the file is named to it, so
 /// its own linter runs here with them set aside, file by file, the way its
-/// command line does. Every finding is written as an annotation on its line.
+/// command line does. Every finding is written as an annotation on its line,
+/// the way yamllint's `github` format writes it, with the file name and the
+/// message escaped.
 /// A warning fails nothing, an error fails the check, as on the command line.
 ///
 /// It reads the default (`DEFAULT`), the repository's configuration if it has
@@ -35,7 +39,7 @@ import locale
 import os
 import sys
 
-from yamllint import cli, linter
+from yamllint import linter
 from yamllint.config import YamlLintConfig, YamlLintConfigError
 
 
@@ -70,11 +74,37 @@ if conf.locale is not None:
     locale.setlocale(locale.LC_ALL, conf.locale)
 with open(os.environ["LIST"], "rb") as listing:
     files = [entry.decode() for entry in listing.read().split(b"\0") if entry]
+
+
+def data(text):
+    """The message of a workflow command: a line break would end it."""
+    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def prop(text):
+    """A property of a workflow command, ended by `:` and `,` as well."""
+    return data(text).replace(":", "%3A").replace(",", "%2C")
+
+
+# yamllint's own `github` format, with the file name and the message escaped
+# the way the runner reads them.
 worst = 0
 for path in files:
     with open(path, "rb") as content:
-        problems = linter.run(content, conf, path)
-    worst = max(worst, cli.show_problems(problems, path, "github", False))
+        problems = list(linter.run(content, conf, path))
+    if not problems:
+        continue
+    print(f"::group::{data(path)}")
+    for problem in problems:
+        worst = max(worst, linter.PROBLEM_LEVELS[problem.level])
+        rule = f"[{problem.rule}] " if problem.rule else ""
+        message = f"{problem.line}:{problem.column} {rule}{problem.desc}"
+        print(
+            f"::{problem.level} file={prop(path)},line={problem.line},"
+            f"col={problem.column}::{data(message)}"
+        )
+    print("::endgroup::")
+    print("")
 sys.exit(1 if worst == linter.PROBLEM_LEVELS["error"] else 0)
 "#;
 
@@ -94,9 +124,37 @@ const ACTIONLINT_IGNORED: &[&str] = &[
     r#"^reusable workflow call "\$/[^"]+" at "uses" is not following the format"#,
 ];
 
-/// How actionlint writes a finding: as an annotation on its file, line and
-/// column.
-const ACTIONLINT_FORMAT: &str = r"{{range $err := .}}::error file={{$err.Filepath}},line={{$err.Line}},col={{$err.Column}}::{{$err.Message}} [{{$err.Kind}}]\n{{end}}";
+/// How actionlint writes its findings: as one JSON list per call, which
+/// [`actionlint_findings`] reads.
+const ACTIONLINT_FORMAT: &str = "{{json .}}";
+
+/// A finding of actionlint, as its JSON format writes it.
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+pub struct ActionlintFinding {
+    /// What is wrong.
+    pub message: String,
+    /// The workflow, as it was handed to actionlint.
+    pub filepath: String,
+    /// The line, from 1.
+    pub line: u64,
+    /// The column, from 1.
+    pub column: u64,
+    /// The rule that found it, such as `syntax-check`.
+    pub kind: String,
+}
+
+/// The findings in what actionlint printed in its JSON format: one list per
+/// call, one after another. [`None`] when the text is not that, such as when
+/// actionlint could not read a file and said so in words.
+#[must_use]
+pub fn actionlint_findings(text: &str) -> Option<Vec<ActionlintFinding>> {
+    serde_json::Deserializer::from_str(text)
+        .into_iter::<Vec<ActionlintFinding>>()
+        .try_fold(Vec::new(), |mut all, list| {
+            all.extend(list.ok()?);
+            Some(all)
+        })
+}
 
 /// Runs the check; whether it found nothing.
 pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
@@ -121,25 +179,15 @@ pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
             .log
             .line(&format!("Dependabot configuration: {dependabot}"));
     }
+    // A missing program is named and fails the check, and the parts whose
+    // programs were found still run, so that one run reports every finding.
     let prettier = session.tool("prettier", false);
     let yamllint = session.tool("yamllint", true);
-    // The other two only where there is something for them: [`None`] when
-    // one is needed and missing.
-    let actionlint = if workflows.is_empty() {
-        Some(None)
-    } else {
-        session.tool("actionlint", false).map(Some)
-    };
-    let jsonschema = if dependabot.is_none() {
-        Some(None)
-    } else {
-        session.tool("check-jsonschema", false).map(Some)
-    };
-    let (Some(prettier), Some(yamllint), Some(actionlint), Some(jsonschema)) =
-        (prettier, yamllint, actionlint, jsonschema)
-    else {
-        return false;
-    };
+    // The other two only where there is something for them: the outer
+    // [`None`] when nothing needs one.
+    let actionlint = (!workflows.is_empty()).then(|| session.tool("actionlint", false));
+    let jsonschema =
+        dependabot.map(|dependabot| (dependabot, session.tool("check-jsonschema", false)));
     let mut list = Vec::new();
     for file in &files {
         list.extend_from_slice(file.as_bytes());
@@ -161,14 +209,15 @@ pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
     let all: Vec<&str> = files.iter().map(String::as_str).collect();
     // Each part runs even when one before it failed, so that one run reports
     // every finding at once.
-    let formatted = session.prettier(&prettier, &temp.join("nothing-ignored"), &all);
-    let linted = yamllint_run(session, &yamllint, &temp);
-    let workflows_pass =
-        actionlint.is_none_or(|actionlint| actionlint_run(session, &actionlint, &workflows));
-    let dependabot_passes = match (jsonschema, dependabot) {
-        (Some(jsonschema), Some(dependabot)) => schema(session, &jsonschema, dependabot),
-        _ => true,
-    };
+    let formatted = prettier
+        .is_some_and(|prettier| session.prettier(&prettier, &temp.join("nothing-ignored"), &all));
+    let linted = yamllint.is_some_and(|yamllint| yamllint_run(session, &yamllint, &temp));
+    let workflows_pass = actionlint.is_none_or(|actionlint| {
+        actionlint.is_some_and(|actionlint| actionlint_run(session, &actionlint, &workflows))
+    });
+    let dependabot_passes = jsonschema.is_none_or(|(dependabot, jsonschema)| {
+        jsonschema.is_some_and(|jsonschema| schema(session, &jsonschema, dependabot))
+    });
     formatted && linted && workflows_pass && dependabot_passes
 }
 
@@ -236,7 +285,24 @@ fn actionlint_run(session: &mut Session<'_, '_>, actionlint: &Tool, workflows: &
     args.push("-format".into());
     args.push(ACTIONLINT_FORMAT.into());
     let ran = session.over(actionlint, &args, workflows, "actionlint");
-    session.log.lines(&ran.text);
+    // Each finding becomes an annotation written through [`super::annotation`],
+    // so that a file name holding `,` or `:` and a message holding a line
+    // break reach the runner whole. What is not in the JSON format stays in
+    // the output as it is.
+    match actionlint_findings(&ran.text) {
+        Some(findings) => {
+            for finding in findings {
+                let line = finding.line.to_string();
+                let column = finding.column.to_string();
+                session.log.error(
+                    Some(&finding.filepath),
+                    Some((&line, Some(&column))),
+                    &format!("{} [{}]", finding.message, finding.kind),
+                );
+            }
+        }
+        None => session.log.lines(&ran.text),
+    }
     ran.success
 }
 

@@ -121,7 +121,8 @@ output as well.
 The same call runs a check on a developer's computer, on Linux and macOS alike,
 once `nebensound-repo setup` has put the programs in place. `run` installs
 nothing: it takes the pinned copy of a program first and the computer's
-otherwise, and fails with a pointer to `setup` where there is neither.
+otherwise, and fails with a pointer to `setup` where there is neither, while
+the parts of the check whose programs are there still run.
 markdownlint-cli2 and yamllint are run through their internals, so that the
 repository's rules are laid over the pipeline's default, and of those two `run`
 takes only the pinned copy. What `run` hands the programs, its configuration for

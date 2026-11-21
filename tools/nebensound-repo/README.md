@@ -447,7 +447,8 @@ gets nothing checked. It starts the programs the register names for the check,
 found as [for the other calls](#for-the-other-calls), with the flags that set
 their own ignore mechanisms aside, at the repository root, where the
 repository keeps their configuration. It installs nothing: a program that is
-neither pinned nor on the computer fails the check and names `setup`. Two
+neither pinned nor on the computer fails the check and names `setup`, and the
+parts of the check whose programs are there still run. Two
 programs are run through their internals, so that the repository's rules are
 laid over the pipeline's default ([The rules](#the-rules)): markdownlint-cli2
 on Node.js and yamllint on the Python of its own environment. Of those two
@@ -460,7 +461,9 @@ Every part of a check runs even when one before it failed, so one run reports
 every finding. What the programs print stands in the output. A finding names
 its file, and its line and column where the program gives them: in a workflow
 run (`GITHUB_ACTIONS=true` without a terminal) as an annotation, elsewhere as a
-line such as `README.md:3: error: MD001/heading-increment …`. Prettier names
+line such as `README.md:3: error: MD001/heading-increment …`. In an
+annotation the file name and the message are escaped the way the runner reads
+them, so a name holding `,` or `:` points at its file. Prettier names
 no position for a file it finds unformatted, and check-jsonschema a JSON path
 instead of a line; there the finding names the file alone.
 

@@ -145,14 +145,18 @@ done
 exit "$status"
 "#;
 
+/// actionlint, which prints nothing but its JSON format, as the real one
+/// does, and so writes what it was called with beside itself.
 const ACTIONLINT: &str = r#"#!/bin/sh
-printf '%s\n' "actionlint $*"
+printf '%s\n' "actionlint $*" > "$0.args"
 status=0
 for arg in "$@"; do
   case "$arg" in
-    *broken*) echo "::error file=$arg,line=10,col=3::\"runs-on\" section is missing in job \"test\" [syntax-check]"; status=1 ;;
+    *broken*) echo "[{\"message\":\"\\\"runs-on\\\" section is missing in job \\\"test\\\"\",\"filepath\":\"$arg\",\"line\":10,\"column\":3,\"kind\":\"syntax-check\",\"snippet\":\"x\"}]"; status=1 ;;
+    *unreadable*) echo "could not read \"$arg\": permission denied"; status=3 ;;
   esac
 done
+[ "$status" -eq 0 ] && echo "[]"
 exit "$status"
 "#;
 
@@ -725,12 +729,10 @@ fn yaml_files_are_formatted_and_pass_their_linters() {
         "pyflakes is not on the search path, so actionlint reads no Python `run:` script with it",
     );
     has(
-        &text,
+        &fs::read_to_string(bin.join("actionlint.args")).unwrap(),
         "actionlint -ignore ^specifying action \"\\$/[^\"]+\" in invalid format because ref is \
          missing -ignore ^reusable workflow call \"\\$/[^\"]+\" at \"uses\" is not following the \
-         format -format {{range $err := .}}::error \
-         file={{$err.Filepath}},line={{$err.Line}},col={{$err.Column}}::{{$err.Message}} \
-         [{{$err.Kind}}]\\n{{end}} -- .github/workflows/ci.yml",
+         format -format {{json .}} -- .github/workflows/ci.yml",
     );
     has(
         &text,
@@ -1164,4 +1166,104 @@ fn setup_takes_the_checks_it_is_named() {
     assert_eq!(text, "the register has no check \"nonsense\"\n");
     let (text, _) = call(&["nebensound-repo", "-C", root, "setup", "--check", "toml"]);
     assert!(text.starts_with("Checks: toml\n"), "{text}");
+}
+
+#[test]
+fn a_missing_program_leaves_the_other_parts_of_its_check_running() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.everything();
+    for program in ["jq", "lychee", "actionlint"] {
+        fs::remove_file(fixture.base.join("bin").join(program)).unwrap();
+    }
+    fixture
+        .file("unformatted.json", "{}\n")
+        .file("heading.md", "# x\n")
+        .file(".github/workflows/ci.yml", "on: push\n")
+        .file("duplicate.yaml", "a: 1\n");
+
+    let (code, text) = fixture.run(Check::Json, &["unformatted.json"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error::jq 1.8.1 is neither pinned in the tool's folder nor on the computer; \
+         `nebensound-repo setup` installs it",
+    );
+    has(
+        &text,
+        "::error file=unformatted.json::not formatted the way Prettier writes it",
+    );
+
+    let (code, text) = fixture.run(Check::Markdown, &["heading.md"], true);
+    assert_eq!(code, 1, "{text}");
+    assert!(text.contains("::error::lychee "), "{text}");
+    has(
+        &text,
+        "::error file=heading.md,line=3::MD001/heading-increment Heading levels should only \
+         increment by one level at a time",
+    );
+    assert!(!text.contains("lychee --"), "{text}");
+
+    let files = [".github/workflows/ci.yml", "duplicate.yaml"];
+    let (code, text) = fixture.run(Check::Yaml, &files, true);
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains("::error::actionlint 1.7.12 is neither"),
+        "{text}"
+    );
+    has(
+        &text,
+        "::error file=duplicate.yaml,line=2,col=1::2:1 [key-duplicates] duplication of key \
+         \"name\" in mapping",
+    );
+}
+
+#[test]
+fn actionlint_findings_are_escaped_and_other_output_is_kept() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture
+        .everything()
+        .file(".github/workflows/a,broken.yml", "on: push\n")
+        .file(".github/workflows/unreadable.yml", "on: push\n");
+    let (code, text) = fixture.run(Check::Yaml, &[".github/workflows/a,broken.yml"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error file=.github/workflows/a%2Cbroken.yml,line=10,col=3::\"runs-on\" section is \
+         missing in job \"test\" [syntax-check]",
+    );
+    let (_, text) = fixture.run(Check::Yaml, &[".github/workflows/a,broken.yml"], false);
+    has(
+        &text,
+        ".github/workflows/a,broken.yml:10:3: error: \"runs-on\" section is missing in job \
+         \"test\" [syntax-check]",
+    );
+    let (code, text) = fixture.run(Check::Yaml, &[".github/workflows/unreadable.yml"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "could not read \".github/workflows/unreadable.yml\": permission denied",
+    );
+}
+
+#[test]
+fn actionlint_json_is_read_list_by_list() {
+    let finding = |file: &str| yaml::ActionlintFinding {
+        message: "m".to_owned(),
+        filepath: file.to_owned(),
+        line: 1,
+        column: 2,
+        kind: "k".to_owned(),
+    };
+    let one =
+        r#"[{"message":"m","filepath":"a.yml","line":1,"column":2,"kind":"k","end_column":3}]"#;
+    let two = r#"[{"message":"m","filepath":"b.yml","line":1,"column":2,"kind":"k"}]"#;
+    assert_eq!(
+        yaml::actionlint_findings(&format!("{one}\n[]\n{two}\n")),
+        Some(vec![finding("a.yml"), finding("b.yml")])
+    );
+    assert_eq!(yaml::actionlint_findings(""), Some(Vec::new()));
+    assert_eq!(yaml::actionlint_findings("[]\nnot json\n"), None);
+    assert_eq!(yaml::actionlint_findings(r#"[{"message":"m"}]"#), None);
 }

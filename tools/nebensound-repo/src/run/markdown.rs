@@ -112,13 +112,11 @@ process.exitCode = await main({
 
 /// Runs the check; whether it found nothing.
 pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
+    // A missing program is named and fails the check, and the parts whose
+    // programs were found still run, so that one run reports every finding.
     let prettier = session.tool("prettier", false);
     let markdownlint = session.tool("markdownlint-cli2", true);
     let lychee = session.tool("lychee", false);
-    let (Some(prettier), Some(markdownlint), Some(lychee)) = (prettier, markdownlint, lychee)
-    else {
-        return false;
-    };
     let Some(config) = lychee_config(session) else {
         return false;
     };
@@ -148,9 +146,11 @@ pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
     let files: Vec<&str> = files.iter().map(String::as_str).collect();
     // Each part runs even when one before it failed, so that one run reports
     // every finding at once.
-    let formatted = session.prettier(&prettier, &temp.join("nothing-ignored"), &files);
-    let rules_hold = markdownlint_run(session, &markdownlint, &temp);
-    let links_lead = links(session, &lychee, &temp);
+    let formatted = prettier
+        .is_some_and(|prettier| session.prettier(&prettier, &temp.join("nothing-ignored"), &files));
+    let rules_hold =
+        markdownlint.is_some_and(|markdownlint| markdownlint_run(session, &markdownlint, &temp));
+    let links_lead = lychee.is_some_and(|lychee| links(session, &lychee, &temp));
     formatted && rules_hold && links_lead
 }
 
