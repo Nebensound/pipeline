@@ -43,6 +43,10 @@ A repository's own Markdownlint or yamllint configuration is laid over the
 pipeline's default rule by rule, so it names only the rule it wants different;
 nothing of the default has to be repeated. [Linter rules](../README.md#linter-rules)
 in the README states how, with an example of a one-rule configuration file.
+The same holds for Stylelint, html-validate and Ruff, whose configuration
+`check-python` lays over the default through Ruff's own `extend`.
+`nebensound-repo check` shows each rule a repository's configuration sets and
+how it stands to the default.
 
 For a single place in a single file, the tool's own inline directive is still
 the smaller way and works in the check:
