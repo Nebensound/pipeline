@@ -1,0 +1,12 @@
+{
+  "repository_property": {
+    "exclude": [
+      {
+        "name": "lifecycle",
+        "source": "custom",
+        "property_values": ["sandbox", "archived"]
+      }
+    ],
+    "include": []
+  }
+}

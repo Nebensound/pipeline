@@ -7,10 +7,12 @@ setting, why it is set, and the `gh api` call that reads it back.
 The last part lists the settings that every repository of the organization
 carries, with the calls that read them back across the organization.
 
-Organization rulesets and organization secrets are not repository settings
-and are not described here. They get their own documents with the issues that
-introduce them. Which repository properties remain, and why, is said under
-[Repository properties](#repository-properties).
+Organization rulesets and the repository properties are not repository
+settings: they are described, as files that can be applied, in
+[the organization's rulesets and properties](organization/README.md). Which
+repository properties remain, and why, is summed up under
+[Repository properties](#repository-properties). Organization secrets get
+their own document with the issue that introduces them.
 
 ## Immutable releases
 
@@ -55,7 +57,7 @@ gh api repos/Nebensound/pipeline/private-vulnerability-reporting
   Conventional Commit without anyone retyping it.
 - Merge commits are allowed in the settings because a later branch behind
   `main` takes its changes as merge commits. On `main` a ruleset allows squash
-  only.
+  only (see [the organization's rulesets](organization/README.md)).
 - Rebase is off: it would put a pull request's individual commits on `main`,
   and those are not required to be Conventional Commits.
 - Head branches are deleted after merge so that no stale branch lingers.
@@ -112,8 +114,9 @@ below, and the read-back call shows any repository that was missed.
 - **Head branches are deleted after merge.** A merged pull request leaves no
   stale branch behind. The setting never deletes the default branch or a
   protected branch, and a branch that no pull request was merged from is not
-  touched either. A `release` branch therefore relies on its ruleset, not on
-  this setting, to stay.
+  touched either. A `release` branch therefore relies on its ruleset
+  ([`release-guard`](organization/README.md#release-guard)), not on this
+  setting, to stay.
 - **Forks are left out.** A fork belongs to someone else's project, and its
   settings follow that project's habits. The read-back call lists no fork, and
   archived repositories are left out as well because nobody merges there.
@@ -149,7 +152,8 @@ A fact about a repository lives in one place, so that none is kept twice (see
 [Where a fact lives](declaration.md#where-a-fact-lives)). A repository property
 on GitHub holds only what GitHub has to decide without reading the
 repository's tree, which is what an organization ruleset targets. Two
-properties remain for that:
+properties remain for that, described in
+[the organization's properties](organization/README.md#properties):
 
 - **`lifecycle`**: whether the repository is gated at all.
 - **`pipeline`**: whether the repository has switched to the central pipeline.
@@ -161,17 +165,11 @@ administration, and no step of the pipeline reads a property to decide
 anything.
 
 The properties `language` and `kind` repeat what the declaration and the files
-already say, and no ruleset targets them. The organization owner removes them;
-deleting a property's definition removes it from every repository of the
-organization at once:
-
-```sh
-gh api -X DELETE orgs/Nebensound/properties/schema/language
-gh api -X DELETE orgs/Nebensound/properties/schema/kind
-```
-
+already say, and no ruleset targets them. The organization owner removes them,
+with the calls in
+[the owner's checklist there](organization/README.md#checklist-for-the-organization-owner).
 Read back which properties the organization still defines (`lifecycle` and
-`pipeline` are expected):
+`pipeline` are expected once they are removed):
 
 ```sh
 gh api orgs/Nebensound/properties/schema --jq '.[].property_name'
@@ -192,3 +190,7 @@ are listed here with the exact call (and the response, if refused).
     -f default_workflow_permissions=read \
     -F can_approve_pull_request_reviews=false
   ```
+
+- The organization rulesets and the switch of this repository to them, with
+  the calls, are listed in
+  [the owner's checklist there](organization/README.md#checklist-for-the-organization-owner).
