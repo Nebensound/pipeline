@@ -1,0 +1,281 @@
+//! The YAML check: every `.yml` and `.yaml` file is formatted the way
+//! Prettier writes it and passes yamllint, every GitHub Actions workflow
+//! among them passes actionlint, and the Dependabot configuration among them
+//! matches the Dependabot schema.
+
+use std::ffi::OsString;
+use std::path::Path;
+
+use super::{Entry, Session, Tool};
+use crate::rules;
+use crate::setup::find;
+
+/// What runs yamllint's own linter, on the Python of its pinned copy.
+///
+/// The pipeline's default (`rules/yamllint.yaml`, compiled into this tool)
+/// lies beneath the repository's own yamllint configuration at its root,
+/// which is laid over it rule by rule, the way yamllint lays a configuration
+/// over the one its `extends` names: a rule the repository does not name
+/// keeps the default's value, and an option it does not name keeps the
+/// default's option of that rule. So its file names only what differs, and a
+/// change of the default reaches it. What its own `extends` names comes along
+/// with it, over the default as well.
+///
+/// Its rules hold, but its `ignore` and `ignore-from-file` take nothing out:
+/// yamllint would skip what they name even when the file is named to it, so
+/// its own linter runs here with them set aside, file by file, the way its
+/// command line does. Every finding is written as an annotation on its line.
+/// A warning fails nothing, an error fails the check, as on the command line.
+///
+/// It reads the default (`DEFAULT`), the repository's configuration if it has
+/// one (`OWN`) and the list of files, each ended by a zero byte (`LIST`),
+/// from its environment.
+pub const YAMLLINT: &str = r#"
+import locale
+import os
+import sys
+
+from yamllint import cli, linter
+from yamllint.config import YamlLintConfig, YamlLintConfigError
+
+
+class Layered(YamlLintConfig):
+    """A configuration laid over a base the way yamllint lays one over
+    the configuration its `extends` names: after its own `extends` is
+    read, before the rules are checked."""
+
+    def __init__(self, file, base):
+        self.base = base
+        super().__init__(file=file)
+
+    def parse(self, raw_content):
+        super().parse(raw_content)
+        try:
+            self.extend(self.base)
+        except Exception as error:
+            raise YamlLintConfigError(f"invalid config: {error}") from error
+
+
+config = os.environ["DEFAULT"]
+try:
+    conf = YamlLintConfig(file=config)
+    if os.environ["OWN"]:
+        config = os.environ["OWN"]
+        conf = Layered(config, conf)
+except YamlLintConfigError as error:
+    sys.exit(f"{config}: {error}")
+# Both `ignore` and `ignore-from-file` end up here.
+conf.ignore = None
+if conf.locale is not None:
+    locale.setlocale(locale.LC_ALL, conf.locale)
+with open(os.environ["LIST"], "rb") as listing:
+    files = [entry.decode() for entry in listing.read().split(b"\0") if entry]
+worst = 0
+for path in files:
+    with open(path, "rb") as content:
+        problems = linter.run(content, conf, path)
+    worst = max(worst, cli.show_problems(problems, path, "github", False))
+sys.exit(1 if worst == linter.PROBLEM_LEVELS["error"] else 0)
+"#;
+
+/// The names yamllint looks for its configuration under at the root, in its
+/// order.
+const OWN: &[&str] = &[".yamllint", ".yamllint.yaml", ".yamllint.yml"];
+
+/// Two messages of actionlint 1.7.12 that are left out, and only for a
+/// `uses:` that begins with `$/`: that version does not know the form yet
+/// and reports it as an invalid reference. `$/` is how a repository reaches
+/// its own building blocks at the commit that is running, so the finding
+/// would be wrong in every workflow that uses it. Every other finding on the
+/// same line and every other malformed `uses:` is still reported. The
+/// patterns go once actionlint knows the form.
+const ACTIONLINT_IGNORED: &[&str] = &[
+    r#"^specifying action "\$/[^"]+" in invalid format because ref is missing"#,
+    r#"^reusable workflow call "\$/[^"]+" at "uses" is not following the format"#,
+];
+
+/// How actionlint writes a finding: as an annotation on its file, line and
+/// column.
+const ACTIONLINT_FORMAT: &str = r"{{range $err := .}}::error file={{$err.Filepath}},line={{$err.Line}},col={{$err.Column}}::{{$err.Message}} [{{$err.Kind}}]\n{{end}}";
+
+/// Runs the check; whether it found nothing.
+pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
+    let files = session.files.clone();
+    // GitHub runs a workflow from one place only: directly under
+    // .github/workflows at the repository root. Dependabot, too, reads its
+    // configuration from one place only: .github at the repository root.
+    let workflows: Vec<&str> = files
+        .iter()
+        .map(String::as_str)
+        .filter(|file| is_workflow(file))
+        .collect();
+    let dependabot = files
+        .iter()
+        .map(String::as_str)
+        .rfind(|file| matches!(*file, ".github/dependabot.yml" | ".github/dependabot.yaml"));
+    session
+        .log
+        .line(&format!("{} of them workflow(s).", workflows.len()));
+    if let Some(dependabot) = dependabot {
+        session
+            .log
+            .line(&format!("Dependabot configuration: {dependabot}"));
+    }
+    let prettier = session.tool("prettier", false);
+    let yamllint = session.tool("yamllint", true);
+    // The other two only where there is something for them: [`None`] when
+    // one is needed and missing.
+    let actionlint = if workflows.is_empty() {
+        Some(None)
+    } else {
+        session.tool("actionlint", false).map(Some)
+    };
+    let jsonschema = if dependabot.is_none() {
+        Some(None)
+    } else {
+        session.tool("check-jsonschema", false).map(Some)
+    };
+    let (Some(prettier), Some(yamllint), Some(actionlint), Some(jsonschema)) =
+        (prettier, yamllint, actionlint, jsonschema)
+    else {
+        return false;
+    };
+    let mut list = Vec::new();
+    for file in &files {
+        list.extend_from_slice(file.as_bytes());
+        list.push(0);
+    }
+    let Some(temp) = session.folder(|_| {
+        let entries: Vec<Entry> = vec![
+            ("nothing-ignored".to_owned(), Some(Vec::new())),
+            ("files".to_owned(), Some(list)),
+            (
+                "yamllint.yaml".to_owned(),
+                Some(rules::YAMLLINT.as_bytes().to_vec()),
+            ),
+        ];
+        entries
+    }) else {
+        return false;
+    };
+    let all: Vec<&str> = files.iter().map(String::as_str).collect();
+    // Each part runs even when one before it failed, so that one run reports
+    // every finding at once.
+    let formatted = session.prettier(&prettier, &temp.join("nothing-ignored"), &all);
+    let linted = yamllint_run(session, &yamllint, &temp);
+    let workflows_pass =
+        actionlint.is_none_or(|actionlint| actionlint_run(session, &actionlint, &workflows));
+    let dependabot_passes = match (jsonschema, dependabot) {
+        (Some(jsonschema), Some(dependabot)) => schema(session, &jsonschema, dependabot),
+        _ => true,
+    };
+    formatted && linted && workflows_pass && dependabot_passes
+}
+
+/// Whether a file is a workflow: directly under `.github/workflows`, with the
+/// extension `.yml` or `.yaml`.
+#[must_use]
+pub fn is_workflow(file: &str) -> bool {
+    file.strip_prefix(".github/workflows/")
+        .filter(|name| !name.contains('/'))
+        .and_then(|name| {
+            name.strip_suffix(".yml")
+                .or_else(|| name.strip_suffix(".yaml"))
+        })
+        .is_some_and(|stem| !stem.is_empty())
+}
+
+/// yamllint over every file, with the repository's rules laid over the
+/// pipeline's default: see [`YAMLLINT`].
+fn yamllint_run(session: &mut Session<'_, '_>, yamllint: &Tool, temp: &Path) -> bool {
+    let own = OWN.iter().copied().find(|name| session.is_file(name));
+    session.log.line(&match own {
+        Some(own) => format!("Rules: the pipeline default, and laid over it {own}"),
+        None => "Rules: the pipeline default".to_owned(),
+    });
+    // The pinned copy, whose virtual environment holds the linter.
+    let python = find::environment_python(&yamllint.folder, session.context.env.windows);
+    let mut command = session.command(&python, &yamllint.search_path);
+    command
+        .args(["-c", YAMLLINT])
+        .env("DEFAULT", temp.join("yamllint.yaml"))
+        .env("OWN", own.unwrap_or_default())
+        .env("LIST", temp.join("files"));
+    let ran = session.capture(command, "yamllint");
+    session.log.lines(&ran.text);
+    ran.success
+}
+
+/// actionlint over the workflows: the domain validator for GitHub Actions.
+/// With `shellcheck` on the search path it also reads every `run:` script,
+/// and with `pyflakes` every Python one; whether they were found is said, since a
+/// computer without them reads fewer scripts.
+fn actionlint_run(session: &mut Session<'_, '_>, actionlint: &Tool, workflows: &[&str]) -> bool {
+    let windows = session.context.env.windows;
+    for (program, name, what) in [
+        ("shellcheck", "ShellCheck", "`run:` script"),
+        ("pyflakes", "pyflakes", "Python `run:` script"),
+    ] {
+        session.log.line(
+            &match find::search(program, &actionlint.search_path, windows) {
+                Some(path) => format!(
+                    "{name}: {}, so actionlint reads every {what} with it",
+                    path.display()
+                ),
+                None => format!(
+                    "{name} is not on the search path, so actionlint reads no {what} with it"
+                ),
+            },
+        );
+    }
+    let mut args: Vec<OsString> = Vec::new();
+    for pattern in ACTIONLINT_IGNORED {
+        args.push("-ignore".into());
+        args.push((*pattern).into());
+    }
+    args.push("-format".into());
+    args.push(ACTIONLINT_FORMAT.into());
+    let ran = session.over(actionlint, &args, workflows, "actionlint");
+    session.log.lines(&ran.text);
+    ran.success
+}
+
+/// The Dependabot configuration against the schema check-jsonschema brings
+/// along, so that the validation sends no request. Without it, a mistake in
+/// the file shows only after the merge, when Dependabot itself fails to read
+/// it: an unknown key, a missing one, a value of the wrong kind.
+///
+/// A finding reads `<file>::<JSON path>: <message>`, the message naming the
+/// key; each becomes one on the file, and stays in the output as it is.
+fn schema(session: &mut Session<'_, '_>, jsonschema: &Tool, dependabot: &str) -> bool {
+    let args: Vec<OsString> = vec![
+        "--builtin-schema".into(),
+        "vendor.dependabot".into(),
+        "--color".into(),
+        "never".into(),
+    ];
+    let ran = session.over(jsonschema, &args, &[dependabot], "check-jsonschema");
+    for line in ran.text.lines() {
+        session.log.line(line);
+        if let Some((path, message)) = schema_finding(line, dependabot) {
+            session
+                .log
+                .error(Some(dependabot), None, &format!("{path}: {message}"));
+        }
+    }
+    ran.success
+}
+
+/// A finding of check-jsonschema on `file`, `  <file>::<JSON path>:
+/// <message>`, taken apart into the path and the message.
+#[must_use]
+pub fn schema_finding<'l>(line: &'l str, file: &str) -> Option<(&'l str, &'l str)> {
+    let rest = line.trim_start_matches(' ');
+    if rest.len() == line.len() {
+        return None;
+    }
+    let rest = rest.strip_prefix(file)?.strip_prefix("::")?;
+    let (path, message) = rest.split_once(':')?;
+    let message = message.strip_prefix(' ')?;
+    (path.starts_with('$') && !message.is_empty()).then_some((path, message))
+}

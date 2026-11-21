@@ -1,13 +1,13 @@
 //! The rules a repository sets differently from the pipeline's default.
 //!
-//! Two programs of the building blocks read a rule configuration that the
-//! pipeline gives a default for: Markdownlint in `check-markdown` and yamllint
-//! in `check-yaml`. The block lays the repository's own configuration over
-//! that default rule by rule, so the repository's file names only what
-//! differs, and a change of the default reaches every repository that did not
-//! name the rule. The defaults lie beside this tool in `rules/`: the blocks
-//! read them from there, and the tool compiles them in, so both speak of the
-//! same files.
+//! Two programs of the checks read a rule configuration that the pipeline
+//! gives a default for: Markdownlint in the Markdown check and yamllint in the
+//! YAML check. `run` lays the repository's own configuration over that default
+//! rule by rule, so the repository's file names only what differs, and a
+//! change of the default reaches every repository that did not name the rule.
+//! The defaults lie beside this tool in `rules/`, and the tool compiles them
+//! in, both to hand them to the linters and to report on them here, so both
+//! speak of the same files.
 //!
 //! Read are the files the blocks lay over the default:
 //!
@@ -48,10 +48,10 @@ use yaml_rust2::{Event, Yaml, YamlLoader};
 use crate::ignored::{Read, folder};
 use crate::report::{column, shown};
 
-/// The pipeline's default for Markdownlint, as `check-markdown` reads it.
+/// The pipeline's default for Markdownlint, as `run markdown` hands it over.
 pub const MARKDOWNLINT: &str = include_str!("../rules/markdownlint.jsonc");
 
-/// The pipeline's default for yamllint, as `check-yaml` reads it.
+/// The pipeline's default for yamllint, as `run yaml` hands it over.
 pub const YAMLLINT: &str = include_str!("../rules/yamllint.yaml");
 
 /// The defaults a repository's rules are held against, as text.
@@ -64,7 +64,8 @@ pub struct Defaults<'a> {
 }
 
 impl Defaults<'static> {
-    /// The defaults compiled into this tool: the files the blocks read.
+    /// The defaults compiled into this tool: the files `run` hands the
+    /// linters.
     pub const BUILT_IN: Self = Self {
         markdownlint: MARKDOWNLINT,
         yamllint: YAMLLINT,

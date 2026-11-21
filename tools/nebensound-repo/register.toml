@@ -324,7 +324,7 @@ manifests         = []
 # `engines.node` on npm. A runtime on the computer below it counts as missing.
 
 # actionlint_1.7.12_checksums.txt of the release; the same digests stand on
-# the release assets. The block builds the same version from its source.
+# the release assets.
 [program.actionlint]
 version = "1.7.12"
 command = "actionlint"
@@ -506,8 +506,8 @@ digest     = "sha256:01d927294962b5387f9ead4f18679158452be4f17c765ad0bdffe5264b9
 executable = "hadolint.exe"
 
 # sha256sum.txt of the release; the same digests stand on the release assets.
-# The block takes jq from the runner image, and this is the version the Linux
-# runners bring.
+# It is the version the Linux runners bring, which phase 0 and the other
+# blocks still take from the runner image.
 [program.jq]
 version = "1.8.1"
 command = "jq"
@@ -538,8 +538,7 @@ digest     = "sha256:23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22d
 executable = "jq.exe"
 
 # The `.sha256` files of the release; the same digests stand on the release
-# assets. The Linux archives are the ones lychee-action fetches for this
-# version.
+# assets.
 [program.lychee]
 version = "0.24.2"
 command = "lychee"

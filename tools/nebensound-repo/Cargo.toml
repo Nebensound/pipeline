@@ -22,14 +22,16 @@ publish = false
 
 # The crate `cargo package` builds leaves out the tests that hold this
 # repository's documents in line with the tool: they read files outside the
-# package (docs/, the committed schema), so they are tests of the source.
-exclude = ["tests/declaration.rs", "tests/register_page.rs", "tests/schema.rs"]
+# package (docs/), so they are tests of the source.
+exclude = ["tests/declaration.rs", "tests/register_page.rs"]
 
 # What `setup` needs to put a pinned program in place: sha2 holds a download
 # against its digest, flate2 and tar unpack a .gz or .tar.gz build, zip a .zip
 # build (Windows). The download itself goes through curl, so no HTTP or TLS
-# library is linked. schemars derives the JSON Schema of the declaration. All
-# of them serve the program alone and come with the feature `program`.
+# library is linked. schemars derives the JSON Schema of the declaration.
+# tempfile makes the folder `run` hands the programs their files in, and
+# removes it again. All of them serve the program alone and come with the
+# feature `program`.
 [dependencies]
 clap         = { version = "4", features = ["derive"] }
 flate2       = { version = "1", optional = true }
@@ -42,6 +44,7 @@ serde        = { version = "1", features = ["derive"] }
 serde_json   = "1"
 sha2         = { version = "0.10", optional = true }
 tar          = { version = "0.4", default-features = false, optional = true }
+tempfile     = { version = "3", optional = true }
 thiserror    = "2"
 toml         = "1"
 toml_edit    = "0.25"
@@ -65,16 +68,24 @@ portable-pty = "0.9"
 tempfile     = "3"
 
 # `program` is what only the program needs: the downloading and unpacking of
-# `setup`, and the JSON Schema while the call `schema` exists. It is on by
-# default, so that building and installing the tool take no flag.
+# `setup`, the programs `run` starts, and the JSON Schema while the call
+# `schema` exists. It is on by default, so that building and installing the
+# tool take no flag.
 #
 # The interface is opt-in. The composite action builds without it, so a run of
 # phase 0 compiles no terminal library; `--features ui` adds the `ui` call for
 # walking the tree by hand.
 [features]
 default = ["program"]
-program = ["dep:flate2", "dep:schemars", "dep:sha2", "dep:tar", "dep:zip"]
-ui      = ["dep:ratatui"]
+program = [
+  "dep:flate2",
+  "dep:schemars",
+  "dep:sha2",
+  "dep:tar",
+  "dep:tempfile",
+  "dep:zip",
+]
+ui = ["dep:ratatui"]
 
 [[bin]]
 name              = "nebensound-repo"
@@ -88,6 +99,10 @@ required-features = ["program"]
 
 [[test]]
 name              = "schema"
+required-features = ["program"]
+
+[[test]]
+name              = "run"
 required-features = ["program"]
 
 [[test]]

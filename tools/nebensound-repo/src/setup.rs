@@ -3,16 +3,17 @@
 //!
 //! The checks call external programs, which the register pins, each with the
 //! runtime it needs, if any. For the checks the repository's declaration
-//! starts, `setup` finds every program:
+//! starts, or the checks it is named, `setup` finds every program:
 //!
 //! - By default it uses a program that is on the computer already and says
 //!   where its version differs from the pinned one; it installs the pinned
 //!   version of what is missing, and nothing that is present.
 //! - With `--pinned` it installs the pinned version of every program into its
 //!   own folder, whatever the computer has, and leaves the computer's programs
-//!   alone. This is the mode the gate is to run in once its blocks call
-//!   `setup` (#73). A program without a build for this platform cannot be
-//!   installed, so it fails here even when the computer has it.
+//!   alone. This is the mode the gate runs in: the blocks of the checks that
+//!   run from the tool call it for their own check. A program without a build
+//!   for this platform cannot be installed, so it fails here even when the
+//!   computer has it.
 //! - With `--check` it changes nothing and says what is missing or differs.
 //!
 //! Pinned copies go into the tool's folder in the user's cache directory, one
@@ -133,6 +134,25 @@ pub fn started(plan: &Plan) -> Vec<CheckName> {
     checks.sort();
     checks.dedup();
     checks
+}
+
+/// The checks of the register these names name, each once, in name order;
+/// or the first name the register does not know.
+///
+/// # Errors
+///
+/// Returns the first name that names no check of the register.
+pub fn named(register: &Register, names: &[String]) -> Result<Vec<CheckName>, String> {
+    let mut checks = Vec::new();
+    for name in names {
+        let Some(check) = register.check.keys().find(|known| known.as_str() == name) else {
+            return Err(name.clone());
+        };
+        checks.push(check.clone());
+    }
+    checks.sort();
+    checks.dedup();
+    Ok(checks)
 }
 
 /// Finds or installs the programs of these checks, prints what it did and
