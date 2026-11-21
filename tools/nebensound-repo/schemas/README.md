@@ -105,7 +105,7 @@ in a schema, phase 0 rejects the file and the schema lets it through. Phase 0
 stays the judge; the schema lets an editor show the fields, the allowed values
 and a mistake while the file is written.
 
-`check-toml` always validates `.nebensound/repo.toml` against the copy here,
+The TOML check always validates `.nebensound/repo.toml` against the copy here,
 the one of the pipeline version that reads the file. The public address of the
 copy on `main`, and the `#:schema` line that points an editor at it, stand in
-the [README of the repository](../../../../README.md#check-toml).
+the [README of the repository](../../../README.md#check-toml).
