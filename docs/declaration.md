@@ -927,7 +927,10 @@ Error. A tool's own setting takes a file out of what that tool reads in a
 building block (a line of `.prettierignore`, for example), and no `[[exclude]]`
 entry takes it out. The building block checks the file all the same, since it
 reads no such setting; run by hand, the tool would skip it. Give the file an
-`[[exclude]]` entry with a reason, or let the setting keep it in. A `.rs` file
+`[[exclude]]` entry with a reason, or let the setting keep it in. A lockfile
+the register names is never reported: no building block hands a lockfile to
+Prettier, and Taplo lints without its configuration, so taking one out takes
+nothing out of a check. A `.rs` file
 that rustfmt's `ignore` takes out is excused only by an entry that takes out its
 whole package (see
 [`partial-package-exclusion`](#partial-package-exclusion)); inside a package,

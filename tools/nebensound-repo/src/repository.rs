@@ -381,7 +381,7 @@ impl Repository {
         let tree = self.tree()?;
         let mut analysis = analyse(&declaration, central, &tree);
         let read = self.reader();
-        let mut found = ignored::findings(&analysis, &read);
+        let mut found = ignored::findings(&analysis, central.register(), &read);
         found.extend(packages::findings(
             &analysis,
             &declaration_path(),
