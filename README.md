@@ -378,8 +378,10 @@ read the unit's version of the run from it.
   context is the repository root. Each unit has its own, so several services of
   one workspace each build their own image. Phase 0 refuses a unit without
   `deploy/Dockerfile`
-  ([`build-without-file`](docs/declaration.md#build-without-file)), and the
-  block's first step still fails on one by name.
+  ([`build-without-file`](docs/declaration.md#build-without-file)). The
+  block's first step keeps a check of its own only as a safeguard: it fails by
+  name where the checkout cannot read a file phase 0 saw, such as a tracked
+  symlink whose target is missing.
 - The image is built once, for `linux/amd64` only, on an `x86_64` runner, by a
   BuildKit of its own pinned by digest, without a cache, without provenance and
   without an SBOM, into an OCI layout. It carries the labels
