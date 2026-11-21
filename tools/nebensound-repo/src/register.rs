@@ -50,6 +50,46 @@ pub struct Ecosystem {
     pub package_ecosystem: String,
     /// The files it is recognized by in the tree.
     pub manifests: Vec<String>,
+    /// The lockfile that belongs to a manifest of the ecosystem, when the
+    /// ecosystem knows one.
+    #[serde(default)]
+    pub lockfile: Option<Lockfile>,
+}
+
+/// The lockfile that belongs to a manifest, and where it stands.
+///
+/// Its name is one of the lockfiles the register names (see
+/// [`Register::is_lockfile`]), so that a lockfile is told in one place: a
+/// register that names another is refused.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Lockfile {
+    /// The file name of the manifest it belongs to.
+    pub manifest: String,
+    /// Its own file name.
+    pub name: String,
+    /// Where it stands, seen from the manifest.
+    pub stands: Stands,
+}
+
+/// Where a lockfile stands, seen from its manifest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Stands {
+    /// In the folder of the manifest.
+    Manifest,
+    /// In the root of the Cargo workspace the manifest's package belongs to,
+    /// found the way Cargo finds it ([`crate::workspace`]).
+    CargoWorkspaceRoot,
+}
+
+impl std::fmt::Display for Stands {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Manifest => "beside the manifest",
+            Self::CargoWorkspaceRoot => "in the root of the Cargo workspace",
+        })
+    }
 }
 
 /// A format-aware writer of the derived copy of a unit's version.
@@ -311,6 +351,13 @@ impl Register {
                 && !self.check.contains_key(check)
             {
                 return Err(dangling(name, "check", check));
+            }
+        }
+        for (name, ecosystem) in &self.ecosystem {
+            if let Some(lockfile) = &ecosystem.lockfile
+                && !self.is_lockfile(&lockfile.name)
+            {
+                return Err(dangling(name, "lockfile", &lockfile.name));
             }
         }
         for (name, preset) in &self.preset {

@@ -136,7 +136,13 @@ fn the_page_names_what_the_register_says() {
             "`cargo`",
             "the package version in the unit's Cargo.toml, written through Cargo",
         ],
-        &["`github-actions`", "`github-actions`", "none"],
+        &["`github-actions`", "`github-actions`", "none", "none"],
+        &[
+            "`cargo`",
+            "`cargo`",
+            "`Cargo.lock`",
+            "`Cargo.lock` of a `Cargo.toml`, in the root of the Cargo workspace",
+        ],
         &["`**/LICENSE`", "legal text, taken over unchanged"],
     ] {
         assert!(

@@ -275,14 +275,24 @@ fn ecosystems(register: &Register) -> String {
                 code(name),
                 code(&ecosystem.package_ecosystem),
                 codes(&ecosystem.manifests),
+                ecosystem.lockfile.as_ref().map_or_else(none, |lockfile| {
+                    format!(
+                        "{} of a {}, {}",
+                        code(&lockfile.name),
+                        code(&lockfile.manifest),
+                        lockfile.stands
+                    )
+                }),
             ]
         })
         .collect();
     section(
         "Ecosystems",
         "The package ecosystems Dependabot can watch, and the file names phase 0\n\
-         recognizes a manifest of each by.",
-        &["Ecosystem", "Dependabot name", "Manifests"],
+         recognizes a manifest of each by. Where an ecosystem knows a lockfile, phase 0\n\
+         warns when Git does not track the lockfile of a manifest (see\n\
+         [`missing-lockfile`](declaration.md#missing-lockfile)).",
+        &["Ecosystem", "Dependabot name", "Manifests", "Lockfile"],
         &rows,
     )
 }

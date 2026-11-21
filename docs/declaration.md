@@ -846,6 +846,22 @@ file.
 Warning. A unit has an ecosystem watched and holds no manifest of it. Remove the
 ecosystem from its `dependabot` list. An ecosystem of the base set is exempt.
 
+### `missing-lockfile`
+
+Warning. A manifest's ecosystem knows a lockfile, and Git does not track it.
+What is checked and built is then resolved anew in each run instead of being
+what was resolved and committed. The register names, per ecosystem, the
+lockfile of a manifest and where it stands (see
+[Ecosystems](register.md#ecosystems)): for a `Cargo.toml` the `Cargo.lock` in
+the root of the Cargo workspace its package belongs to, found the way Cargo
+finds it. The members of a workspace lead to the same lockfile, so it is
+reported once, at the manifest nearest the root of the repository, and the
+message names the lockfile. Commit it. A manifest that an `[[exclude]]` entry
+takes out is passed over. Taking out only the reported manifest of a workspace
+moves the finding to the next member; to silence it, take out every manifest
+that leads to the lockfile, such as the folder of the workspace. Whether a
+committed lockfile is up to date is for the check of each language.
+
 ### `unconventional-commit`
 
 Warning. A commit the version of a unit is raised by has a message that is not a

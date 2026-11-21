@@ -175,16 +175,18 @@ A version writer receives a unit's version as a derived copy.
 ## Ecosystems
 
 The package ecosystems Dependabot can watch, and the file names phase 0
-recognizes a manifest of each by.
+recognizes a manifest of each by. Where an ecosystem knows a lockfile, phase 0
+warns when Git does not track the lockfile of a manifest (see
+[`missing-lockfile`](declaration.md#missing-lockfile)).
 
-| Ecosystem        | Dependabot name  | Manifests                     |
-| ---------------- | ---------------- | ----------------------------- |
-| `cargo`          | `cargo`          | `Cargo.lock`                  |
-| `docker`         | `docker`         | `Dockerfile`, `Containerfile` |
-| `github-actions` | `github-actions` | none                          |
-| `npm`            | `npm`            | `package-lock.json`           |
-| `pip`            | `pip`            | `requirements.txt`            |
-| `uv`             | `uv`             | `uv.lock`                     |
+| Ecosystem        | Dependabot name  | Manifests                     | Lockfile                                                           |
+| ---------------- | ---------------- | ----------------------------- | ------------------------------------------------------------------ |
+| `cargo`          | `cargo`          | `Cargo.lock`                  | `Cargo.lock` of a `Cargo.toml`, in the root of the Cargo workspace |
+| `docker`         | `docker`         | `Dockerfile`, `Containerfile` | none                                                               |
+| `github-actions` | `github-actions` | none                          | none                                                               |
+| `npm`            | `npm`            | `package-lock.json`           | none                                                               |
+| `pip`            | `pip`            | `requirements.txt`            | none                                                               |
+| `uv`             | `uv`             | `uv.lock`                     | none                                                               |
 
 ## Excluded everywhere
 
