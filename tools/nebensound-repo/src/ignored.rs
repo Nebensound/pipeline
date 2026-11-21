@@ -28,6 +28,20 @@
 //!   applies to a file depends on where it runs and on the target it formats,
 //!   so every one is read. rustfmt honours `ignore` only on a nightly
 //!   toolchain, which a workspace may pin.
+//! - Pyright: `ignore` in `pyrightconfig.json`, and in the `[tool.pyright]`
+//!   table of a `pyproject.toml`, in every folder, relative to that folder.
+//!   Pyright reads the configuration of the folder it runs in, so every one
+//!   is read. A file it ignores is checked and its findings are dropped.
+//! - coverage.py: `omit` in `[run]` and `[report]` of `.coveragerc`, of
+//!   `[coverage:run]` and `[coverage:report]` in `setup.cfg` and `tox.ini`,
+//!   and of `[tool.coverage.run]` and `[tool.coverage.report]` in a
+//!   `pyproject.toml`, in every folder, relative to that folder; which one
+//!   coverage.py takes depends on where it runs, so every one is read.
+//! - Ruff: a `# ruff: noqa` or `# flake8: noqa` line without rule codes in a
+//!   Python file, which takes that file out of Ruff's linter.
+//!
+//! `check-python` sets Pyright's `ignore` and coverage.py's `omit` aside; Ruff
+//! honours the comment wherever it runs.
 //!
 //! Only a file the tool reads in a building block counts: Prettier's ignore
 //! file taking out a Rust file takes out nothing Prettier would have looked at.
@@ -65,6 +79,12 @@ pub enum Tool {
     Lychee,
     /// The formatter of `check-rust`.
     Rustfmt,
+    /// The type checker of `check-python`.
+    Pyright,
+    /// The coverage tool of `check-python`.
+    Coverage,
+    /// The formatter and linter of `check-python`.
+    Ruff,
 }
 
 impl Tool {
@@ -78,6 +98,9 @@ impl Tool {
             Self::Yamllint => "yamllint",
             Self::Lychee => "lychee",
             Self::Rustfmt => "rustfmt",
+            Self::Pyright => "Pyright",
+            Self::Coverage => "coverage.py",
+            Self::Ruff => "Ruff",
         }
     }
 
@@ -90,6 +113,19 @@ impl Tool {
             Self::Markdownlint | Self::Lychee => &["markdown"],
             Self::Yamllint => &["yaml"],
             Self::Rustfmt => &["rust"],
+            Self::Pyright | Self::Coverage | Self::Ruff => &["python"],
+        }
+    }
+
+    /// Whether it reads this file of its checks: coverage.py measures code,
+    /// so it reads no stub file (`.pyi`).
+    fn reads(self, file: &RelativePath) -> bool {
+        match self {
+            Self::Coverage => file
+                .file_name()
+                .and_then(|name| std::path::Path::new(name).extension())
+                .is_some_and(|extension| extension == "py"),
+            _ => true,
         }
     }
 }
@@ -127,6 +163,19 @@ enum Matcher {
     /// Regular expressions over the path from the repository root, such as
     /// `docs/a.md`: the string lychee matches them against in the block.
     Regex(RegexSet),
+    /// coverage.py's patterns: some over the whole path from the root, the
+    /// others relative to a folder.
+    Coverage {
+        anywhere: Globs,
+        base: RelativePath,
+        here: Globs,
+    },
+    /// The file itself, through a line it holds.
+    Itself {
+        file: RelativePath,
+        line: usize,
+        written: String,
+    },
 }
 
 impl Matcher {
@@ -167,6 +216,32 @@ impl Matcher {
                 .iter()
                 .next()
                 .map(|index| format!("through the pattern `{}`", set.patterns()[index])),
+            Self::Coverage {
+                anywhere,
+                base,
+                here,
+            } => {
+                let path = file.to_string();
+                if let Some(index) = anywhere.set.matches(&path).first() {
+                    return Some(format!(
+                        "through the pattern `{}`",
+                        anywhere.written[*index]
+                    ));
+                }
+                if !base.contains(file) {
+                    return None;
+                }
+                let below = file.segments()[base.segments().len()..].join("/");
+                here.set
+                    .matches(&below)
+                    .first()
+                    .map(|index| format!("through the pattern `{}`", here.written[*index]))
+            }
+            Self::Itself {
+                file: own,
+                line,
+                written,
+            } => (own == file).then(|| format!("through `{written}` on line {line}")),
         }
     }
 }
@@ -185,7 +260,7 @@ impl Setting {
         let (Coverage::Covered(check) | Coverage::Uncovered(check)) = coverage else {
             return None;
         };
-        if !self.tool.checks().contains(&check.as_str()) {
+        if !self.tool.checks().contains(&check.as_str()) || !self.tool.reads(file) {
             return None;
         }
         self.matcher.out(file)
@@ -413,6 +488,240 @@ fn yamllint_ignore(
     }
 }
 
+#[derive(Deserialize)]
+struct Pyright {
+    ignore: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+struct PyrightTable {
+    tool: Option<PyrightTool>,
+}
+
+#[derive(Deserialize)]
+struct PyrightTool {
+    pyright: Option<Pyright>,
+}
+
+/// Pyright reads each entry of `ignore` as a path relative to the folder of
+/// its configuration, a file or a folder with everything below it, where
+/// `**` stands for any folders and `*` and `?` stay within one name.
+fn pyright(config: Pyright, base: &RelativePath) -> Result<Option<Matcher>, String> {
+    let Some(entries) = config.ignore.filter(|entries| !entries.is_empty()) else {
+        return Ok(None);
+    };
+    let mut set = GlobSetBuilder::new();
+    for entry in &entries {
+        let path = entry
+            .strip_prefix("./")
+            .unwrap_or(entry)
+            .trim_end_matches('/');
+        for pattern in [path.to_owned(), format!("{path}/**")] {
+            set.add(
+                GlobBuilder::new(&pattern)
+                    .literal_separator(true)
+                    .build()
+                    .map_err(text)?,
+            );
+        }
+    }
+    // Each entry stands twice in the set, as itself and with what lies below.
+    let written = entries
+        .iter()
+        .flat_map(|entry| [entry.clone(), entry.clone()])
+        .collect();
+    set.build()
+        .map(|set| {
+            Some(Matcher::Globs {
+                base: base.clone(),
+                include: None,
+                exclude: Globs { set, written },
+            })
+        })
+        .map_err(text)
+}
+
+fn pyright_json(source: &str, base: &RelativePath) -> Result<Option<Matcher>, String> {
+    let config: Option<Pyright> =
+        jsonc_parser::parse_to_serde_value(source, &jsonc_parser::ParseOptions::default())
+            .map_err(text)?;
+    config.map_or(Ok(None), |config| pyright(config, base))
+}
+
+fn pyright_toml(source: &str, base: &RelativePath) -> Result<Option<Matcher>, String> {
+    let table: PyrightTable = toml::from_str(source).map_err(text)?;
+    match table.tool.and_then(|tool| tool.pyright) {
+        Some(config) => pyright(config, base),
+        None => Ok(None),
+    }
+}
+
+/// coverage.py's patterns, as `globset` reads them. A pattern without a `/`
+/// names a file anywhere. coverage.py matches the others against the
+/// absolute path of a file, from its start: one that starts with a wildcard
+/// as it is, so it names a file only where it starts with `*/` or `**/`,
+/// any folders above; any other one relative to the folder of its
+/// configuration, where coverage.py runs, and an absolute one names no file
+/// of the repository. `*` stays within one name, `**/` stands for any
+/// folders and a trailing `/*` for anything below.
+fn coverage(patterns: Vec<String>, base: &RelativePath) -> Result<Option<Matcher>, String> {
+    if patterns.is_empty() {
+        return Ok(None);
+    }
+    let mut anywhere = Vec::new();
+    let mut here = Vec::new();
+    for written in patterns {
+        let pattern = written.replace('\\', "/");
+        let pattern = pattern.strip_prefix("./").unwrap_or(&pattern).to_owned();
+        let pattern = match pattern.strip_suffix("/*") {
+            Some(stem) => format!("{stem}/**"),
+            None => pattern,
+        };
+        if !pattern.contains('/') {
+            anywhere.push((format!("**/{pattern}"), written));
+        } else if pattern.starts_with(['*', '?']) {
+            // Matched against an absolute path from its start, such a
+            // pattern names a file only where its wildcards stand for the
+            // folders above it.
+            let stars = pattern.len() - pattern.trim_start_matches('*').len();
+            if let Some(rest) = pattern[stars..].strip_prefix('/').filter(|_| stars > 0) {
+                anywhere.push((format!("**/{rest}"), written));
+            }
+        } else if !pattern.starts_with('/') {
+            here.push((pattern, written));
+        }
+    }
+    let build = |patterns: Vec<(String, String)>| -> Result<Globs, String> {
+        let mut set = GlobSetBuilder::new();
+        let mut written = Vec::new();
+        for (pattern, original) in patterns {
+            set.add(
+                GlobBuilder::new(&pattern)
+                    .literal_separator(true)
+                    .build()
+                    .map_err(text)?,
+            );
+            written.push(original);
+        }
+        set.build().map(|set| Globs { set, written }).map_err(text)
+    };
+    Ok(Some(Matcher::Coverage {
+        anywhere: build(anywhere)?,
+        base: base.clone(),
+        here: build(here)?,
+    }))
+}
+
+#[derive(Deserialize)]
+struct CoverageTable {
+    tool: Option<CoverageTool>,
+}
+
+#[derive(Deserialize)]
+struct CoverageTool {
+    coverage: Option<CoverageSections>,
+}
+
+#[derive(Deserialize)]
+struct CoverageSections {
+    run: Option<CoverageOmit>,
+    report: Option<CoverageOmit>,
+}
+
+#[derive(Deserialize)]
+struct CoverageOmit {
+    omit: Option<Vec<String>>,
+}
+
+fn coverage_toml(source: &str, base: &RelativePath) -> Result<Option<Matcher>, String> {
+    let table: CoverageTable = toml::from_str(source).map_err(text)?;
+    let sections = table.tool.and_then(|tool| tool.coverage);
+    let patterns = sections
+        .into_iter()
+        .flat_map(|sections| [sections.run, sections.report])
+        .flatten()
+        .filter_map(|section| section.omit)
+        .flatten()
+        .collect();
+    coverage(patterns, base)
+}
+
+/// `omit` of the named sections of an INI file, as coverage.py reads it with
+/// Python's configparser: a value runs on over the indented lines below its
+/// key, and its patterns stand one per line or apart by commas.
+fn coverage_ini(
+    source: &str,
+    sections: &[&str],
+    base: &RelativePath,
+) -> Result<Option<Matcher>, String> {
+    let mut patterns = Vec::new();
+    let mut section: Option<String> = None;
+    let mut collecting = false;
+    for (number, line) in source.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with(['#', ';']) {
+            continue;
+        }
+        if line.starts_with([' ', '\t']) {
+            if collecting {
+                patterns.extend(split(trimmed));
+            }
+            continue;
+        }
+        collecting = false;
+        if let Some(name) = trimmed.strip_prefix('[') {
+            let Some(name) = name.strip_suffix(']') else {
+                return Err(format!(
+                    "line {}: a section header that does not close",
+                    number + 1
+                ));
+            };
+            section = Some(name.trim().to_owned());
+            continue;
+        }
+        let Some((key, value)) = trimmed.split_once(['=', ':']) else {
+            return Err(format!(
+                "line {}: neither a section, a key nor a value",
+                number + 1
+            ));
+        };
+        if key.trim().eq_ignore_ascii_case("omit")
+            && section
+                .as_deref()
+                .is_some_and(|name| sections.contains(&name))
+        {
+            patterns.extend(split(value.trim()));
+            collecting = true;
+        }
+    }
+    coverage(patterns, base)
+}
+
+/// The patterns of one line of a list in an INI file.
+fn split(line: &str) -> Vec<String> {
+    line.split(',')
+        .map(str::trim)
+        .filter(|pattern| !pattern.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The line of a Python file that takes it out of Ruff's linter as a whole:
+/// `# ruff: noqa` or `# flake8: noqa` without rule codes.
+fn noqa(file: &RelativePath, source: &str) -> Option<Matcher> {
+    source.lines().enumerate().find_map(|(index, line)| {
+        let comment = line.trim().strip_prefix('#')?.trim();
+        let (tool, rest) = comment.split_once(':')?;
+        let tool = tool.trim().to_ascii_lowercase();
+        (["ruff", "flake8"].contains(&tool.as_str()) && rest.trim().eq_ignore_ascii_case("noqa"))
+            .then(|| Matcher::Itself {
+                file: file.clone(),
+                line: index + 1,
+                written: line.trim().to_owned(),
+            })
+    })
+}
+
 /// Reads a file of the repository, as it stands there.
 pub type Read<'a> = dyn Fn(&RelativePath) -> Result<String, String> + 'a;
 
@@ -458,6 +767,17 @@ fn places<'a>(files: &[&'a RelativePath]) -> Vec<(&'a RelativePath, Tool)> {
         if hidden || plain {
             found.push((*file, Tool::Rustfmt));
         }
+        // Pyright and coverage.py, every file they may read their settings
+        // from.
+        match file.file_name() {
+            Some("pyrightconfig.json") => found.push((*file, Tool::Pyright)),
+            Some("pyproject.toml") => {
+                found.push((*file, Tool::Pyright));
+                found.push((*file, Tool::Coverage));
+            }
+            Some(".coveragerc" | "setup.cfg" | "tox.ini") => found.push((*file, Tool::Coverage)),
+            _ => {}
+        }
     }
     found
 }
@@ -486,6 +806,20 @@ fn read_setting(
             markdownlint_jsonc(&source, &folder(file))
         }
         Tool::Markdownlint => markdownlint_yaml(&source, &folder(file)),
+        Tool::Pyright if file.file_name() == Some("pyrightconfig.json") => {
+            pyright_json(&source, &folder(file))
+        }
+        Tool::Pyright => pyright_toml(&source, &folder(file)),
+        Tool::Coverage if file.file_name() == Some("pyproject.toml") => {
+            coverage_toml(&source, &folder(file))
+        }
+        Tool::Coverage if file.file_name() == Some(".coveragerc") => {
+            coverage_ini(&source, &["run", "report"], &folder(file))
+        }
+        Tool::Coverage => {
+            coverage_ini(&source, &["coverage:run", "coverage:report"], &folder(file))
+        }
+        Tool::Ruff => Ok(noqa(file, &source)),
     }
 }
 
@@ -498,9 +832,18 @@ fn remedy(tool: Tool) -> &'static str {
              with its Cargo.toml) with an [[exclude]] entry and a reason in \
              .nebensound/repo.toml"
         }
-        Tool::Prettier | Tool::Taplo | Tool::Markdownlint | Tool::Yamllint | Tool::Lychee => {
-            "give it an [[exclude]] entry with a reason in .nebensound/repo.toml"
+        // Single rules stay the repository's choice.
+        Tool::Ruff => {
+            "switch single rules off (`# ruff: noqa: <code>`), or give it an [[exclude]] entry \
+             with a reason in .nebensound/repo.toml"
         }
+        Tool::Prettier
+        | Tool::Taplo
+        | Tool::Markdownlint
+        | Tool::Yamllint
+        | Tool::Lychee
+        | Tool::Pyright
+        | Tool::Coverage => "give it an [[exclude]] entry with a reason in .nebensound/repo.toml",
     }
 }
 
@@ -535,6 +878,20 @@ pub fn findings(analysis: &Analysis, register: &Register, read: &Read<'_>) -> Ve
             ),
         }
     }
+    // A Python file that takes itself out of Ruff. Only the files a check
+    // reads are opened; one that cannot be read holds no such line.
+    for (node, coverage) in &nodes {
+        let python = matches!(coverage, Coverage::Covered(check) | Coverage::Uncovered(check)
+            if Tool::Ruff.checks().contains(&check.as_str()));
+        if let Some(Ok(Some(matcher))) = python.then(|| read_setting(&node.path, Tool::Ruff, read))
+        {
+            settings.push(Setting {
+                file: node.path.clone(),
+                tool: Tool::Ruff,
+                matcher,
+            });
+        }
+    }
 
     for (node, coverage) in nodes {
         // No building block hands a lockfile to Prettier, and Taplo lints
@@ -545,20 +902,24 @@ pub fn findings(analysis: &Analysis, register: &Register, read: &Read<'_>) -> Ve
         }
         for setting in &settings {
             if let Some(why) = setting.out(&node.path, coverage) {
-                findings.push(
-                    Finding::error(
-                        Rule::UnexcusedIgnore,
-                        format!(
-                            "{file} takes this file out of {} {why}, and no [[exclude]] entry \
-                             does. The pipeline checks it all the same: {remedy}, or let \
-                             {file} keep it in",
-                            setting.tool.name(),
-                            file = setting.file,
-                            remedy = remedy(setting.tool),
-                        ),
+                let message = if setting.tool == Tool::Ruff {
+                    // Ruff honours the line in the block as well.
+                    format!(
+                        "this file takes itself out of Ruff's linter {why}, and no [[exclude]] \
+                         entry does; Ruff leaves it unchecked wherever it runs: {remedy}",
+                        remedy = remedy(setting.tool),
                     )
-                    .at(node.path.clone()),
-                );
+                } else {
+                    format!(
+                        "{file} takes this file out of {} {why}, and no [[exclude]] entry \
+                         does. The pipeline checks it all the same: {remedy}, or let \
+                         {file} keep it in",
+                        setting.tool.name(),
+                        file = setting.file,
+                        remedy = remedy(setting.tool),
+                    )
+                };
+                findings.push(Finding::error(Rule::UnexcusedIgnore, message).at(node.path.clone()));
             }
         }
     }

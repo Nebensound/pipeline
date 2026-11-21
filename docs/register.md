@@ -74,7 +74,7 @@ that no check covers has to be excluded. The programs are what the check calls
 | `json`       | `.json`, `.jsonc`, `.geojson`                            | `composer.lock`, `flake.lock`, `Pipfile.lock`      | `biome`, `jq`, `prettier`                                |
 | `markdown`   | `.md`, `.markdown`                                       | none                                               | `lychee`, `markdownlint-cli2`, `prettier`                |
 | `php`        | `.php`                                                   | none                                               | none                                                     |
-| `python`     | `.py`, `.pyi`                                            | none                                               | none                                                     |
+| `python`     | `.py`, `.pyi`                                            | none                                               | `coverage`, `pyright`, `ruff`, `uv`                      |
 | `qml`        | `.qml`                                                   | none                                               | none                                                     |
 | `r`          | `.r`                                                     | none                                               | none                                                     |
 | `rust`       | `.rs`                                                    | none                                               | `cargo-llvm-cov`                                         |
@@ -97,21 +97,25 @@ has the digest the register pins; the addresses and digests stand in
 without a build only the computer's copy can be used: the default mode of
 `setup` takes it from the `PATH`, and `setup --pinned` fails for the program.
 
-| Program             | Version  | Runtime                     | Builds                                                                                                |
-| ------------------- | -------- | --------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `actionlint`        | `1.7.12` | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
-| `biome`             | `2.5.15` | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
-| `cargo-llvm-cov`    | `0.9.0`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
-| `check-jsonschema`  | `0.39.0` | `python`, `3.11.0` or later | one package for every platform                                                                        |
-| `dockerfmt`         | `1.0.0`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`                                      |
-| `hadolint`          | `2.15.1` | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
-| `jq`                | `1.8.1`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
-| `lychee`            | `0.24.2` | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
-| `markdownlint-cli2` | `0.23.2` | `node`, `22.0.0` or later   | one package for every platform                                                                        |
-| `prettier`          | `3.9.6`  | `node`, `14.0.0` or later   | one package for every platform                                                                        |
-| `taplo`             | `0.10.0` | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
-| `trivy`             | `0.76.2` | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
-| `yamllint`          | `1.38.0` | `python`, `3.10.0` or later | one package for every platform                                                                        |
+| Program             | Version   | Runtime                     | Builds                                                                                                |
+| ------------------- | --------- | --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `actionlint`        | `1.7.12`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
+| `biome`             | `2.5.15`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
+| `cargo-llvm-cov`    | `0.9.0`   | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
+| `check-jsonschema`  | `0.39.0`  | `python`, `3.11.0` or later | one package for every platform                                                                        |
+| `coverage`          | `7.17.4`  | `python`, `3.11.0` or later | one package for every platform                                                                        |
+| `dockerfmt`         | `1.0.0`   | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`                                      |
+| `hadolint`          | `2.15.1`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
+| `jq`                | `1.8.1`   | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
+| `lychee`            | `0.24.2`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
+| `markdownlint-cli2` | `0.23.2`  | `node`, `22.0.0` or later   | one package for every platform                                                                        |
+| `prettier`          | `3.9.6`   | `node`, `14.0.0` or later   | one package for every platform                                                                        |
+| `pyright`           | `1.1.414` | `node`, `14.0.0` or later   | one package for every platform                                                                        |
+| `ruff`              | `0.17.6`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
+| `taplo`             | `0.10.0`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
+| `trivy`             | `0.76.2`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
+| `uv`                | `0.13.9`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
+| `yamllint`          | `1.38.0`  | `python`, `3.10.0` or later | one package for every platform                                                                        |
 
 ## Runtimes
 
@@ -194,43 +198,45 @@ What nobody checks, in any repository. A declaration can pull an entry back in
 with `[[include]]`; it cannot add a pattern of its own. An entry that holds only
 while the file is empty excuses nothing once the file holds content.
 
-| Pattern             | Reason                                                                        |
-| ------------------- | ----------------------------------------------------------------------------- |
-| `*.png`             | image, binary; no tool has an opinion about it                                |
-| `*.jpg`             | image, binary; no tool has an opinion about it                                |
-| `*.jpeg`            | image, binary; no tool has an opinion about it                                |
-| `*.gif`             | image, binary; no tool has an opinion about it                                |
-| `*.webp`            | image, binary; no tool has an opinion about it                                |
-| `*.svg`             | image as source text; checkable, but without a formatter in the organization  |
-| `*.ico`             | image, binary; no tool has an opinion about it                                |
-| `*.pdf`             | rendered result, not the source                                               |
-| `*.xlsx`            | spreadsheet document; packed XML that no tool here opens                      |
-| `*.docx`            | text document; packed XML that no tool here opens                             |
-| `*.odt`             | text document; packed XML that no tool here opens                             |
-| `*.woff`            | font, binary; no tool has an opinion about it                                 |
-| `*.woff2`           | font, binary; no tool has an opinion about it                                 |
-| `*.ttf`             | font, binary; no tool has an opinion about it                                 |
-| `*.otf`             | font, binary; no tool has an opinion about it                                 |
-| `*.zip`             | archive; its content is reachable by no check                                 |
-| `*.gz`              | archive; its content is reachable by no check                                 |
-| `*.tar`             | archive; its content is reachable by no check                                 |
-| `*.bin`             | binary artifact; not a source, and no tool reads it                           |
-| `*.hex`             | firmware image; a generated result, not the source                            |
-| `*.elf`             | firmware image; a generated result, not the source                            |
-| `*.stl`             | CAD geometry; partly readable as text, but without a tool in the organization |
-| `*.step`            | CAD geometry; partly readable as text, but without a tool in the organization |
-| `*.gcode`           | machine code; generated by the slicer, not written                            |
-| `*.db`              | database file, binary; no tool reads it                                       |
-| `**/LICENSE`        | legal text, taken over unchanged                                              |
-| `**/NOTICE`         | legal text, taken over unchanged                                              |
-| `**/CODEOWNERS`     | a syntax of its own, read by GitHub; no formatter for it                      |
-| `**/.gitignore`     | tool configuration without a formatter                                        |
-| `**/.gitattributes` | tool configuration without a formatter                                        |
-| `**/.dockerignore`  | tool configuration without a formatter                                        |
-| `**/.editorconfig`  | tool configuration without a formatter                                        |
-| `**/yarn.lock`      | lockfile in a format of its own; no tool in the organization checks it        |
-| `**/Gemfile.lock`   | lockfile in a format of its own; no tool in the organization checks it        |
-| `**/justfile`       | command list in a syntax of its own; no tool in the organization checks it    |
-| `**/Makefile`       | command list in a syntax of its own; no tool in the organization checks it    |
-| `**/.gitkeep`       | an empty marker that keeps a folder; only while the file is empty             |
-| `**/.keep`          | an empty marker that keeps a folder; only while the file is empty             |
+| Pattern              | Reason                                                                        |
+| -------------------- | ----------------------------------------------------------------------------- |
+| `*.png`              | image, binary; no tool has an opinion about it                                |
+| `*.jpg`              | image, binary; no tool has an opinion about it                                |
+| `*.jpeg`             | image, binary; no tool has an opinion about it                                |
+| `*.gif`              | image, binary; no tool has an opinion about it                                |
+| `*.webp`             | image, binary; no tool has an opinion about it                                |
+| `*.svg`              | image as source text; checkable, but without a formatter in the organization  |
+| `*.ico`              | image, binary; no tool has an opinion about it                                |
+| `*.pdf`              | rendered result, not the source                                               |
+| `*.xlsx`             | spreadsheet document; packed XML that no tool here opens                      |
+| `*.docx`             | text document; packed XML that no tool here opens                             |
+| `*.odt`              | text document; packed XML that no tool here opens                             |
+| `*.woff`             | font, binary; no tool has an opinion about it                                 |
+| `*.woff2`            | font, binary; no tool has an opinion about it                                 |
+| `*.ttf`              | font, binary; no tool has an opinion about it                                 |
+| `*.otf`              | font, binary; no tool has an opinion about it                                 |
+| `*.zip`              | archive; its content is reachable by no check                                 |
+| `*.gz`               | archive; its content is reachable by no check                                 |
+| `*.tar`              | archive; its content is reachable by no check                                 |
+| `*.bin`              | binary artifact; not a source, and no tool reads it                           |
+| `*.hex`              | firmware image; a generated result, not the source                            |
+| `*.elf`              | firmware image; a generated result, not the source                            |
+| `*.stl`              | CAD geometry; partly readable as text, but without a tool in the organization |
+| `*.step`             | CAD geometry; partly readable as text, but without a tool in the organization |
+| `*.gcode`            | machine code; generated by the slicer, not written                            |
+| `*.db`               | database file, binary; no tool reads it                                       |
+| `**/LICENSE`         | legal text, taken over unchanged                                              |
+| `**/NOTICE`          | legal text, taken over unchanged                                              |
+| `**/CODEOWNERS`      | a syntax of its own, read by GitHub; no formatter for it                      |
+| `**/.gitignore`      | tool configuration without a formatter                                        |
+| `**/.gitattributes`  | tool configuration without a formatter                                        |
+| `**/.dockerignore`   | tool configuration without a formatter                                        |
+| `**/.editorconfig`   | tool configuration without a formatter                                        |
+| `**/yarn.lock`       | lockfile in a format of its own; no tool in the organization checks it        |
+| `**/Gemfile.lock`    | lockfile in a format of its own; no tool in the organization checks it        |
+| `**/justfile`        | command list in a syntax of its own; no tool in the organization checks it    |
+| `**/Makefile`        | command list in a syntax of its own; no tool in the organization checks it    |
+| `**/.gitkeep`        | an empty marker that keeps a folder; only while the file is empty             |
+| `**/.keep`           | an empty marker that keeps a folder; only while the file is empty             |
+| `**/py.typed`        | an empty marker of a typed package (PEP 561); only while the file is empty    |
+| `**/.python-version` | a version number read by uv; no tool has an opinion about its format          |

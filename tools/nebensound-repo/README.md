@@ -26,11 +26,13 @@ the JSON Schema of `schema`. Building and installing the tool take no flag. What
 builds on the library alone switches the default features off and compiles
 neither.
 
-`rules/` holds the defaults that `check-markdown` and `check-yaml` lay a
-repository's own linter configuration over. The blocks read them from there,
-and the tool compiles them in to show how a repository's rules stand to them
+`rules/` holds the defaults that `check-markdown`, `check-yaml` and
+`check-python` lay a repository's own linter configuration over. The blocks
+read them from there, and the tool compiles the ones of Markdownlint and
+yamllint in to show how a repository's rules stand to them
 ([The rules](#the-rules)), so both speak of the same files, and a change to
-one of them is a change to the tool, which builds it again.
+one of them is a change to the tool, which builds it again. Ruff's default is
+not shown yet.
 
 The tool itself is not to be published: whoever needs it is to get it through
 the composite action under `.github/actions/phase0`. A second distribution
@@ -302,12 +304,13 @@ and so is a repository with errors, for the same reason it gets no plan.
 Phase 0 also holds the tools' own ways of leaving a file out against the
 declaration — `.prettierignore`, `include` and `exclude` in `taplo.toml`,
 `ignores` of markdownlint-cli2, `ignore` of yamllint, `exclude_path` of lychee,
-`ignore` of rustfmt — and fails on every file one of them takes out that no
+`ignore` of rustfmt, `ignore` of Pyright, `omit` of coverage.py, a Python
+file's `# ruff: noqa` — and fails on every file one of them takes out that no
 `[[exclude]]` entry does (`unexcused-ignore`). The building blocks read none of
 them except lychee's `exclude_path`, which phase 0 matches against the path
 from the root, the string `check-markdown` hands lychee, and rustfmt's
-`ignore`, which takes effect on a nightly toolchain; run by hand, the tools
-read them all.
+`ignore`, which takes effect on a nightly toolchain, and Ruff's `# ruff: noqa`,
+which the file holds itself; run by hand, the tools read them all.
 
 ## Setting up the programs
 

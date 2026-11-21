@@ -56,6 +56,10 @@ path   = ".github/actions/check-markdown/tests"
 reason = "test cases of check-markdown, judged by that block through the xtask; the failing ones are wrong on purpose"
 
 [[exclude]]
+path   = ".github/actions/check-python/tests"
+reason = "test cases of check-python, uv projects judged by that block through the xtask; the failing ones are wrong on purpose"
+
+[[exclude]]
 path   = ".github/actions/check-rust/tests"
 reason = "test cases of check-rust, whole Cargo packages judged by that block through the xtask; the failing ones are wrong on purpose"
 
