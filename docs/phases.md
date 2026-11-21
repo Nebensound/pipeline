@@ -33,8 +33,12 @@ it and hands the result on:
    ([`.github/actions/tool`](../.github/actions/tool)).
 2. `nebensound-repo check` reads `.nebensound/repo.toml`, resolves it against
    the register and checks it against what Git tracks, and resolves the version
-   of every unit from the history, holding the tags against it. It prints the
-   resolved configuration, the annotated tree, the findings and a summary line.
+   of every unit from the history, holding the tags against it. It also holds
+   the repository's name and default branch, which the action hands in from the
+   event of the run, and the files every repository holds against the
+   organization's conventions, as warnings. It prints the resolved
+   configuration, the annotated tree, the findings, each as an annotation of
+   the run, and a summary line.
    [The reference of the declaration](declaration.md) describes every field and
    every finding.
 3. When phase 0 found no error, every Rust package `[[exclude]]` takes out as a

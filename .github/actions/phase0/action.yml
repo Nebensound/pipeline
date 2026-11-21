@@ -22,11 +22,28 @@ outputs:
 runs:
   using: composite
   steps:
+    # The repository's name and default branch are not declared: GitHub holds
+    # both, and the event of the run names them. They go in through the
+    # environment, never into the script. An event without them leaves the
+    # tool to read them from Git, which says in one line what it does not
+    # know. In a run the tool reports every finding as an annotation.
     - name: Run phase 0
       shell: bash
+      env:
+        NAME: ${{ github.event.repository.name }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       run: |
         set -euo pipefail
-        nebensound-repo -C "$GITHUB_WORKSPACE" check
+        call=(nebensound-repo -C "$GITHUB_WORKSPACE" check)
+        # One argument with "=", so that a value starting with "-" stays the
+        # value and is not read as an option.
+        if [ -n "$NAME" ]; then
+          call+=("--name=$NAME")
+        fi
+        if [ -n "$DEFAULT_BRANCH" ]; then
+          call+=("--default-branch=$DEFAULT_BRANCH")
+        fi
+        "${call[@]}"
 
     # Only reached when phase 0 passed. Every Rust package `[[exclude]]` takes
     # out as a whole is named in the summary of the run, with its reason: a

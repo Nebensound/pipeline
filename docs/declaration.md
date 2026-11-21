@@ -582,14 +582,21 @@ stable code; the wording of its message may improve, the code does not change.
 - An **error** fails `nebensound / Declare`, and with it `nebensound / Check`.
   No plan is made, so no check runs.
 - A **warning** stops nothing. It says that a statement in the declaration is
-  not true, not that something is broken.
+  not true, not that something is broken, or that the repository departs from
+  the organization's conventions (`nonconforming-name`,
+  `nonconforming-default-branch`, `missing-minimum-file`). `check` reports
+  these three; the other calls do not look for them.
 
 A finding reads like `error[uncovered-file] at src/main.rs: …`: the severity, the
 code, the unit or path it is about, and a sentence. A finding that points at a
 place in a file adds its line and column, counted from 1:
 `error[partial-package-exclusion] at .nebensound/repo.toml:12:8: …`. The report of phase 0 shows
 each finding under the path it is about in the tree, and lists them all under
-`Findings`.
+`Findings`. In a workflow run (`GITHUB_ACTIONS=true`) the list holds each
+finding as an annotation of the run instead, `::error` or `::warning` titled
+with its code, so that it shows on the run and on the pull request. It names
+the file where the finding stands at a file the repository holds, with line and
+column where it has them.
 
 ### `unknown-preset`
 
@@ -863,6 +870,48 @@ A package is a folder whose `Cargo.toml` Git tracks and has a `[package]` table;
 a `Cargo.toml` that does not read counts as one. A `.rs` file belongs to the
 innermost package around it, and a file that lies in no package is not judged
 here.
+
+### `nonconforming-name`
+
+Warning. The repository's name is not lowercase letters and digits joined by
+single hyphens (`^[a-z0-9]+(-[a-z0-9]+)*$`). `.github` is exempt, since GitHub
+requires that name. The message names the name that would conform: lowercase,
+`_` and `.` become `-`, hyphens that follow each other become one, and a
+hyphen at either end goes. Words are not split at a change of case, so
+`MyTool` becomes `mytool`. Nothing is renamed: renaming moves the repository's
+address, and a person decides it.
+
+`check` takes the name from `--name`; the workflow hands it in from the event
+of the run. Without it, the name is the one the address of `origin` ends in.
+Where Git knows no address, `check` says so in one line and checks no name.
+
+### `nonconforming-default-branch`
+
+Warning. The repository's default branch is not `main`, where the pipeline
+gives every version out. `check` takes the branch from `--default-branch`; the
+workflow hands it in from the event of the run. Without it, the branch is the
+one `refs/remotes/origin/HEAD` names, which a clone sets
+(`git remote set-head origin --auto` sets it later). Where Git does not know
+it, `check` says so in one line and checks no branch.
+
+### `missing-minimum-file`
+
+Warning. The repository does not hold a file every repository holds, once, at
+the root of the repository. The finding stands at the path where the file
+belongs, and its message names that path. Every place and name GitHub itself
+honours counts:
+
+| File                          | Counts as                                                                                          | Named at                 |
+| ----------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------ |
+| README                        | `README`, alone or with any extension, in any case, at the root, under `.github/` or under `docs/` | `README.md`              |
+| licence or proprietary notice | a name that starts with `LICENSE`, `LICENCE`, `COPYING` or `UNLICENSE`, in any case, at the root   | `LICENSE`                |
+| `AGENTS.md`                   | `AGENTS.md` at the root                                                                            | `AGENTS.md`              |
+| code owners                   | `CODEOWNERS` at the root, under `docs/` or under `.github/`                                        | `.github/CODEOWNERS`     |
+| Dependabot configuration      | `.github/dependabot.yml` or `.github/dependabot.yaml`                                              | `.github/dependabot.yml` |
+| `.gitignore`                  | `.gitignore` at the root                                                                           | `.gitignore`             |
+| `.editorconfig`               | `.editorconfig` at the root                                                                        | `.editorconfig`          |
+
+A file counts when Git tracks it, whatever it holds. Add the file.
 
 ### When the file cannot be read
 

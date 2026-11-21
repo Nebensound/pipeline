@@ -119,6 +119,12 @@ pub enum Rule {
     /// An exclusion that takes code out of a Rust package, and not the whole
     /// package.
     PartialPackageExclusion,
+    /// A repository whose name is not lowercase with hyphens.
+    NonconformingName,
+    /// A repository whose default branch is not `main`.
+    NonconformingDefaultBranch,
+    /// A file every repository holds, and this one does not.
+    MissingMinimumFile,
 }
 
 impl Rule {
@@ -158,6 +164,9 @@ impl Rule {
             Self::UnexcusedIgnore => "unexcused-ignore",
             Self::UnreadableIgnoreFile => "unreadable-ignore-file",
             Self::PartialPackageExclusion => "partial-package-exclusion",
+            Self::NonconformingName => "nonconforming-name",
+            Self::NonconformingDefaultBranch => "nonconforming-default-branch",
+            Self::MissingMinimumFile => "missing-minimum-file",
         }
     }
 }
@@ -241,13 +250,11 @@ impl Finding {
         self.position = Some(position);
         self
     }
-}
 
-impl fmt::Display for Finding {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Built in one piece and written once: writing part by part would put
-        // an error path into every line that only a failing formatter could
-        // ever take, and there is no such formatter here.
+    /// What it is about, as the report names it: the unit and the path, each
+    /// behind a space, or nothing.
+    #[must_use]
+    pub fn place(&self) -> String {
         let unit = self
             .unit
             .as_ref()
@@ -257,9 +264,21 @@ impl fmt::Display for Finding {
             (Some(path), None) => format!(" at {path}"),
             (None, _) => String::new(),
         };
+        format!("{unit}{path}")
+    }
+}
+
+impl fmt::Display for Finding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Built in one piece and written once: writing part by part would put
+        // an error path into every line that only a failing formatter could
+        // ever take, and there is no such formatter here.
         f.write_str(&format!(
-            "{}[{}]{unit}{path}: {}",
-            self.severity, self.rule, self.message
+            "{}[{}]{}: {}",
+            self.severity,
+            self.rule,
+            self.place(),
+            self.message
         ))
     }
 }

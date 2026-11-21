@@ -246,6 +246,20 @@ fn a_case_is_no_pull_request() {
 }
 
 #[test]
+fn the_repository_of_a_case_has_a_name_and_a_default_branch() {
+    let _alone = support::alone();
+    // Phase 0 hands both to the tool, which holds them against the
+    // conventions; a case's are those every repository has.
+    let scene = Scene::new();
+    let (outcome, out) = ok(scene.run(
+        "runs:\n  using: composite\n  steps:\n    - shell: bash\n      env:\n        NAME: ${{ github.event.repository.name }}\n      run: echo \"$NAME ${{ github.event.repository.default_branch }}\"\n",
+        &[],
+    ));
+    assert!(outcome.success, "{out}");
+    assert_eq!(outcome.log, ["case main"]);
+}
+
+#[test]
 fn a_step_runs_in_its_working_directory() {
     let _alone = support::alone();
     let scene = Scene::new();
@@ -341,6 +355,11 @@ fn what_the_runner_would_not_run_is_refused() {
             "runs:\n  using: composite\n  steps:\n    - run: echo\n      shell: bash\n      if: github.event_name == 'pull_request'\n",
             &[],
             "`github.event_name` names no value the xtask knows",
+        ),
+        (
+            "runs:\n  using: composite\n  steps:\n    - run: echo ${{ github.event.repository.owner }}\n      shell: bash\n",
+            &[],
+            "`github.event.repository.owner` names no value the xtask knows",
         ),
         (
             "runs:\n  using: composite\n  steps:\n    - run: echo ${{ runner.name }}\n      shell: bash\n",
