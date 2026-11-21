@@ -1,6 +1,7 @@
 ---
 name: adopt
-description: Switch a repository to Nebensound's central pipeline and bring it in line with phase 0, ending with one pull request that lists the decisions asked. Use when a repository is to call Nebensound/pipeline, has no .nebensound/repo.toml yet, or still calls a reusable workflow outside Nebensound/pipeline.
+description: Switch a repository to Nebensound's central pipeline and bring it in line with phase 0, ending with one pull request that lists the decisions asked. Use when the user asks to switch a repository to Nebensound/pipeline.
+disable-model-invocation: true
 ---
 
 # Adopt the central pipeline
@@ -68,13 +69,16 @@ before you rely on a detail.
 Read only; change nothing yet.
 
 ```sh
-gh repo view --json nameWithOwner,visibility,isArchived,defaultBranchRef
+gh repo view --json nameWithOwner,visibility,isArchived,isFork,defaultBranchRef
 git status --short
 git fetch origin --tags
 ```
 
 Stop and say why when the directory is not a Git checkout, the working tree is
-not clean, the repository is archived, or it is `Nebensound/pipeline` itself.
+not clean, the repository is archived, it is a fork, or it is
+`Nebensound/pipeline` itself. A fork belongs to someone else's project, so the
+caller, the declaration and the deleted workflows would land in that project's
+tree; `docs/repository-settings.md` leaves forks out for the same reason.
 
 Collect, for the questions to come:
 
@@ -83,9 +87,12 @@ Collect, for the questions to come:
   (`uses: <owner>/<repo>/.github/workflows/<file>@<ref>` with another
   `<owner>/<repo>`), and every other workflow there.
 - **An existing declaration** at `.nebensound/repo.toml`.
-- **The highest version ever given out**, pre-releases included: tags that read
-  as versions (`v1.4.3`, `<name>-v1.4.3`, `…-pre.2`), GitHub releases
-  (`gh release list`), versions the manifests carry or a registry published.
+- **The highest version ever given out per unit**, pre-releases included: tags
+  that read as versions (`v1.4.3`, `<component>-v1.4.3`, `…-pre.2`), GitHub
+  releases (`gh release list`), versions the manifests carry or a registry
+  published. Tags are told apart by their prefix: `v…` belongs to the
+  repository's own unit, `<component>-v…` to that component. Keep one highest
+  version for each prefix, not one for the whole repository.
 - **Open issues and milestones** (`gh issue list`,
   `gh api repos/<owner>/<repo>/milestones`), for the follow-up issues.
 
@@ -95,11 +102,15 @@ Provisional until #94 lands: then take the tool the way its README says. The
 tool and the pin are always the same commit.
 
 1. Take the current tip of `main` as the pin, the full 40-character SHA, and
-   its commit date:
+   its commit date as `git log -1 --format=%cs <SHA>` prints it (`YYYY-MM-DD`,
+   in the commit's own time zone, as `docs/calling.md` asks), read from a
+   shallow fetch into a folder of its own outside the repository:
 
    ```sh
    git ls-remote https://github.com/Nebensound/pipeline refs/heads/main
-   gh api repos/Nebensound/pipeline/commits/<SHA> --jq .commit.committer.date
+   git init -q <folder>/pin
+   git -C <folder>/pin fetch -q --depth=1 https://github.com/Nebensound/pipeline <SHA>
+   git -C <folder>/pin log -1 --format=%cs FETCH_HEAD
    ```
 
 2. Install the tool at exactly that commit into a folder of its own outside the
@@ -140,7 +151,7 @@ the list of what needs judgement. A second run changes nothing.
 Check the caller it wrote, `.github/workflows/nebensound.yml`, against
 `README.md#calling-the-pipeline` and `docs/calling.md` at the pin: one job, no
 inputs, `permissions: contents: read`, and the reference pinned to the SHA of
-step 2 with the commit date as a comment behind it. A pin that differs from
+step 2 with the `YYYY-MM-DD` date of step 2 as a comment behind it. A pin that differs from
 step 2 is set to it, since the tool and the pin are the same commit.
 
 ## 5. Replace the old standard
@@ -169,18 +180,21 @@ or phase 0 states the answer as certain, or ask the user. Edit
 
 Always asked, one question each:
 
-| Question                          | Field                               | Default to offer                                                                                                                                                                          |
-| --------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Is anything published, and where? | `publish` of each unit's `pipeline` | `false`. A public target is chosen only by an explicit answer and is never the default.                                                                                                   |
-| For whom is it meant?             | `audience` in `[repo]` (#101)       | Suggest from the visibility on GitHub: `public` for a public repository, `internal` or `customer` for a private one. Never write it silently. Ask only once the tool at the pin knows it. |
-| One stage or two?                 | `release`                           | The mode the publish targets give (`docs/declaration.md#releases`).                                                                                                                       |
-| From which version on?            | `minimum-version`                   | The next patch above the highest version of step 1, pre-releases included (`1.4.3` gives `1.4.4`). Without any old version, leave the field out.                                          |
-| Which parts are components?       | `[component.<name>]`                | The candidates `init` recognised.                                                                                                                                                         |
-| Why is this path excluded?        | `reason` of `[[exclude]]`           | Propose a wording; the user confirms or rewrites it.                                                                                                                                      |
+| Question                          | Field                               | Default to offer                                                                                                                                                                                                                                        |
+| --------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Is anything published, and where? | `publish` of each unit's `pipeline` | `false`. A public target is chosen only by an explicit answer and is never the default.                                                                                                                                                                 |
+| For whom is it meant?             | `audience` in `[repo]` (#101)       | Suggest from the visibility on GitHub: `public` for a public repository, `internal` or `customer` for a private one. Never write it silently. Ask only once the tool at the pin knows it.                                                               |
+| One stage or two?                 | `release`                           | The mode the publish targets give (`docs/declaration.md#releases`).                                                                                                                                                                                     |
+| From which version on?            | `minimum-version`                   | Per unit, from the highest version of its own prefix (step 1): the next patch above a release (`1.4.3` gives `1.4.4`), the release itself above a pre-release (`1.5.0-pre.2` gives `1.5.0`). Without any old version of that unit, leave the field out. |
+| Which parts are components?       | `[component.<name>]`                | The candidates `init` recognised.                                                                                                                                                                                                                       |
+| Why is this path excluded?        | `reason` of `[[exclude]]`           | Propose a wording; the user confirms or rewrites it.                                                                                                                                                                                                    |
 
 Two stages need the branch `release`; phase 0 fails without it
 (`missing-release-branch`). This skill does not create it: tell the user so
-when they choose two stages. Creating it comes with #21.
+when they choose two stages. Creating it comes with #21. Until the branch
+exists, that one error is expected: steps 7 and 9 leave it, name it in the
+description as an owner step, and end their loops there. Never answer it by
+writing `release = "single-stage"` or by creating the branch.
 
 ## 7. Run `check` until phase 0 passes
 
@@ -196,7 +210,9 @@ git commit -m "ci: switch to the central pipeline"   # later rounds: --amend
 Once the tool knows `--visibility` (#101), add it with the visibility from step
 1 in lowercase (`public`, `private` or `internal`).
 
-Repeat until `check` reports no error and no remaining `TODO(init)`:
+Repeat until `check` reports no error and no remaining `TODO(init)`. The one
+exception is `missing-release-branch` for a unit the user chose to release in
+two stages (step 6): leave it, and stop the loop once it is the only error.
 
 - **An error**: its entry in `docs/declaration.md#findings` at the pin names the
   way out. Take it alone where it is certain; where it is a choice from the
@@ -220,6 +236,9 @@ merge):
 gh api repos/<owner>/<repo> --jq .delete_branch_on_merge
 ```
 
+GitHub returns this field only to an account with admin rights on the
+repository. An empty result means the setting could not be read: say so in the
+pull request description, as a setting the owner checks, not as a difference.
 A value that differs from the expected one is an owner step for the pull
 request description, with the call the document gives to set it. Never run that
 call.
@@ -233,12 +252,17 @@ call.
    - **Settled without asking**: what `init` or phase 0 stated as certain, and
      the judgements below.
    - **Phase 0**: the summary line of the last local `check`.
-   - **Owner steps**: settings that differ, a rename, a new default branch.
+   - **Owner steps**: settings that differ or could not be read, a rename, a
+     new default branch, and the branch `release` for a unit released in two
+     stages.
    - **The pin**: the SHA and its date; raised by hand until the pipeline has
      a release.
    - **Follow-up issues**: links, added in step 3 of this list.
 2. Wait for the run (`gh pr checks <number> --watch`). `nebensound / Declare`
-   has to pass; when it fails, fix the branch and push again. What
+   has to pass; when it fails, fix the branch and push again. The one
+   exception is `missing-release-branch` for a unit the user chose to release
+   in two stages (step 6): leave it, name it in the description as an owner
+   step, and go on with step 3 of this list. What
    `nebensound / Check` or `nebensound / Build` find is not fixed here: it
    becomes follow-up issues. The step `Not written yet` fails for a check or
    build the pipeline has no building block for; that gap is the pipeline's,
