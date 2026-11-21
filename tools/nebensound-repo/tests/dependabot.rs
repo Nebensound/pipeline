@@ -611,7 +611,15 @@ fn a_policy_dependabot_would_not_take_does_not_read() {
         &defaults_with("labels                   =", "label ="),
     )
     .expect_err("a key the policy does not know");
-    assert!(matches!(error, CentralError::Defaults(_)), "{error}");
+    assert!(matches!(error, CentralError::Policy { .. }), "{error}");
+    // It names the table, and where in the text the key stands.
+    let message = error.to_string();
+    assert!(
+        message.starts_with("the Dependabot policy in the defaults is not readable: "),
+        "{message}"
+    );
+    assert!(message.contains("unknown field `label`"), "{message}");
+    assert!(message.contains("at line "), "{message}");
     // The rest of the defaults is read as before.
     let error = Central::parse(
         BUILTIN_REGISTER,
@@ -625,6 +633,12 @@ fn a_policy_dependabot_would_not_take_does_not_read() {
     )
     .expect_err("a key the declaration does not know");
     assert!(matches!(error, CentralError::Defaults(_)), "{error}");
+    // Read without the policy, the rest still names its line and column.
+    assert!(
+        error.to_string().contains("unknown field `meaning`"),
+        "{error}"
+    );
+    assert!(error.to_string().contains("at line "), "{error}");
     let error = Central::parse(
         BUILTIN_REGISTER,
         &format!("edition = 2\n{BUILTIN_DEFAULTS}"),

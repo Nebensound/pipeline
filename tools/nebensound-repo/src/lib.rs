@@ -884,7 +884,10 @@ impl Declaration {
         Ok(declaration)
     }
 
-    /// Reads a centrally kept declaration — the defaults.
+    /// Reads a centrally kept declaration: the shape of the defaults, without
+    /// the Dependabot policy, which only [`Central::parse`] takes out first.
+    /// Pointed at the real defaults, it refuses `[dependabot]` as an unknown
+    /// key; read those with [`Central::parse`].
     ///
     /// The same shape, one freedom more: here an exclusion may be a pattern.
     /// Centrally, work may be excused; locally it may only be added.
@@ -900,10 +903,17 @@ impl Declaration {
 
     /// The defaults once [`Central::parse`] has taken out the table only they
     /// hold, read as [`Declaration::parse_central`] reads them. The edition
-    /// was read off the whole text before.
-    pub(crate) fn from_central_table(table: toml::Table) -> Result<Self, ReadError> {
-        toml::Value::Table(table)
-            .try_into::<Self>()?
+    /// was read off the whole text before; the text gives an error its line
+    /// and column.
+    pub(crate) fn from_central_table(
+        table: toml::Spanned<toml::de::DeTable<'_>>,
+        source: &str,
+    ) -> Result<Self, ReadError> {
+        <Self as serde::Deserialize>::deserialize(toml::de::Deserializer::from(table))
+            .map_err(|mut error| {
+                error.set_input(Some(source));
+                error
+            })?
             .unique_exclusions()
     }
 

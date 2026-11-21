@@ -6,6 +6,7 @@
 //! be a pattern. The Dependabot policy stands in the defaults as well, as a
 //! table of its own that only they hold.
 
+use serde::Deserialize as _;
 use thiserror::Error;
 
 use crate::ReadError;
@@ -111,19 +112,29 @@ impl Central {
         let register = Register::parse(register)?;
         // The policy is a table only the defaults hold: it is taken out before
         // the rest is read as a declaration, whose shape does not know it, so
-        // that a repository's declaration refuses it as an unknown key.
-        let mut table: toml::Table = toml::from_str(defaults).map_err(ReadError::from)?;
+        // that a repository's declaration refuses it as an unknown key. Both
+        // parts are read from the parsed text with its spans, so that an error
+        // in either still names its line and column.
+        let mut table = toml::de::DeTable::parse(defaults).map_err(ReadError::from)?;
         Declaration::read_edition(defaults)?;
         let policy = table
+            .get_mut()
             .remove("dependabot")
             .ok_or_else(|| CentralError::Policy {
                 problem: "is missing: the defaults hold it under [dependabot]".to_owned(),
             })?;
-        let dependabot: Policy = policy.try_into().map_err(ReadError::from)?;
+        let dependabot = Policy::deserialize(toml::de::ValueDeserializer::from(policy)).map_err(
+            |mut error| {
+                error.set_input(Some(defaults));
+                CentralError::Policy {
+                    problem: format!("is not readable: {error}"),
+                }
+            },
+        )?;
         dependabot
             .check(&register)
             .map_err(|problem| CentralError::Policy { problem })?;
-        let defaults = Declaration::from_central_table(table)?;
+        let defaults = Declaration::from_central_table(table, defaults)?;
 
         let Some(Pipeline::Explicit(written)) = &defaults.repo.pipeline else {
             return Err(CentralError::BaseSetNotWrittenOut);
