@@ -115,6 +115,18 @@ const RUN: &[(&str, &str, &str)] = &[
 /// field of it is empty in a run that is none, such as a push to `main`.
 const JOB: &[(&str, &str)] = &[("check_run_id", "0")];
 
+/// The repository of the event, as far as phase 0 reads it: its name and its
+/// default branch, which the tool holds against the conventions, and its
+/// visibility, which it holds the declared audience against. The name is the
+/// one `GITHUB_REPOSITORY` gives, the branch the one every repository has, and
+/// the visibility the one that fits the audience every case declares, so that
+/// a case gets no finding for any of them. Any other field is refused.
+const EVENT_REPOSITORY: &[(&str, &str)] = &[
+    ("name", "case"),
+    ("default_branch", "main"),
+    ("visibility", "public"),
+];
+
 /// What stands in for an action that runs on Node.js.
 #[derive(Clone, Copy, Debug)]
 enum StandIn {
@@ -973,6 +985,13 @@ impl Scope for Context<'_> {
                 .and_then(|record| record.outputs.get(*name).cloned()),
             // A case is no pull request, so it has none of its fields.
             ["github", "event", "pull_request", ..] => None,
+            ["github", "event", "repository", name] => Some(known(
+                EVENT_REPOSITORY
+                    .iter()
+                    .find(|(known, _)| known == name)
+                    .map(|(_, value)| (*value).to_owned()),
+                path,
+            )?),
             ["github", name] => Some(known(self.github.get(*name).cloned(), path)?),
             ["runner", name] => Some(known(self.runner.get(*name).cloned(), path)?),
             ["job", name] => Some(known(

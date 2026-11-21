@@ -111,7 +111,8 @@ extension the register gives that check, less what an `[[exclude]]` entry of
 the declaration takes out. A file nobody committed is not judged, and a
 committed one is not missed. Each finding is an annotation on its file. A
 version writer writes the versions of the plan, and a build block builds one
-unit (see [`build-cargo-package`](#build-cargo-package)).
+unit (see [`build-cargo-package`](#build-cargo-package) and
+[`build-docker`](#build-docker)).
 
 The unit job gets the tool the same way `Declare` does, from the cache phase 0
 fills ([`.github/actions/tool`](.github/actions/tool)); it builds the tool
@@ -383,6 +384,48 @@ one its merge would get, with `-pr.<number>` behind it.
 Nothing is cached: the artifact is built from nothing in every run, so that
 nothing a pull request left in a cache reaches it.
 
+### `build-docker`
+
+[`.github/actions/build-docker`](.github/actions/build-docker) is the build
+`docker`. It builds the image of one unit and runs in the unit's job of the
+Build phase, after the version writers the unit selects; it gets the plan to
+read the unit's version of the run from it.
+
+- The Dockerfile is `deploy/Dockerfile` below the unit's path, and the build
+  context is the repository root. Each unit has its own, so several services of
+  one workspace each build their own image. A unit without `deploy/Dockerfile`
+  fails by name.
+- The image is built once, for `linux/amd64` only, on an `x86_64` runner, by a
+  BuildKit of its own pinned by digest, without a cache, without provenance and
+  without an SBOM, into an OCI layout. It carries the labels
+  `org.opencontainers.image.version` (the unit's version of the run, on a pull
+  request with `-pr.<number>` behind it), `.revision` (the commit), `.source`
+  (the repository's address) and `.title` (the unit's name, the repository's
+  for the repository itself).
+- Its identity is the digest of its manifest, printed in the log and in the
+  summary of the run.
+- An image without `HEALTHCHECK` fails before it is started.
+- Exactly that layout is loaded and started, as the image configures it: no
+  `--user`, no environment, no secret, no published port, the default network,
+  and a fresh named volume at every path the image declares with `VOLUME`. The
+  block waits until Docker reports it healthy, for at most five minutes; an
+  image that becomes unhealthy, stops or is not healthy by then fails with the
+  container's log and the output of its last health check.
+- Once it is healthy, the user ID of its first process is read from the host;
+  an image that runs as root fails, whatever name its user has.
+- Trivy, pinned in [the register](docs/register.md#programs), scans the layout
+  and fails the build on every vulnerability of severity HIGH or CRITICAL that
+  has a fixed version, each named on the Dockerfile. No ignore file and no
+  configuration file of Trivy is read, and there is no exception.
+- The layout is uploaded as an artifact of the run named
+  `container-<path>@<version>@<sha>`, the path percent-encoded as for a crate.
+  It holds exactly the file `image.tar`. Nothing is pushed. A second attempt of
+  the same job replaces it.
+
+Nothing is cached, for the same reason as for a crate. What the block started
+(the container, its volumes, the loaded image and the builder) is removed at
+the end, whatever happened.
+
 ### Linter rules
 
 Markdownlint and yamllint run with a default of the pipeline:
@@ -574,7 +617,9 @@ not part of the case's repository.
   condition holds `!cancelled()`, so that nothing is built after a step that
   failed. The step has no other key than `name`, `if`, `uses` and `with`; it
   hands a version writer exactly `plan: ${{ needs.declare.outputs.plan }}` and
-  a build exactly `working-directory: ${{ matrix.path }}`;
+  a build exactly `working-directory: ${{ matrix.path }}`, beside which it may
+  hand the plan to a build that labels what it builds with the unit's version,
+  as `build-docker` does;
 - the step `Not written yet` of the check job counts exactly the checks that
   have a block as written (`WRITTEN_CHECKS`), the step `Not written yet` of
   the build job exactly the builds (`WRITTEN_BUILDS`), the step
@@ -597,9 +642,10 @@ writer's block runs once with the plan, provided a unit of the plan selects the
 writer. A build block runs once for every unit the plan starts the build for
 and gives a version of the run, just as a build job does: first the block of
 every version writer the unit selects, with the plan, and the build block only
-when they passed. A passing case needs the block to succeed everywhere. A
-failing case needs it to fail and to print every finding the case names, so a
-block that fails for another reason does not count.
+when they passed, with the plan when it takes one. A passing case needs the
+block to succeed everywhere. A failing case needs it to fail and to print every
+finding the case names, so a block that fails for another reason does not
+count.
 
 The xtask keeps no copy of what a block does. It reads every step from the
 block's `action.yml` and runs it the way the runner of GitHub Actions does: it
@@ -634,7 +680,9 @@ and file-command variables, and fixed values for the repository and the run
 reads; a case belongs to no repository on GitHub and to no run. The
 expressions `github.*`, `runner.*` and `job.*` know only the names the blocks
 and the actions they call read, with the same values; any other name fails the
-xtask, since on GitHub it would have a value the xtask cannot give. What a step
+xtask, since on GitHub it would have a value the xtask cannot give. Phase 0
+reads the name and the default branch of the event's repository, which are
+`case` and `main`, so that a case gets no warning for either. What a step
 installs with `cargo install` goes into a folder of the run that comes first on
 its `PATH`, so the cases leave the developer's own programs as they are.
 
@@ -654,13 +702,16 @@ tool of this commit, built from `tools/nebensound-repo/` with the toolchain the
 tool pins, and hands it every option unchanged (`--pinned`, `--with-runtimes`,
 `--check`). Then, on Linux, it checks what only the test cases need: Node.js and
 Go on the `PATH` in the versions the blocks' steps ask for (read from their
-`action.yml`), jq, npm, Python's pip and rustup. It installs none of these,
-since they stay the machine's, but names each one that is missing or of another
-version and exits with `1` then, so that a machine it passes can run the cases.
+`action.yml`), Docker with Buildx, jq, npm, Python's pip and rustup. It
+installs none of these, since they stay the machine's, but names each one that
+is missing or of another version and exits with `1` then, so that a machine it
+passes can run the cases.
 `nebensound-repo setup` may have put a jq into its cache, but the steps look for
 jq on the `PATH`. npm is asked for apart from Node.js, since some systems ship
-it as a package of its own. On another system the cases do not run, so `setup`
-leaves out what only they need and says so, and its exit code is the tool's.
+it as a package of its own. That the Docker daemon runs is not checked; the
+cases of `build-docker` fail without it. On another system the cases do not
+run, so `setup` leaves out what only they need and says so, and its exit code
+is the tool's.
 
 The cases are
 taken out of this repository's own checks with `[[exclude]]` and a reason in

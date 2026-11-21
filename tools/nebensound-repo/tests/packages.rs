@@ -41,7 +41,7 @@ const WORKSPACE: &[(&str, &str)] = &[
 /// The declaration around [`WORKSPACE`], with these entries added.
 fn declaring(entries: &str) -> String {
     format!(
-        "[repo]\npipeline = \"none\"\n\n[component.tool]\npath = \"tool\"\npipeline = \
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.tool]\npath = \"tool\"\npipeline = \
          \"rust-workspace\"\nversioning = \"none\"\n{entries}"
     )
 }
@@ -108,7 +108,7 @@ fn a_single_excluded_rust_file_is_an_error_at_its_entry() {
     assert_eq!(
         finding.position,
         Some(Position {
-            line: 10,
+            line: 11,
             column: 8
         })
     );
@@ -126,7 +126,7 @@ fn a_single_excluded_rust_file_is_an_error_at_its_entry() {
     assert!(
         finding
             .to_string()
-            .starts_with("error[partial-package-exclusion] at .nebensound/repo.toml:10:8: "),
+            .starts_with("error[partial-package-exclusion] at .nebensound/repo.toml:11:8: "),
         "{finding}"
     );
     assert!(out(&declaration, &[]).is_empty());
@@ -373,7 +373,7 @@ fn the_column_counts_characters() {
     // A path with a character of two bytes before the value, and a value on
     // the first line.
     let declaration = "exclude = [{ reason = \"ä\", path = \"tool/app/src/generated.rs\" }]\n\
-                       [repo]\npipeline = \"none\"\n\n[component.tool]\npath = \"tool\"\n\
+                       [repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.tool]\npath = \"tool\"\n\
                        pipeline = \"rust-workspace\"\nversioning = \"none\"\n";
     let found = found(declaration, &[]);
 
@@ -446,7 +446,7 @@ fn the_tool_prints_no_list_and_names_the_place_when_phase_0_fails() {
     let (text, code) = call(&["nebensound-repo", "-C", root, "check"]);
     assert_eq!(code, 1, "{text}");
     assert!(
-        text.contains("error[partial-package-exclusion] at .nebensound/repo.toml:10:8: "),
+        text.contains("error[partial-package-exclusion] at .nebensound/repo.toml:11:8: "),
         "{text}"
     );
 }

@@ -3,6 +3,7 @@
 # own with the version the writer gave it, and tested from its own contents;
 # app finds lib, whose version is on no registry, patched in from its folder.
 [repo]
+audience = "public"
 pipeline = "rust-workspace"
 
 [component.app]

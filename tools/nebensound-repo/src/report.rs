@@ -5,7 +5,7 @@
 //! handle a write error a `String` cannot have.
 
 use crate::annotate::{Coverage, Node};
-use crate::finding::UnitName;
+use crate::finding::{Finding, Position, UnitName};
 use crate::names::CheckName;
 use crate::path::RelativePath;
 use crate::resolve::{MinimumVersionSource, Origin, PipelineSource, ReleaseSource, Unit};
@@ -304,6 +304,77 @@ pub fn findings(analysis: &Analysis) -> String {
     lines.join("\n")
 }
 
+/// Every finding, the loose ones first, each as a workflow command of GitHub
+/// Actions: an annotation of the run, `::error` or `::warning`, titled with its
+/// code. It names the file where there is one: the file in the tree the
+/// finding hangs at, with its line and column when the finding points at a
+/// place in it. A path the repository does not hold, such as a missing file,
+/// stays in the message, since an annotation on it would point nowhere.
+#[must_use]
+pub fn annotations(analysis: &Analysis) -> String {
+    let found = analysis.findings();
+    if found.is_empty() {
+        return "Findings\n\n  none".to_owned();
+    }
+    let mut lines = vec!["Findings".to_owned(), String::new()];
+    for finding in found {
+        let file = finding
+            .path
+            .as_ref()
+            .filter(|path| {
+                analysis
+                    .tree
+                    .at(path)
+                    .is_some_and(|node| node.coverage().is_some())
+            })
+            .map(|path| (path, finding.position));
+        lines.push(annotation(finding, file));
+    }
+    lines.join("\n")
+}
+
+/// One finding as a workflow command, on the file and the place given.
+#[must_use]
+pub fn annotation(finding: &Finding, file: Option<(&RelativePath, Option<Position>)>) -> String {
+    let mut properties = Vec::new();
+    if let Some((path, position)) = file {
+        properties.push(format!("file={}", property(&path.to_string())));
+        if let Some(Position { line, column }) = position {
+            properties.push(format!("line={line},col={column}"));
+        }
+    }
+    let code = finding.rule.code();
+    properties.push(format!("title={}", property(code)));
+    // The severity is the command and the code the title. The log shows only
+    // the message, though, so the message carries the code as well: the key a
+    // reader looks the finding up by.
+    let place = finding.place();
+    let message = if place.is_empty() {
+        format!("[{code}] {}", finding.message)
+    } else {
+        format!("[{code}] {}: {}", place.trim_start(), finding.message)
+    };
+    format!(
+        "::{} {}::{}",
+        finding.severity,
+        properties.join(","),
+        data(&message)
+    )
+}
+
+/// The message of a workflow command. `shown` already writes every control
+/// character, line breaks included, as an escape, so no line break can end the
+/// command; only `%`, which starts an escape, is left to escape the way the
+/// runner reads it.
+fn data(text: &str) -> String {
+    shown(text).replace('%', "%25")
+}
+
+/// A property of a workflow command, where `:` and `,` end the value as well.
+fn property(text: &str) -> String {
+    data(text).replace(':', "%3A").replace(',', "%2C")
+}
+
 /// The summary line with the counts.
 #[must_use]
 pub fn summary(analysis: &Analysis) -> String {
@@ -335,6 +406,14 @@ pub fn explain(analysis: &Analysis, path: &RelativePath) -> Option<String> {
         .collect::<Vec<_>>()
         .join(", ");
     let mut lines = vec![shown(&node.path.to_string()), String::new()];
+    // The audience is the repository's, so it holds for every path.
+    lines.push(format!(
+        "{}{}",
+        column(2, "Audience"),
+        analysis
+            .audience
+            .map_or("none declared", crate::Audience::as_str)
+    ));
     lines.push(format!("{}{units}", column(2, "Units")));
     // Every unit containing the path is released on its own terms, so each
     // says how, and where that came from.

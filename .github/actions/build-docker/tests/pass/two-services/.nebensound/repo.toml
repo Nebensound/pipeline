@@ -1,0 +1,15 @@
+# Two services in one repository, each a unit with an image of its own. Each
+# builds its own deploy/Dockerfile from the repository root, starts as a user
+# other than root with a fresh volume at the path its image declares, and
+# becomes healthy; the two images differ, so they have two digests.
+[repo]
+audience = "public"
+pipeline = "none"
+
+[component.api]
+path     = "api"
+pipeline = { check = ["dockerfile"], build = "docker", dependabot = ["docker"] }
+
+[component.web]
+path     = "web"
+pipeline = { check = ["dockerfile"], build = "docker", dependabot = ["docker"] }

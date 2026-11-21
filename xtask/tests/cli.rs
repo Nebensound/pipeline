@@ -369,6 +369,10 @@ fn needy(scene: &Scene) -> (PathBuf, PathBuf, Setup) {
 fn provide(bin: &Path) {
     script(&bin.join("node"), "echo v24.3.0");
     script(&bin.join("go"), "echo go version go1.26.2 linux/amd64");
+    script(
+        &bin.join("docker"),
+        "[ \"$*\" = 'buildx version' ] && echo 'github.com/docker/buildx v0.29.1 0d71dd0'",
+    );
     script(&bin.join("jq"), "echo jq-1.8.1");
     script(&bin.join("npm"), "echo 11.6.2");
     script(
@@ -397,6 +401,7 @@ fn setup_calls_the_tool_of_this_commit_with_every_option() {
         "What the test cases need besides:\n\
          go 1.26: on the PATH, go version go1.26.2 linux/amd64\n\
          node 24: on the PATH, v24.3.0\n\
+         docker: found, github.com/docker/buildx v0.29.1 0d71dd0\n\
          jq: found, jq-1.8.1\n\
          npm: found, 11.6.2\n\
          pip: found, pip 25.3 from /usr/lib/python3/dist-packages/pip\n\
@@ -479,6 +484,11 @@ fn setup_names_what_the_test_cases_need_and_the_machine_lacks() {
     );
     script(&bin.join("go"), "exit 0");
     script(&bin.join("rustup"), "echo rustup 1.29.0; exit 1");
+    // A Docker without Buildx.
+    script(
+        &bin.join("docker"),
+        "echo \"docker: unknown command: docker $1\" >&2; exit 1",
+    );
     let (code, out) = call(&["setup"], &setup);
     assert_eq!(code, 1, "{out}");
     assert_eq!(
@@ -486,11 +496,12 @@ fn setup_names_what_the_test_cases_need_and_the_machine_lacks() {
         "What the test cases need besides:\n\
          go 1.26: missing, the PATH has none. Put go 1.26 on the PATH.\n\
          node 24: missing, the PATH has v26.13.1. Put node 24 on the PATH.\n\
+         docker: missing, `docker buildx version` fails on the PATH the steps get.\n\
          jq: missing, `jq --version` fails on the PATH the steps get.\n\
          npm: missing, `npm --version` fails on the PATH the steps get.\n\
          pip: missing, `python3 -m pip --version` fails on the PATH the steps get.\n\
          rustup: missing, `rustup --version` fails on the PATH the steps get.\n\
-         6 program(s) the test cases need are missing, each named above.\n"
+         7 program(s) the test cases need are missing, each named above.\n"
     );
 }
 

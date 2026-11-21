@@ -381,6 +381,7 @@ fn a_build_is_held_to_its_list_its_form_and_its_cases() {
         ]
     );
 
+    let form = format!("a step with {CHECK_FORM}");
     for (step, problem) in [
         // A build that runs after a step that failed, or switched on another.
         (
@@ -391,15 +392,17 @@ fn a_build_is_held_to_its_list_its_form_and_its_cases() {
             BUILD_STEP.replace("== 'cargo-package'", "!= ''"),
             "a step that is not named `cargo-package` and switched on it with `${{ matrix.build == 'cargo-package' }}`",
         ),
-        // The plan beside the path, or the root instead of the unit.
+        // The plan alone, the plan from anywhere but phase 0, or the root
+        // instead of the unit.
         (
-            format!("{BUILD_STEP}    plan: ${{{{ needs.declare.outputs.plan }}}}\n"),
-            "a step with other keys than `if`, `name`, `uses`, `with`, or that hands it other than `working-directory: ${{ matrix.path }}`",
+            BUILD_STEP.replace(
+                "working-directory: ${{ matrix.path }}",
+                "plan: ${{ needs.declare.outputs.plan }}",
+            ),
+            form.as_str(),
         ),
-        (
-            BUILD_STEP.replace("${{ matrix.path }}", "."),
-            "a step with other keys than `if`, `name`, `uses`, `with`, or that hands it other than `working-directory: ${{ matrix.path }}`",
-        ),
+        (format!("{BUILD_STEP}    plan: '{{}}'\n"), form.as_str()),
+        (BUILD_STEP.replace("${{ matrix.path }}", "."), form.as_str()),
     ] {
         let found = layout::compare(
             REGISTER,
@@ -421,6 +424,28 @@ fn a_build_is_held_to_its_list_its_form_and_its_cases() {
             "{step}"
         );
     }
+}
+
+#[test]
+fn a_build_may_take_the_plan_of_phase_0_beside_its_path() {
+    let found = layout::compare(
+        REGISTER,
+        &workflow_jobs(
+            r#"["demo"]"#,
+            "[]",
+            r#"["cargo-package"]"#,
+            AGREEING_STEPS,
+            &format!("{BUILD_STEP}    plan: ${{{{ needs.declare.outputs.plan }}}}\n"),
+        ),
+        &[
+            dir("build-cargo-package", true, Ok(both())),
+            dir("check-demo", true, Ok(both())),
+            dir("phase0", true, Ok(Vec::new())),
+            dir("tool", true, Ok(Vec::new())),
+        ],
+    )
+    .unwrap();
+    assert_eq!(found.problems, Vec::<String>::new());
 }
 
 /// The blocks of a check, a version writer and a build, each with its cases.

@@ -489,6 +489,14 @@ dependabot = ["e"]
         .is_ok()
     );
 
+    // A build names the programs it calls, and each has to be pinned.
+    let message = refuses(&sound.replace(
+        "produces = \"thing\"",
+        "produces = \"thing\"\nprograms = [\"missing\"]",
+    ));
+    assert!(message.contains("program"), "{message}");
+    assert!(message.contains("\"missing\""), "{message}");
+
     let message = refuses("this is not toml");
     assert!(message.contains("not readable"), "{message}");
     assert!(matches!(
@@ -608,6 +616,25 @@ fn a_build_names_the_version_writers_it_needs() {
     // `cargo` sets to the unit's.
     assert_eq!(needs("cargo-package"), ["cargo"]);
     assert!(needs("docker").is_empty());
+}
+
+#[test]
+fn a_build_names_the_programs_it_calls() {
+    let register = builtin();
+    let calls = |name: &str| {
+        register
+            .build
+            .get(&BuildName::new(name).expect("a name"))
+            .unwrap_or_else(|| panic!("the {name} build"))
+            .programs
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+    };
+
+    // The image is scanned before it is handed on.
+    assert_eq!(calls("docker"), ["trivy"]);
+    assert!(calls("cargo-package").is_empty());
 }
 
 #[test]

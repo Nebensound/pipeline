@@ -4,4 +4,5 @@
 # (DL3048), so the tty format prints a line: had it landed in the report, the
 # report would no longer read as JSON and the case would fail.
 [repo]
+audience = "public"
 pipeline = { check = ["dockerfile"], dependabot = ["docker"] }

@@ -1,6 +1,7 @@
 # A unit with the version writer cargo whose manifest holds no package: there
 # is nothing to give the version to.
 [repo]
+audience = "public"
 pipeline = "none"
 
 [component.lib]

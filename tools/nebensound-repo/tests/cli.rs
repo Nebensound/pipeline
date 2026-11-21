@@ -13,6 +13,21 @@ fn clean() -> tempfile::TempDir {
     repository(&[(".nebensound/repo.toml", QUIET), ("README.md", "# x\n")])
 }
 
+/// One that also holds every file a repository holds, so that nothing departs
+/// from the conventions either.
+fn conforming() -> tempfile::TempDir {
+    repository(&[
+        (".nebensound/repo.toml", QUIET),
+        ("README.md", "# x\n"),
+        ("LICENSE", "All rights reserved.\n"),
+        ("AGENTS.md", "# Rules\n"),
+        (".github/CODEOWNERS", "* @example\n"),
+        (".github/dependabot.yml", "version: 2\n"),
+        (".gitignore", "/target\n"),
+        (".editorconfig", "root = true\n"),
+    ])
+}
+
 /// One with a Rust file nobody checks.
 fn broken() -> tempfile::TempDir {
     repository(&[
@@ -28,7 +43,7 @@ fn root(dir: &tempfile::TempDir) -> &str {
 
 #[test]
 fn a_clean_repository_reports_nothing() {
-    let dir = clean();
+    let dir = conforming();
     let (text, code) = call(&["nebensound-repo", "-C", root(&dir)]);
 
     assert_eq!(code, 0, "{text}");
@@ -37,7 +52,7 @@ fn a_clean_repository_reports_nothing() {
     assert!(text.contains("Tree"), "{text}");
     assert!(text.contains("Findings\n\n  none"), "{text}");
     assert!(
-        text.contains("2 files, 0 gaps, 0 errors, 0 warnings"),
+        text.contains("8 files, 0 gaps, 0 errors, 0 warnings"),
         "{text}"
     );
 }
@@ -215,7 +230,7 @@ fn broken_built_in_data_says_so() {
     let code = nebensound_repo::run_against(
         ["nebensound-repo", "-C", root(&dir)],
         "this is not a register",
-        "[repo]\n",
+        "[repo]\naudience = \"public\"\n",
         Output::Elsewhere,
         &mut out,
     );

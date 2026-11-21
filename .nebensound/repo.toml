@@ -2,13 +2,15 @@
 
 # The declaration of this repository: what it consists of and what the pipeline
 # does with it. The pipeline reads it in every run and checks it against the
-# tree. "none" applies no preset: what is built is named per unit below, and
-# nothing is published.
+# tree. The repository is open source of the organization, so its audience is
+# "public". "none" applies no preset: what is built is named per unit below,
+# and nothing is published.
 #
 # Every field is described in
 # https://github.com/Nebensound/pipeline/blob/main/docs/declaration.md
 
 [repo]
+audience = "public"
 pipeline = "none"
 
 # The tool that reads a declaration, nebensound-repo: one package, a library
@@ -36,6 +38,10 @@ versioning = "none"
 [[exclude]]
 path   = ".github/actions/build-cargo-package/tests"
 reason = "test cases of build-cargo-package, whole Cargo packages judged by that block through the xtask; the failing ones are wrong on purpose"
+
+[[exclude]]
+path   = ".github/actions/build-docker/tests"
+reason = "test cases of build-docker, judged by that block through the xtask; the failing ones are wrong on purpose"
 
 [[exclude]]
 path   = ".github/actions/check-dockerfile/tests"
