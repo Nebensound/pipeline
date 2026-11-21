@@ -15,7 +15,9 @@
 //! name rules and prefixes of them (`D`, `PLR2`, `ALL`), which Ruff resolves by
 //! how specific each one is, layer by layer. The report does not resolve them:
 //! it shows every entry of the settings that switch rules on or off as the file
-//! writes it, and says whether the default names the same entry. A `select`
+//! writes it, and says whether the default names the same entry; an
+//! `extend-select` entry also names the entries of the default's `ignore` it
+//! covers, as it switches those back on. A `select`
 //! starts over, so its entries are shown as one list, with what it sets aside.
 //!
 //! Read are `select`, `extend-select`, `ignore`, `extend-ignore`,
@@ -248,6 +250,21 @@ fn resolve(dir: &RelativePath, extend: &str) -> Option<RelativePath> {
     RelativePath::new(&segments.join("/")).ok()
 }
 
+/// Whether a selector names a rule or prefix, so that an `extend-select` of it
+/// switches that one back on: `ALL` names everything, and any other selector
+/// the codes it begins, as long as it ends where Ruff's linter prefix ends.
+/// A code goes on in digits after its linter's letters, so `E` names `E111`
+/// and `E1`, but not `ERA001`, which belongs to another linter. Pylint alone
+/// puts a category letter after its prefix: `PL` names `PLR2004`.
+fn covers(selector: &str, code: &str) -> bool {
+    let Some(rest) = code.strip_prefix(selector) else {
+        return selector == "ALL";
+    };
+    rest.is_empty()
+        || rest.starts_with(|c: char| c.is_ascii_digit())
+        || (selector == "PL" && rest.starts_with(['C', 'E', 'R', 'W']))
+}
+
 /// The lines of one setting, each entry against the default.
 fn entries(key: &str, setting: &Setting, default: &Baseline) -> Vec<String> {
     let line = |name: &str, text: String| format!("{}{}", column(10, &shown(name)), shown(&text));
@@ -265,8 +282,19 @@ fn entries(key: &str, setting: &Setting, default: &Baseline) -> Vec<String> {
         Setting::List(list) if name == "extend-select" => list
             .iter()
             .map(|entry| {
-                let stand = if default.ignore.contains(entry) {
+                let under: Vec<String> = default
+                    .ignore
+                    .iter()
+                    .filter(|ignored| covers(entry, ignored))
+                    .cloned()
+                    .collect();
+                let stand = if under == [entry.clone()] {
                     "over the default, whose `ignore` names it".to_owned()
+                } else if !under.is_empty() {
+                    format!(
+                        "over the default, whose `ignore` names {} under it",
+                        listed(&under)
+                    )
                 } else if default.select.contains(entry) {
                     "the same as the default: its `select` names it".to_owned()
                 } else {

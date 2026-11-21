@@ -1044,12 +1044,62 @@ fn a_rule_switched_off_names_the_rule_and_the_file() {
         after(&text, "CPY001"),
         ["on by `lint.extend-select` (over the default, whose `ignore` names it)"]
     );
+    // `ALL` and `E` switch back on what the default's `ignore` names under them.
     assert_eq!(
         after(&text, "ALL"),
-        ["on by `lint.extend-select` (the same as the default: its `select` names it)"]
+        [
+            "on by `lint.extend-select` (over the default, whose `ignore` names \
+             [\"W191\",\"E111\",\"E114\",\"E117\",\"D206\",\"D300\",\"Q000\",\"Q001\",\"Q002\",\
+             \"Q003\",\"COM812\",\"COM819\",\"ISC002\",\"D203\",\"D213\",\"CPY001\"] under it)"
+        ]
     );
     assert_eq!(
         after(&text, "E"),
+        [
+            "on by `lint.extend-select` (over the default, whose `ignore` names \
+             [\"E111\",\"E114\",\"E117\"] under it)"
+        ]
+    );
+}
+
+#[test]
+fn an_extend_select_prefix_covers_only_its_own_linter() {
+    let defaults = Defaults {
+        ruff: "[lint]\nselect = [\"ALL\"]\n\
+               ignore = [\"E501\", \"ERA001\", \"PLR2004\", \"PLW0603\", \"PTH123\"]\n",
+        ..Defaults::BUILT_IN
+    };
+    let text = python_with(
+        defaults,
+        &[(
+            "ruff.toml",
+            "[lint]\nextend-select = [\"E\", \"PL\", \"PLR\", \"PT\", \"PLR2\"]\n",
+        )],
+    );
+
+    // `E` is pycodestyle, not eradicate's `ERA`.
+    assert_eq!(
+        after(&text, "E"),
+        ["on by `lint.extend-select` (over the default, whose `ignore` names [\"E501\"] under it)"]
+    );
+    // `PL` holds pylint's categories, `PLR` only its own.
+    assert_eq!(
+        after(&text, "PL"),
+        [
+            "on by `lint.extend-select` (over the default, whose `ignore` names \
+             [\"PLR2004\",\"PLW0603\"] under it)"
+        ]
+    );
+    assert_eq!(
+        after(&text, "PLR2"),
+        [
+            "on by `lint.extend-select` (over the default, whose `ignore` names \
+             [\"PLR2004\"] under it)"
+        ]
+    );
+    // `PT` is flake8-pytest-style, not `PTH`.
+    assert_eq!(
+        after(&text, "PT"),
         [
             "on by `lint.extend-select` (the default names it in neither `select` nor \
              `ignore`; its `select` is [\"ALL\"])"

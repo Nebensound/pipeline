@@ -541,8 +541,13 @@ name rules and prefixes of them (`D`, `PLR2`, `ALL`), which Ruff weighs by how
 specific each one is. The report does not resolve a prefix into the rules it
 stands for: each entry is shown as the file writes it, and compared with the
 same entry of the default, so `D` is `on` or `off` as written, with whether the
-default's `select` or `ignore` names `D` itself. A `select` is shown as one
-list, since it starts over: the `select` and `ignore` beneath it, the
+default's `select` or `ignore` names `D` itself. An `extend-select` entry
+switches back on what the default's `ignore` names under it, so the report
+names those entries too: `ALL` names every entry of that `ignore`, and `E`
+names `E111`, `E114` and `E117`. An entry names the codes it begins only where
+Ruff's linter prefix ends, so `E` does not name `ERA001` and `PT` does not
+name `PTH123`; `PL` names pylint's `PLC`, `PLE`, `PLR` and `PLW`. A `select`
+is shown as one list, since it starts over: the `select` and `ignore` beneath it, the
 default's `select = ["ALL"]` included, no longer hold. A `per-file-ignores`
 starts over as well, and the report names the default's patterns that no
 longer hold. The settings are read in the `lint` table, or at the top where
