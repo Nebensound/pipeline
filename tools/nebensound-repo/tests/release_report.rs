@@ -51,7 +51,7 @@ const KINDS_FILES: &[(&str, &str)] = &[
     ("crates/tool/src/lib.rs", "//! A tool.\n"),
     ("service/Cargo.toml", "[package]\nname = \"service\"\n"),
     ("service/Cargo.lock", "version = 4\n"),
-    ("service/Dockerfile", "FROM scratch\n"),
+    ("service/deploy/Dockerfile", "FROM scratch\n"),
     ("service/src/main.rs", "fn main() {}\n"),
     ("docs/guide.typ", "= Guide\n"),
     ("docs/handbook.typ", "= Handbook\n"),

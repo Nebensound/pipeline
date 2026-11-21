@@ -77,7 +77,7 @@ use std::rc::Rc;
 
 use toml_edit::{Document, Item};
 
-use crate::finding::{Finding, Rule, UnitName};
+use crate::finding::{Finding, Position, Rule, UnitName};
 use crate::model::{Declaration, Release};
 use crate::path::RelativePath;
 use crate::register::Register;
@@ -1150,7 +1150,7 @@ impl Step<'_> {
             .as_deref()
             .and_then(|object| self.context.history.declarations.get(object))
             .and_then(|text| locate(text, owner(self.unit)))
-            .map_or_else(String::new, |(line, column)| {
+            .map_or_else(String::new, |Position { line, column }| {
                 format!("{DECLARATION}, line {line}, column {column}: ")
             });
         Finding::error(
@@ -1369,7 +1369,7 @@ fn floor_past(tag: TagVersion, release: Release) -> String {
 /// Where a declaration writes the `minimum-version` of a unit, as a line and a
 /// column counted from 1, or where it writes the unit's table when it names
 /// none there. The column is that of the value, as a reading error gives it.
-fn locate(text: &str, unit: &UnitName) -> Option<(usize, usize)> {
+fn locate(text: &str, unit: &UnitName) -> Option<Position> {
     // A step that finds nothing leaves the finding without a place; it does
     // not stand in the way of the finding itself.
     let document = Document::parse(text).ok();
@@ -1386,16 +1386,5 @@ fn locate(text: &str, unit: &UnitName) -> Option<(usize, usize)> {
                 .and_then(Item::span)
                 .or_else(|| table.span())
         })
-        .and_then(|span| text.get(..span.start))
-        .map(|before| {
-            let line = before.matches('\n').count() + 1;
-            let column = before
-                .rsplit('\n')
-                .next()
-                .unwrap_or_default()
-                .chars()
-                .count()
-                + 1;
-            (line, column)
-        })
+        .map(|span| Position::at(text, span.start))
 }

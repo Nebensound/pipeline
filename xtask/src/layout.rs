@@ -11,16 +11,18 @@
 //! named after the entry and switched on it, in exactly the form the workflow
 //! documents for its kind, and in the job of its kind: a check in the check
 //! job, a version writer and a build in the build job, every version writer
-//! above every build. A check or a build the register knows and nobody
-//! has written yet has no directory: a step `Not written yet` fails for it by
-//! name, so the list of written checks in one such step and the list of
-//! written builds in another name exactly the checks and builds that have a
-//! block. Each list stands in the job of its kind, the one whose units it
-//! fails for: a list in another job leaves the units of its own kind without
-//! the step. A version writer is held the same way by the step
-//! `Version writers not written yet`. Every block brings its test cases, at
-//! least one passing and one failing. Beside the blocks lie only the
-//! workflow's own machinery ([`MACHINERY`]), which belongs to no register
+//! above every build. A check or build step hands its block the plan of
+//! phase 0 exactly when the block's `action.yml` declares the input `plan`,
+//! since that is when the block's test cases get it. A check or a build the
+//! register knows and nobody has written yet has no directory: a step
+//! `Not written yet` fails for it by name, so the list of written checks in
+//! one such step and the list of written builds in another name exactly the
+//! checks and builds that have a block. Each list stands in the job of its
+//! kind, the one whose units it fails for: a list in another job leaves the
+//! units of its own kind without the step. A version writer is held the same
+//! way by the step `Version writers not written yet`. Every block brings its
+//! test cases, at least one passing and one failing. Beside the blocks lie only
+//! the workflow's own machinery ([`MACHINERY`]), which belongs to no register
 //! entry; it is called from `nebensound.yml` all the same.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -30,6 +32,7 @@ use std::path::Path;
 use yaml_rust2::{Yaml, YamlLoader};
 
 use crate::Error;
+use crate::action::Action;
 use crate::cases::{self, ACTIONS, Case, Expect};
 
 /// The directories under `.github/actions/` that are no building block: the
@@ -67,10 +70,11 @@ const CALL_KEYS: &[&str] = &["if", "name", "uses", "with"];
 const CALL_WITH: (&str, &str) = ("working-directory", "${{ matrix.path }}");
 
 /// The plan of phase 0: the one input of a version writer's block, and the
-/// one a step may hand a check or build block beside [`CALL_WITH`], for a
-/// check that writes the versions it carries before it tests a package, or a
-/// build that labels what it builds with the unit's version. It says what the
-/// commit is, not where or how to check or build.
+/// one a step hands a check or build block beside [`CALL_WITH`] exactly when
+/// the block declares the input `plan`: a check that writes the versions it
+/// carries before it tests a package, or a build that labels what it builds
+/// with the unit's version. It says what the commit is, not where or how to
+/// check or build.
 const CALL_PLAN: (&str, &str) = ("plan", "${{ needs.declare.outputs.plan }}");
 
 /// The matrix of the check job: one entry per unit that runs a check.
@@ -87,9 +91,11 @@ struct Form {
     job: &'static str,
     /// The condition the step is switched on, with `{}` for the entry's name.
     switch: &'static str,
-    /// What the step may hand the block under `with`, each choice in the order
-    /// of its keys.
-    with: &'static [&'static [(&'static str, &'static str)]],
+    /// What the step hands the block under `with` in any case.
+    with: &'static [(&'static str, &'static str)],
+    /// Whether the step hands the block [`CALL_PLAN`] beside `with` exactly
+    /// when the block declares the input `plan`.
+    planned: bool,
 }
 
 /// A check runs after a check that failed before it, so that one run shows
@@ -97,7 +103,8 @@ struct Form {
 const CHECK: Form = Form {
     job: CHECK_JOB,
     switch: "${{ !cancelled() && contains(matrix.checks, '{}') }}",
-    with: &[&[CALL_WITH], &[CALL_PLAN, CALL_WITH]],
+    with: &[CALL_WITH],
+    planned: true,
 };
 
 /// A version writer writes the versions of the plan before the unit's build,
@@ -105,7 +112,8 @@ const CHECK: Form = Form {
 const VERSION: Form = Form {
     job: BUILD_JOB,
     switch: "${{ contains(matrix.writers, '{}') }}",
-    with: &[&[CALL_PLAN]],
+    with: &[CALL_PLAN],
+    planned: false,
 };
 
 /// A build runs only when every step before it passed: nothing is built from
@@ -114,7 +122,8 @@ const VERSION: Form = Form {
 const BUILD: Form = Form {
     job: BUILD_JOB,
     switch: "${{ matrix.build == '{}' }}",
-    with: &[&[CALL_WITH], &[CALL_PLAN, CALL_WITH]],
+    with: &[CALL_WITH],
+    planned: true,
 };
 
 /// What the comparison found.
@@ -133,6 +142,10 @@ pub struct Directory {
     pub name: String,
     /// Whether it holds an `action.yml`.
     pub action: bool,
+    /// Whether its `action.yml` declares the input `plan`, or why that cannot
+    /// be read. Without an `action.yml` it declares nothing; that is reported
+    /// on its own.
+    pub plan: Result<bool, Error>,
     /// Its test cases.
     pub cases: Result<Vec<Case>, Error>,
 }
@@ -169,14 +182,22 @@ pub fn directories(dir: &Path) -> Result<Vec<Directory>, Error> {
         .map_while(Result::ok)
         .map(|entry| entry.path())
         .filter(|path| path.is_dir())
-        .map(|path| Directory {
-            name: path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned(),
-            action: path.join("action.yml").is_file(),
-            cases: cases::discover(&path),
+        .map(|path| {
+            let action = path.join("action.yml").is_file();
+            Directory {
+                name: path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+                action,
+                plan: if action {
+                    Action::load(&path).map(|action| action.takes(CALL_PLAN.0))
+                } else {
+                    Ok(false)
+                },
+                cases: cases::discover(&path),
+            }
         })
         .collect();
     found.sort_by(|left, right| left.name.cmp(&right.name));
@@ -420,7 +441,7 @@ pub fn compare(register: &str, workflow: &str, directories: &[Directory]) -> Res
                 continue;
             }
         };
-        problems.extend(held(name, &entry.name, form, &called));
+        problems.extend(held(name, &entry.name, form, &dir.plan, &called));
         if !list.contains(&entry.name) {
             problems.push(format!(
                 "`{name}` exists, but `{step}` still fails for `{}`",
@@ -471,8 +492,25 @@ pub fn compare(register: &str, workflow: &str, directories: &[Directory]) -> Res
 
 /// What is wrong with the steps that call the block `name` of the entry
 /// `entry`: none at all, or one that is not in the form its kind documents.
-fn held(name: &str, entry: &str, form: &Form, called: &[&Call]) -> Vec<String> {
+/// `plan` says whether the block declares the input `plan`, or why that
+/// cannot be told.
+fn held(
+    name: &str,
+    entry: &str,
+    form: &Form,
+    plan: &Result<bool, Error>,
+    called: &[&Call],
+) -> Vec<String> {
     let mut problems = Vec::new();
+    // An action.yml that cannot be read leaves open whether the block takes
+    // the plan, so the step may hand it or not.
+    let plan = match plan {
+        Ok(plan) => Some(*plan),
+        Err(error) => {
+            problems.push(error.to_string());
+            None
+        }
+    };
     // The whole condition, as nebensound.yml documents it: a substring
     // would let `!contains(…)` or `contains(…) || true` through.
     let switch = form.switch.replace("{}", entry);
@@ -494,10 +532,30 @@ fn held(name: &str, entry: &str, form: &Form, called: &[&Call]) -> Vec<String> {
              switched on it with `{switch}`"
         ));
     }
+    // What the step hands the block, with the plan or without it.
+    let handed = |plan: bool| {
+        let mut with = form.with.to_vec();
+        if plan {
+            with.push(CALL_PLAN);
+        }
+        with.sort_unstable();
+        with
+    };
+    // A block that takes the plan and does not get it runs without it on
+    // GitHub, while its test cases get it; one that gets it and does not take
+    // it is handed an input nobody reads.
+    let allowed: Vec<Vec<(&str, &str)>> = match (form.planned, plan) {
+        (false, _) => vec![handed(false)],
+        (true, Some(plan)) => vec![handed(plan)],
+        (true, None) => vec![handed(false), handed(true)],
+    };
+    let mut planless = BTreeSet::new();
+    let mut unplanned = BTreeSet::new();
+    let mut other = false;
     // The rest of the step as well: a block can be silenced through any
     // other key just as through its switch, and pointed at the root
     // instead of the unit through its input.
-    if called.iter().any(|call| {
+    for call in called {
         let mut keys: Vec<&str> = call.keys.iter().map(String::as_str).collect();
         keys.sort_unstable();
         let mut with: Vec<(&str, &str)> = call
@@ -506,16 +564,42 @@ fn held(name: &str, entry: &str, form: &Form, called: &[&Call]) -> Vec<String> {
             .map(|(key, value)| (key.as_str(), value.as_str()))
             .collect();
         with.sort_unstable();
-        keys != CALL_KEYS || !form.with.contains(&with.as_slice())
-    }) {
-        let pairs = |pairs: &[(&str, &str)]| {
+        if keys == CALL_KEYS && allowed.contains(&with) {
+            continue;
+        }
+        match plan {
+            Some(true) if form.planned && keys == CALL_KEYS && with == handed(false) => {
+                planless.insert(call.name.as_str());
+            }
+            Some(false) if form.planned && keys == CALL_KEYS && with == handed(true) => {
+                unplanned.insert(call.name.as_str());
+            }
+            _ => other = true,
+        }
+    }
+    problems.extend(planless.into_iter().map(|step| {
+        format!(
+            "the step `{step}` of nebensound.yml hands `{name}` no plan, though its action.yml \
+             declares the input `plan`: the step hands it `{}: {}` as well",
+            CALL_PLAN.0, CALL_PLAN.1
+        )
+    }));
+    problems.extend(unplanned.into_iter().map(|step| {
+        format!(
+            "the step `{step}` of nebensound.yml hands `{name}` the plan, though its action.yml \
+             declares no input `plan`: the step hands it no `{}`",
+            CALL_PLAN.0
+        )
+    }));
+    if other {
+        let pairs = |pairs: &Vec<(&str, &str)>| {
             pairs
                 .iter()
                 .map(|(key, value)| format!("`{key}: {value}`"))
                 .collect::<Vec<_>>()
                 .join(" and ")
         };
-        let allowed: Vec<String> = form.with.iter().copied().map(pairs).collect();
+        let allowed: Vec<String> = allowed.iter().map(pairs).collect();
         problems.push(format!(
             "nebensound.yml calls `{name}` from a step with other keys than `{}`, or that \
              hands it other than {}",

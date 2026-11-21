@@ -132,17 +132,20 @@ A build produces one kind of artifact. The kind decides which targets can take
 it. A build that needs version writers takes the version of what it produces
 from what they write: a unit that declares it selects them, or phase 0 fails
 (see [`build-without-version-writer`](declaration.md#build-without-version-writer)).
-The programs are what the build calls (see [Programs](#programs)).
+A build that needs files reads them below the unit's path: a unit it builds
+holds them, or phase 0 fails (see
+[`build-without-file`](declaration.md#build-without-file)). The programs are
+what the build calls (see [Programs](#programs)).
 
-| Build           | Produces     | Needs version writers | Programs |
-| --------------- | ------------ | --------------------- | -------- |
-| `asciidoctor`   | `site`       | none                  | none     |
-| `cargo-package` | `crate`      | `cargo`               | none     |
-| `cargo-release` | `executable` | none                  | none     |
-| `docker`        | `container`  | none                  | `trivy`  |
-| `esphome`       | `firmware`   | none                  | none     |
-| `platformio`    | `firmware`   | none                  | none     |
-| `typst`         | `document`   | none                  | none     |
+| Build           | Produces     | Needs version writers | Needs files         | Programs |
+| --------------- | ------------ | --------------------- | ------------------- | -------- |
+| `asciidoctor`   | `site`       | none                  | none                | none     |
+| `cargo-package` | `crate`      | `cargo`               | none                | none     |
+| `cargo-release` | `executable` | none                  | none                | none     |
+| `docker`        | `container`  | none                  | `deploy/Dockerfile` | `trivy`  |
+| `esphome`       | `firmware`   | none                  | none                | none     |
+| `platformio`    | `firmware`   | none                  | none                | none     |
+| `typst`         | `document`   | none                  | none                | none     |
 
 ## Publish targets
 

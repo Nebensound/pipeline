@@ -163,17 +163,8 @@ fn positions(source: &str) -> Vec<(Pattern, Position)> {
         .unwrap_or_default()
         .into_iter()
         .map(|entry| {
-            let start = entry.path.span().start;
-            let before = source.get(..start).unwrap_or_default();
-            let line = before.matches('\n').count() + 1;
-            let column = before
-                .rsplit('\n')
-                .next()
-                .unwrap_or_default()
-                .chars()
-                .count()
-                + 1;
-            (entry.path.into_inner(), Position { line, column })
+            let position = Position::at(source, entry.path.span().start);
+            (entry.path.into_inner(), position)
         })
         .collect()
 }

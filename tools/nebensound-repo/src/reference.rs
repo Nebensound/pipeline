@@ -202,6 +202,7 @@ fn builds(register: &Register) -> String {
                 code(name),
                 code(&build.produces),
                 codes(&build.requires_version),
+                codes(&build.requires_file),
                 codes(&build.programs),
             ]
         })
@@ -212,8 +213,17 @@ fn builds(register: &Register) -> String {
          it. A build that needs version writers takes the version of what it produces\n\
          from what they write: a unit that declares it selects them, or phase 0 fails\n\
          (see [`build-without-version-writer`](declaration.md#build-without-version-writer)).\n\
-         The programs are what the build calls (see [Programs](#programs)).",
-        &["Build", "Produces", "Needs version writers", "Programs"],
+         A build that needs files reads them below the unit's path: a unit it builds\n\
+         holds them, or phase 0 fails (see\n\
+         [`build-without-file`](declaration.md#build-without-file)). The programs are\n\
+         what the build calls (see [Programs](#programs)).",
+        &[
+            "Build",
+            "Produces",
+            "Needs version writers",
+            "Needs files",
+            "Programs",
+        ],
         &rows,
     )
 }

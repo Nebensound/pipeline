@@ -103,10 +103,13 @@ requires-version = ["cargo"]
 produces = "executable"
 
 # The image is scanned for vulnerabilities before it is handed on, and the
-# scanner is pinned like any program a check calls.
+# scanner is pinned like any program a check calls. A build names the files it
+# reads below the unit's path and fails without: the image is built from
+# deploy/Dockerfile and from nothing else.
 [build.docker]
-produces = "container"
-programs = ["trivy"]
+produces      = "container"
+requires-file = ["deploy/Dockerfile"]
+programs      = ["trivy"]
 
 [build.platformio]
 produces = "firmware"
