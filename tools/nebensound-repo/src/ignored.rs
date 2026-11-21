@@ -46,7 +46,7 @@
 //!   finding.
 //! - coverage.py: `omit` in `[coverage:run]` and `[coverage:report]` of
 //!   `.coveragerc`, or of `[run]` and `[report]` there where the prefixed
-//!   section does not set it; of `[tool.coverage.run]` and
+//!   section is missing; of `[tool.coverage.run]` and
 //!   `[tool.coverage.report]` in `.coveragerc.toml`, or of `[run]` and
 //!   `[report]` there where the prefixed table is missing; of `[coverage:run]`
 //!   and `[coverage:report]` in `setup.cfg` and `tox.ini`; and of
@@ -55,8 +55,8 @@
 //!   these, in this order, that exists, where `setup.cfg`, `tox.ini` and
 //!   `pyproject.toml` count only when they hold settings of its own; which
 //!   one that is depends on where it runs, so every one is read. In the INI
-//!   files, an `omit` under `[DEFAULT]` counts as set in every section the
-//!   file has, as Python's configparser hands it on.
+//!   files, an `omit` under `[DEFAULT]` counts as set in the section read,
+//!   as Python's configparser hands it on.
 //! - Ruff: a `# ruff: noqa` or `# flake8: noqa` line without rule codes in a
 //!   Python file, which takes that file out of Ruff's linter; and `exclude`
 //!   and `extend-exclude` in `.ruff.toml`, `ruff.toml` or the `[tool.ruff]`
@@ -1199,10 +1199,11 @@ fn coverage_toml(source: &str, own: bool, base: &RelativePath) -> Result<Option<
 /// `omit` of `[run]` and `[report]` in an INI file, as coverage.py reads it
 /// with Python's configparser: a value runs on over the indented lines below
 /// its key, and its patterns stand one per line or apart by commas. coverage.py
-/// looks the option up under each of `prefixes` in turn, `coverage:run` before
-/// `run`, and takes it from the first section that sets it. An `omit` under
-/// `[DEFAULT]` counts as set in every section the file has, as configparser
-/// hands it on.
+/// picks the section first: the first of `prefixes`, `coverage:run` before
+/// `run`, whose section exists, and reads `omit` from that section alone, so
+/// a `[coverage:run]` without it hides `[run]`. An `omit` under `[DEFAULT]`
+/// counts as set in the section picked, as configparser hands it on. A section
+/// name keeps the spaces inside its brackets, as configparser keeps them.
 fn coverage_ini(
     source: &str,
     prefixes: &[&str],
@@ -1231,8 +1232,8 @@ fn coverage_ini(
                     number + 1
                 ));
             };
-            sections.push(name.trim().to_owned());
-            section = Some(name.trim().to_owned());
+            sections.push(name.to_owned());
+            section = Some(name.to_owned());
             continue;
         }
         let Some((key, value)) = trimmed.split_once(['=', ':']) else {
@@ -1258,10 +1259,11 @@ fn coverage_ini(
     let defaults = set("DEFAULT");
     let mut patterns = Vec::new();
     for name in ["run", "report"] {
-        let found = prefixes.iter().find_map(|prefix| {
-            let wanted = format!("{prefix}{name}");
-            set(&wanted).or_else(|| defaults.filter(|_| sections.contains(&wanted)))
-        });
+        let found = prefixes
+            .iter()
+            .map(|prefix| format!("{prefix}{name}"))
+            .find(|wanted| sections.contains(wanted))
+            .and_then(|wanted| set(&wanted).or(defaults));
         patterns.extend(found.into_iter().flatten().cloned());
     }
     coverage(patterns, base)

@@ -840,18 +840,18 @@ fn coverage_reads_coveragerc_with_and_without_the_prefix() {
                  [report]\nomit = src/gen/*\n[coverage:report]\nskip_empty = true\n",
             ),
             ("svc/.coveragerc", "[coverage:report]\nomit =\n    gen/*\n"),
+            ("deep/.coveragerc", "[run]\nomit = down/legacy.py\n"),
         ]),
     );
 
-    // coverage.py looks `omit` up in `[coverage:run]` before `[run]`, option
-    // by option: a prefixed section that does not set it leaves the plain one
-    // in force.
+    // coverage.py picks the section before the option: the first of
+    // `[coverage:run]` and `[run]` that exists, and `omit` from that one
+    // alone, so a `[coverage:report]` without it hides `[report]`.
     assert_eq!(
         summary(&found),
         [
+            "unexcused-ignore deep/down/legacy.py",
             "unexcused-ignore src/app.py",
-            "unexcused-ignore src/gen/a.py",
-            "unexcused-ignore src/gen/sub/b.py",
             "unexcused-ignore svc/gen/c.py",
         ]
     );
@@ -989,6 +989,14 @@ fn coverage_patterns_follow_its_own_rules() {
 fn coverage_settings_without_omit_take_nothing_out() {
     for (file, source) in [
         (".coveragerc", "[run]\nbranch = True\n"),
+        (
+            ".coveragerc",
+            "[coverage:run]\nbranch = True\n[run]\nomit = src/old.py\n",
+        ),
+        (
+            ".coveragerc",
+            "[DEFAULT]\nomit = src/old.py\n[ run ]\nbranch = True\n[ coverage:report ]\nomit = src/app.py\n",
+        ),
         ("setup.cfg", "[metadata]\nname = a\n    continued\n"),
         ("pyproject.toml", "[project]\nname = \"a\"\n"),
         ("pyproject.toml", "[tool.coverage]\n"),

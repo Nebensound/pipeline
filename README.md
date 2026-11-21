@@ -721,13 +721,16 @@ file `--rcfile` or `COVERAGE_RCFILE` names), `.coveragerc.toml`, `setup.cfg`,
 of its own; since that depends on where it runs, phase 0 reads `omit` of the
 run and report sections in every one of them in every folder, relative to that
 folder. In `.coveragerc` the sections are `[coverage:run]` and
-`[coverage:report]`, or `[run]` and `[report]` where the prefixed section does
-not set `omit`; in `setup.cfg` and `tox.ini` `[coverage:run]` and
+`[coverage:report]`, or `[run]` and `[report]` where the prefixed section is
+missing; in `setup.cfg` and `tox.ini` `[coverage:run]` and
 `[coverage:report]`; in `pyproject.toml` `[tool.coverage.run]` and
 `[tool.coverage.report]`; and in `.coveragerc.toml` the latter, or `[run]` and
 `[report]` where the prefixed table is missing, as coverage.py looks them up.
-In the INI files, an `omit` under `[DEFAULT]` counts as set in every section
-the file has, since Python's configparser hands it on to them.
+coverage.py picks the section before it reads `omit`, so a prefixed section
+without `omit` hides the plain one. In the INI files, an `omit` under
+`[DEFAULT]` counts as set in the section picked, since Python's configparser
+hands it on to every section, and a section name keeps the spaces inside its
+brackets, so `[ run ]` is not `[run]`.
 Ruff's `exclude` and `extend-exclude` are read in the configuration
 Ruff finds in each folder (the first of `.ruff.toml`, `ruff.toml` and a
 `pyproject.toml` with a `[tool.ruff]` table), relative to that folder, `*`
