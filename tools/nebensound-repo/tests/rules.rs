@@ -562,7 +562,7 @@ fn a_yamllint_file_that_cannot_be_read_says_why() {
 
 #[test]
 fn markdownlint_files_where_the_check_lints_nothing_are_not_read() {
-    let declaration = "[repo]\n\
+    let declaration = "[repo]\naudience = \"public\"\n\
                        pipeline = \"none\"\n\
                        \n\
                        [[exclude]]\n\
@@ -610,7 +610,7 @@ fn markdownlint_files_where_the_check_lints_nothing_are_not_read() {
 #[test]
 fn without_a_file_the_markdown_check_lints_nothing_is_laid_over_its_default() {
     let text = report_for(
-        "[repo]\npipeline = \"none\"\n",
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n",
         &[".nebensound/repo.toml"],
         &[(".markdownlint.json", "{ \"MD041\": false }")],
         Defaults::BUILT_IN,

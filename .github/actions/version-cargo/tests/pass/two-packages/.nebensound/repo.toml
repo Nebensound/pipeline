@@ -2,6 +2,7 @@
 # the version writer cargo. The block writes both versions, the requirement
 # and the lockfile.
 [repo]
+audience = "public"
 pipeline = "none"
 
 [component.app]

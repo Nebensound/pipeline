@@ -1,6 +1,7 @@
 # A package whose test needs a module the package leaves out. The packaged crate
 # builds, so `cargo package` passes, and its tests fail from its own contents.
 [repo]
+audience = "public"
 pipeline = "rust-workspace"
 
 [component.lib]
