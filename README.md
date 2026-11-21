@@ -917,14 +917,15 @@ the cases of the blocks that run from the tool take; markdownlint-cli2 and
 yamllint only as their pinned copies, which `--pinned` installs. Then, on
 Linux, it checks what only the cases of the other blocks need: a program an
 action of their steps would put on the `PATH`, in the version the step asks for
-(read from their `action.yml`), Docker with Buildx, jq and rustup. It installs
-none of these, since they stay the machine's, but names each one that is
-missing or of another version and exits with `1` then, so that a machine it
+(read from their `action.yml`), Docker with Buildx, jq, npm and rustup. It
+installs none of these, since they stay the machine's, but names each one that
+is missing or of another version and exits with `1` then, so that a machine it
 passes can run the cases. `nebensound-repo setup` may have put a jq into its
-cache, but the steps look for jq on the `PATH`. That the Docker daemon runs is
-not checked; the cases of `build-docker` fail without it. On another system
-those cases do not run, so `setup` leaves out what only they need and says so,
-and its exit code is the tool's.
+cache, but the steps look for jq on the `PATH`. npm is asked for apart from
+Node.js, since some systems ship it as a package of its own. That the Docker
+daemon runs is not checked; the cases of `build-docker` fail without it. On
+another system those cases do not run, so `setup` leaves out what only they
+need and says so, and its exit code is the tool's.
 
 The cases are
 taken out of this repository's own checks with `[[exclude]]` and a reason in

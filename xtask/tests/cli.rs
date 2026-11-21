@@ -373,6 +373,7 @@ fn provide(bin: &Path) {
         "[ \"$*\" = 'buildx version' ] && echo 'github.com/docker/buildx v0.29.1 0d71dd0'",
     );
     script(&bin.join("jq"), "echo jq-1.8.1");
+    script(&bin.join("npm"), "echo 11.6.2");
     script(&bin.join("rustup"), "echo rustup 1.29.0; echo info >&2");
 }
 
@@ -397,6 +398,7 @@ fn setup_calls_the_tool_of_this_commit_with_every_option() {
          node 24: on the PATH, v24.3.0\n\
          docker: found, github.com/docker/buildx v0.29.1 0d71dd0\n\
          jq: found, jq-1.8.1\n\
+         npm: found, 11.6.2\n\
          rustup: found, rustup 1.29.0\n"
     );
     let manifest = root.join("tools/nebensound-repo/Cargo.toml");
@@ -463,11 +465,13 @@ fn setup_names_what_the_test_cases_need_and_the_machine_lacks() {
     let (_, bin, mut setup) = needy(&scene);
     setup.cargo = fake_cargo(&scene, 0);
 
-    // A Node.js of another version, a Go that prints nothing, a jq and a
-    // rustup that fail. The PATH ends in the system's directories, so a
-    // program of the system would be found behind a missing one.
+    // A Node.js of another version, a Go that prints nothing, a jq, an npm
+    // and a rustup that fail; some systems ship Node.js without npm. The PATH
+    // ends in the system's directories, so a program of the system would be
+    // found behind a missing one.
     script(&bin.join("node"), "echo v26.13.1");
     script(&bin.join("jq"), "exit 127");
+    script(&bin.join("npm"), "exit 127");
     script(&bin.join("go"), "exit 0");
     script(&bin.join("rustup"), "echo rustup 1.29.0; exit 1");
     // A Docker without Buildx.
@@ -484,8 +488,9 @@ fn setup_names_what_the_test_cases_need_and_the_machine_lacks() {
          node 24: missing, the PATH has v26.13.1. Put node 24 on the PATH.\n\
          docker: missing, `docker buildx version` fails on the PATH the steps get.\n\
          jq: missing, `jq --version` fails on the PATH the steps get.\n\
+         npm: missing, `npm --version` fails on the PATH the steps get.\n\
          rustup: missing, `rustup --version` fails on the PATH the steps get.\n\
-         5 program(s) the test cases need are missing, each named above.\n"
+         6 program(s) the test cases need are missing, each named above.\n"
     );
 }
 
