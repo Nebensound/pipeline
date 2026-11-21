@@ -830,6 +830,34 @@ fn coverage_omit_takes_out_what_coverage_would_not_measure() {
 }
 
 #[test]
+fn coverage_reads_coveragerc_with_and_without_the_prefix() {
+    let found = found(
+        &excusing(".coveragerc"),
+        &python(&[
+            (
+                ".coveragerc",
+                "[coverage:run]\nomit = src/app.py\n[run]\nomit = src/old.py\nbranch = True\n\
+                 [report]\nomit = src/gen/*\n[coverage:report]\nskip_empty = true\n",
+            ),
+            ("svc/.coveragerc", "[coverage:report]\nomit =\n    gen/*\n"),
+        ]),
+    );
+
+    // coverage.py looks `omit` up in `[coverage:run]` before `[run]`, option
+    // by option: a prefixed section that does not set it leaves the plain one
+    // in force.
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore src/app.py",
+            "unexcused-ignore src/gen/a.py",
+            "unexcused-ignore src/gen/sub/b.py",
+            "unexcused-ignore svc/gen/c.py",
+        ]
+    );
+}
+
+#[test]
 fn coverage_reads_its_sections_in_setup_cfg_tox_ini_and_pyproject() {
     let found = found(
         &format!(

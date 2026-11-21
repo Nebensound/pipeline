@@ -716,14 +716,17 @@ still take out fails in the block. html-validate's `.htmlvalidateignore` is
 read in every folder, relative to that folder, as html-validate's command line
 reads it. coverage.py takes its settings from the first of `.coveragerc` (or the
 file `--rcfile` or `COVERAGE_RCFILE` names), `.coveragerc.toml`, `setup.cfg`,
-`tox.ini` and `pyproject.toml` in the folder it runs in that holds settings of
-its own; since that depends on where it runs, phase 0 reads `omit` of `[run]`
-and `[report]` in every one of them in every folder, relative to that folder.
-In `.coveragerc` the sections are `[run]` and `[report]`, in `setup.cfg` and
-`tox.ini` `[coverage:run]` and `[coverage:report]`, in `pyproject.toml`
-`[tool.coverage.run]` and `[tool.coverage.report]`, and in `.coveragerc.toml`
-the latter, or `[run]` and `[report]` where the prefixed table is missing, as
-coverage.py looks them up. Ruff's `exclude` and `extend-exclude` are read in the configuration
+`tox.ini` and `pyproject.toml` in the folder it runs in that exists, where
+`setup.cfg`, `tox.ini` and `pyproject.toml` count only when they hold settings
+of its own; since that depends on where it runs, phase 0 reads `omit` of the
+run and report sections in every one of them in every folder, relative to that
+folder. In `.coveragerc` the sections are `[coverage:run]` and
+`[coverage:report]`, or `[run]` and `[report]` where the prefixed section does
+not set `omit`; in `setup.cfg` and `tox.ini` `[coverage:run]` and
+`[coverage:report]`; in `pyproject.toml` `[tool.coverage.run]` and
+`[tool.coverage.report]`; and in `.coveragerc.toml` the latter, or `[run]` and
+`[report]` where the prefixed table is missing, as coverage.py looks them up.
+Ruff's `exclude` and `extend-exclude` are read in the configuration
 Ruff finds in each folder (the first of `.ruff.toml`, `ruff.toml` and a
 `pyproject.toml` with a `[tool.ruff]` table), relative to that folder, `*`
 crossing a `/` and a pattern without a `/` naming a file or folder of that name
