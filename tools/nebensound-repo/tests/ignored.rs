@@ -677,6 +677,297 @@ fn every_tool_names_the_checks_it_reads() {
     assert_eq!(Tool::Stylelint.name(), "Stylelint");
     assert_eq!(Tool::HtmlValidate.checks(), ["html"]);
     assert_eq!(Tool::HtmlValidate.name(), "html-validate");
+    for (tool, name) in [
+        (Tool::Pyright, "Pyright"),
+        (Tool::Coverage, "coverage.py"),
+        (Tool::Ruff, "Ruff"),
+    ] {
+        assert_eq!(tool.checks(), ["python"]);
+        assert_eq!(tool.name(), name);
+    }
+}
+
+/// A repository with Python code: a project at the root and one in `svc/`.
+fn python(extra: &[(&'static str, &'static str)]) -> Vec<(&'static str, &'static str)> {
+    let mut files = with(&[
+        ("src/app.py", "x = 1\n"),
+        ("src/old.py", "x = 1\n"),
+        ("src/gen/a.py", "x = 1\n"),
+        ("src/gen/sub/b.py", "x = 1\n"),
+        ("src/types.pyi", "x: int\n"),
+        ("tests/test_app.py", "x = 1\n"),
+        ("tests/stub.pyi", "x: int\n"),
+        ("svc/src/x.py", "x = 1\n"),
+        ("svc/gen/c.py", "x = 1\n"),
+        ("deep/down/legacy.py", "x = 1\n"),
+    ]);
+    files.extend_from_slice(extra);
+    files
+}
+
+#[test]
+fn pyright_ignore_takes_out_what_it_names_below_its_folder() {
+    let found = found(
+        QUIET,
+        &python(&[(
+            "svc/pyrightconfig.json",
+            "{\n  // generated code\n  \"ignore\": [\"./gen/\", \"src/x.py\",],\n}\n",
+        )]),
+    );
+
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore svc/gen/c.py",
+            "unexcused-ignore svc/src/x.py",
+        ]
+    );
+    let message = &found[0].message;
+    assert!(
+        message.contains(
+            "svc/pyrightconfig.json takes this file out of Pyright through the pattern `./gen/`"
+        ),
+        "{message}"
+    );
+    assert!(
+        message.contains("[[exclude]] entry with a reason"),
+        "{message}"
+    );
+}
+
+#[test]
+fn pyright_ignore_in_pyproject_takes_out_files_and_stubs() {
+    let found = found(
+        QUIET,
+        &python(&[(
+            "pyproject.toml",
+            "[project]\nname = \"a\"\n\n[tool.pyright]\nignore = [\"**/*.pyi\", \"src/gen\"]\n",
+        )]),
+    );
+
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore src/gen/a.py",
+            "unexcused-ignore src/gen/sub/b.py",
+            "unexcused-ignore src/types.pyi",
+            "unexcused-ignore tests/stub.pyi",
+        ]
+    );
+}
+
+#[test]
+fn pyright_settings_without_ignore_take_nothing_out() {
+    for (file, source) in [
+        ("pyrightconfig.json", "null\n"),
+        ("pyrightconfig.json", "{\"typeCheckingMode\": \"strict\"}\n"),
+        ("pyrightconfig.json", "{\"ignore\": []}\n"),
+        ("pyproject.toml", "[project]\nname = \"a\"\n"),
+        ("pyproject.toml", "[tool.ruff]\nline-length = 100\n"),
+        ("pyproject.toml", "[tool.pyright]\nstrict = [\"src\"]\n"),
+    ] {
+        let found = found(QUIET, &python(&[(file, source)]));
+
+        assert!(found.is_empty(), "{source}: {found:?}");
+    }
+}
+
+#[test]
+fn a_pyright_configuration_that_does_not_read_is_reported() {
+    for (file, source) in [
+        ("pyrightconfig.json", "{\"ignore\": \"src\"}\n"),
+        ("pyrightconfig.json", "{\"ignore\": [\"a[z-a]\"]}\n"),
+        ("pyproject.toml", "[tool.pyright]\nignore = [\n"),
+    ] {
+        let found = found(QUIET, &python(&[(file, source)]));
+
+        assert!(
+            summary(&found).contains(&format!("unreadable-ignore-file {file}")),
+            "{source}: {found:?}"
+        );
+        assert!(
+            found
+                .iter()
+                .any(|finding| finding.message.contains("Pyright")),
+            "{found:?}"
+        );
+    }
+}
+
+#[test]
+fn coverage_omit_takes_out_what_coverage_would_not_measure() {
+    let found = found(
+        &excusing(".coveragerc"),
+        &python(&[(
+            ".coveragerc",
+            "# measured\n[run]\nbranch = True\nomit =\n    */tests/*\n\n    legacy.py\n\
+             ; a comment\n[report]\nomit: src/old.py, ./src/gen/*\nskip_empty = true\n\
+             exclude_also =\n    if TYPE_CHECKING:\n",
+        )]),
+    );
+
+    // A stub is never measured, so taking one out takes nothing out.
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore deep/down/legacy.py",
+            "unexcused-ignore src/gen/a.py",
+            "unexcused-ignore src/gen/sub/b.py",
+            "unexcused-ignore src/old.py",
+            "unexcused-ignore tests/test_app.py",
+        ]
+    );
+    let message = &found[0].message;
+    assert!(
+        message.contains(
+            ".coveragerc takes this file out of coverage.py through the pattern `legacy.py`"
+        ),
+        "{message}"
+    );
+}
+
+#[test]
+fn coverage_reads_its_sections_in_setup_cfg_tox_ini_and_pyproject() {
+    let found = found(
+        &format!(
+            "{}\n[[exclude]]\npath = \"setup.cfg\"\nreason = \"x\"\n",
+            excusing("svc/tox.ini")
+        ),
+        &python(&[
+            (
+                "setup.cfg",
+                "[run]\nomit = src/app.py\n[coverage:run]\nomit = src\\old.py\n",
+            ),
+            ("svc/tox.ini", "[coverage:report]\nomit = gen/*\n"),
+            (
+                "svc/pyproject.toml",
+                "[tool.coverage.run]\nomit = [\"src/x.py\"]\n[tool.coverage.report]\nshow_missing = true\n",
+            ),
+        ]),
+    );
+
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore src/old.py",
+            "unexcused-ignore svc/gen/c.py",
+            "unexcused-ignore svc/src/x.py",
+        ]
+    );
+}
+
+#[test]
+fn coverage_patterns_follow_its_own_rules() {
+    let found = found(
+        &excusing(".coveragerc"),
+        &python(&[(
+            ".coveragerc",
+            "[run]\nomit =\n    **/gen/a.py\n    ?eep/*\n    *eep/*\n    *app.py\n    \
+             */svc/gen/*\n    /abs/deep/down/legacy.py\n",
+        )]),
+    );
+
+    // `**/` and a leading `*/` stand for any folders above, and `*app.py`
+    // names a file anywhere. coverage.py matches `?eep/*` and `*eep/*`
+    // against an absolute path, which starts with a `/`, so they name no
+    // file, and neither does an absolute pattern.
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore src/app.py",
+            "unexcused-ignore src/gen/a.py",
+            "unexcused-ignore svc/gen/c.py",
+            "unexcused-ignore tests/test_app.py",
+        ]
+    );
+}
+
+#[test]
+fn coverage_settings_without_omit_take_nothing_out() {
+    for (file, source) in [
+        (".coveragerc", "[run]\nbranch = True\n"),
+        ("setup.cfg", "[metadata]\nname = a\n    continued\n"),
+        ("pyproject.toml", "[project]\nname = \"a\"\n"),
+        ("pyproject.toml", "[tool.coverage]\n"),
+        ("pyproject.toml", "[tool.coverage.run]\nbranch = true\n"),
+    ] {
+        let found = found(&excusing(file), &python(&[(file, source)]));
+
+        assert!(found.is_empty(), "{source}: {found:?}");
+    }
+}
+
+#[test]
+fn a_coverage_configuration_that_does_not_read_is_reported() {
+    for (file, source) in [
+        (".coveragerc", "[run\nomit = a.py\n"),
+        (".coveragerc", "[run]\nnothing here\n"),
+        (".coveragerc", "[run]\nomit = a[z-a].py\n"),
+        (".coveragerc", "[run]\nomit = src/a[z-a].py\n"),
+        ("pyproject.toml", "[tool.coverage.run]\nomit = \"a.py\"\n"),
+    ] {
+        let found = found(&excusing(file), &python(&[(file, source)]));
+
+        assert_eq!(
+            summary(&found),
+            [format!("unreadable-ignore-file {file}")],
+            "{source}"
+        );
+        assert!(
+            found[0].message.contains("coverage.py"),
+            "{}",
+            found[0].message
+        );
+    }
+}
+
+#[test]
+fn a_python_file_that_takes_itself_out_of_ruff_is_reported() {
+    let declaration =
+        format!("{QUIET}\n[[exclude]]\npath = \"vendor/x.py\"\nreason = \"code of others\"\n");
+    let found = found(
+        &declaration,
+        &python(&[
+            ("a.py", "\"\"\"A.\"\"\"\n\n# ruff: noqa\nx = 1\n"),
+            ("b.py", "  #  flake8 :  NOQA \n"),
+            ("c.py", "# ruff: noqa: F401\nimport os\n"),
+            ("d.pyi", "#ruff:noqa\n"),
+            ("e.py", "x = 1  # noqa\n# pylint: noqa\n# no colon here\n"),
+            ("vendor/x.py", "# ruff: noqa\n"),
+            ("notes.md", "# ruff: noqa\n"),
+        ]),
+    );
+
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore a.py",
+            "unexcused-ignore b.py",
+            "unexcused-ignore d.pyi",
+        ]
+    );
+    let message = &found[0].message;
+    assert!(
+        message.contains(
+            "this file takes itself out of Ruff's linter through `# ruff: noqa` on line 3"
+        ),
+        "{message}"
+    );
+    assert!(message.contains("`# ruff: noqa: <code>`"), "{message}");
+}
+
+#[test]
+fn a_python_file_that_cannot_be_read_holds_no_ruff_line() {
+    let analysis = analysis(QUIET, &[".nebensound/repo.toml", "a.py", "b.py"]);
+    let read = |path: &RelativePath| match path.to_string().as_str() {
+        ".nebensound/repo.toml" => Ok(QUIET.to_owned()),
+        "a.py" => Ok("# ruff: noqa\n".to_owned()),
+        _ => Err("not text".to_owned()),
+    };
+
+    let found = findings(&analysis, central().register(), &read);
+
+    assert_eq!(summary(&found), ["unexcused-ignore a.py"]);
 }
 
 /// A repository with stylesheets and pages: at the root, in `web/`, and in

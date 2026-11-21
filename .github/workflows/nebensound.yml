@@ -191,7 +191,7 @@ jobs:
       - name: Not written yet
         env:
           CHECKS: ${{ toJSON(matrix.checks) }}
-          WRITTEN_CHECKS: '["css", "dockerfile", "html", "json", "markdown", "rust", "toml", "yaml"]'
+          WRITTEN_CHECKS: '["css", "dockerfile", "html", "json", "markdown", "python", "rust", "toml", "yaml"]'
           UNIT_PATH: ${{ matrix.path }}
         run: |
           set -euo pipefail
@@ -234,6 +234,12 @@ jobs:
       - name: markdown
         if: ${{ !cancelled() && contains(matrix.checks, 'markdown') }}
         uses: $/.github/actions/check-markdown
+        with:
+          working-directory: ${{ matrix.path }}
+
+      - name: python
+        if: ${{ !cancelled() && contains(matrix.checks, 'python') }}
+        uses: $/.github/actions/check-python
         with:
           working-directory: ${{ matrix.path }}
 

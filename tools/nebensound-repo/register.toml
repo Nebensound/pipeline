@@ -49,8 +49,13 @@ programs   = ["taplo"]
 extensions = [".rs"]
 programs   = ["cargo-llvm-cov"]
 
+# uv installs the interpreter the project's .python-version names and the
+# project as its uv.lock pins it; pytest and its plugins come from that lock,
+# since they have to import the project's code. Only what comes on top is
+# pinned here.
 [check.python]
 extensions = [".py", ".pyi"]
+programs   = ["coverage", "pyright", "ruff", "uv"]
 
 [check.cpp]
 extensions = [".c", ".h", ".cpp", ".hpp", ".cc", ".hh", ".cxx", ".ino"]
@@ -454,6 +459,19 @@ runtime-minimum = "3.11.0"
 url    = "https://files.pythonhosted.org/packages/06/e9/644e47c8b929f14cbda2b6779be047caa2098cc06f8bd7e04e8c62416cdc/check_jsonschema-0.39.0-py3-none-any.whl"
 digest = "sha256:14ce5c94871c551268ea948ffe21e9f1464dc48fb20bf9a4c13deeaaf756cf9b"
 
+# The digest PyPI states for the wheel that runs on every Python;
+# `requires_python` is ">=3.11". check-python lays it over the project's
+# environment, so the project's Python has to be 3.11 or later.
+[program.coverage]
+version         = "7.17.4"
+command         = "coverage"
+runtime         = "python"
+runtime-minimum = "3.11.0"
+
+[program.coverage.download.any]
+url    = "https://files.pythonhosted.org/packages/fb/b5/3039295337fcda9dfcaf6d4d294246c4400587d8f4a23b29b001c5cea588/coverage-7.17.4-py3-none-any.whl"
+digest = "sha256:0f9547c30aeef70904ede391f4cb43d2ddd0a0d2d8fb4a96c75cc422f64afaac"
+
 # dockerfmt ships only MD5 files; these are the SHA-256 digests GitHub states
 # for the release assets, which match them. The Linux builds are the glibc ones
 # check-dockerfile installs. There is no build for Windows. It names its version
@@ -618,6 +636,55 @@ url    = "https://registry.npmjs.org/prettier/-/prettier-3.9.6.tgz"
 digest = "sha512:3a9374cf355d89a880871a6eba3e5e7e9212e2c63d8fb6d8eae4799a78f9c8fcc691d92334a4897944e13dbeb4270dbd42e019800e28fbf881e3d90589a057ea"
 
 # The npm registry's `dist.integrity`, in hexadecimal; `engines.node` is
+# ">=14". The package holds everything it runs, so check-python unpacks it
+# and starts it with Node.js.
+[program.pyright]
+version         = "1.1.414"
+command         = "pyright"
+runtime         = "node"
+runtime-minimum = "14.0.0"
+
+[program.pyright.download.any]
+url    = "https://registry.npmjs.org/pyright/-/pyright-1.1.414.tgz"
+digest = "sha512:14f6596f9d637a90d7e1e3fb4c460378d16d984dd683092411c269bc7dff426512b23d04032dcb5eefb10784ff1560de8edb179427c5affadb5858f0bb0b97c3"
+
+# The digests GitHub states for the release assets, the same as the `.sha256`
+# file beside each.
+[program.ruff]
+version = "0.17.6"
+command = "ruff"
+
+[program.ruff.download.linux-x86_64]
+url        = "https://github.com/astral-sh/ruff/releases/download/0.17.6/ruff-x86_64-unknown-linux-gnu.tar.gz"
+digest     = "sha256:94b33791f48cd54ab35ad673a443a5c001d3e6d87effeaba9899070b700d45f3"
+executable = "ruff-x86_64-unknown-linux-gnu/ruff"
+
+[program.ruff.download.linux-aarch64]
+url        = "https://github.com/astral-sh/ruff/releases/download/0.17.6/ruff-aarch64-unknown-linux-gnu.tar.gz"
+digest     = "sha256:d4eea36ee6228f6c6bbcf0aea4ebf66fe0e595eedc6cffe628d7b8ba3623390f"
+executable = "ruff-aarch64-unknown-linux-gnu/ruff"
+
+[program.ruff.download.macos-x86_64]
+url        = "https://github.com/astral-sh/ruff/releases/download/0.17.6/ruff-x86_64-apple-darwin.tar.gz"
+digest     = "sha256:5e554db9c2663e1b84911446cab0a9fd4aa6d9a14dc751a4869d2f92209dcb70"
+executable = "ruff-x86_64-apple-darwin/ruff"
+
+[program.ruff.download.macos-aarch64]
+url        = "https://github.com/astral-sh/ruff/releases/download/0.17.6/ruff-aarch64-apple-darwin.tar.gz"
+digest     = "sha256:72a886253072cd1bb6a5978a33a5a7add848ee315a8b0f1589f164a11c26328d"
+executable = "ruff-aarch64-apple-darwin/ruff"
+
+[program.ruff.download.windows-x86_64]
+url        = "https://github.com/astral-sh/ruff/releases/download/0.17.6/ruff-x86_64-pc-windows-msvc.zip"
+digest     = "sha256:00c5d5793d308e8575b16b7303527110dd49bd02d46db0a8668b0eefdca14c2e"
+executable = "ruff.exe"
+
+[program.ruff.download.windows-aarch64]
+url        = "https://github.com/astral-sh/ruff/releases/download/0.17.6/ruff-aarch64-pc-windows-msvc.zip"
+digest     = "sha256:fdb5146498cd30b7af288c8becab610a30aa7d300d899927347f49e99766dd85"
+executable = "ruff.exe"
+
+# The npm registry's `dist.integrity`, in hexadecimal; `engines.node` is
 # "^22.22.2 || ^24.15.0 || >=26.0.0". Its companions are no commands: the
 # configurations the pipeline's default extends, and the syntax it reads SCSS
 # with, installed beside it so that the default finds them, each with the
@@ -718,6 +785,42 @@ executable = "trivy"
 url        = "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_windows-64bit.zip"
 digest     = "sha256:691f737a7e5566a673c3a74dab9160552ec32101e953b659e5c77443d16dddb6"
 executable = "trivy.exe"
+
+# The digests GitHub states for the release assets, the same as the `.sha256`
+# file beside each.
+[program.uv]
+version = "0.13.9"
+command = "uv"
+
+[program.uv.download.linux-x86_64]
+url        = "https://github.com/astral-sh/uv/releases/download/0.13.9/uv-x86_64-unknown-linux-gnu.tar.gz"
+digest     = "sha256:a7fbaff2b9a271d85c1bdb540941090fd1ce011797b4abeb48e4dcd39c2471d5"
+executable = "uv-x86_64-unknown-linux-gnu/uv"
+
+[program.uv.download.linux-aarch64]
+url        = "https://github.com/astral-sh/uv/releases/download/0.13.9/uv-aarch64-unknown-linux-gnu.tar.gz"
+digest     = "sha256:0797542018e541a9288855df555c8077eed06f7a47d206362030480e8ecc9f3d"
+executable = "uv-aarch64-unknown-linux-gnu/uv"
+
+[program.uv.download.macos-x86_64]
+url        = "https://github.com/astral-sh/uv/releases/download/0.13.9/uv-x86_64-apple-darwin.tar.gz"
+digest     = "sha256:617a3211261b0fc739562f0071aa34e9739797c510208ede8e2977c30903d041"
+executable = "uv-x86_64-apple-darwin/uv"
+
+[program.uv.download.macos-aarch64]
+url        = "https://github.com/astral-sh/uv/releases/download/0.13.9/uv-aarch64-apple-darwin.tar.gz"
+digest     = "sha256:5aeca67f2283f75235de40d0bd9c0a5bbc5fce23b6d48b3bf9fa1b2db08382ca"
+executable = "uv-aarch64-apple-darwin/uv"
+
+[program.uv.download.windows-x86_64]
+url        = "https://github.com/astral-sh/uv/releases/download/0.13.9/uv-x86_64-pc-windows-msvc.zip"
+digest     = "sha256:edd61f7f5728a56cc62455386661860bdfc7bab65872f39b0c25bdcc1d8e1beb"
+executable = "uv.exe"
+
+[program.uv.download.windows-aarch64]
+url        = "https://github.com/astral-sh/uv/releases/download/0.13.9/uv-aarch64-pc-windows-msvc.zip"
+digest     = "sha256:72eed595983a4d7d22d79f21065b0f4479cc7e5c7a89104bb410c8f47559a878"
+executable = "uv.exe"
 
 # The digest PyPI states for the wheel; `requires_python` is ">=3.10".
 [program.yamllint]

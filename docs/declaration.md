@@ -94,7 +94,10 @@ stands on the list of what nobody checks as long as it is empty: it needs no
 exclusion. Empty means what Git holds for it, not what lies in the working
 tree. A marker added with `git add -N` holds nothing in Git yet, so it does not
 count as empty until it is staged. A marker that holds content is a file like
-any other, and phase 0 reports it as `language-without-check`.
+any other, and phase 0 reports it as `language-without-check`. The same holds
+for `py.typed`, the empty marker of a Python package that ships its type hints;
+`.python-version`, which names the interpreter uv installs, stands on the list
+whatever it holds.
 
 ### Where a check runs
 
@@ -977,7 +980,10 @@ nothing out of a check. A `.rs` file
 that rustfmt's `ignore` takes out is excused only by an entry that takes out its
 whole package (see
 [`partial-package-exclusion`](#partial-package-exclusion)); inside a package,
-`#[rustfmt::skip]` is the means.
+`#[rustfmt::skip]` is the means. A Python file that holds `# ruff: noqa`
+without rule codes takes itself out of Ruff's linter, which honours the line in
+`check-python` as well: give the file an `[[exclude]]` entry, or switch single
+rules off instead (`# ruff: noqa: <code>`).
 [The README](../README.md#exclusions) lists the settings phase 0 reads.
 
 ### `unreadable-ignore-file`
