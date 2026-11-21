@@ -38,7 +38,10 @@
 //!   The block lays them over the default, each nearer one over the ones above
 //!   it; one in a folder that says `root: true` lies over the default alone.
 //!
-//! The two of them are shown only where their check covers a file.
+//! The two of them are shown only where their check covers a file, and so is
+//! Ruff, the fifth program with a default, whose `check-python` lays the
+//! repository's configuration over it through Ruff's `extend`: the module
+//! `ruff` within this one says what is read of it and how.
 //!
 //! A file written in JavaScript is named, not read: phase 0 runs no code of
 //! the repository. What an `extends` names is named, not read.
@@ -47,6 +50,8 @@
 //! Markdownlint's own default for the rule, and for the others what the file's
 //! `extends` sets. The report says so rather than comparing with it, since
 //! neither program's own defaults are compiled in.
+
+mod ruff;
 
 use std::collections::BTreeSet;
 
@@ -73,6 +78,9 @@ pub const STYLELINT: &str = include_str!("../rules/stylelint.yaml");
 /// The pipeline's default for html-validate, as `check-html` reads it.
 pub const HTML_VALIDATE: &str = include_str!("../rules/html-validate.json");
 
+/// The pipeline's default for Ruff, as `check-python` reads it.
+pub const RUFF: &str = include_str!("../rules/ruff.toml");
+
 /// The defaults a repository's rules are held against, as text.
 #[derive(Debug, Clone, Copy)]
 pub struct Defaults<'a> {
@@ -84,6 +92,8 @@ pub struct Defaults<'a> {
     pub stylelint: &'a str,
     /// The default for html-validate, in JSON.
     pub html_validate: &'a str,
+    /// The default for Ruff, in TOML.
+    pub ruff: &'a str,
 }
 
 impl Defaults<'static> {
@@ -94,6 +104,7 @@ impl Defaults<'static> {
         yamllint: YAMLLINT,
         stylelint: STYLELINT,
         html_validate: HTML_VALIDATE,
+        ruff: RUFF,
     };
 }
 
@@ -1013,6 +1024,9 @@ pub fn report(analysis: &Analysis, read: &Read<'_>, defaults: Defaults<'_>) -> S
             &html_validate_layers(&files, &pages, read),
             read,
         ));
+    }
+    if let Some(section) = ruff::section(analysis, &files, read, defaults.ruff) {
+        lines.extend(section);
     }
     lines.join("\n")
 }

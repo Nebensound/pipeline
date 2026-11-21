@@ -37,19 +37,30 @@
 //!   applies to a file depends on where it runs and on the target it formats,
 //!   so every one is read. rustfmt honours `ignore` only on a nightly
 //!   toolchain, which a workspace may pin.
-//! - Pyright: `ignore` in `pyrightconfig.json`, and in the `[tool.pyright]`
-//!   table of a `pyproject.toml`, in every folder, relative to that folder.
-//!   Pyright reads the configuration of the folder it runs in, so every one
-//!   is read. A file it ignores is checked and its findings are dropped.
+//! - Pyright: `include`, `ignore` and `exclude` in `pyrightconfig.json`, and
+//!   in the `[tool.pyright]` table of a `pyproject.toml`, in every folder,
+//!   relative to that folder. Pyright reads the configuration of the folder it
+//!   runs in, so every one is read. A file it ignores is checked and its
+//!   findings are dropped. Without `include` it reads everything below the
+//!   folder. The entries of Pyright's default list for `exclude` are no
+//!   finding.
 //! - coverage.py: `omit` in `[run]` and `[report]` of `.coveragerc`, of
 //!   `[coverage:run]` and `[coverage:report]` in `setup.cfg` and `tox.ini`,
 //!   and of `[tool.coverage.run]` and `[tool.coverage.report]` in a
 //!   `pyproject.toml`, in every folder, relative to that folder; which one
 //!   coverage.py takes depends on where it runs, so every one is read.
 //! - Ruff: a `# ruff: noqa` or `# flake8: noqa` line without rule codes in a
-//!   Python file, which takes that file out of Ruff's linter.
+//!   Python file, which takes that file out of Ruff's linter; and `exclude`
+//!   and `extend-exclude` in `.ruff.toml`, `ruff.toml` or the `[tool.ruff]`
+//!   table of a `pyproject.toml`, relative to that folder, for what lies below
+//!   it that no nearer configuration governs; `include`, `lint.exclude` and
+//!   `format.exclude` in the one that governs a file. What a configuration's
+//!   `extend` chain names inside the repository is laid beneath it, as Ruff
+//!   does. `exclude` takes the place of Ruff's default list, whose entries
+//!   are no finding; `extend-include` only adds to `include`.
 //!
-//! `check-python` sets Pyright's `ignore` and coverage.py's `omit` aside; Ruff
+//! `check-python` hands Ruff and Pyright the list, sets Pyright's `ignore`
+//! and `exclude`, Ruff's exclusions and coverage.py's `omit` aside; Ruff
 //! honours the comment wherever it runs.
 //!
 //! Only a file the tool reads in a building block counts: Prettier's ignore
@@ -66,11 +77,13 @@ use crate::annotate::Coverage;
 use crate::finding::{Finding, Rule};
 use crate::path::RelativePath;
 use crate::register::Register;
+use crate::ruff_config::{self, Next};
 use globset::{GlobBuilder, GlobMatcher, GlobSet, GlobSetBuilder};
 use ignore::Match;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use regex::RegexSet;
 use serde::Deserialize;
+use toml::Value;
 use yaml_rust2::{Yaml, YamlLoader};
 
 /// A tool a building block runs that has a way of its own to leave files out.
@@ -199,6 +212,15 @@ enum Matcher {
         base: RelativePath,
         here: Globs,
     },
+    /// Ruff's `exclude` and `extend-exclude`.
+    Ruff(RuffExclude),
+    /// Ruff's `include`, `lint.exclude` or `format.exclude`.
+    RuffFile(RuffFile),
+    /// Several settings of one file, the first that takes the file out
+    /// counting.
+    Either(Vec<Matcher>),
+    /// What a setting takes out, less what the tool leaves out by default.
+    Beyond(Beyond),
     /// The file itself, through a line it holds.
     Itself {
         file: RelativePath,
@@ -238,7 +260,7 @@ impl Matcher {
                     .filter(|include| {
                         below.ends_with(include.default) && !include.globs.set.is_match(&below)
                     })
-                    .map(|_| "since it matches none of the `include` patterns".to_owned())
+                    .map(|include| none_of(&include.globs.written))
             }
             Self::Regex(set) => set
                 .matches(&file.to_string())
@@ -298,12 +320,235 @@ impl Matcher {
                     .first()
                     .map(|index| format!("through the pattern `{}`", here.written[*index]))
             }
+            Self::Ruff(ruff) => ruff.out(file),
+            Self::RuffFile(ruff) => ruff.out(file),
+            Self::Either(matchers) => matchers.iter().find_map(|matcher| matcher.out(file)),
+            Self::Beyond(beyond) => beyond.out(file),
             Self::Itself {
                 file: own,
                 line,
                 written,
             } => (own == file).then(|| format!("through `{written}` on line {line}")),
         }
+    }
+}
+
+/// Why a file matches none of the patterns of an `include`.
+fn none_of(written: &[String]) -> String {
+    let mut quoted: Vec<String> = Vec::new();
+    for pattern in written {
+        let pattern = format!("`{pattern}`");
+        if !quoted.contains(&pattern) {
+            quoted.push(pattern);
+        }
+    }
+    if quoted.is_empty() {
+        "since its `include` names no pattern".to_owned()
+    } else {
+        format!(
+            "since it matches none of the `include` patterns {}",
+            quoted.join(", ")
+        )
+    }
+}
+
+/// A pattern of Ruff's: a glob relative to the folder of the file that writes
+/// it, `*` crossing a `/`, as Ruff joins it to that folder into an absolute
+/// glob. One without a `/` Ruff also matches as it stands, against a name or
+/// against the whole path.
+struct RuffPattern {
+    /// The folder of the file that writes it, gone up by each `../` the
+    /// pattern starts with, or [`None`] where that leaves the repository.
+    base: Option<RelativePath>,
+    glob: GlobMatcher,
+    /// Whether it holds no `/`.
+    bare: bool,
+    written: String,
+    /// The file that writes it, where that is not the configuration Ruff
+    /// finds but a file its `extend` chain names.
+    from: Option<RelativePath>,
+}
+
+impl RuffPattern {
+    /// Whether it matches this path, as a glob relative to its folder.
+    fn below(&self, path: &[String]) -> bool {
+        let Some(base) = &self.base else {
+            return false;
+        };
+        let base = base.segments();
+        path.len() > base.len()
+            && path.starts_with(base)
+            && self.glob.is_match(path[base.len()..].join("/"))
+    }
+
+    /// Whether it matches the file through the whole path: relative to its
+    /// folder, or, without a `/`, against the path from the root, which
+    /// stands for the absolute path Ruff matches it against.
+    fn whole(&self, file: &RelativePath) -> bool {
+        self.below(file.segments()) || (self.bare && self.glob.is_match(format!("/{file}")))
+    }
+
+    /// The pattern as a finding names it.
+    fn quoted(&self) -> String {
+        match &self.from {
+            None => format!("the pattern `{}`", self.written),
+            Some(from) => format!(
+                "the pattern `{}` that it takes from {from} through `extend`",
+                self.written
+            ),
+        }
+    }
+}
+
+/// Ruff's `exclude` and `extend-exclude`: patterns matched against the file
+/// and every folder above it on the way down from the folder of the
+/// configuration, as Ruff checks each while it walks. A pattern without a
+/// `/` is matched against the name as well. Each of them counts where this
+/// configuration governs: below its folder and not below a nearer one, whose
+/// folder itself it still checks.
+struct RuffExclude {
+    base: RelativePath,
+    nearer: Vec<RelativePath>,
+    patterns: Vec<RuffPattern>,
+}
+
+impl RuffExclude {
+    /// Why the file is out, or [`None`] when it is not.
+    fn out(&self, file: &RelativePath) -> Option<String> {
+        let Self {
+            base,
+            nearer,
+            patterns,
+        } = self;
+        if !base.contains(file) {
+            return None;
+        }
+        let segments = file.segments();
+        let start = base.segments().len();
+        (start + 1..=segments.len()).find_map(|depth| {
+            let path = &segments[..depth];
+            // A nearer configuration governs what lies below its folder.
+            if nearer
+                .iter()
+                .any(|dir| dir.segments().len() < depth && path.starts_with(dir.segments()))
+            {
+                return None;
+            }
+            let name = &path[depth - 1];
+            patterns
+                .iter()
+                .find(|pattern| {
+                    pattern.below(path) || (pattern.bare && pattern.glob.is_match(name))
+                })
+                .map(|pattern| format!("through {}", pattern.quoted()))
+        })
+    }
+}
+
+/// A setting of Ruff that it reads for each file it finds, in the one
+/// configuration that governs the file: the nearest one above it.
+struct RuffFile {
+    base: RelativePath,
+    nearer: Vec<RelativePath>,
+    kind: RuffKind,
+}
+
+/// What such a setting is.
+enum RuffKind {
+    /// `include`, beside the `extend-include` that adds to it. Ruff matches
+    /// both against the file's whole path. Its default takes every `.py` and
+    /// `.pyi` file, all the check for Python covers.
+    Include {
+        include: Vec<RuffPattern>,
+        extend: Vec<RuffPattern>,
+    },
+    /// `lint.exclude` or `format.exclude`, which takes a file out of one
+    /// step of Ruff. Ruff matches it against the file's whole path and its
+    /// name, not against the folders above it.
+    Step {
+        patterns: Vec<RuffPattern>,
+        /// The setting, such as `lint.exclude`.
+        key: &'static str,
+        /// The command that skips the file, and the one that still reads it.
+        skips: &'static str,
+        reads: &'static str,
+    },
+}
+
+impl RuffFile {
+    /// Why the file is out, or [`None`] when it is not.
+    fn out(&self, file: &RelativePath) -> Option<String> {
+        if !self.base.contains(file) || self.nearer.iter().any(|dir| dir.contains(file)) {
+            return None;
+        }
+        match &self.kind {
+            RuffKind::Include { include, extend } => {
+                if include
+                    .iter()
+                    .chain(extend)
+                    .any(|pattern| pattern.whole(file))
+                {
+                    return None;
+                }
+                let written: Vec<String> = include
+                    .iter()
+                    .map(|pattern| pattern.written.clone())
+                    .collect();
+                let from = include
+                    .first()
+                    .and_then(|pattern| pattern.from.as_ref())
+                    .map(|from| format!(" that it takes from {from} through `extend`"))
+                    .unwrap_or_default();
+                let added = if extend.is_empty() {
+                    ""
+                } else {
+                    ", nor any of `extend-include`"
+                };
+                Some(format!("{}{from}{added}", none_of(&written)))
+            }
+            RuffKind::Step {
+                patterns,
+                key,
+                skips,
+                reads,
+            } => {
+                let name = file.file_name().unwrap_or_default();
+                patterns
+                    .iter()
+                    .find(|pattern| {
+                        pattern.whole(file) || (pattern.bare && pattern.glob.is_match(name))
+                    })
+                    .map(|pattern| {
+                        format!(
+                            "through {} of `{key}`, which leaves it out of `{skips}` while \
+                             `{reads}` still reads it",
+                            pattern.quoted()
+                        )
+                    })
+            }
+        }
+    }
+}
+
+/// What a setting takes out, less what the tool leaves out by default: a
+/// file with a name on the way below `base` that `defaults` holds.
+struct Beyond {
+    setting: Box<Matcher>,
+    base: RelativePath,
+    defaults: fn(&str) -> bool,
+}
+
+impl Beyond {
+    /// Why the file is out, or [`None`] when it is not.
+    fn out(&self, file: &RelativePath) -> Option<String> {
+        self.setting.out(file).filter(|_| {
+            !file
+                .segments()
+                .get(self.base.segments().len()..)
+                .unwrap_or_default()
+                .iter()
+                .any(|name| (self.defaults)(name))
+        })
     }
 }
 
@@ -717,7 +962,9 @@ fn stylelint_settings(
 
 #[derive(Deserialize)]
 struct Pyright {
+    include: Option<Vec<String>>,
     ignore: Option<Vec<String>>,
+    exclude: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -730,11 +977,62 @@ struct PyrightTool {
     pyright: Option<Pyright>,
 }
 
-/// Pyright reads each entry of `ignore` as a path relative to the folder of
-/// its configuration, a file or a folder with everything below it, where
-/// `**` stands for any folders and `*` and `?` stay within one name.
+/// Whether a name is on Pyright's default list for `exclude`: `**/.*`,
+/// `**/node_modules` and `**/__pycache__`.
+fn pyright_default(name: &str) -> bool {
+    name.starts_with('.') || name == "node_modules" || name == "__pycache__"
+}
+
+/// What `include`, `ignore` and `exclude` of a configuration of Pyright take
+/// out. Without `include`, Pyright reads everything below the folder of its
+/// configuration, so an `include` takes out every file there that none of
+/// its entries names. Pyright's default list for `exclude` holds whatever the
+/// configuration says, so a file that list leaves out is not taken out by
+/// `exclude` or `include`.
 fn pyright(config: Pyright, base: &RelativePath) -> Result<Option<Matcher>, String> {
-    let Some(entries) = config.ignore.filter(|entries| !entries.is_empty()) else {
+    let beyond = |setting: Matcher| {
+        Matcher::Beyond(Beyond {
+            setting: Box::new(setting),
+            base: base.clone(),
+            defaults: pyright_default,
+        })
+    };
+    let paths = |entries: Option<Vec<String>>, include: bool| -> Result<Option<Matcher>, String> {
+        let Some(paths) = pyright_paths(entries)? else {
+            return Ok(None);
+        };
+        let (include, exclude) = if include {
+            let named = Include {
+                globs: paths,
+                default: "",
+            };
+            let nothing = Globs {
+                set: GlobSet::empty(),
+                written: Vec::new(),
+            };
+            (Some(named), nothing)
+        } else {
+            (None, paths)
+        };
+        Ok(Some(Matcher::Globs {
+            base: base.clone(),
+            include,
+            exclude,
+        }))
+    };
+    let ignore = paths(config.ignore, false)?;
+    let exclude = paths(config.exclude, false)?.map(beyond);
+    let include = paths(config.include, true)?.map(beyond);
+    let matchers: Vec<Matcher> = ignore.into_iter().chain(exclude).chain(include).collect();
+    Ok((!matchers.is_empty()).then_some(Matcher::Either(matchers)))
+}
+
+/// Pyright reads each entry of `include`, `ignore` and `exclude` as a path
+/// relative to the folder of its configuration, a file or a folder with
+/// everything below it, where `**` stands for any folders and `*` and `?`
+/// stay within one name; `.` is the folder itself. An empty list is none.
+fn pyright_paths(entries: Option<Vec<String>>) -> Result<Option<Globs>, String> {
+    let Some(entries) = entries.filter(|entries| !entries.is_empty()) else {
         return Ok(None);
     };
     let mut set = GlobSetBuilder::new();
@@ -743,6 +1041,11 @@ fn pyright(config: Pyright, base: &RelativePath) -> Result<Option<Matcher>, Stri
             .strip_prefix("./")
             .unwrap_or(entry)
             .trim_end_matches('/');
+        let path = if path.is_empty() || path == "." {
+            "**"
+        } else {
+            path
+        };
         for pattern in [path.to_owned(), format!("{path}/**")] {
             set.add(
                 GlobBuilder::new(&pattern)
@@ -758,13 +1061,7 @@ fn pyright(config: Pyright, base: &RelativePath) -> Result<Option<Matcher>, Stri
         .flat_map(|entry| [entry.clone(), entry.clone()])
         .collect();
     set.build()
-        .map(|set| {
-            Some(Matcher::Globs {
-                base: base.clone(),
-                include: None,
-                exclude: Globs { set, written },
-            })
-        })
+        .map(|set| Some(Globs { set, written }))
         .map_err(text)
 }
 
@@ -949,6 +1246,267 @@ fn noqa(file: &RelativePath, source: &str) -> Option<Matcher> {
     })
 }
 
+/// Ruff's default list for `exclude`, the names it leaves out wherever they
+/// stand on the way to a file.
+const RUFF_DEFAULT: &[&str] = &[
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+];
+
+fn ruff_default(name: &str) -> bool {
+    RUFF_DEFAULT.contains(&name)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct Ruff {
+    exclude: Option<Vec<String>>,
+    extend_exclude: Option<Vec<String>>,
+    include: Option<Vec<String>>,
+    extend_include: Option<Vec<String>>,
+    lint: Option<RuffStep>,
+    format: Option<RuffStep>,
+}
+
+/// The `lint` or `format` table of a configuration of Ruff.
+#[derive(Deserialize)]
+struct RuffStep {
+    exclude: Option<Vec<String>>,
+}
+
+/// The settings with which Ruff narrows the files it reads, of one
+/// configuration with its `extend` chain laid beneath it, as Ruff lays them:
+/// a setting the configuration writes holds over the same one beneath it,
+/// and the `extend-` settings add up.
+#[derive(Default)]
+struct RuffFiles {
+    exclude: Option<Vec<RuffPattern>>,
+    extend_exclude: Vec<RuffPattern>,
+    include: Option<Vec<RuffPattern>>,
+    extend_include: Vec<RuffPattern>,
+    lint: Option<Vec<RuffPattern>>,
+    format: Option<Vec<RuffPattern>>,
+}
+
+/// Patterns of Ruff's, relative to `base`, the folder of the file that
+/// writes them; `from` is that file where it is not the configuration Ruff
+/// finds.
+fn ruff_patterns(
+    written: Vec<String>,
+    base: &RelativePath,
+    from: Option<&RelativePath>,
+) -> Result<Vec<RuffPattern>, String> {
+    written
+        .into_iter()
+        .map(|written| {
+            // Ruff joins the pattern to the folder and resolves each `..`.
+            let mut pattern = written.strip_prefix("./").unwrap_or(&written);
+            let mut segments = Some(base.segments().to_vec());
+            while let Some(rest) = pattern.strip_prefix("../") {
+                segments = segments.and_then(|mut segments| segments.pop().map(|_| segments));
+                pattern = rest;
+            }
+            let base = segments.map(|segments| {
+                segments
+                    .iter()
+                    .fold(RelativePath::root(), |path, segment| path.join(segment))
+            });
+            GlobBuilder::new(pattern.trim_end_matches('/'))
+                .build()
+                .map(|glob| RuffPattern {
+                    base,
+                    glob: glob.compile_matcher(),
+                    bare: !written.contains('/'),
+                    written: written.clone(),
+                    from: from.cloned(),
+                })
+                .map_err(text)
+        })
+        .collect()
+}
+
+/// What a configuration of Ruff and its `extend` chain say of the files Ruff
+/// reads. Each pattern is relative to the folder of the file that writes it,
+/// as Ruff reads it. An `extend` that leaves the repository is not followed;
+/// one that comes back round is an error, as Ruff refuses it.
+fn ruff_files(top: &RelativePath, read: &Read<'_>) -> Result<RuffFiles, String> {
+    let mut files = RuffFiles::default();
+    for link in ruff_config::chain(top.clone(), read) {
+        let from = (link.file != *top).then_some(&link.file);
+        let named = |error: String| match from {
+            Some(file) => format!("{file}: {error}"),
+            None => error,
+        };
+        let config: Ruff = link
+            .table
+            .and_then(|table| Value::Table(table).try_into().map_err(text))
+            .map_err(named)?;
+        let base = folder(&link.file);
+        let patterns = |written: Vec<String>| ruff_patterns(written, &base, from).map_err(named);
+        for (held, written) in [
+            (&mut files.exclude, config.exclude),
+            (&mut files.include, config.include),
+            (&mut files.lint, config.lint.and_then(|lint| lint.exclude)),
+            (
+                &mut files.format,
+                config.format.and_then(|format| format.exclude),
+            ),
+        ] {
+            if held.is_none() {
+                *held = written.map(patterns).transpose()?;
+            }
+        }
+        files
+            .extend_exclude
+            .extend(patterns(config.extend_exclude.unwrap_or_default())?);
+        files
+            .extend_include
+            .extend(patterns(config.extend_include.unwrap_or_default())?);
+        if let Some((written, Next::Loop)) = &link.extend {
+            return Err(named(format!(
+                "`extend = \"{written}\"` comes back round to a file above it, which Ruff \
+                 refuses"
+            )));
+        }
+    }
+    Ok(files)
+}
+
+/// What the settings of a configuration of Ruff take out, each as a setting
+/// of its own, so that one taking a file out of the linter and one taking it
+/// out of the formatter are both reported. `exclude` takes the place of
+/// Ruff's default list, so a file that list leaves out is not taken out by a
+/// setting; nor is it by `include`, `lint.exclude` or `format.exclude`, since
+/// Ruff never reaches it.
+fn ruff(files: RuffFiles, base: &RelativePath, nearer: &[RelativePath]) -> Vec<Matcher> {
+    let beyond = |setting: Matcher| {
+        Matcher::Beyond(Beyond {
+            setting: Box::new(setting),
+            base: RelativePath::root(),
+            defaults: ruff_default,
+        })
+    };
+    let file = |kind: RuffKind| {
+        beyond(Matcher::RuffFile(RuffFile {
+            base: base.clone(),
+            nearer: nearer.to_vec(),
+            kind,
+        }))
+    };
+    let mut matchers = Vec::new();
+    let excluded: Vec<RuffPattern> = files
+        .exclude
+        .into_iter()
+        .flatten()
+        .chain(files.extend_exclude)
+        .collect();
+    if !excluded.is_empty() {
+        matchers.push(beyond(Matcher::Ruff(RuffExclude {
+            base: base.clone(),
+            nearer: nearer.to_vec(),
+            patterns: excluded,
+        })));
+    }
+    // `extend-include` only adds to what `include` takes, so it never leaves
+    // a file out on its own.
+    if let Some(include) = files.include {
+        matchers.push(file(RuffKind::Include {
+            include,
+            extend: files.extend_include,
+        }));
+    }
+    for (patterns, key, skips, reads) in [
+        (files.lint, "lint.exclude", "ruff check", "ruff format"),
+        (files.format, "format.exclude", "ruff format", "ruff check"),
+    ] {
+        if let Some(patterns) = patterns.filter(|patterns| !patterns.is_empty()) {
+            matchers.push(file(RuffKind::Step {
+                patterns,
+                key,
+                skips,
+                reads,
+            }));
+        }
+    }
+    matchers
+}
+
+/// The settings of every configuration of Ruff that narrow the files it
+/// reads, each counting where it governs, and each configuration that could
+/// not be read.
+fn ruff_settings(
+    files: &[&RelativePath],
+    read: &Read<'_>,
+) -> (Vec<Setting>, Vec<(RelativePath, String)>) {
+    let mut configs = Vec::new();
+    let mut failures = Vec::new();
+    for file in files {
+        let Some(rank) = ruff_config::FILES
+            .iter()
+            .position(|name| file.file_name() == Some(name))
+        else {
+            continue;
+        };
+        // Ruff takes the first of its names a folder holds.
+        let dir = folder(file);
+        if ruff_config::FILES[..rank]
+            .iter()
+            .any(|name| files.contains(&&dir.join(name)))
+        {
+            continue;
+        }
+        // A `pyproject.toml` without a `[tool.ruff]` table Ruff passes over.
+        match read(file).and_then(|source| ruff_config::settings(file, &source)) {
+            Ok(Some(_)) => configs.push((dir, (*file).clone())),
+            Ok(None) => {}
+            Err(error) => failures.push(((*file).clone(), error)),
+        }
+    }
+    let folders: Vec<RelativePath> = configs.iter().map(|(dir, _)| dir.clone()).collect();
+    let mut settings = Vec::new();
+    for (dir, file) in configs {
+        let nearer: Vec<RelativePath> = folders
+            .iter()
+            .filter(|other| **other != dir && dir.contains(other))
+            .cloned()
+            .collect();
+        match ruff_files(&file, read) {
+            Ok(resolved) => settings.extend(ruff(resolved, &dir, &nearer).into_iter().map(
+                |matcher| Setting {
+                    file: file.clone(),
+                    tool: Tool::Ruff,
+                    matcher,
+                },
+            )),
+            Err(error) => failures.push((file, error)),
+        }
+    }
+    (settings, failures)
+}
+
 /// Reads a file of the repository, as it stands there.
 pub type Read<'a> = dyn Fn(&RelativePath) -> Result<String, String> + 'a;
 
@@ -1065,11 +1623,6 @@ fn remedy(tool: Tool) -> &'static str {
              with its Cargo.toml) with an [[exclude]] entry and a reason in \
              .nebensound/repo.toml"
         }
-        // Single rules stay the repository's choice.
-        Tool::Ruff => {
-            "switch single rules off (`# ruff: noqa: <code>`), or give it an [[exclude]] entry \
-             with a reason in .nebensound/repo.toml"
-        }
         Tool::Prettier
         | Tool::Taplo
         | Tool::Markdownlint
@@ -1077,6 +1630,7 @@ fn remedy(tool: Tool) -> &'static str {
         | Tool::Lychee
         | Tool::Pyright
         | Tool::Coverage
+        | Tool::Ruff
         | Tool::Stylelint
         | Tool::HtmlValidate => {
             "give it an [[exclude]] entry with a reason in .nebensound/repo.toml"
@@ -1123,6 +1677,13 @@ pub fn findings(analysis: &Analysis, register: &Register, read: &Read<'_>) -> Ve
             .into_iter()
             .map(|(file, error)| unreadable(&file, Tool::Stylelint, error)),
     );
+    let (configured, failures) = ruff_settings(&files, read);
+    settings.extend(configured);
+    findings.extend(
+        failures
+            .into_iter()
+            .map(|(file, error)| unreadable(&file, Tool::Ruff, error)),
+    );
 
     // A Python file that takes itself out of Ruff. Only the files a check
     // reads are opened; one that cannot be read holds no such line.
@@ -1148,11 +1709,13 @@ pub fn findings(analysis: &Analysis, register: &Register, read: &Read<'_>) -> Ve
         }
         for setting in &settings {
             if let Some(why) = setting.out(&node.path, coverage) {
-                let message = if setting.tool == Tool::Ruff {
-                    // Ruff honours the line in the block as well.
+                let message = if let Matcher::Itself { .. } = setting.matcher {
+                    // Ruff honours the line in the block as well, and single
+                    // rules stay the repository's choice.
                     format!(
                         "this file takes itself out of Ruff's linter {why}, and no [[exclude]] \
-                         entry does; Ruff leaves it unchecked wherever it runs: {remedy}",
+                         entry does; Ruff leaves it unchecked wherever it runs: switch single \
+                         rules off (`# ruff: noqa: <code>`), or {remedy}",
                         remedy = remedy(setting.tool),
                     )
                 } else {
