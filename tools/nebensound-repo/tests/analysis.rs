@@ -386,6 +386,13 @@ fn include_takes_an_extension_back_into_the_check() {
     );
     assert_eq!(codes(&pointless), ["pointless-inclusion"]);
 
+    // A file it matches that nothing takes out is not pulled back either.
+    let matching_but_pointless = run(
+        "[[include]]\npath = \"README.md\"\n\n[repo]\naudience = \"public\"\n",
+        &["README.md"],
+    );
+    assert_eq!(codes(&matching_but_pointless), ["pointless-inclusion"]);
+
     // Saying the same thing twice says the same thing. Judged one entry at a
     // time, each copy would look pointless because the other one still pulls
     // the file back — so every copy has to go before the question is asked.
@@ -972,7 +979,10 @@ fn validating_against_a_register_that_lost_a_target_does_not_panic() {
     let narrower = Central::parse(
         "[version]\n[check.rust]\nextensions = [\".rs\"]\n[build.cargo-package]\nproduces = \"crate\"\n\
          [target]\n[preset]\n[ecosystem]\n",
-        "[repo]\naudience = \"public\"\npipeline = { check = [] }\n",
+        "[repo]\naudience = \"public\"\npipeline = { check = [] }\n\n\
+         [dependabot]\ninterval = \"weekly\"\nopen-pull-requests-limit = 5\nlabels = []\n\
+         commit-prefix = \"deps\"\n[dependabot.group]\nname = \"all\"\n\
+         update-types = [\"minor\"]\n",
     )
     .expect("central data without that target");
     let findings = nebensound_repo::validate(&declaration(source), &resolution, &narrower, &files);

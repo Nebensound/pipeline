@@ -3,6 +3,7 @@
 // A test that cannot read its own defaults has nothing to say.
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
+use nebensound_repo::central::CentralError;
 use nebensound_repo::names::{Extension, Reason};
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::pattern::{Pattern, PatternError};
@@ -11,6 +12,11 @@ use nebensound_repo::{Central, Declaration, Ruling, Tree};
 fn path(value: &str) -> RelativePath {
     RelativePath::new(value).expect("a path")
 }
+
+/// The smallest Dependabot policy the defaults can hold.
+const POLICY: &str = "\n[dependabot]\ninterval = \"weekly\"\nopen-pull-requests-limit = 5\n\
+                      labels = [\"dependencies\"]\ncommit-prefix = \"deps\"\n\
+                      [dependabot.group]\nname = \"all\"\nupdate-types = [\"minor\", \"patch\"]\n";
 
 const REGISTER: &str = "[version]\n[check.rust]\nextensions = [\".rs\"]\n[build]\n[target]\n[preset]\n\
                         [ecosystem.cargo]\npackage-ecosystem = \"cargo\"\n\
@@ -97,7 +103,9 @@ fn a_pattern_matches_and_writes_itself_back() {
 fn the_more_specific_entry_wins_and_on_a_tie_the_inclusion() {
     let central = Central::parse(
         REGISTER,
-        "[repo]\npipeline = { check = [] }\n\n[[exclude]]\npath = \"*.png\"\nreason = \"image\"\n",
+        &format!(
+            "[repo]\npipeline = {{ check = [] }}\n\n[[exclude]]\npath = \"*.png\"\nreason = \"image\"\n{POLICY}"
+        ),
     )
     .expect("the defaults");
 
@@ -179,25 +187,39 @@ fn only_the_central_list_may_excuse_a_file_while_it_is_empty() {
 
 #[test]
 fn the_defaults_have_to_write_their_base_set_out() {
-    assert!(Central::parse(REGISTER, "[repo]\npipeline = \"none\"\n").is_err());
-    assert!(Central::parse(REGISTER, "[repo]\n").is_err());
+    // Each with a policy, so that the base set is what stops them.
+    let with_policy = |defaults: &str| format!("{defaults}{POLICY}");
+    for defaults in ["[repo]\npipeline = \"none\"\n", "[repo]\n"] {
+        assert!(matches!(
+            Central::parse(REGISTER, &with_policy(defaults)),
+            Err(CentralError::BaseSetNotWrittenOut)
+        ));
+    }
     assert!(
-        Central::parse(REGISTER, "[repo]\npipeline = { check = [\"rustc\"] }\n").is_err(),
+        matches!(
+            Central::parse(
+                REGISTER,
+                &with_policy("[repo]\npipeline = { check = [\"rustc\"] }\n")
+            ),
+            Err(CentralError::UnknownBaseCheck { check }) if check == "rustc"
+        ),
         "a check the register does not know"
     );
     assert!(
-        Central::parse(
-            REGISTER,
-            "[repo]\npipeline = { check = [], dependabot = [\"crago\"] }\n"
-        )
-        .is_err(),
+        matches!(
+            Central::parse(
+                REGISTER,
+                &with_policy("[repo]\npipeline = { check = [], dependabot = [\"crago\"] }\n")
+            ),
+            Err(CentralError::UnknownBaseCheck { check }) if check == "crago"
+        ),
         "an ecosystem the register does not know"
     );
     assert!(Central::parse("not toml", "[repo]\n").is_err());
     assert!(Central::parse(REGISTER, "not toml").is_err());
 
     for message in [
-        Central::parse(REGISTER, "[repo]\n")
+        Central::parse(REGISTER, &with_policy("[repo]\n"))
             .unwrap_err()
             .to_string(),
         Central::parse("not toml", "[repo]\n")

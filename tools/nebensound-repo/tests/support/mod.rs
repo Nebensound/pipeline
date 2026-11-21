@@ -62,6 +62,34 @@ pub fn git(root: &Path, args: &[&str]) {
 /// The smallest declaration that passes.
 pub const QUIET: &str = "[repo]\naudience = \"public\"\npipeline = \"none\"\n";
 
+/// The Dependabot configuration `nebensound-repo dependabot` prints for a
+/// repository that watches only the base set and holds no composite action.
+pub const DEPENDABOT: &str = "\
+# Written by `nebensound-repo dependabot` from .nebensound/repo.toml and the
+# organization's Dependabot policy, described at
+# https://github.com/Nebensound/pipeline/blob/main/docs/register.md#dependabot-policy
+# Phase 0 warns when this file departs from what the command prints.
+---
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+        exclude-patterns:
+          - Nebensound/pipeline/.github/workflows/nebensound.yml
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci(deps)
+    labels:
+      - dependencies
+";
+
 /// One call of the tool, inside this process.
 ///
 /// Always with [`Output::Elsewhere`]. Under `cargo test` the standard output is

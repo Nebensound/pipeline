@@ -6,7 +6,7 @@ mod support;
 
 use nebensound_repo::output::Output;
 use nebensound_repo::register::{BUILTIN_DEFAULTS, BUILTIN_REGISTER};
-use support::{Broken, QUIET, call, directory, repository};
+use support::{Broken, DEPENDABOT, QUIET, call, directory, repository};
 
 /// A repository with nothing wrong with it.
 fn clean() -> tempfile::TempDir {
@@ -22,7 +22,7 @@ fn conforming() -> tempfile::TempDir {
         ("LICENSE", "All rights reserved.\n"),
         ("AGENTS.md", "# Rules\n"),
         (".github/CODEOWNERS", "* @example\n"),
-        (".github/dependabot.yml", "version: 2\n"),
+        (".github/dependabot.yml", DEPENDABOT),
         (".gitignore", "/target\n"),
         (".editorconfig", "root = true\n"),
     ])
