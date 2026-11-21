@@ -49,6 +49,7 @@ pub mod release_fields;
 pub mod report;
 pub mod repository;
 pub mod resolve;
+pub(crate) mod ruff_config;
 pub mod rules;
 #[cfg(feature = "program")]
 pub mod schema;
