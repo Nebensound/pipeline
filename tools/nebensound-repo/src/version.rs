@@ -10,10 +10,9 @@
 //! Conventional Commit ([`change_of`]): a breaking change raises the major
 //! version, `feat` the minor one, everything else the patch. A repository can
 //! name commit types of its own that count like `feat` ([`FeatTypes`]). Below
-//! `1.0.0`
-//! less is promised, and less is raised ([`Version::raised`]): below `0.1.0`
-//! every change is a patch, and from there a breaking change raises the minor
-//! version. The steps to `0.1.0` and to `1.0.0` are a person's, taken with
+//! `1.0.0` less is promised, and less is raised ([`Version::raised`]): below
+//! `0.1.0` every change is a patch, and from there a breaking change raises the
+//! minor version. The steps to `0.1.0` and to `1.0.0` are a person's, taken with
 //! `minimum-version`.
 
 use std::fmt;

@@ -479,8 +479,8 @@ would write both units' records under the same names.
   above that decides a version: the list counts from the commit that writes it
   on, a commit before it counts without it, and a commit whose declaration
   cannot be read takes the list from the nearest commit after it whose
-  declaration can. A declaration without the field reads every commit as
-  before.
+  declaration can, and from the declaration at hand until one follows. A
+  declaration without the field reads every commit as before.
 
 - **One stage**: a commit that touches the unit is the base raised once per
   touching commit since the base, each by its own change.
