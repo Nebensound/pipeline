@@ -63,7 +63,7 @@ pub fn findings(analysis: &Analysis, declaration: &RelativePath, source: &str) -
                 .and_then(|components| components.get(name.as_str()))
                 .and_then(|table| table.get(field))
                 .and_then(Item::span)
-                .map(|span| position(source, span.start));
+                .map(|span| Position::at(source, span.start));
             findings.push(match place {
                 Some(position) => finding.on(position),
                 None => finding,
@@ -71,19 +71,4 @@ pub fn findings(analysis: &Analysis, declaration: &RelativePath, source: &str) -
         }
     }
     findings
-}
-
-/// The line and column of a byte offset in a text, both counted from 1, the
-/// column in characters.
-fn position(source: &str, offset: usize) -> Position {
-    let before = source.get(..offset).unwrap_or_default();
-    let line = before.matches('\n').count() + 1;
-    let column = before
-        .rsplit('\n')
-        .next()
-        .unwrap_or_default()
-        .chars()
-        .count()
-        + 1;
-    Position { line, column }
 }
