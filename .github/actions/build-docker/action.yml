@@ -1,0 +1,458 @@
+name: build-docker
+description: >-
+  The build docker for one unit: the image of the unit's deploy/Dockerfile,
+  built once for linux/amd64 into an OCI layout and labelled with the unit's
+  version, identified by its manifest digest, started from exactly that layout
+  as the image configures it until Docker reports it healthy, held to a user
+  other than root, scanned for vulnerabilities, and handed on as an artifact of
+  the run.
+
+# Two inputs, and neither is a setting: where the unit is, and the plan of
+# phase 0, from which the unit's version of the run is read for the image's
+# label. The version writers have run before this block in the same job, so a
+# Rust service already carries its version in the build context.
+#
+# The Dockerfile is `deploy/Dockerfile` below the unit's path, and nothing else:
+# a unit without one fails here by name. The build context is the repository
+# root, so a unit of a workspace reaches what it shares with its siblings, and
+# the path inside the context is the same for every language.
+#
+# The image is built once, for linux/amd64 only, by a BuildKit of its own
+# (pinned below) without a cache, and written as an OCI layout: a tar that
+# holds the manifest, the configuration and the layers as a registry takes
+# them. Neither provenance nor an SBOM is attached, so that the digest names
+# the image alone; publishing attaches both to the digest that was tested. The
+# image's identity is the digest of its manifest, the one a registry reports
+# for it once it is pushed unchanged from the layout. It is printed in the log
+# and in the summary of the run.
+#
+# The image carries four labels and nothing else from here: the unit's version
+# of the run, as the plan gives it (on a pull request the one its merge would
+# get, with -pr.<number> behind it), the commit, the repository's address and
+# the unit's name (the repository's name for the repository itself). No build
+# argument is passed.
+#
+# What is started is exactly what the layout holds: it is loaded into Docker,
+# and the loaded image has to be the one the layout names. The container gets
+# no environment, no secret and no published port, and the default network:
+# the image has to become healthy on its own defaults. Every path the image
+# declares with VOLUME gets a fresh named volume; an image without one starts
+# without one. It runs as the image configures it, without `--user`. An image
+# without HEALTHCHECK fails before it is started, since nothing could show that
+# it serves. The block waits until Docker reports the container healthy,
+# unhealthy or stopped, for at most five minutes, and prints the container's
+# log and the output of the last health check when it is not healthy. Once it
+# is healthy, the user ID of the container's first process is read from the
+# host, where neither a user name mapped to 0 nor a switch inside the
+# entrypoint can hide it; 0 fails.
+#
+# Trivy (pinned below and in the register) scans the layout and fails the build
+# on every vulnerability of severity HIGH or CRITICAL that has a fixed version.
+# No ignore file and no configuration file of Trivy is read: a tool's own
+# ignore file excuses nothing here.
+#
+# The artifact is named after the unit's path, its version and the commit:
+# `container-<path>@<version>@<sha>`, the path percent-encoded as jq's `@uri`
+# writes it, as build-cargo-package names its crate. It holds exactly one file,
+# `image.tar`, the OCI layout. Nothing is pushed.
+
+inputs:
+  working-directory:
+    description: >-
+      The directory of the unit, as the plan names it. Its image is built from
+      deploy/Dockerfile there.
+    required: true
+  plan:
+    description: >-
+      The plan of phase 0 (`nebensound-repo plan`), as Declare hands it on.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The commit is the one the checkout holds: `github.sha`, which on a pull
+    # request is the merge commit GitHub builds for it.
+    - name: Find the image of the unit
+      id: unit
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+        PLAN: ${{ inputs.plan }}
+      run: |
+        set -euo pipefail
+        dockerfile="deploy/Dockerfile"
+        if [ "$UNIT" != "." ]; then
+          dockerfile="$UNIT/deploy/Dockerfile"
+        fi
+        if [ ! -f "$dockerfile" ]; then
+          echo "::error file=$dockerfile::'$UNIT' builds docker but holds no deploy/Dockerfile."
+          exit 1
+        fi
+        if [ "$(uname -m)" != "x86_64" ]; then
+          echo "::error::build-docker builds and starts images for linux/amd64 only, on the machine itself, and this one is $(uname -m)."
+          exit 1
+        fi
+        units="$(jq --compact-output --arg path "$UNIT" '
+          .versions as $versions
+          | [ .units[] | select(.path == $path and .build == "docker") | . as $unit
+              | { name: .name,
+                  version: (first($versions[]
+                    | select(.kind == $unit.kind and .name == $unit.name)).version) } ]' <<< "$PLAN")"
+        count="$(jq 'length' <<< "$units")"
+        if [ "$count" -ne 1 ]; then
+          echo "::error::The plan names $count units at '$UNIT' that build docker, and the block builds exactly one."
+          exit 1
+        fi
+        version="$(jq --raw-output '.[0].version // empty' <<< "$units")"
+        if [ -z "$version" ]; then
+          echo "::error::The plan gives '$UNIT' no version of this run, so there is no image to label with it."
+          exit 1
+        fi
+        title="$(jq --raw-output '.[0].name // empty' <<< "$units")"
+        if [ -z "$title" ]; then
+          title="${GITHUB_REPOSITORY##*/}"
+        fi
+        sha="$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
+        artifact="$(jq --raw-output --null-input \
+          --arg path "$UNIT" --arg version "$version" --arg sha "$sha" \
+          '"container-" + ($path | @uri) + "@" + $version + "@" + $sha')"
+        dir="$(mktemp -d "$RUNNER_TEMP/build-docker-XXXXXX")"
+        echo "'$UNIT' builds $dockerfile as $title $version; its artifact is '$artifact'."
+        {
+          echo "dockerfile=$dockerfile"
+          echo "version=$version"
+          echo "title=$title"
+          echo "revision=$sha"
+          echo "source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          echo "artifact=$artifact"
+          echo "dir=$dir"
+          echo "builder=$(basename "$dir")"
+          echo "image=$dir/image.tar"
+        } >> "$GITHUB_OUTPUT"
+
+    # A builder of its own, since the builder Docker brings cannot write an OCI
+    # layout unless its daemon keeps images in containerd. Its BuildKit is
+    # pinned by the digest of moby/buildkit:v0.34.2 on Docker Hub. It starts
+    # empty, so nothing an earlier build left reaches this one.
+    - name: Start a builder of its own
+      shell: bash
+      env:
+        BUILDER: ${{ steps.unit.outputs.builder }}
+      run: |
+        set -euo pipefail
+        docker version --format 'Docker {{.Server.Version}}'
+        docker buildx version
+        docker buildx create --name "$BUILDER" --driver docker-container \
+          --driver-opt "image=moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe" \
+          --bootstrap
+
+    - name: Build the image
+      shell: bash
+      env:
+        BUILDER: ${{ steps.unit.outputs.builder }}
+        DOCKERFILE: ${{ steps.unit.outputs.dockerfile }}
+        VERSION: ${{ steps.unit.outputs.version }}
+        REVISION: ${{ steps.unit.outputs.revision }}
+        SOURCE: ${{ steps.unit.outputs.source }}
+        TITLE: ${{ steps.unit.outputs.title }}
+        IMAGE: ${{ steps.unit.outputs.image }}
+      run: |
+        set -euo pipefail
+        docker buildx build --builder "$BUILDER" --progress plain \
+          --platform linux/amd64 --file "$DOCKERFILE" --no-cache \
+          --provenance=false --sbom=false \
+          --label "org.opencontainers.image.version=$VERSION" \
+          --label "org.opencontainers.image.revision=$REVISION" \
+          --label "org.opencontainers.image.source=$SOURCE" \
+          --label "org.opencontainers.image.title=$TITLE" \
+          --output "type=oci,dest=$IMAGE" \
+          "$GITHUB_WORKSPACE"
+        if [ ! -s "$IMAGE" ]; then
+          echo "::error::docker buildx build passed, but '$IMAGE' is not there."
+          exit 1
+        fi
+
+    # The layout names one image manifest, and each file is the one its digest
+    # names. The configuration is kept for the steps below.
+    - name: Read the digest of the image
+      id: digest
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+        DIR: ${{ steps.unit.outputs.dir }}
+        IMAGE: ${{ steps.unit.outputs.image }}
+        VERSION: ${{ steps.unit.outputs.version }}
+      run: |
+        set -euo pipefail
+        member() {
+          tar --extract --to-stdout --file "$IMAGE" "$1" 2> /dev/null \
+            || tar --extract --to-stdout --file "$IMAGE" "./$1"
+        }
+        blob() {
+          local file="$DIR/$2"
+          member "blobs/${1/://}" > "$file"
+          if [ "sha256:$(sha256sum "$file" | cut -d ' ' -f 1)" != "$1" ]; then
+            echo "::error::The layout of '$UNIT' holds a file under $1 whose digest is another."
+            exit 1
+          fi
+        }
+        member index.json > "$DIR/index.json"
+        manifests="$(jq '.manifests | length' "$DIR/index.json")"
+        media="$(jq --raw-output '.manifests[0].mediaType' "$DIR/index.json")"
+        if [ "$manifests" -ne 1 ] || [ "$media" != "application/vnd.oci.image.manifest.v1+json" ]; then
+          echo "::error::The layout of '$UNIT' names $manifests entries, the first of type $media, and one image manifest is what it has to name."
+          exit 1
+        fi
+        digest="$(jq --raw-output '.manifests[0].digest' "$DIR/index.json")"
+        blob "$digest" manifest.json
+        configuration="$(jq --raw-output '.config.digest' "$DIR/manifest.json")"
+        blob "$configuration" config.json
+        platform="$(jq --raw-output '.os + "/" + .architecture' "$DIR/config.json")"
+        labelled="$(jq --raw-output '.config.Labels["org.opencontainers.image.version"] // empty' "$DIR/config.json")"
+        if [ "$platform" != "linux/amd64" ] || [ "$labelled" != "$VERSION" ]; then
+          echo "::error::The image of '$UNIT' is for $platform and labelled with the version '$labelled', and it has to be for linux/amd64 and labelled $VERSION."
+          exit 1
+        fi
+        echo "The image of '$UNIT' is $digest, its configuration $configuration."
+        echo "The image of \`$UNIT\` $VERSION is \`$digest\`." >> "$GITHUB_STEP_SUMMARY"
+        {
+          echo "digest=$digest"
+          echo "configuration=$configuration"
+          echo "config=$DIR/config.json"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Require a health check
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+        DOCKERFILE: ${{ steps.unit.outputs.dockerfile }}
+        CONFIG: ${{ steps.digest.outputs.config }}
+      run: |
+        set -euo pipefail
+        test="$(jq --compact-output '.config.Healthcheck.Test // []' "$CONFIG")"
+        if [ "$test" = "[]" ] || [ "$(jq --raw-output '.[0]' <<< "$test")" = "NONE" ]; then
+          echo "::error file=$DOCKERFILE::The image of '$UNIT' has no HEALTHCHECK, so nothing shows that it starts and serves. Give $DOCKERFILE a HEALTHCHECK instruction."
+          exit 1
+        fi
+        echo "The image checks its health with $test."
+
+    # Docker names the image it loaded, or its ID. In a daemon that keeps
+    # images itself the ID is the digest of the configuration; in one that
+    # keeps them in containerd it is the digest of the manifest.
+    - name: Load the image
+      id: load
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+        IMAGE: ${{ steps.unit.outputs.image }}
+        DIGEST: ${{ steps.digest.outputs.digest }}
+        CONFIGURATION: ${{ steps.digest.outputs.configuration }}
+      run: |
+        set -euo pipefail
+        loaded="$(docker load --input "$IMAGE")"
+        echo "$loaded"
+        reference="$(sed -n -e 's/^Loaded image ID: //p' -e 's/^Loaded image: //p' <<< "$loaded" | tail -n 1)"
+        if [ -z "$reference" ]; then
+          echo "::error::Docker loaded the layout of '$UNIT' and named no image."
+          exit 1
+        fi
+        id="$(docker image inspect --format '{{.Id}}' "$reference")"
+        if [ "$id" != "$CONFIGURATION" ] && [ "$id" != "$DIGEST" ]; then
+          echo "::error::Docker loaded the image $id from the layout of '$UNIT', and the layout names $DIGEST with the configuration $CONFIGURATION."
+          exit 1
+        fi
+        echo "Loaded $DIGEST as $id."
+        echo "id=$id" >> "$GITHUB_OUTPUT"
+
+    - name: Start the image
+      id: start
+      shell: bash
+      env:
+        DIR: ${{ steps.unit.outputs.dir }}
+        CONFIG: ${{ steps.digest.outputs.config }}
+        ID: ${{ steps.load.outputs.id }}
+      run: |
+        set -euo pipefail
+        mounts=()
+        : > "$DIR/volumes"
+        while IFS= read -r path; do
+          volume="$(docker volume create)"
+          echo "$volume" >> "$DIR/volumes"
+          mounts+=(--mount "type=volume,source=$volume,target=$path")
+          echo "A fresh volume for $path: $volume"
+        done < <(jq --raw-output '.config.Volumes // {} | keys[]' "$CONFIG")
+        if [ "${#mounts[@]}" -eq 0 ]; then
+          echo "The image declares no VOLUME, so it starts without one."
+        fi
+        container="$(docker create "${mounts[@]}" "$ID")"
+        echo "container=$container" >> "$GITHUB_OUTPUT"
+        docker start "$container"
+
+    - name: Wait until it is healthy
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+        DOCKERFILE: ${{ steps.unit.outputs.dockerfile }}
+        CONTAINER: ${{ steps.start.outputs.container }}
+      run: |
+        set -euo pipefail
+        deadline=$((SECONDS + 300))
+        while :; do
+          read -r status health <<< "$(docker inspect --format \
+            '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$CONTAINER")"
+          case "$status/$health" in
+            running/healthy)
+              echo "The image of '$UNIT' is healthy."
+              exit 0
+              ;;
+            running/unhealthy)
+              reason="Docker reports it unhealthy"
+              ;;
+            running/*)
+              if [ "$SECONDS" -lt "$deadline" ]; then
+                sleep 1
+                continue
+              fi
+              reason="it is not healthy after five minutes"
+              ;;
+            *)
+              code="$(docker inspect --format '{{.State.ExitCode}}' "$CONTAINER")"
+              reason="it stopped with the exit code $code"
+              ;;
+          esac
+          break
+        done
+        echo "The log of the container:"
+        docker logs "$CONTAINER" 2>&1 || true
+        echo "What its last health check printed:"
+        docker inspect --format '{{json .State.Health}}' "$CONTAINER" \
+          | jq --raw-output '.Log[-1].Output // "nothing"' || true
+        echo "::error file=$DOCKERFILE::The image of '$UNIT' never became healthy: $reason."
+        exit 1
+
+    # The IDs of the first process, real and effective, as the host sees them,
+    # taken back into the container's own user namespace through its uid_map.
+    - name: Require a user other than root
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+        DOCKERFILE: ${{ steps.unit.outputs.dockerfile }}
+        CONTAINER: ${{ steps.start.outputs.container }}
+      run: |
+        set -euo pipefail
+        pid="$(docker inspect --format '{{.State.Pid}}' "$CONTAINER")"
+        if [ "$pid" = 0 ]; then
+          echo "::error::The container of '$UNIT' stopped before its user could be read."
+          exit 1
+        fi
+        read -r real effective < <(awk '/^Uid:/ { print $2, $3 }' "/proc/$pid/status")
+        inside() {
+          awk -v id="$1" '$2 <= id && id < $2 + $3 { print $1 + id - $2; exit }' "/proc/$pid/uid_map"
+        }
+        real="$(inside "$real")"
+        effective="$(inside "$effective")"
+        if [ -z "$real" ] || [ -z "$effective" ]; then
+          echo "::error::The user of the container of '$UNIT' cannot be read from the host."
+          exit 1
+        fi
+        if [ "$real" -eq 0 ] || [ "$effective" -eq 0 ]; then
+          echo "::error file=$DOCKERFILE::The image of '$UNIT' runs as root: its first process has the user ID 0. Give $DOCKERFILE a USER other than root."
+          exit 1
+        fi
+        echo "The image of '$UNIT' runs with the user ID $effective."
+
+    # The release archive, pinned by version and by the SHA-256 that
+    # trivy_0.76.2_checksums.txt of the release states for it, as the register
+    # pins it.
+    - name: Install Trivy
+      shell: bash
+      env:
+        DIR: ${{ steps.unit.outputs.dir }}
+      run: |
+        set -euo pipefail
+        asset=trivy_0.76.2_Linux-64bit.tar.gz
+        digest=bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf
+        mkdir -p "$DIR/trivy"
+        curl --fail --silent --show-error --location --retry 3 \
+          --output "$DIR/$asset" \
+          "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/$asset"
+        echo "$digest  $DIR/$asset" | sha256sum --check --quiet
+        tar --extract --gzip --file "$DIR/$asset" --directory "$DIR/trivy" trivy
+        rm "$DIR/$asset"
+        "$DIR/trivy/trivy" --version
+
+    # Its database of vulnerabilities is fetched fresh in every run, into a
+    # folder of the run.
+    - name: Scan the image
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+        DOCKERFILE: ${{ steps.unit.outputs.dockerfile }}
+        DIR: ${{ steps.unit.outputs.dir }}
+        IMAGE: ${{ steps.unit.outputs.image }}
+      run: |
+        set -euo pipefail
+        report="$DIR/trivy.json"
+        "$DIR/trivy/trivy" image --input "$IMAGE" --config "" --ignorefile "" \
+          --cache-dir "$DIR/trivy-cache" --scanners vuln \
+          --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 \
+          --format json --output "$report" \
+          --no-progress --skip-version-check --disable-telemetry
+        found="$(jq --raw-output '
+          [ .Results[]? | .Target as $target | .Vulnerabilities[]?
+            | "\(.VulnerabilityID) (\(.Severity)) in \(.PkgName) \(.InstalledVersion), fixed in \(.FixedVersion), in \($target)" ]
+          | unique[]' "$report")"
+        if [ -z "$found" ]; then
+          echo "Trivy finds no vulnerability of severity HIGH or CRITICAL with a fixed version in the image of '$UNIT'."
+          exit 0
+        fi
+        while IFS= read -r finding; do
+          echo "::error file=$DOCKERFILE::$finding"
+        done <<< "$found"
+        echo "::error file=$DOCKERFILE::The image of '$UNIT' has $(wc -l <<< "$found") vulnerabilities of severity HIGH or CRITICAL with a fixed version."
+        exit 1
+
+    # Overwrite: a name is unique per unit, version and commit, so the only
+    # artifact this can replace is the one an earlier attempt of the same job
+    # left in this run, and a re-run must not fail on it.
+    - name: Hand the image on
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ steps.unit.outputs.artifact }}
+        path: ${{ steps.unit.outputs.image }}
+        if-no-files-found: error
+        retention-days: 7
+        compression-level: 0
+        overwrite: true
+
+    # Whatever happened above: what the block started on the machine goes, so
+    # that a machine that runs it more than once, as the test cases do, keeps
+    # nothing of it.
+    - name: Remove what it started
+      if: ${{ always() }}
+      shell: bash
+      env:
+        DIR: ${{ steps.unit.outputs.dir }}
+        BUILDER: ${{ steps.unit.outputs.builder }}
+        ID: ${{ steps.load.outputs.id }}
+        CONTAINER: ${{ steps.start.outputs.container }}
+      run: |
+        set -uo pipefail
+        if [ -n "$CONTAINER" ]; then
+          docker rm --force "$CONTAINER" > /dev/null
+        fi
+        if [ -n "$DIR" ] && [ -f "$DIR/volumes" ]; then
+          while IFS= read -r volume; do
+            docker volume rm "$volume" > /dev/null
+          done < "$DIR/volumes"
+        fi
+        if [ -n "$ID" ]; then
+          docker image rm --force "$ID" > /dev/null
+        fi
+        if [ -n "$BUILDER" ]; then
+          docker buildx rm "$BUILDER" > /dev/null 2>&1
+        fi
+        if [ -n "$DIR" ]; then
+          rm -rf "$DIR"
+        fi
+        exit 0

@@ -168,9 +168,10 @@ tool from the cache Declare filled, and runs its steps:
    `version-<writer>` with the plan, so that the manifest carries the version
    of the run. A version writer without a building block has already failed
    `nebensound / Check`, so no build starts without its version.
-3. **The build**, the building block `build-<name>` over the unit's path. It
-   builds the artifact once, tests the artifact itself and uploads it as an
-   artifact of the run.
+3. **The build**, the building block `build-<name>` over the unit's path, with
+   the plan where the build labels what it builds with the unit's version, as
+   `build-docker` does. It builds the artifact once, tests the artifact itself
+   and uploads it as an artifact of the run.
 
 A step does not run after one that failed: an artifact built from versions that
 were not written would be the wrong one. Tests of the source belong to Check;

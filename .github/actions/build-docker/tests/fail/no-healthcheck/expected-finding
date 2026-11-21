@@ -1,0 +1,1 @@
+::error file=deploy/Dockerfile::The image of '.' has no HEALTHCHECK, so nothing shows that it starts and serves. Give deploy/Dockerfile a HEALTHCHECK instruction.

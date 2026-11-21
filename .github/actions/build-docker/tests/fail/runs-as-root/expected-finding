@@ -1,0 +1,1 @@
+::error file=deploy/Dockerfile::The image of '.' runs as root: its first process has the user ID 0. Give deploy/Dockerfile a USER other than root.

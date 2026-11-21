@@ -1,5 +1,5 @@
-//! The programs the checks call, and the runtimes they run on: pinned, with a
-//! download per platform and its digest.
+//! The programs the checks and builds call, and the runtimes they run on:
+//! pinned, with a download per platform and its digest.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
@@ -74,6 +74,7 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
         ("markdownlint-cli2", "0.23.2", Some(("node", "22.0.0"))),
         ("prettier", "3.9.6", Some(("node", "14.0.0"))),
         ("taplo", "0.10.0", None),
+        ("trivy", "0.76.2", None),
         ("yamllint", "1.38.0", Some(("python", "3.10.0"))),
     ] {
         let program = &register.program[&ProgramName::new(name).expect("a name")];
@@ -96,7 +97,7 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
             assert!(download.url.contains(version), "{name} {platform}");
         }
     }
-    assert_eq!(register.program.len(), 10);
+    assert_eq!(register.program.len(), 11);
 
     let runtimes: Vec<(String, String, Installer)> = register
         .runtime

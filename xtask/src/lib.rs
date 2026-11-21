@@ -11,7 +11,7 @@
 //!   of this commit, to find or install the programs its checks call, and
 //!   then, on Linux, checks what only the test cases need ([`MACHINE`]):
 //!   Node.js and Go on the `PATH` in the versions the blocks' steps ask for,
-//!   jq, npm, Python's pip and rustup. It installs none of them: the blocks
+//!   Docker with Buildx, jq, npm, Python's pip and rustup. It installs none of them: the blocks
 //!   fetch their own programs when the cases run them, and these stay the
 //!   machine's, so it names each one that is missing. Elsewhere the cases do
 //!   not run, so it leaves them out and says why.
@@ -46,12 +46,14 @@ const MISUSE: u8 = 2;
 /// [`runner::needs`] finds, each with its name and the command that shows it
 /// is there. Phase 0, `check-json`, `check-rust` and `check-toml` run jq;
 /// `nebensound-repo setup` can install a jq of its own, but into its cache and
-/// not onto the `PATH` the steps search. `check-json`, `check-markdown` and
+/// not onto the `PATH` the steps search. `build-docker` builds with Docker's
+/// Buildx and starts what it built with Docker. `check-json`, `check-markdown` and
 /// `check-yaml` install their programs with npm, which `actions/setup-node`
 /// puts beside Node.js on GitHub, and which some systems ship apart from
 /// Node.js. `check-yaml` runs Python's pip, which some systems ship apart
 /// from Python. The tool and `check-rust` install toolchains with rustup.
 pub const MACHINE: &[(&str, &str, &[&str])] = &[
+    ("docker", "docker", &["buildx", "version"]),
     ("jq", "jq", &["--version"]),
     ("npm", "npm", &["--version"]),
     ("pip", "python3", &["-m", "pip", "--version"]),
@@ -77,7 +79,7 @@ setup         Calls `nebensound-repo setup` for this repository, built from
               --check.
               Then, on Linux, it checks, and installs nothing, what only the
               test cases need: Node.js and Go in the versions the blocks ask
-              for, jq, npm, Python's pip and rustup.
+              for, Docker with Buildx, jq, npm, Python's pip and rustup.
 ";
 
 /// Why something could not be done, as one sentence.

@@ -10,7 +10,8 @@
 //! the writer. A build block runs once for every unit the plan starts the
 //! build for and gives a version of the run, the way a build job does: after
 //! the blocks of the version writers the unit selects, each with the plan, and
-//! only when they passed. A passing case passes when the block succeeds
+//! only when they passed; it gets the plan as well when it takes one. A
+//! passing case passes when the block succeeds
 //! everywhere. A failing case passes when the block fails and every line of
 //! its [`FINDING`] file matches a line the block printed.
 
@@ -441,6 +442,19 @@ fn calls(kind: &Kind<'_>, plan: &str, dir: &Path) -> Result<Result<Vec<Call>, St
         writers: Vec::new(),
         inputs,
     };
+    // A check or build block gets the plan beside the unit's path when it
+    // takes one, as its step in nebensound.yml hands it over.
+    let unit = |path: String| -> Result<BTreeMap<String, String>, Error> {
+        let mut inputs = BTreeMap::from([("working-directory".to_owned(), path)]);
+        if Action::load(dir)?
+            .inputs
+            .iter()
+            .any(|input| input.name.eq_ignore_ascii_case("plan"))
+        {
+            inputs.insert("plan".to_owned(), plan.to_owned());
+        }
+        Ok(inputs)
+    };
     Ok(Ok(match *kind {
         Kind::Check(check) => {
             let units = units(plan, check)?;
@@ -449,20 +463,10 @@ fn calls(kind: &Kind<'_>, plan: &str, dir: &Path) -> Result<Result<Vec<Call>, St
                     "no unit of the case starts the check `{check}`, so the block never runs"
                 )));
             }
-            let planned = Action::load(dir)?
-                .inputs
-                .iter()
-                .any(|input| input.name.eq_ignore_ascii_case("plan"));
             units
                 .into_iter()
-                .map(|unit| {
-                    let mut inputs = BTreeMap::from([("working-directory".to_owned(), unit)]);
-                    if planned {
-                        inputs.insert("plan".to_owned(), plan.to_owned());
-                    }
-                    alone(inputs)
-                })
-                .collect()
+                .map(|path| Ok(alone(unit(path)?)))
+                .collect::<Result<_, Error>>()?
         }
         Kind::Version(writer) => {
             if writers(plan, writer)?.is_empty() {
@@ -486,11 +490,13 @@ fn calls(kind: &Kind<'_>, plan: &str, dir: &Path) -> Result<Result<Vec<Call>, St
             }
             units
                 .into_iter()
-                .map(|unit| Call {
-                    writers: unit.writers,
-                    inputs: BTreeMap::from([("working-directory".to_owned(), unit.path)]),
+                .map(|built| {
+                    Ok(Call {
+                        writers: built.writers,
+                        inputs: unit(built.path)?,
+                    })
                 })
-                .collect()
+                .collect::<Result<_, Error>>()?
         }
     }))
 }
