@@ -905,10 +905,15 @@ stands in:
 | `Swatinem/rust-cache`, `actions/cache/restore`, `actions/cache/save` | Nothing: a cache changes how fast a step runs, not what it finds.                                              |
 | `actions/upload-artifact`                                            | Nothing leaves the machine, but every path the step names has to exist, as `if-no-files-found: error` demands. |
 
-Any other such action fails the xtask until it has a stand-in. No block calls
-`actions/setup-node` or `actions/setup-go` at present. One step does not run:
-`Make room on the runner` of `check-rust`,
-which deletes software of the machine with `sudo`; on a developer's machine,
+Any other such action fails the xtask until it has a stand-in. Of the blocks,
+`check-css` and `check-html` call `actions/setup-node` for Node.js 24, and none
+calls `actions/setup-go`; for such a step the xtask takes the `node` already on
+the PATH and fails the step unless it is version 24. In the gate, that is the
+Node.js of the runner image: no step before the xtask in `Check repository`
+puts one on the PATH, and `nebensound-repo setup` there finds it and installs
+none. On a developer's machine it is their own, which `cargo xtask setup`
+checks on Linux and does not install. One step does not run:
+`Make room on the runner` of `check-rust`, which deletes software of the machine with `sudo`; on a developer's machine,
 that software would be theirs. A step the xtask leaves out has to exist, so
 renaming it fails the xtask instead of letting the step run.
 

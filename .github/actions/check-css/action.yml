@@ -69,9 +69,9 @@ runs:
     # The two checks below each run even when the other failed, so a single
     # run reports every finding at once.
 
-    # Prettier as in check-markdown: the repository's own configuration, no
-    # ignore file, and nothing in the configuration that passes a whole file
-    # unchecked.
+    # Prettier as `nebensound-repo run markdown` calls it: the repository's
+    # own configuration, no ignore file, and nothing in the configuration that
+    # passes a whole file unchecked.
     - name: Every stylesheet is formatted
       if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
       shell: bash

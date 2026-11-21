@@ -41,9 +41,10 @@ runs:
           exit 1
         fi
         count="$(tr -cd '\0' < "$list" | wc -c)"
-        # One path per line for the link check, written as check-markdown
-        # writes it: the path from the repository root, with one character
-        # put in brackets where lychee would misread the line.
+        # One path per line for the link check, written as
+        # `nebensound-repo run markdown` writes it: the path from the
+        # repository root, with one character put in brackets where lychee
+        # would misread the line.
         tr '\0' '\n' < "$list" | sed \
           -e 's/[][*?{}]/[&]/g' \
           -e 's/^[#[:space:]]/[&]/' \
@@ -51,8 +52,8 @@ runs:
           -e 's|^\([A-Za-z]\)\([^/]*:\)|[\1]\2|' \
           > "$list-lines"
         # The configuration of the link check is named, never looked for, as
-        # in check-markdown: a copy of `lychee.toml`, or an empty file where
-        # there is none.
+        # `nebensound-repo run markdown` names it: a copy of `lychee.toml`, or
+        # an empty file where there is none.
         config="$RUNNER_TEMP/check-html-lychee.toml"
         if [ -f lychee.toml ] && [ ! -L lychee.toml ]; then
           cp lychee.toml "$config"
@@ -105,9 +106,9 @@ runs:
     # The three checks below each run even when one before them failed, so a
     # single run reports every finding at once.
 
-    # Prettier as in check-markdown: the repository's own configuration, no
-    # ignore file, and nothing in the configuration that passes a whole file
-    # unchecked.
+    # Prettier as `nebensound-repo run markdown` calls it: the repository's
+    # own configuration, no ignore file, and nothing in the configuration that
+    # passes a whole file unchecked.
     - name: Every HTML file is formatted
       if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
       shell: bash
@@ -275,8 +276,8 @@ runs:
             }
           '
 
-    # Links into the repository only, run as in check-markdown: a file that is
-    # not there, an `id` that is not in it. `--offline` sends no request, so
+    # Links into the repository only, run as `nebensound-repo run markdown`
+    # runs them: a file that is not there, an `id` that is not in it. `--offline` sends no request, so
     # links to the outside are not checked. lychee reads the repository's
     # `lychee.toml` (named with `--config`) and `.lycheeignore`; phase 0 holds
     # an `exclude_path` there against the declaration. Every link lychee finds
