@@ -858,6 +858,39 @@ fn coverage_reads_coveragerc_with_and_without_the_prefix() {
 }
 
 #[test]
+fn coverage_hands_an_omit_under_default_on_to_every_section() {
+    let found = found(
+        &excusing(".coveragerc"),
+        &python(&[
+            (
+                ".coveragerc",
+                "[DEFAULT]\nomit = src/app.py\n[coverage:run]\nbranch = True\n\
+                 [run]\nomit = src/old.py\n",
+            ),
+            (
+                "svc/setup.cfg",
+                "[DEFAULT]\nomit = gen/*\n[coverage:report]\nskip_empty = true\n",
+            ),
+            (
+                "deep/tox.ini",
+                "[DEFAULT]\nomit = down/legacy.py\n[run]\nbranch = True\n",
+            ),
+        ]),
+    );
+
+    // configparser hands `[DEFAULT]` on to every section that exists, so
+    // `[coverage:run]` sets `omit` and wins over `[run]`; in `tox.ini` no
+    // section coverage.py reads exists, so the default takes nothing out.
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore src/app.py",
+            "unexcused-ignore svc/gen/c.py"
+        ]
+    );
+}
+
+#[test]
 fn coverage_reads_its_sections_in_setup_cfg_tox_ini_and_pyproject() {
     let found = found(
         &format!(

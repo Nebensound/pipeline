@@ -54,7 +54,9 @@
 //!   in every folder, relative to that folder. coverage.py takes the first of
 //!   these, in this order, that exists, where `setup.cfg`, `tox.ini` and
 //!   `pyproject.toml` count only when they hold settings of its own; which
-//!   one that is depends on where it runs, so every one is read.
+//!   one that is depends on where it runs, so every one is read. In the INI
+//!   files, an `omit` under `[DEFAULT]` counts as set in every section the
+//!   file has, as Python's configparser hands it on.
 //! - Ruff: a `# ruff: noqa` or `# flake8: noqa` line without rule codes in a
 //!   Python file, which takes that file out of Ruff's linter; and `exclude`
 //!   and `extend-exclude` in `.ruff.toml`, `ruff.toml` or the `[tool.ruff]`
@@ -1198,13 +1200,16 @@ fn coverage_toml(source: &str, own: bool, base: &RelativePath) -> Result<Option<
 /// with Python's configparser: a value runs on over the indented lines below
 /// its key, and its patterns stand one per line or apart by commas. coverage.py
 /// looks the option up under each of `prefixes` in turn, `coverage:run` before
-/// `run`, and takes it from the first section that sets it.
+/// `run`, and takes it from the first section that sets it. An `omit` under
+/// `[DEFAULT]` counts as set in every section the file has, as configparser
+/// hands it on.
 fn coverage_ini(
     source: &str,
     prefixes: &[&str],
     base: &RelativePath,
 ) -> Result<Option<Matcher>, String> {
     let mut omits: Vec<(String, Vec<String>)> = Vec::new();
+    let mut sections: Vec<String> = Vec::new();
     let mut section: Option<String> = None;
     let mut collecting = false;
     for (number, line) in source.lines().enumerate() {
@@ -1226,6 +1231,7 @@ fn coverage_ini(
                     number + 1
                 ));
             };
+            sections.push(name.trim().to_owned());
             section = Some(name.trim().to_owned());
             continue;
         }
@@ -1242,15 +1248,19 @@ fn coverage_ini(
             collecting = true;
         }
     }
+    let set = |wanted: &str| {
+        omits
+            .iter()
+            .rev()
+            .find(|(section, _)| section == wanted)
+            .map(|(_, patterns)| patterns)
+    };
+    let defaults = set("DEFAULT");
     let mut patterns = Vec::new();
     for name in ["run", "report"] {
         let found = prefixes.iter().find_map(|prefix| {
             let wanted = format!("{prefix}{name}");
-            omits
-                .iter()
-                .rev()
-                .find(|(section, _)| *section == wanted)
-                .map(|(_, patterns)| patterns)
+            set(&wanted).or_else(|| defaults.filter(|_| sections.contains(&wanted)))
         });
         patterns.extend(found.into_iter().flatten().cloned());
     }
