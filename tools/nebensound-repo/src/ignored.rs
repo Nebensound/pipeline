@@ -44,11 +44,14 @@
 //!   findings are dropped. Without `include` it reads everything below the
 //!   folder. The entries of Pyright's default list for `exclude` are no
 //!   finding.
-//! - coverage.py: `omit` in `[run]` and `[report]` of `.coveragerc`, of
-//!   `[coverage:run]` and `[coverage:report]` in `setup.cfg` and `tox.ini`,
+//! - coverage.py: `omit` in `[run]` and `[report]` of `.coveragerc`; of
+//!   `[tool.coverage.run]` and `[tool.coverage.report]` in `.coveragerc.toml`,
+//!   or of `[run]` and `[report]` there where the prefixed table is missing;
+//!   of `[coverage:run]` and `[coverage:report]` in `setup.cfg` and `tox.ini`;
 //!   and of `[tool.coverage.run]` and `[tool.coverage.report]` in a
-//!   `pyproject.toml`, in every folder, relative to that folder; which one
-//!   coverage.py takes depends on where it runs, so every one is read.
+//!   `pyproject.toml`; in every folder, relative to that folder. coverage.py
+//!   takes the first of these, in this order, that holds settings of its own;
+//!   which one that is depends on where it runs, so every one is read.
 //! - Ruff: a `# ruff: noqa` or `# flake8: noqa` line without rule codes in a
 //!   Python file, which takes that file out of Ruff's linter; and `exclude`
 //!   and `extend-exclude` in `.ruff.toml`, `ruff.toml` or the `[tool.ruff]`
@@ -1139,6 +1142,10 @@ fn coverage(patterns: Vec<String>, base: &RelativePath) -> Result<Option<Matcher
 #[derive(Deserialize)]
 struct CoverageTable {
     tool: Option<CoverageTool>,
+    /// Read in `.coveragerc.toml` alone, and only where the prefixed table
+    /// is missing; elsewhere such a table is not coverage.py's.
+    run: Option<Value>,
+    report: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -1157,16 +1164,30 @@ struct CoverageOmit {
     omit: Option<Vec<String>>,
 }
 
-fn coverage_toml(source: &str, base: &RelativePath) -> Result<Option<Matcher>, String> {
+/// `omit` of `[tool.coverage.run]` and `[tool.coverage.report]` in a TOML
+/// file. In coverage.py's own file, `.coveragerc.toml` (`own`), it looks up a
+/// section without the prefix as well, `[run]` for `[tool.coverage.run]`,
+/// where the prefixed one is missing.
+fn coverage_toml(source: &str, own: bool, base: &RelativePath) -> Result<Option<Matcher>, String> {
     let table: CoverageTable = toml::from_str(source).map_err(text)?;
     let sections = table.tool.and_then(|tool| tool.coverage);
-    let patterns = sections
-        .into_iter()
-        .flat_map(|sections| [sections.run, sections.report])
-        .flatten()
-        .filter_map(|section| section.omit)
-        .flatten()
-        .collect();
+    let (run, report) = sections.map_or((None, None), |sections| (sections.run, sections.report));
+    let mut patterns = Vec::new();
+    for (prefixed, bare) in [(run, table.run), (report, table.report)] {
+        let section = match prefixed {
+            None if own => bare
+                .map(Value::try_into::<CoverageOmit>)
+                .transpose()
+                .map_err(text)?,
+            section => section,
+        };
+        patterns.extend(
+            section
+                .and_then(|section| section.omit)
+                .into_iter()
+                .flatten(),
+        );
+    }
     coverage(patterns, base)
 }
 
@@ -1565,7 +1586,9 @@ fn places<'a>(files: &[&'a RelativePath]) -> Vec<(&'a RelativePath, Tool)> {
                 found.push((*file, Tool::Pyright));
                 found.push((*file, Tool::Coverage));
             }
-            Some(".coveragerc" | "setup.cfg" | "tox.ini") => found.push((*file, Tool::Coverage)),
+            Some(".coveragerc" | ".coveragerc.toml" | "setup.cfg" | "tox.ini") => {
+                found.push((*file, Tool::Coverage));
+            }
             _ => {}
         }
     }
@@ -1602,7 +1625,10 @@ fn read_setting(
         }
         Tool::Pyright => pyright_toml(&source, &folder(file)),
         Tool::Coverage if file.file_name() == Some("pyproject.toml") => {
-            coverage_toml(&source, &folder(file))
+            coverage_toml(&source, false, &folder(file))
+        }
+        Tool::Coverage if file.file_name() == Some(".coveragerc.toml") => {
+            coverage_toml(&source, true, &folder(file))
         }
         Tool::Coverage if file.file_name() == Some(".coveragerc") => {
             coverage_ini(&source, &["run", "report"], &folder(file))
