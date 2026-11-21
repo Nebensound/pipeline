@@ -332,15 +332,16 @@ keeps in with an `[[include]]` is checked in every step, coverage included.
 ### `check-toml`
 
 [`.github/actions/check-toml`](.github/actions/check-toml) checks every `.toml`
-file of the unit, `Pipfile`, and `Cargo.lock`, `uv.lock`, `poetry.lock` and
-`pdm.lock`, with Taplo 0.10.0, the release binary pinned by SHA-256:
+file of the unit, and `Cargo.lock`, `uv.lock`, `poetry.lock` and `pdm.lock`,
+with Taplo 0.10.0, the release binary pinned by SHA-256:
 
 - Taplo reads each file from standard input. Given a path, it silently skips
   every `.lock` file and every `Pipfile` (all of them are fed through standard
   input all the same) and every file the `include` or `exclude` of the
   repository's `taplo.toml` leaves out, and reports success.
-- `.toml` files and `Pipfile` are formatted the way Taplo writes them, with the
-  repository's `taplo.toml`. Since `taplo format Pipfile` skips the file, a
+- `.toml` files are formatted the way Taplo writes them, with the repository's
+  `taplo.toml`, and so is `Pipfile`, TOML without an extension that the register
+  gives `toml` by name. Since `taplo format Pipfile` skips the file, a
   `Pipfile` is formatted by hand through standard input,
   `taplo format --stdin-filepath Pipfile - < Pipfile > Pipfile.new`, then moved
   over the original; or the `include` of `taplo.toml` names `**/Pipfile` beside
