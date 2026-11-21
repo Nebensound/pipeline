@@ -1,3 +1,4 @@
 ::error file=pyproject.toml::typeCheckingMode "basic" lowers Pyright's strict mode*
 ::error file=src/sample/cli.py,line=3::'# pyright: basic' lowers Pyright's strict mode for this file*
 ::error file=src/sample/__init__.py,line=1::'# type: ignore' before the first statement takes the whole file out of Pyright*
+::error file=tests/__init__.py,line=1::'# type: ignore' before the first statement takes the whole file out of Pyright*

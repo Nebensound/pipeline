@@ -690,9 +690,11 @@ runs:
 
         # A lower mode in a comment of a file, and a `# type: ignore` without
         # rules before the file's first statement, which Pyright takes as
-        # suppressing every diagnostic of the file.
+        # suppressing every diagnostic of the file. `blanket` is Pyright's own
+        # pattern, matched against the comment after its first `#`, so that a
+        # `# type: ignore` behind another comment on the line counts as well.
         comment = re.compile(r"^\s*#\s*pyright\s*:(.*)$")
-        blanket = re.compile(r"^\s*#\s*type:\s*ignore(\[\s*\])?(\s|$)")
+        blanket = re.compile(r"((^|#)\s*)type:\s*ignore(\s*\[([\s\w,-]*)\]|\s|$)")
         honoured = settings.get("enableTypeIgnoreComments", True) is not False
         for name in files:
             with open(os.path.join(root, name), encoding="utf-8", errors="replace") as file:
@@ -700,7 +702,9 @@ runs:
                 for number, text in enumerate(file, start=1):
                     if not statement and text.strip() and not text.lstrip().startswith("#"):
                         statement = True
-                    if honoured and not statement and blanket.match(text):
+                    stripped = text.lstrip()
+                    found = blanket.search(stripped[1:]) if stripped.startswith("#") else None
+                    if honoured and not statement and found and not (found.group(4) or "").strip():
                         annotate(
                             "error",
                             name,
@@ -851,15 +855,38 @@ runs:
 
         # The paths of the report start at pytest's rootdir, which it prints in
         # its header. Where the repository's `addopts` hide the header (`-q`,
-        # `--no-header`), the rootdir is the unit's folder, the one of the
-        # pyproject.toml pytest reads in the usual case.
-        rootdir = unit
+        # `--no-header`), the rootdir is the folder of the configuration pytest
+        # read: the unit's folder or one above it, up to the repository's root
+        # (the root of a uv workspace, say). Each report path is then taken
+        # from the first of these folders where it names a file.
+        rootdir = None
         with open(out, encoding="utf-8", errors="replace") as file:
             for text in file:
                 match = re.match(r"^rootdir: (.*?)(?:, (?:configfile|testpaths|plugins): .*)?$", text.rstrip("\n"))
                 if match:
                     rootdir = match.group(1)
                     break
+        if rootdir is not None:
+            candidates = [rootdir]
+        else:
+            candidates = []
+            folder = os.path.realpath(unit)
+            top = os.path.realpath(root)
+            while True:
+                candidates.append(folder)
+                if folder == top or os.path.dirname(folder) == folder:
+                    break
+                folder = os.path.dirname(folder)
+
+
+        def located(relative):
+            for candidate in candidates:
+                path = os.path.join(candidate, relative)
+                if os.path.isfile(path):
+                    return path
+            return os.path.join(candidates[0], relative)
+
+
         found = 0
         if os.path.isfile(report):
             real = os.path.realpath(root)
@@ -872,7 +899,7 @@ runs:
                     place = ""
                     relative = case.get("file")
                     if relative:
-                        path = os.path.relpath(os.path.realpath(os.path.join(rootdir, relative)), real)
+                        path = os.path.relpath(os.path.realpath(located(relative)), real)
                         line = int(case.get("line") or 0) + 1
                         # The line of the file the traceback ends in, when it is this file.
                         for text in reversed((element.text or "").splitlines()):
