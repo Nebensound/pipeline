@@ -662,8 +662,9 @@ toolchain, and Ruff's `# ruff: noqa`, which a Python file holds itself.
 Settings in a tool's configuration that pass a whole file unchecked are set
 aside on the command line: Prettier's `requirePragma`, `checkIgnorePragma`,
 `rangeStart` and `rangeEnd`, and rustfmt's `disable_all_formatting`;
-`check-python` runs Pyright without its `ignore` and judges coverage itself, so
-that coverage.py's `omit` takes nothing out. Run by
+`check-python` runs Pyright without its `ignore` and `exclude` and Ruff with
+`--no-force-exclude`, and judges coverage itself, so that coverage.py's `omit`
+takes nothing out. Run by
 hand, the tools read all of them, so phase 0
 holds them against the declaration and fails on every file one of them takes
 out that no `[[exclude]]` entry takes out (`unexcused-ignore`). For lychee,
@@ -678,9 +679,10 @@ block hands lychee. A setting that takes out less is fine. Phase 0 reads:
 | markdownlint-cli2 | `ignores` in `.markdownlint-cli2.jsonc` or `.markdownlint-cli2.yaml`, in every folder       |
 | yamllint          | `ignore` and `ignore-from-file` in `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at root |
 | lychee            | `exclude_path` in `lychee.toml` at the root                                                 |
-| Pyright           | `ignore` in `pyrightconfig.json` or `[tool.pyright]` of `pyproject.toml`, in every folder   |
+| Pyright           | `ignore` and `exclude` in `pyrightconfig.json` or `[tool.pyright]`, in every folder         |
 | coverage.py       | `omit` in `.coveragerc`, `setup.cfg`, `tox.ini` or `pyproject.toml`, in every folder        |
 | Ruff              | `# ruff: noqa` or `# flake8: noqa` without rule codes, in the Python file itself            |
+| Ruff              | `exclude`, `extend-exclude` in `.ruff.toml`, `ruff.toml` or `[tool.ruff]`, in every folder  |
 | rustfmt           | `ignore` in `.rustfmt.toml` or `rustfmt.toml`, in every folder                              |
 | Stylelint         | `.stylelintignore` at the root; `ignoreFiles` in the configuration of every folder          |
 | html-validate     | `.htmlvalidateignore` in every folder                                                       |
@@ -707,7 +709,17 @@ governs; a configuration in JavaScript is not judged, the block sets its
 `ignoreFiles` aside all the same, and a file that something it extends would
 still take out fails in the block. html-validate's `.htmlvalidateignore` is
 read in every folder, relative to that folder, as html-validate's command line
-reads it. A setting phase 0 cannot read fails as well (`unreadable-ignore-file`). A JavaScript options file of markdownlint-cli2
+reads it. Ruff's `exclude` and `extend-exclude` are read in the configuration
+Ruff finds in each folder (the first of `.ruff.toml`, `ruff.toml` and a
+`pyproject.toml` with a `[tool.ruff]` table), relative to that folder, `*`
+crossing a `/` and a pattern without a `/` naming a file or folder of that name
+anywhere below, as Ruff matches them; each counts for what lies below its
+folder that no nearer configuration governs, and for the folder of a nearer one
+itself, which Ruff checks with the configuration above it. Pyright's `exclude`
+is read like its `ignore`. Both tools' `exclude` takes the place of their
+default list, and what that list leaves out (Ruff's `.venv`, `node_modules`,
+`dist` and the like; Pyright's `**/node_modules`, `**/__pycache__` and `**/.*`)
+is no finding, whether a setting names it again or not. A setting phase 0 cannot read fails as well (`unreadable-ignore-file`). A JavaScript options file of markdownlint-cli2
 (`.markdownlint-cli2.cjs` or `.mjs`) is not judged, since phase 0 cannot read it
 without running it; the block sets its `ignores` aside all the same. A setting
 that switches a rule off for some files, such as yamllint's per-rule `ignore`

@@ -757,11 +757,12 @@ fn pyright_ignore_in_pyproject_takes_out_files_and_stubs() {
 }
 
 #[test]
-fn pyright_settings_without_ignore_take_nothing_out() {
+fn pyright_settings_without_ignore_or_exclude_take_nothing_out() {
     for (file, source) in [
         ("pyrightconfig.json", "null\n"),
         ("pyrightconfig.json", "{\"typeCheckingMode\": \"strict\"}\n"),
         ("pyrightconfig.json", "{\"ignore\": []}\n"),
+        ("pyrightconfig.json", "{\"exclude\": []}\n"),
         ("pyproject.toml", "[project]\nname = \"a\"\n"),
         ("pyproject.toml", "[tool.ruff]\nline-length = 100\n"),
         ("pyproject.toml", "[tool.pyright]\nstrict = [\"src\"]\n"),
@@ -777,6 +778,7 @@ fn a_pyright_configuration_that_does_not_read_is_reported() {
     for (file, source) in [
         ("pyrightconfig.json", "{\"ignore\": \"src\"}\n"),
         ("pyrightconfig.json", "{\"ignore\": [\"a[z-a]\"]}\n"),
+        ("pyrightconfig.json", "{\"exclude\": [\"a[z-a]\"]}\n"),
         ("pyproject.toml", "[tool.pyright]\nignore = [\n"),
     ] {
         let found = found(QUIET, &python(&[(file, source)]));
@@ -954,6 +956,322 @@ fn a_python_file_that_takes_itself_out_of_ruff_is_reported() {
         "{message}"
     );
     assert!(message.contains("`# ruff: noqa: <code>`"), "{message}");
+}
+
+#[test]
+fn pyright_exclude_takes_out_what_it_names_below_its_folder() {
+    let found = found(
+        QUIET,
+        &python(&[(
+            "svc/pyrightconfig.json",
+            "{\"exclude\": [\"gen\", \"./src/x.py\"]}\n",
+        )]),
+    );
+
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore svc/gen/c.py",
+            "unexcused-ignore svc/src/x.py",
+        ]
+    );
+    let message = &found[0].message;
+    assert!(
+        message.contains(
+            "svc/pyrightconfig.json takes this file out of Pyright through the pattern `gen`"
+        ),
+        "{message}"
+    );
+    assert!(
+        message.contains("[[exclude]] entry with a reason"),
+        "{message}"
+    );
+}
+
+#[test]
+fn pyright_reads_ignore_and_exclude_of_one_configuration() {
+    let found = found(
+        QUIET,
+        &python(&[(
+            "pyproject.toml",
+            "[tool.pyright]\nignore = [\"src/old.py\"]\nexclude = [\"src/gen\", \"src/old.py\"]\n",
+        )]),
+    );
+
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore src/gen/a.py",
+            "unexcused-ignore src/gen/sub/b.py",
+            "unexcused-ignore src/old.py",
+        ]
+    );
+}
+
+#[test]
+fn pyright_exclude_beside_a_matching_exclusion_is_no_finding() {
+    let declaration = format!(
+        "{QUIET}\n[[exclude]]\npath = \"src/gen\"\nreason = \"generated\"\n\n\
+         [[exclude]]\npath = \"tests\"\nreason = \"of others\"\n"
+    );
+    let found = found(
+        &declaration,
+        &python(&[(
+            "pyproject.toml",
+            "[tool.pyright]\nexclude = [\"src/gen\", \"tests/*.py\"]\n",
+        )]),
+    );
+
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn what_pyright_excludes_by_default_is_no_finding() {
+    let found = found(
+        QUIET,
+        &python(&[
+            (
+                "pyproject.toml",
+                "[tool.pyright]\nexclude = [\"**/node_modules\", \"**/__pycache__\", \"**/.*\", \
+                 \"build\", \"src/*\"]\n",
+            ),
+            ("node_modules/m.py", "x = 1\n"),
+            ("src/__pycache__/c.py", "x = 1\n"),
+            (".venv/lib/v.py", "x = 1\n"),
+            ("build/b.py", "x = 1\n"),
+        ]),
+    );
+
+    // `src/*` takes out what lies in `src/`, but `src/__pycache__/` is on
+    // Pyright's default list all the same.
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore build/b.py",
+            "unexcused-ignore src/app.py",
+            "unexcused-ignore src/gen/a.py",
+            "unexcused-ignore src/gen/sub/b.py",
+            "unexcused-ignore src/old.py",
+            "unexcused-ignore src/types.pyi",
+        ]
+    );
+}
+
+#[test]
+fn ruff_exclude_settings_take_out_what_they_name() {
+    let found = found(
+        QUIET,
+        &python(&[(
+            "pyproject.toml",
+            "[project]\nname = \"a\"\n\n[tool.ruff]\nline-length = 100\n\
+             extend-exclude = [\"gen\", \"deep/*\"]\n",
+        )]),
+    );
+
+    // A pattern without a `/` names a folder of that name anywhere below,
+    // and `*` crosses a `/`.
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore deep/down/legacy.py",
+            "unexcused-ignore src/gen/a.py",
+            "unexcused-ignore src/gen/sub/b.py",
+            "unexcused-ignore svc/gen/c.py",
+        ]
+    );
+    let message = &found[1].message;
+    assert!(
+        message.contains("pyproject.toml takes this file out of Ruff through the pattern `gen`"),
+        "{message}"
+    );
+    assert!(
+        message.contains("The pipeline checks it all the same: give it an [[exclude]] entry"),
+        "{message}"
+    );
+}
+
+#[test]
+fn ruff_exclude_beside_a_matching_exclusion_is_no_finding() {
+    let declaration = format!(
+        "{QUIET}\n[[exclude]]\npath = \"src/gen\"\nreason = \"generated\"\n\n\
+         [[exclude]]\npath = \"svc/gen\"\nreason = \"generated\"\n"
+    );
+    let found = found(
+        &declaration,
+        &python(&[(
+            "pyproject.toml",
+            "[tool.ruff]\nextend-exclude = [\"gen\"]\n",
+        )]),
+    );
+
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn ruff_patterns_follow_its_own_rules() {
+    let found = found(
+        &excusing("ruff.toml"),
+        &python(&[(
+            "ruff.toml",
+            "exclude = [\"./src/gen/\", \"sr*old.py\", \"*.pyi\", \"/abs/deep\", \"svc/*.py\"]\n",
+        )]),
+    );
+
+    // A relative pattern is matched from the folder of the configuration,
+    // `*` crossing a `/`; one without a `/` matches the name of the file or
+    // of a folder above it; an absolute one names nothing in the repository.
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore src/gen/a.py",
+            "unexcused-ignore src/gen/sub/b.py",
+            "unexcused-ignore src/old.py",
+            "unexcused-ignore src/types.pyi",
+            "unexcused-ignore svc/gen/c.py",
+            "unexcused-ignore svc/src/x.py",
+            "unexcused-ignore tests/stub.pyi",
+        ]
+    );
+}
+
+#[test]
+fn what_ruff_excludes_by_default_is_no_finding() {
+    let found = found(
+        QUIET,
+        &python(&[
+            (
+                ".ruff.toml",
+                "exclude = [\".venv\", \"node_modules\", \"build\"]\nextend-exclude = [\"*.py\"]\n",
+            ),
+            ("node_modules/m.py", "x = 1\n"),
+            ("pkg/.venv/lib/v.py", "x = 1\n"),
+            ("dist/d.py", "x = 1\n"),
+            ("build/b.py", "x = 1\n"),
+        ]),
+    );
+
+    // `*.py` takes out every Python file, but those below a folder on Ruff's
+    // default list are no finding, `exclude` replacing that list or not.
+    let summary = summary(&found);
+    assert!(
+        summary.contains(&"unexcused-ignore build/b.py".to_owned()),
+        "{summary:?}"
+    );
+    assert!(
+        summary.contains(&"unexcused-ignore src/app.py".to_owned()),
+        "{summary:?}"
+    );
+    for file in ["node_modules/m.py", "pkg/.venv/lib/v.py", "dist/d.py"] {
+        assert!(
+            !summary.contains(&format!("unexcused-ignore {file}")),
+            "{summary:?}"
+        );
+    }
+}
+
+#[test]
+fn ruff_takes_the_first_configuration_of_a_folder_and_the_nearest_one_governs() {
+    let found = found(
+        &excusing("svc/ruff.toml"),
+        &python(&[
+            (".ruff.toml", "extend-exclude = [\"gen\", \"legacy.py\"]\n"),
+            ("ruff.toml", "extend-exclude = [\"src\"]\n"),
+            ("svc/ruff.toml", "extend-exclude = [\"src/*\"]\n"),
+            ("deep/pyproject.toml", "[project]\nname = \"deep\"\n"),
+        ]),
+    );
+
+    // `svc/ruff.toml` governs `svc/`, so the root's `gen` does not reach
+    // `svc/gen/`; `deep/pyproject.toml` has no `[tool.ruff]`, so the root's
+    // configuration governs `deep/`.
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore deep/down/legacy.py",
+            "unexcused-ignore src/gen/a.py",
+            "unexcused-ignore src/gen/sub/b.py",
+            "unexcused-ignore svc/src/x.py",
+        ]
+    );
+    assert!(
+        found[3]
+            .message
+            .contains("svc/ruff.toml takes this file out of Ruff through the pattern `src/*`"),
+        "{}",
+        found[3].message
+    );
+}
+
+#[test]
+fn ruff_checks_the_folder_of_a_nearer_configuration_with_the_one_above() {
+    let found = found(
+        QUIET,
+        &python(&[
+            ("pyproject.toml", "[tool.ruff]\nexclude = [\"svc\"]\n"),
+            ("svc/pyproject.toml", "[tool.ruff]\nline-length = 100\n"),
+        ]),
+    );
+
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore svc/gen/c.py",
+            "unexcused-ignore svc/src/x.py",
+        ]
+    );
+}
+
+#[test]
+fn ruff_settings_without_exclude_take_nothing_out() {
+    for (file, source) in [
+        ("ruff.toml", "line-length = 100\n"),
+        ("ruff.toml", "exclude = []\nextend-exclude = []\n"),
+        (".ruff.toml", ""),
+        ("pyproject.toml", "[tool.ruff]\nline-length = 100\n"),
+        ("pyproject.toml", "[tool.ruff.lint]\nselect = [\"ALL\"]\n"),
+    ] {
+        let found = found(&excusing(file), &python(&[(file, source)]));
+
+        assert!(found.is_empty(), "{source}: {found:?}");
+    }
+}
+
+#[test]
+fn a_ruff_configuration_that_does_not_read_is_reported() {
+    for (file, source) in [
+        ("ruff.toml", "exclude = \"gen\"\n"),
+        (".ruff.toml", "extend-exclude = [\"a[z-a]\"]\n"),
+        ("ruff.toml", "exclude = [\n"),
+        ("svc/pyproject.toml", "[tool.ruff]\nexclude = 1\n"),
+    ] {
+        let found = found(&excusing(file), &python(&[(file, source)]));
+
+        assert_eq!(
+            summary(&found),
+            [format!("unreadable-ignore-file {file}")],
+            "{source}"
+        );
+        assert!(found[0].message.contains("Ruff"), "{}", found[0].message);
+    }
+}
+
+#[test]
+fn a_ruff_configuration_that_cannot_be_read_is_reported() {
+    let analysis = analysis(QUIET, &[".nebensound/repo.toml", "a.py", "ruff.toml"]);
+    let read = |path: &RelativePath| match path.to_string().as_str() {
+        ".nebensound/repo.toml" => Ok(QUIET.to_owned()),
+        "a.py" => Ok("x = 1\n".to_owned()),
+        _ => Err("it is a link".to_owned()),
+    };
+
+    let found = findings(&analysis, central().register(), &read);
+
+    assert_eq!(summary(&found), ["unreadable-ignore-file ruff.toml"]);
+    assert!(
+        found[0].message.contains("Ruff") && found[0].message.contains("it is a link"),
+        "{}",
+        found[0].message
+    );
 }
 
 #[test]

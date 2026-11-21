@@ -304,8 +304,9 @@ and so is a repository with errors, for the same reason it gets no plan.
 Phase 0 also holds the tools' own ways of leaving a file out against the
 declaration — `.prettierignore`, `include` and `exclude` in `taplo.toml`,
 `ignores` of markdownlint-cli2, `ignore` of yamllint, `exclude_path` of lychee,
-`ignore` of rustfmt, `ignore` of Pyright, `omit` of coverage.py, a Python
-file's `# ruff: noqa`, `.stylelintignore` and `ignoreFiles` of Stylelint,
+`ignore` of rustfmt, `ignore` and `exclude` of Pyright, `omit` of
+coverage.py, `exclude` and `extend-exclude` of Ruff, a Python file's
+`# ruff: noqa`, `.stylelintignore` and `ignoreFiles` of Stylelint,
 `.htmlvalidateignore` of html-validate — and fails on every file one of them
 takes out that no `[[exclude]]` entry does (`unexcused-ignore`). The building
 blocks read none of them except lychee's `exclude_path`, which phase 0 matches
