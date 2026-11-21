@@ -105,6 +105,15 @@ impl Step {
 }
 
 impl Action {
+    /// Whether it declares the input `name`. GitHub reads input names without
+    /// regard to case, so `Plan` declares `plan` as well.
+    #[must_use]
+    pub fn takes(&self, name: &str) -> bool {
+        self.inputs
+            .iter()
+            .any(|input| input.name.eq_ignore_ascii_case(name))
+    }
+
     /// Reads the action in a directory, from `action.yml` or `action.yaml`.
     ///
     /// # Errors
