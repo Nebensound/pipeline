@@ -26,6 +26,8 @@ fn checks(plan: &Plan, name: Option<&str>) -> Vec<String> {
                 units: vec![(*unit).clone()],
                 versions: Vec::new(),
                 pull_request: None,
+                audience: None,
+                previous_audience: None,
             }
             .to_json()
             .contains(&wanted)
@@ -57,7 +59,7 @@ fn the_base_set_runs_at_the_repository() {
 #[test]
 fn a_component_runs_what_it_declares_and_not_the_base_set_again() {
     let plan = planned(
-        "[repo]\npipeline = \"none\"\n\n[component.tool]\npath = \"tool\"\npipeline = { check = \
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.tool]\npath = \"tool\"\npipeline = { check = \
          [\"rust\", \"markdown\"] }\nversioning = \"none\"\n",
         &["README.md", "tool/src/main.rs", "tool/Cargo.toml"],
     );
@@ -69,7 +71,7 @@ fn a_component_runs_what_it_declares_and_not_the_base_set_again() {
 #[test]
 fn a_check_runs_once_at_the_outermost_unit_that_has_it() {
     let plan = planned(
-        "[repo]\npipeline = \"none\"\n\n[component.outer]\npath = \"a\"\npipeline = { check = \
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.outer]\npath = \"a\"\npipeline = { check = \
          [\"rust\"] }\nversioning = \"none\"\n\n[component.inner]\npath = \"a/b\"\npipeline = { \
          check = [\"rust\", \"shell\"] }\nversioning = \"none\"\n\n[component.beside]\npath = \
          \"c\"\npipeline = { check = [\"rust\"] }\nversioning = \"none\"\n",
@@ -85,7 +87,7 @@ fn a_check_runs_once_at_the_outermost_unit_that_has_it() {
 #[test]
 fn two_units_at_one_path_run_a_check_once_and_not_never() {
     let plan = planned(
-        "[repo]\npipeline = \"none\"\n\n[component.first]\npath = \"a\"\npipeline = { check = \
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.first]\npath = \"a\"\npipeline = { check = \
          [\"rust\"] }\nversioning = \"none\"\n\n[component.second]\npath = \"a\"\npipeline = { \
          check = [\"rust\"] }\nversioning = \"none\"\n",
         &["a/x.rs"],
@@ -109,7 +111,7 @@ fn two_units_at_one_path_run_a_check_once_and_not_never() {
 #[test]
 fn a_generated_unit_is_in_the_plan_and_starts_nothing_of_its_own() {
     let plan = planned(
-        "[repo]\npipeline = \"none\"\n\n[component.docs]\npath = \"doc\"\npipeline = { check = \
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.docs]\npath = \"doc\"\npipeline = { check = \
          [\"typst\"] }\nversioning = \"child-files\"\n",
         &["doc/a.typ"],
     );
@@ -121,7 +123,7 @@ fn a_generated_unit_is_in_the_plan_and_starts_nothing_of_its_own() {
 #[test]
 fn a_unit_with_a_version_starts_the_build_its_pipeline_names() {
     let plan = planned(
-        "[repo]\npipeline = \"none\"\n\n[component.lib]\npath = \"lib\"\npipeline = \
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.lib]\npath = \"lib\"\npipeline = \
          \"rust-library-package\"\n",
         &["lib/src/lib.rs", "lib/Cargo.toml"],
     );
@@ -136,7 +138,7 @@ fn a_unit_with_a_version_starts_the_build_its_pipeline_names() {
 #[test]
 fn a_unit_without_a_version_of_its_own_builds_nothing() {
     let plan = planned(
-        "[repo]\npipeline = \"none\"\n\n[component.tool]\npath = \"tool\"\npipeline = { \
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.tool]\npath = \"tool\"\npipeline = { \
          build = \"cargo-release\" }\nversioning = \"none\"\n",
         &["tool/src/main.rs"],
     );
@@ -147,7 +149,7 @@ fn a_unit_without_a_version_of_its_own_builds_nothing() {
 #[test]
 fn generated_units_build_and_the_unit_that_generated_them_does_not() {
     let plan = planned(
-        "[repo]\npipeline = \"none\"\n\n[component.docs]\npath = \"doc\"\npipeline = { \
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.docs]\npath = \"doc\"\npipeline = { \
          check = [\"typst\"], build = \"typst\" }\nversioning = \"child-files\"\n",
         &["doc/a.typ", "doc/b.typ"],
     );
@@ -160,7 +162,7 @@ fn generated_units_build_and_the_unit_that_generated_them_does_not() {
 #[test]
 fn a_unit_with_a_version_beside_its_children_leaves_the_building_to_them() {
     let plan = planned(
-        "[repo]\npipeline = \"none\"\n\n[component.docs]\npath = \"doc\"\npipeline = { \
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.docs]\npath = \"doc\"\npipeline = { \
          check = [\"typst\"], build = \"typst\" }\nversioning = \"self-and-child-files\"\n",
         &["doc/a.typ", "doc/b.typ"],
     );
@@ -174,7 +176,7 @@ fn a_unit_with_a_version_beside_its_children_leaves_the_building_to_them() {
 #[test]
 fn the_json_carries_the_units_and_a_flat_list_for_a_matrix() {
     let plan = planned(
-        "[repo]\npipeline = \"none\"\n\n[component.tool]\npath = \"tool\"\npipeline = { check = \
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.tool]\npath = \"tool\"\npipeline = { check = \
          [\"rust\"] }\nversioning = \"none\"\n",
         &["tool/src/main.rs"],
     );
@@ -183,6 +185,9 @@ fn the_json_carries_the_units_and_a_flat_list_for_a_matrix() {
     assert_eq!(
         json,
         serde_json::json!({
+            "audience": "public",
+            // Read off a history as well.
+            "previous_audience": null,
             "units": [
                 {"kind": "repository", "name": null, "path": ".",
                  "checks": ["json", "markdown", "toml", "yaml"], "build": null},
@@ -208,8 +213,8 @@ fn every_version_names_the_targets_its_unit_publishes_to() {
     git.write(&[
         (
             ".nebensound/repo.toml",
-            "[repo]\npipeline = \"none\"\n\n[component.handbook]\npath = \"doc\"\npipeline \
-             = \"typst-document\"\n\n[component.notes]\npath = \"notes\"\npipeline = { \
+            "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.handbook]\npath = \
+             \"doc\"\npipeline = \"typst-document\"\n\n[component.notes]\npath = \"notes\"\npipeline = { \
              check = [\"typst\"], build = \"typst\", publish = [\"release-assets\"] \
              }\nversioning = \"child-files\"\n",
         ),
