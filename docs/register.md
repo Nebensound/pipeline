@@ -68,7 +68,7 @@ that no check covers has to be excluded. The programs are what the check calls
 | `asciidoc`   | `.adoc`, `.asciidoc`                                     | none                          | none                                                     |
 | `cpp`        | `.c`, `.h`, `.cpp`, `.hpp`, `.cc`, `.hh`, `.cxx`, `.ino` | none                          | none                                                     |
 | `css`        | `.css`, `.scss`                                          | none                          | none                                                     |
-| `dockerfile` | `.dockerfile`                                            | `Dockerfile`, `Containerfile` | none                                                     |
+| `dockerfile` | `.dockerfile`                                            | `Dockerfile`, `Containerfile` | `dockerfmt`, `hadolint`                                  |
 | `html`       | `.html`, `.htm`                                          | none                          | none                                                     |
 | `javascript` | `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.tsx`             | none                          | none                                                     |
 | `json`       | `.json`, `.jsonc`, `.geojson`                            | `composer.lock`, `flake.lock` | `biome`, `jq`, `prettier`                                |
@@ -103,6 +103,8 @@ without a build only the computer's copy can be used: the default mode of
 | `biome`             | `2.5.15` | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
 | `cargo-llvm-cov`    | `0.9.0`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
 | `check-jsonschema`  | `0.39.0` | `python`, `3.11.0` or later | one package for every platform                                                                        |
+| `dockerfmt`         | `1.0.0`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`                                      |
+| `hadolint`          | `2.15.1` | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
 | `jq`                | `1.8.1`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
 | `lychee`            | `0.24.2` | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                    |
 | `markdownlint-cli2` | `0.23.2` | `node`, `22.0.0` or later   | one package for every platform                                                                        |

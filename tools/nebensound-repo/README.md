@@ -46,7 +46,7 @@ nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branc
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `check`             | Runs phase 0 and prints all of it: the resolved configuration, the linter rules laid over the defaults, the tree, the findings (annotations in a workflow run) and the counts. Warns where the name or default branch (`--name`, `--default-branch`, else Git) or a minimum file departs from the conventions. The default; `phase0` calls it.   |
 | `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                                                                             |
-| `explain <path>`    | What holds for one path and why: which units contain it, how each of them is released, which checks are in force, how its coverage stands.                                                                                                                                                                                                       |
+| `explain <path>`    | What holds for one path and why: which units contain it, how each of them is released, which commit types count like `feat`, which checks are in force, how its coverage stands.                                                                                                                                                                 |
 | `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read. With `--pull-request <number> --message <message>`, for a pull request, as `version` reads it. See [The plan](#the-plan).                                                                                            |
 | `version`           | The version of every unit that carries one, as a table: release mode, current version, the version of the commit at hand and, in two stages, the commits waiting for the next promotion. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                               |
 | `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                                                                         |
@@ -362,10 +362,11 @@ afterwards, and `1` when one is missing, a download or an installation failed,
 or the repository has errors. A version that differs from the pinned one is
 said and stops nothing.
 
-Not every program has a build for every platform: on Windows on ARM there is
-none of `jq` and `lychee`. There the default mode uses the computer's copy,
-which then has to be on the `PATH`, and `--pinned` cannot install them: it says
-so for each and exits with `1`, even when the computer has them.
+Not every program has a build for every platform: on Windows there is none of
+`dockerfmt`, and on Windows on ARM none of `hadolint`, `jq` and `lychee`. There
+the default mode uses the computer's copy, which then has to be on the `PATH`,
+and `--pinned` cannot install them: it says so for each and exits with `1`,
+even when the computer has them.
 
 ### The folder
 

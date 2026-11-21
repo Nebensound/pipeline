@@ -1,0 +1,323 @@
+name: check-dockerfile
+description: >-
+  The Dockerfile check over one unit: every `Dockerfile`, `Containerfile` and
+  `.dockerfile` file the unit holds is formatted the way dockerfmt writes it
+  and passes Hadolint.
+
+# One input, and it is not a setting: where the unit is. It comes from the plan
+# of phase 0. The files are the ones `nebensound-repo files` names for the check
+# and the unit: what Git tracks below that path with a file name or an extension
+# the register gives the check, less what an `[[exclude]]` entry of the
+# declaration takes out. A file nobody committed is not judged, a committed one
+# is not missed, and no ignore mechanism of a tool takes one out. The calling
+# job checks the repository out and puts the tool on the PATH first (the action
+# `tool`); every step runs at the repository root. Building the image and
+# running it belong to the build, not here.
+
+inputs:
+  working-directory:
+    description: The directory of the unit, as the plan names it.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Find the Dockerfiles
+      id: files
+      shell: bash
+      env:
+        UNIT: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        list="$RUNNER_TEMP/check-dockerfile-files"
+        # What the register gives `dockerfile`: the file names `Dockerfile`
+        # and `Containerfile`, and the extension `.dockerfile`.
+        # The tool writes a refusal where the list would go: into the log
+        # with it, or the step fails without saying why.
+        if ! nebensound-repo files -z -- dockerfile "$UNIT" > "$list"; then
+          cat "$list" >&2
+          exit 1
+        fi
+        count="$(tr -cd '\0' < "$list" | wc -c)"
+        echo "count=$count" >> "$GITHUB_OUTPUT"
+        echo "list=$list" >> "$GITHUB_OUTPUT"
+        if [ "$count" -eq 0 ]; then
+          echo "No Dockerfile below '$UNIT'; there is nothing to check."
+        else
+          echo "$count Dockerfile(s) to check:"
+          tr '\0' '\n' < "$list"
+        fi
+
+    # The release binaries, pinned by version and by their SHA-256: the
+    # digests GitHub states for the assets of dockerfmt 1.0.0 (its publisher
+    # ships only MD5 files) and checksums.sha256 of Hadolint 2.15.1, the same
+    # as the register's. A changed asset fails here instead of running. Both
+    # are native programs and need no runtime.
+    - name: Install dockerfmt and Hadolint
+      id: tools
+      if: steps.files.outputs.count != '0'
+      shell: bash
+      run: |
+        set -euo pipefail
+        case "$(uname -m)" in
+          x86_64)
+            dockerfmt_asset=dockerfmt-v1.0.0-linux-amd64.tar.gz
+            dockerfmt_digest=da0cd8bbb3f1b6cdbe0bc16d4e762ffb2351a69eb259d84a7ddc35bcf156e1f7
+            hadolint_asset=hadolint-linux-x86_64
+            hadolint_digest=c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507 ;;
+          aarch64)
+            dockerfmt_asset=dockerfmt-v1.0.0-linux-arm64.tar.gz
+            dockerfmt_digest=fb361d10597b998766c72db47c4a70350832860571bb772a8b8cfc780377b7c9
+            hadolint_asset=hadolint-linux-arm64
+            hadolint_digest=f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd3510aca35b344b5d ;;
+          *)
+            echo "::error::check-dockerfile has no dockerfmt or Hadolint binary for $(uname -m)."
+            exit 1 ;;
+        esac
+        dir="$RUNNER_TEMP/check-dockerfile-tools"
+        mkdir -p "$dir"
+        curl --fail --silent --show-error --location --retry 3 \
+          --output "$dir/$dockerfmt_asset" \
+          "https://github.com/reteps/dockerfmt/releases/download/v1.0.0/$dockerfmt_asset"
+        echo "$dockerfmt_digest  $dir/$dockerfmt_asset" | sha256sum --check --quiet
+        tar --extract --gzip --file "$dir/$dockerfmt_asset" --directory "$dir" dockerfmt
+        curl --fail --silent --show-error --location --retry 3 \
+          --output "$dir/hadolint" \
+          "https://github.com/hadolint/hadolint/releases/download/v2.15.1/$hadolint_asset"
+        echo "$hadolint_digest  $dir/hadolint" | sha256sum --check --quiet
+        chmod +x "$dir/dockerfmt" "$dir/hadolint"
+        "$dir/dockerfmt" version
+        "$dir/hadolint" --version
+
+    # The two checks below each run even when the other failed, so a single
+    # run reports every finding at once.
+
+    # dockerfmt has no configuration file and is handed no style flag: it
+    # reads the repository's .editorconfig (indent_style, indent_size,
+    # insert_final_newline and its own space_redirects), so the repository
+    # decides how it formats, as Prettier's configuration does in check-json.
+    #
+    # Every file is checked on its own, and what dockerfmt says about it
+    # becomes an annotation on it; its full output stands in the log.
+    #
+    # dockerfmt checks its own work: an instruction whose formatted form
+    # BuildKit would read differently, or that it cannot verify, it leaves as
+    # written and only warns, and a file with nothing else to change then
+    # passes its check. That instruction was not checked, so the warning fails
+    # the check here, on its line. `# dockerfmt-ignore` on the line before an
+    # instruction leaves it as written on purpose, visible in the file.
+    - name: Every Dockerfile is formatted
+      if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+      shell: bash
+      env:
+        LIST: ${{ steps.files.outputs.list }}
+      run: |
+        set -euo pipefail
+        dockerfmt="$RUNNER_TEMP/check-dockerfile-tools/dockerfmt"
+        out="$RUNNER_TEMP/check-dockerfile-dockerfmt-out"
+        err="$RUNNER_TEMP/check-dockerfile-dockerfmt-err"
+        # A property of a workflow command is escaped so that a `,` or `:` in
+        # it does not cut it short; a message only so that it stays whole.
+        message() {
+          local value="$1"
+          value="${value//'%'/'%25'}"
+          value="${value//$'\r'/'%0D'}"
+          value="${value//$'\n'/'%0A'}"
+          printf '%s' "$value"
+        }
+        property() {
+          local value
+          value="$(message "$1")"
+          value="${value//':'/'%3A'}"
+          value="${value//','/'%2C'}"
+          printf '%s' "$value"
+        }
+        failed=0
+        while IFS= read -r -d '' file; do
+          status=0
+          "$dockerfmt" --check -- "$file" > "$out" 2> "$err" || status=$?
+          cat "$out" "$err"
+          name="$(property "$file")"
+          found=0
+          while IFS= read -r line; do
+            if [ "$line" = "$file is not formatted" ]; then
+              echo "::error file=$name::not formatted the way dockerfmt writes it; 'dockerfmt --write' fixes it"
+              found=1
+            fi
+          done < "$out"
+          while IFS= read -r line; do
+            case "$line" in
+              "$file:"*": left unformatted: "*)
+                rest="${line#"$file:"}"
+                number="${rest%%:*}"
+                reason="${rest#*: left unformatted: }"
+                if [[ "$number" =~ ^[0-9]+$ ]]; then
+                  # The instruction is named by its keyword, which starts
+                  # the line dockerfmt names.
+                  instruction="$(sed -n "${number}{p;q;}" "$file" | awk '{ print toupper($1) }')"
+                  instruction="$(message "${instruction:+$instruction }")"
+                  echo "::error file=$name,line=$number::dockerfmt left the ${instruction}instruction on this line unformatted ($(message "$reason")), so it was not checked; write it so that dockerfmt can format it, or put '# dockerfmt-ignore' on the line before it to leave it as written on purpose"
+                else
+                  echo "::error file=$name::$(message "$line")"
+                fi
+                found=1 ;;
+              "dockerfmt: $file: "*)
+                detail="${line#"dockerfmt: $file: "}"
+                position=""
+                if [[ "$detail" =~ ^line\ ([0-9]+):\ (.*)$ ]]; then
+                  position=",line=${BASH_REMATCH[1]}"
+                  detail="${BASH_REMATCH[2]}"
+                fi
+                echo "::error file=$name$position::dockerfmt cannot read it: $(message "$detail")"
+                found=1 ;;
+              # A setting of .editorconfig dockerfmt cannot use; it formats
+              # with its default for that setting instead.
+              "dockerfmt: warning: "*)
+                echo "::warning file=$name::dockerfmt is $(message "${line#dockerfmt: warning: }")" ;;
+            esac
+          done < "$err"
+          if [ "$status" -ne 0 ] && [ "$found" -eq 0 ]; then
+            echo "::error file=$name::dockerfmt failed on it with exit status $status; its output stands in the log"
+            found=1
+          fi
+          if [ "$found" -ne 0 ]; then
+            failed=1
+          fi
+        done < "$LIST"
+        exit "$failed"
+
+    # The pipeline brings no Hadolint configuration of its own: Hadolint's
+    # own rules hold, and they contradict no other tool of the pipeline. The
+    # repository's `.hadolint.yaml` or `.hadolint.yml` at its root is handed
+    # over with `--config`, as yamllint's is read at the root only; without
+    # one, an empty configuration is. So Hadolint reads none of a user's own
+    # files, which it would look for in the home folder, and no HADOLINT_*
+    # variable: they are cleared.
+    #
+    # The repository's per-rule settings stay its rule configuration:
+    # `ignored`, `override`, the trusted registries, the label schema, a
+    # failure threshold, and the inline and global ignore pragmas, the
+    # language's own means like `#[allow]`. What would pass every finding of a
+    # file unchecked is set aside: `no-fail`, and a `failure-threshold` of
+    # `none` or `ignore`, which leaves Hadolint's default, `info`. A finding
+    # below the threshold, such as a style finding by default, becomes a
+    # warning and fails nothing, as a yamllint warning does in check-yaml.
+    #
+    # Hadolint cannot be told on its command line to set `no-fail` aside, so
+    # its exit code decides nothing: the step reads the configuration as
+    # Hadolint reads it, from what `--verbose` prints, and judges every
+    # finding of the JSON report against the threshold itself. A
+    # configuration Hadolint cannot read, which it would pass over with a
+    # message and run without, fails the step.
+    - name: Every Dockerfile passes Hadolint
+      if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+      shell: bash
+      env:
+        LIST: ${{ steps.files.outputs.list }}
+      run: |
+        set -euo pipefail
+        hadolint="$RUNNER_TEMP/check-dockerfile-tools/hadolint"
+        dump="$RUNNER_TEMP/check-dockerfile-hadolint-configuration"
+        report="$RUNNER_TEMP/check-dockerfile-hadolint-report"
+        err="$RUNNER_TEMP/check-dockerfile-hadolint-err"
+        for variable in $(compgen -e); do
+          case "$variable" in
+            HADOLINT_*) unset "$variable" ;;
+          esac
+        done
+        message() {
+          local value="$1"
+          value="${value//'%'/'%25'}"
+          value="${value//$'\r'/'%0D'}"
+          value="${value//$'\n'/'%0A'}"
+          printf '%s' "$value"
+        }
+        property() {
+          local value
+          value="$(message "$1")"
+          value="${value//':'/'%3A'}"
+          value="${value//','/'%2C'}"
+          printf '%s' "$value"
+        }
+
+        config=""
+        for name in .hadolint.yaml .hadolint.yml; do
+          if [ -f "$name" ]; then
+            config="$name"
+            break
+          fi
+        done
+        if [ -n "$config" ]; then
+          echo "Rules: Hadolint's own, with $config"
+        else
+          # Hadolint refuses a file without any YAML document, so the empty
+          # configuration is an empty mapping.
+          config="$RUNNER_TEMP/check-dockerfile-hadolint.yaml"
+          echo '{}' > "$config"
+          echo "Rules: Hadolint's own"
+        fi
+
+        # Without a Dockerfile, Hadolint prints the configuration it would
+        # run with and stops.
+        "$hadolint" --verbose --config "$config" > /dev/null 2> "$dump" || true
+        if grep -q '^"Error parsing your config file' "$dump"; then
+          cat "$dump"
+          echo "::error file=$(property "$config")::Hadolint cannot read this configuration and would run without it; its message stands in the log"
+          exit 1
+        fi
+        threshold="$(sed -n 's/^  failure threshold: \([a-z]*\)$/\1/p' "$dump")"
+        if [ -z "$threshold" ]; then
+          cat "$dump"
+          echo "::error::Hadolint printed no failure threshold for $config; the configuration it runs with is not known"
+          exit 1
+        fi
+        if [ "$threshold" = ignore ]; then
+          echo "A failure threshold of none or ignore is set aside; Hadolint's default, info, holds."
+          threshold=info
+        fi
+        if grep -q '^  no fail: True$' "$dump"; then
+          echo "no-fail is set aside: a finding at or above the threshold fails the check."
+        fi
+        echo "Failure threshold: $threshold"
+        # Every output format the configuration names is written as well,
+        # before the JSON report the command line asks for, and each goes to
+        # the next `--output`: those of the configuration go nowhere.
+        formats="$(awk '/^  output format:$/ { inside = 1; next }
+          inside && /^    - / { count++; next }
+          inside { exit }
+          END { print count + 0 }' "$dump")"
+        outputs=()
+        for ((i = 0; i < formats; i++)); do
+          outputs+=(--output /dev/null)
+        done
+        outputs+=(--output "$report")
+
+        failed=0
+        while IFS= read -r -d '' file; do
+          name="$(property "$file")"
+          : > "$report"
+          "$hadolint" --config "$config" --no-color --format json "${outputs[@]}" \
+            -- "$file" 2> "$err" || true
+          cat "$err"
+          if ! jq --exit-status 'type == "array"' "$report" > /dev/null 2>&1; then
+            echo "::error file=$name::Hadolint gave no report for it; its output stands in the log"
+            failed=1
+            continue
+          fi
+          # Every finding is an annotation on its line: an error at or above
+          # the threshold, a warning below it.
+          jq --raw-output --arg name "$name" --arg threshold "$threshold" '
+            def rank: {"error": 1, "warning": 2, "info": 3, "style": 4}[.] // 5;
+            def escaped: gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A");
+            .[]
+            | (if (.level | rank) <= ($threshold | rank) then "error" else "warning" end) as $kind
+            | "::\($kind) file=\($name),line=\(.line),col=\(.column)::\(.code) (\(.level)): \(.message | escaped)"
+          ' "$report"
+          if jq --exit-status --arg threshold "$threshold" '
+            def rank: {"error": 1, "warning": 2, "info": 3, "style": 4}[.] // 5;
+            any(.[]; (.level | rank) <= ($threshold | rank))
+          ' "$report" > /dev/null; then
+            failed=1
+          fi
+        done < "$LIST"
+        exit "$failed"

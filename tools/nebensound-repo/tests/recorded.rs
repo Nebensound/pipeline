@@ -577,3 +577,70 @@ const RECORDED_GENERATED: &str = concat!(
     "refactor: drop the guide         | repo 0.0.7, handbook (0.2.2)\n",
     "feat: the guide comes back       | repo 0.0.8, guide 0.2.2, handbook (0.2.2)\n",
 );
+
+/// The repository at `1.0.0` and a component `app` below it, both in one
+/// stage, before `feat-types` names a type of their own.
+const OWN_TYPES: &str = "[repo]\npipeline = \"none\"\nminimum-version = \"1.0.0\"\n\n[component.app]\npath     = \"app\"\npipeline = \"none\"\nminimum-version = \"0.1.0\"\n";
+
+#[test]
+fn a_history_with_types_of_its_own() {
+    let rules = OWN_TYPES.replace("[repo]\n", "[repo]\nfeat-types = [\"rule\"]\n");
+    let mut history = Recorder::new();
+    history.write(&[
+        (".nebensound/repo.toml", OWN_TYPES),
+        ("README.md", "# Rules\n"),
+        ("app/a.md", "# App\n"),
+    ]);
+    history.commit("chore: start");
+    // Before the field, a type of its own is everything else.
+    history.write(&[("README.md", "# Rules\n\nOne.\n")]);
+    history.commit("rule: a rule before the field");
+
+    // The commit that writes the field is read with it.
+    history.write(&[(".nebensound/repo.toml", &rules)]);
+    history.commit("rule: count rules like feat");
+    history.write(&[("README.md", "# Rules\n\nTwo.\n")]);
+    history.commit("rule: a new rule");
+    history.write(&[("README.md", "# Rules\n\nThree.\n")]);
+    history.commit("Rule(readme): the type ignores case");
+    // Below 1.0.0 a listed type is a patch, as feat is, and the breaking
+    // marker stays what it is.
+    history.write(&[("app/a.md", "# App\n\nA rule.\n")]);
+    history.commit("rule(app): a rule below 1.0.0");
+    history.write(&[("app/a.md", "# App\n\nBroken.\n")]);
+    history.commit("rule(app)!: a breaking rule");
+    history.write(&[("README.md", "# Rules\n\nFour.\n")]);
+    history.commit("announcement: a type that is not listed");
+
+    // A declaration that does not read is read with the list of the next
+    // readable one.
+    history.write(&[(".nebensound/repo.toml", "[repo\n")]);
+    history.commit("rule: a declaration that does not read");
+    history.write(&[(".nebensound/repo.toml", &rules)]);
+    history.commit("fix: the declaration reads again");
+
+    // Without the field, each commit is read as before, the one that drops
+    // it included.
+    history.write(&[(".nebensound/repo.toml", OWN_TYPES)]);
+    history.commit("rule: drop the field");
+    history.write(&[("README.md", "# Rules\n\nFive.\n")]);
+    history.commit("rule: after the field");
+
+    holds(&history.finish(), RECORDED_OWN_TYPES);
+}
+
+/// What every run of [`a_history_with_types_of_its_own`] showed.
+const RECORDED_OWN_TYPES: &str = concat!(
+    "chore: start                            | repo 1.0.0, app 0.1.0\n",
+    "rule: a rule before the field           | repo 1.0.1, app (0.1.0)\n",
+    "rule: count rules like feat             | repo 1.1.0, app 0.1.1\n",
+    "rule: a new rule                        | repo 1.2.0, app (0.1.1)\n",
+    "Rule(readme): the type ignores case     | repo 1.3.0, app (0.1.1)\n",
+    "rule(app): a rule below 1.0.0           | repo 1.4.0, app 0.1.2\n",
+    "rule(app)!: a breaking rule             | repo 2.0.0, app 0.2.0\n",
+    "announcement: a type that is not listed | repo 2.0.1, app (0.2.0)\n",
+    "rule: a declaration that does not read  | does not read\n",
+    "fix: the declaration reads again        | repo 2.1.1, app 0.2.2\n",
+    "rule: drop the field                    | repo 2.1.2, app 0.2.3\n",
+    "rule: after the field                   | repo 2.1.3, app (0.2.3)\n",
+);
