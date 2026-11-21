@@ -3,11 +3,13 @@
 //! Both are compiled in so that no repository holds a version that can fall
 //! behind. The defaults are themselves a declaration — the same shape, the same
 //! parser, the same rules — with one freedom more: centrally, an exclusion may
-//! be a pattern.
+//! be a pattern. The Dependabot policy stands in the defaults as well, as a
+//! table of its own that only they hold.
 
 use thiserror::Error;
 
 use crate::ReadError;
+use crate::dependabot::Policy;
 use crate::model::{Declaration, Pipeline};
 use crate::names::{CheckName, EcosystemName, Reason};
 use crate::path::RelativePath;
@@ -62,6 +64,13 @@ pub enum CentralError {
          preset up would mean fetching it out of itself"
     )]
     BaseSetNotWrittenOut,
+    /// The defaults hold no Dependabot policy, or one Dependabot would not
+    /// take.
+    #[error("the Dependabot policy in the defaults {problem}")]
+    Policy {
+        /// What is wrong with it.
+        problem: String,
+    },
     /// The defaults name a check the register does not know.
     #[error("the base set names the check {check}, which the register does not know")]
     UnknownBaseCheck {
@@ -77,6 +86,7 @@ pub struct Central {
     defaults: Declaration,
     base_checks: Vec<CheckName>,
     base_dependabot: Vec<EcosystemName>,
+    dependabot: Policy,
 }
 
 impl Central {
@@ -94,11 +104,26 @@ impl Central {
     ///
     /// # Errors
     ///
-    /// Returns [`CentralError`] when either of them does not read or the
-    /// defaults do not write their base set out.
+    /// Returns [`CentralError`] when either of them does not read, the
+    /// defaults do not write their base set out, or their Dependabot policy
+    /// is missing or one Dependabot would not take.
     pub fn parse(register: &str, defaults: &str) -> Result<Self, CentralError> {
         let register = Register::parse(register)?;
-        let defaults = Declaration::parse_central(defaults)?;
+        // The policy is a table only the defaults hold: it is taken out before
+        // the rest is read as a declaration, whose shape does not know it, so
+        // that a repository's declaration refuses it as an unknown key.
+        Declaration::read_edition(defaults)?;
+        let mut table: toml::Table = toml::from_str(defaults).map_err(ReadError::from)?;
+        let policy = table
+            .remove("dependabot")
+            .ok_or_else(|| CentralError::Policy {
+                problem: "is missing: the defaults hold it under [dependabot]".to_owned(),
+            })?;
+        let dependabot: Policy = policy.try_into().map_err(ReadError::from)?;
+        dependabot
+            .check(&register)
+            .map_err(|problem| CentralError::Policy { problem })?;
+        let defaults = Declaration::from_central_table(table)?;
 
         let Some(Pipeline::Explicit(written)) = &defaults.repo.pipeline else {
             return Err(CentralError::BaseSetNotWrittenOut);
@@ -125,6 +150,7 @@ impl Central {
             defaults,
             base_checks,
             base_dependabot,
+            dependabot,
         })
     }
 
@@ -150,6 +176,12 @@ impl Central {
     #[must_use]
     pub fn base_dependabot(&self) -> &[EcosystemName] {
         &self.base_dependabot
+    }
+
+    /// The policy every entry of a `dependabot.yml` follows.
+    #[must_use]
+    pub fn dependabot(&self) -> &Policy {
+        &self.dependabot
     }
 
     /// What holds for this file, from the defaults and the declaration

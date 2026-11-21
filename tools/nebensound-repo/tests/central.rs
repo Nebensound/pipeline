@@ -12,6 +12,11 @@ fn path(value: &str) -> RelativePath {
     RelativePath::new(value).expect("a path")
 }
 
+/// The smallest Dependabot policy the defaults can hold.
+const POLICY: &str = "\n[dependabot]\ninterval = \"weekly\"\nopen-pull-requests-limit = 5\n\
+                      labels = [\"dependencies\"]\ncommit-prefix = \"deps\"\n\
+                      [dependabot.group]\nname = \"all\"\nupdate-types = [\"minor\", \"patch\"]\n";
+
 const REGISTER: &str = "[version]\n[check.rust]\nextensions = [\".rs\"]\n[build]\n[target]\n[preset]\n\
                         [ecosystem.cargo]\npackage-ecosystem = \"cargo\"\n\
                         manifests = [\"Cargo.toml\"]\n";
@@ -97,7 +102,9 @@ fn a_pattern_matches_and_writes_itself_back() {
 fn the_more_specific_entry_wins_and_on_a_tie_the_inclusion() {
     let central = Central::parse(
         REGISTER,
-        "[repo]\npipeline = { check = [] }\n\n[[exclude]]\npath = \"*.png\"\nreason = \"image\"\n",
+        &format!(
+            "[repo]\npipeline = {{ check = [] }}\n\n[[exclude]]\npath = \"*.png\"\nreason =              \"image\"\n{POLICY}"
+        ),
     )
     .expect("the defaults");
 

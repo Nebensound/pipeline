@@ -800,7 +800,10 @@ fn validating_against_a_register_that_lost_a_target_does_not_panic() {
     let narrower = Central::parse(
         "[version]\n[check.rust]\nextensions = [\".rs\"]\n[build.cargo-package]\nproduces = \"crate\"\n\
          [target]\n[preset]\n[ecosystem]\n",
-        "[repo]\naudience = \"public\"\npipeline = { check = [] }\n",
+        "[repo]\naudience = \"public\"\npipeline = { check = [] }\n\n\
+         [dependabot]\ninterval = \"weekly\"\nopen-pull-requests-limit = 5\nlabels = []\n\
+         commit-prefix = \"deps\"\n[dependabot.group]\nname = \"all\"\n\
+         update-types = [\"minor\"]\n",
     )
     .expect("central data without that target");
     let findings = nebensound_repo::validate(&declaration(source), &resolution, &narrower, &files);

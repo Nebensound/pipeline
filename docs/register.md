@@ -183,6 +183,36 @@ recognizes a manifest of each by.
 | `pip`            | `pip`            | `requirements.txt`            |
 | `uv`             | `uv`             | `uv.lock`                     |
 
+## Dependabot policy
+
+How every ecosystem a declaration has watched is watched, in every repository.
+`nebensound-repo dependabot` prints the `.github/dependabot.yml` the declaration
+and this policy give: one entry per ecosystem, each with the policy applied.
+Phase 0 warns where the file in the tree departs from it (see
+[`stale-dependabot`](declaration.md#stale-dependabot)). Only the defaults hold the
+policy; a declaration cannot change it.
+
+| Setting                                 | Key                        | Value            |
+| --------------------------------------- | -------------------------- | ---------------- |
+| How often                               | `schedule.interval`        | `weekly`         |
+| Open pull requests per entry, at most   | `open-pull-requests-limit` | `5`              |
+| Together in the group `minor-and-patch` | `update-types`             | `minor`, `patch` |
+| Labels                                  | `labels`                   | `dependencies`   |
+
+An update the group does not take comes alone, and so does a security update.
+The commit prefix (`commit-message.prefix`) depends on the ecosystem, and some
+dependencies stay out of the group (`exclude-patterns`), each raise of them a
+pull request of its own:
+
+| Ecosystem        | Commit prefix  | Out of the group                                       |
+| ---------------- | -------------- | ------------------------------------------------------ |
+| `cargo`          | `deps`         | none                                                   |
+| `docker`         | `docker(deps)` | none                                                   |
+| `github-actions` | `ci(deps)`     | `Nebensound/pipeline/.github/workflows/nebensound.yml` |
+| `npm`            | `deps`         | none                                                   |
+| `pip`            | `deps`         | none                                                   |
+| `uv`             | `deps`         | none                                                   |
+
 ## Excluded everywhere
 
 What nobody checks, in any repository. A declaration can pull an entry back in
