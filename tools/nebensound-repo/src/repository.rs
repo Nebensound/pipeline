@@ -13,6 +13,7 @@ use std::process::{Command, Output};
 use std::{fs, io};
 
 use crate::central::CentralError;
+use crate::conformance::{Identity, Told, branch_from_head, name_from_address};
 use crate::history::{Commit, Tag};
 use crate::path::{PathError, RelativePath};
 use crate::register::{BUILTIN_DEFAULTS, BUILTIN_REGISTER};
@@ -526,6 +527,78 @@ impl Repository {
             declarations,
             files,
         })
+    }
+
+    /// The repository's name and default branch: as given, and otherwise as
+    /// Git knows them.
+    ///
+    /// Neither is declared, since GitHub holds both. A run hands them in from
+    /// its event. On a developer's machine Git knows the name from the address
+    /// of `origin`, and the default branch from `refs/remotes/origin/HEAD`,
+    /// which a clone sets. Where Git does not know one, it is
+    /// [`Told::Unknown`] with the reason, and nothing is guessed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Git`] when git does not run or does not answer.
+    pub fn identity(
+        &self,
+        name: Option<&str>,
+        default_branch: Option<&str>,
+    ) -> Result<Identity, Error> {
+        let name = match name {
+            Some(name) => Told::Known(name.to_owned()),
+            None => match self.answer(&["config", "--get", "remote.origin.url"])? {
+                None => Told::Unknown(
+                    "Git knows no address of origin, and the call names none with --name"
+                        .to_owned(),
+                ),
+                Some(address) => name_from_address(&address).map_or_else(
+                    || {
+                        Told::Unknown(format!(
+                            "the address of origin, {:?}, ends without a name",
+                            address.trim()
+                        ))
+                    },
+                    Told::Known,
+                ),
+            },
+        };
+        let default_branch = match default_branch {
+            Some(branch) => Told::Known(branch.to_owned()),
+            None => match self.answer(&["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"])? {
+                None => Told::Unknown(
+                    "Git does not know which branch origin/HEAD names (`git remote set-head \
+                     origin --auto` tells it), and the call names none with --default-branch"
+                        .to_owned(),
+                ),
+                Some(target) => branch_from_head(&target).map_or_else(
+                    || {
+                        Told::Unknown(format!(
+                            "origin/HEAD names {:?}, which is no branch of origin",
+                            target.trim()
+                        ))
+                    },
+                    Told::Known,
+                ),
+            },
+        };
+        Ok(Identity {
+            name,
+            default_branch,
+        })
+    }
+
+    /// What git prints for a question it may have no answer to: [`None`] when
+    /// it exits with 1, which `config --get` and `symbolic-ref --quiet` use
+    /// for "there is none", and only for that.
+    fn answer(&self, args: &[&str]) -> Result<Option<String>, Error> {
+        let output = self.git(args)?;
+        match output.status.code() {
+            Some(0) => Ok(Some(String::from_utf8_lossy(&output.stdout).into_owned())),
+            Some(1) => Ok(None),
+            _ => Err(self.git_failed(&String::from_utf8_lossy(&output.stderr))),
+        }
     }
 
     /// The first-parent line from a commit on, as [`line`] reads it.

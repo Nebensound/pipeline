@@ -24,7 +24,7 @@ use crate::ui::{Flow, Ui};
 /// log in a pipeline and nobody would see why.
 pub fn open(analysis: &Analysis, output: Output) -> io::Result<()> {
     match output {
-        Output::Elsewhere => Err(io::Error::other(
+        Output::Elsewhere | Output::Workflow => Err(io::Error::other(
             "the output does not go to a terminal; `check` is the command for a log",
         )),
         Output::Terminal => ratatui::try_init().and_then(|mut terminal| {

@@ -334,3 +334,37 @@ fn a_git_that_does_not_name_the_files_added_with_intent_is_reported() {
         "{error}"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_git_that_does_not_answer_about_origin_is_reported() {
+    let dir = repository(&[(".nebensound/repo.toml", QUIET)]);
+    let tools = tempfile::tempdir().expect("a directory");
+
+    for word in ["remote.origin.url", "refs/remotes/origin/HEAD"] {
+        let error = Repository::at(dir.path())
+            .with_git(refusing(tools.path(), word))
+            .identity(None, None)
+            .expect_err(word);
+        assert!(
+            error.to_string().contains(&format!("refused {word}")),
+            "{word}: {error}"
+        );
+    }
+
+    let error = Repository::at(dir.path())
+        .with_git("git-that-is-not-installed-here")
+        .identity(None, Some("main"))
+        .expect_err("there is no such program");
+    assert!(error.to_string().contains("git does not list"), "{error}");
+
+    // What the call names is not asked of Git.
+    let identity = Repository::at(dir.path())
+        .with_git("git-that-is-not-installed-here")
+        .identity(Some("pipeline"), Some("main"))
+        .expect("nothing is asked");
+    assert_eq!(
+        identity.name,
+        nebensound_repo::conformance::Told::Known("pipeline".to_owned())
+    );
+}

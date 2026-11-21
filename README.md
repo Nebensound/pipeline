@@ -615,7 +615,9 @@ and file-command variables, and fixed values for the repository and the run
 reads; a case belongs to no repository on GitHub and to no run. The
 expressions `github.*`, `runner.*` and `job.*` know only the names the blocks
 and the actions they call read, with the same values; any other name fails the
-xtask, since on GitHub it would have a value the xtask cannot give. What a step
+xtask, since on GitHub it would have a value the xtask cannot give. Phase 0
+reads the name and the default branch of the event's repository, which are
+`case` and `main`, so that a case gets no warning for either. What a step
 installs with `cargo install` goes into a folder of the run that comes first on
 its `PATH`, so the cases leave the developer's own programs as they are.
 
