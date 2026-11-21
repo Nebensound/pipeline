@@ -1,0 +1,9 @@
+{
+  "value_type": "single_select",
+  "required": true,
+  "default_value": "central",
+  "description": "central: the repository calls the central pipeline and the three checks are required. legacy: not switched yet.",
+  "allowed_values": ["central", "legacy"],
+  "values_editable_by": "org_actors",
+  "require_explicit_values": false
+}
