@@ -116,10 +116,16 @@ const RUN: &[(&str, &str, &str)] = &[
 const JOB: &[(&str, &str)] = &[("check_run_id", "0")];
 
 /// The repository of the event, as far as phase 0 reads it: its name and its
-/// default branch, which the tool holds against the conventions. The name is
-/// the one `GITHUB_REPOSITORY` gives, and the branch the one every repository
-/// has, so that a case gets no warning for either. Any other field is refused.
-const EVENT_REPOSITORY: &[(&str, &str)] = &[("name", "case"), ("default_branch", "main")];
+/// default branch, which the tool holds against the conventions, and its
+/// visibility, which it holds the declared audience against. The name is the
+/// one `GITHUB_REPOSITORY` gives, the branch the one every repository has, and
+/// the visibility the one that fits the audience every case declares, so that
+/// a case gets no finding for any of them. Any other field is refused.
+const EVENT_REPOSITORY: &[(&str, &str)] = &[
+    ("name", "case"),
+    ("default_branch", "main"),
+    ("visibility", "public"),
+];
 
 /// What stands in for an action that runs on Node.js.
 #[derive(Clone, Copy, Debug)]

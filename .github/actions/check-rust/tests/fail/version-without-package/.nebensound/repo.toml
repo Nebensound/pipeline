@@ -4,6 +4,7 @@
 # refuses: there is no package to give the version to. The block fails with the
 # writer's sentence, by name.
 [repo]
+audience = "public"
 pipeline = "rust-workspace"
 
 [component.loose]

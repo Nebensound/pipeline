@@ -246,17 +246,19 @@ fn a_case_is_no_pull_request() {
 }
 
 #[test]
-fn the_repository_of_a_case_has_a_name_and_a_default_branch() {
+fn the_repository_of_a_case_has_a_name_a_default_branch_and_a_visibility() {
     let _alone = support::alone();
-    // Phase 0 hands both to the tool, which holds them against the
-    // conventions; a case's are those every repository has.
+    // Phase 0 hands all three to the tool, which holds the first two against
+    // the conventions and the declared audience against the third; a case's
+    // are those every repository has, and the visibility that fits the
+    // audience every case declares.
     let scene = Scene::new();
     let (outcome, out) = ok(scene.run(
-        "runs:\n  using: composite\n  steps:\n    - shell: bash\n      env:\n        NAME: ${{ github.event.repository.name }}\n      run: echo \"$NAME ${{ github.event.repository.default_branch }}\"\n",
+        "runs:\n  using: composite\n  steps:\n    - shell: bash\n      env:\n        NAME: ${{ github.event.repository.name }}\n      run: echo \"$NAME ${{ github.event.repository.default_branch }} ${{ github.event.repository.visibility }}\"\n",
         &[],
     ));
     assert!(outcome.success, "{out}");
-    assert_eq!(outcome.log, ["case main"]);
+    assert_eq!(outcome.log, ["case main public"]);
 }
 
 #[test]

@@ -25,6 +25,7 @@ const FILES: &[&str] = &[
 
 const WORKSPACE: &str = "\
 [repo]
+audience = \"public\"
 pipeline = { check = [\"rust\"], dependabot = [\"cargo\"] }
 
 [component.thing]
@@ -57,7 +58,7 @@ fn component(name: &str) -> UnitName {
 
 #[test]
 fn one_file_makes_a_tree_with_one_node() {
-    let analysis = run("[repo]\n", &["README.md"]);
+    let analysis = run("[repo]\naudience = \"public\"\n", &["README.md"]);
 
     assert_eq!(analysis.tree.nodes().len(), 1);
     let node = &analysis.tree.nodes()[0];
@@ -106,6 +107,7 @@ fn the_units_at_a_node_stand_outermost_first() {
     let analysis = run(
         "\
 [repo]
+audience = \"public\"
 pipeline = { check = [\"rust\"] }
 
 [component.a]
@@ -160,7 +162,10 @@ fn an_exclusion_stands_at_the_node_with_its_pattern_and_reason() {
 
 #[test]
 fn a_file_without_a_check_in_force_stays_open() {
-    let analysis = run("[repo]\n", &["README.md", "src/main.rs"]);
+    let analysis = run(
+        "[repo]\naudience = \"public\"\n",
+        &["README.md", "src/main.rs"],
+    );
 
     let node = analysis
         .tree
@@ -210,6 +215,7 @@ fn a_finding_about_a_folder_hangs_at_the_folder() {
     let analysis = run(
         "\
 [repo]
+audience = \"public\"
 pipeline = { check = [\"rust\"] }
 
 [component.crates]
@@ -232,6 +238,7 @@ fn what_hangs_at_no_path_stays_beside_the_tree() {
     let analysis = run(
         "\
 [repo]
+audience = \"public\"
 pipeline = \"none\"
 
 [component.gone]

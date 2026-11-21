@@ -24,6 +24,7 @@
 //! most trusted code in the organization compiles nothing it does not call.
 
 pub mod annotate;
+pub mod audience;
 pub mod central;
 pub mod conformance;
 #[cfg(feature = "ui")]
@@ -67,7 +68,7 @@ pub use central::{Central, Ruling};
 pub use edit::DeclarationFile;
 pub use finding::{Finding, Rule, Severity, UnitName};
 pub use history::{History, UnitVersion, Versions};
-pub use model::{Declaration, Edition, Pipeline, Publish, Release, Versioning};
+pub use model::{Audience, Declaration, Edition, Pipeline, Publish, Release, Versioning};
 pub use register::Register;
 pub use resolve::{Resolution, Unit, resolve};
 pub use tree::Tree;
@@ -82,6 +83,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 use thiserror::Error;
 
+use crate::audience::Visibility;
 use crate::output::Output;
 use crate::path::RelativePath;
 use crate::register::{BUILTIN_DEFAULTS, BUILTIN_REGISTER};
@@ -117,6 +119,11 @@ pub enum Command {
         /// not hold.
         #[command(flatten)]
         identity: IdentityArgs,
+        /// How GitHub shows the repository, as a run knows it: phase 0 then
+        /// holds the declared audience against it. Left out, as on a
+        /// developer's machine, nothing is compared.
+        #[arg(long, value_enum)]
+        visibility: Option<Visibility>,
     },
     /// Print the annotated tree and nothing else.
     Tree,
@@ -398,8 +405,9 @@ struct Writing {
 /// A call about the repository.
 enum Job {
     /// Run phase 0 and print the whole result, with the name and the default
-    /// branch the call gives.
-    Check(IdentityArgs),
+    /// branch the call gives, holding the declared audience against the
+    /// visibility if one is given.
+    Check(IdentityArgs, Option<Visibility>),
     /// Print the annotated tree.
     Tree,
     /// Say what holds for this path.
@@ -436,8 +444,11 @@ fn call(cli: &Cli) -> Result<Call, Failure> {
         #[cfg(feature = "program")]
         Some(Command::Schema) => return Ok(Call::Schema),
         Some(Command::Register) => return Ok(Call::Register),
-        None => Job::Check(IdentityArgs::default()),
-        Some(Command::Check { identity }) => Job::Check(identity.clone()),
+        None => Job::Check(IdentityArgs::default(), None),
+        Some(Command::Check {
+            identity,
+            visibility,
+        }) => Job::Check(identity.clone(), *visibility),
         Some(Command::Tree) => Job::Tree,
         Some(Command::Plan { pull_request }) => Job::Plan(pull_request.read()),
         Some(Command::ExcludedPackages) => Job::ExcludedPackages,
@@ -518,6 +529,25 @@ fn files_alone(job: &Job) -> bool {
     }
 }
 
+/// Phase 0 on the repository as the call needs it: without the history for a
+/// call that reads the files alone, and for `check` with a visibility, with
+/// the declared audience held against it.
+fn analysis_for(
+    repository: &Repository,
+    central: &Central,
+    job: &Job,
+) -> Result<Analysis, Failure> {
+    let analysis = if files_alone(job) {
+        repository.analyse_files(central)
+    } else {
+        repository.analyse(central)
+    }?;
+    Ok(match job {
+        Job::Check(_, Some(visibility)) => analysis.with_visibility(*visibility),
+        _ => analysis,
+    })
+}
+
 fn execute(
     cli: &Cli,
     job: &Job,
@@ -528,14 +558,10 @@ fn execute(
 ) -> Result<u8, Failure> {
     let repository = repository_of(cli, job);
     let central = central_from(register, defaults)?;
-    let mut analysis = if files_alone(job) {
-        repository.analyse_files(&central)
-    } else {
-        repository.analyse(&central)
-    }?;
+    let mut analysis = analysis_for(&repository, &central, job)?;
 
     match job {
-        Job::Check(given) => say(
+        Job::Check(given, _) => say(
             out,
             &check(&repository, &mut analysis, &central, given, output)?,
         ),

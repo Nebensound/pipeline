@@ -15,7 +15,7 @@ use ratatui::crossterm::event::{
 };
 use support::analysis;
 
-const QUIET: &str = "[repo]\npipeline = \"none\"\n";
+const QUIET: &str = "[repo]\naudience = \"public\"\npipeline = \"none\"\n";
 
 /// A tree with two gaps, one of them two levels deep.
 fn nested() -> Analysis {

@@ -14,6 +14,7 @@ which name, is described in [the phases](phases.md).
 #:schema https://raw.githubusercontent.com/Nebensound/pipeline/main/.github/actions/check-toml/schemas/nebensound-declaration.json
 
 [repo]
+audience = "public"
 pipeline = "none"
 
 [component.tool]
@@ -32,7 +33,7 @@ reason = "drawn in an editor that writes it; no tool here formats it"
   regular file is refused.
 - It is TOML. Every key that is not described here is an error, so a misspelt
   key fails instead of quietly meaning nothing.
-- `[repo]` is required. Everything else is optional.
+- `[repo]` is required, and in it `audience`. Everything else is optional.
 - The `#:schema` line gives an editor the
   [JSON Schema of the file](../.github/actions/check-toml/schemas/nebensound-declaration.json),
   for completion and for marking an unknown key where it is written. The
@@ -123,6 +124,7 @@ out, and its effect.
 
 | Field             | Type                                 | Default                        | Effect                                                                                                                                                   |
 | ----------------- | ------------------------------------ | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `audience`        | string                               | required                       | For whom the repository is meant: `"public"`, `"internal"` or `"customer"`. See [Audience](#audience).                                                   |
 | `pipeline`        | preset name or table                 | nothing is declared            | What runs for the repository beyond the base set. See [Pipeline](#pipeline).                                                                             |
 | `versioning`      | string                               | `"self"`                       | Which units around the repository carry a version. Only the values that include `self` are open to the repository. See [Versioning](#versioning).        |
 | `release`         | string                               | decided by the publish targets | `"single-stage"` or `"two-stage"`: how the unit's version reaches a full release. See [Releases](#releases).                                             |
@@ -229,6 +231,57 @@ submodules.
 phase 0 fails on every file such a setting takes out that no `[[exclude]]` entry
 does (see [`unexcused-ignore`](#unexcused-ignore) and
 [the README](../README.md#exclusions)).
+
+## Audience
+
+`audience` in `[repo]` says for whom the repository is meant. Rules come in
+layers: some hold for every repository of the organization, some in addition
+for its open-source repositories, some in addition for its internal ones, and
+some in addition for internal projects a customer can see. The value says
+which layers hold for the repository. GitHub knows whether a repository is
+public, but not whether a customer sees it, so the declaration says it.
+
+| Value        | Meaning                                                                                         |
+| ------------ | ----------------------------------------------------------------------------------------------- |
+| `"public"`   | Open source of the organization. The repository is public.                                      |
+| `"internal"` | Private, for the organization alone.                                                            |
+| `"customer"` | Private, and a customer can see it. For rules it includes everything that holds for `internal`. |
+
+- The declaration of the commit at hand carries it; without it, phase 0 fails
+  with [`missing-audience`](#missing-audience). There is no default, since none
+  of the three is true of every repository.
+- Declarations of earlier commits are read with it or without it, and it takes
+  no part in resolving versions: a history resolves to the same versions
+  whether its earlier commits carry the field or not.
+- In a run, phase 0 holds the value against how GitHub shows the repository:
+  `"public"` exactly when the repository is public. A difference is
+  [`mismatched-audience`](#mismatched-audience). On a developer's machine
+  nothing is compared: `nebensound-repo check` compares only when it is given
+  `--visibility`, which the job `nebensound / Declare` passes.
+- A pull request into `main` that changes the value names the old and the new
+  value in the summary of the run, as a notice and in the step summary. A pull
+  request from `main` into `release` names no change: the change was named on
+  its pull request into `main`.
+- The plan carries the value as `audience` (see
+  [the tool's README](../tools/nebensound-repo/README.md#the-plan)), and
+  `nebensound-repo explain` shows it for every path.
+- No rule or check uses the value yet.
+
+### Where a fact lives
+
+So that no fact is kept twice, each lives in one of three places:
+
+- **In the declaration**: what the repository consists of, what the pipeline
+  does with it, and for whom it is meant. It is changed by pull request and
+  read from the tree alone, so it is known on a developer's machine without
+  the network as well.
+- **As a repository property on GitHub**: only what GitHub has to decide
+  without reading the tree, which is what an organization ruleset targets (see
+  [the repository settings](repository-settings.md#repository-properties)). A
+  property that repeats a fact of the declaration is a copy for
+  administration; no step of the pipeline reads a property to decide anything.
+- **Nowhere**: what the files or GitHub already say, such as the languages of
+  a repository and whether it is a fork.
 
 ## Paths and patterns
 
@@ -647,6 +700,22 @@ Error. `[repo]` sets `versioning` to a value without `self` (`child-folders`,
 always carries a version. Use `self`, `self-and-child-folders` or
 `self-and-child-files`, or move the children into a component.
 
+### `missing-audience`
+
+Error. The declaration at the commit at hand does not say for whom the
+repository is meant. Write `audience` in `[repo]`: `"public"` for open source
+of the organization, `"internal"` for the organization alone, `"customer"`
+where a customer can see it (see [Audience](#audience)). Declarations of
+earlier commits are not held to it.
+
+### `mismatched-audience`
+
+Error. In a run, the declared audience does not fit how GitHub shows the
+repository: `"public"` is declared exactly when the repository is public. The
+finding names the value and the visibility. Correct the value, or the
+repository's visibility. On a developer's machine nothing is compared, so the
+finding comes only from a run.
+
 ### `missing-path`
 
 Error. A component's `path` holds nothing Git tracks: the path is misspelt, the
@@ -962,6 +1031,7 @@ sentence that names the file and the mistake, and fails:
   it (see [Editions](#editions)); any other mistake there makes that
   declaration one that cannot be read (see
   [How a version is resolved](#how-a-version-is-resolved));
+- `audience` is none of `"public"`, `"internal"` and `"customer"`;
 - `release` is neither `"single-stage"` nor `"two-stage"`, or
   `minimum-version` is neither `X.Y.Z` nor `X.Y.Z-pre.N`;
 - an entry of `feat-types` is not letters only, is `feat` or `fix`, or stands
