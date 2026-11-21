@@ -588,9 +588,10 @@ writer's block runs once with the plan, provided a unit of the plan selects the
 writer. A build block runs once for every unit the plan starts the build for
 and gives a version of the run, just as a build job does: first the block of
 every version writer the unit selects, with the plan, and the build block only
-when they passed, with the plan when it takes one. A passing case needs the block to succeed everywhere. A
-failing case needs it to fail and to print every finding the case names, so a
-block that fails for another reason does not count.
+when they passed, with the plan when it takes one. A passing case needs the
+block to succeed everywhere. A failing case needs it to fail and to print every
+finding the case names, so a block that fails for another reason does not
+count.
 
 The xtask keeps no copy of what a block does. It reads every step from the
 block's `action.yml` and runs it the way the runner of GitHub Actions does: it
@@ -646,14 +647,15 @@ tool pins, and hands it every option unchanged (`--pinned`, `--with-runtimes`,
 `--check`). Then, on Linux, it checks what only the test cases need: Node.js and
 Go on the `PATH` in the versions the blocks' steps ask for (read from their
 `action.yml`), Docker with Buildx, jq, npm, Python's pip and rustup. It
-installs none of these,
-since they stay the machine's, but names each one that is missing or of another
-version and exits with `1` then, so that a machine it passes can run the cases.
+installs none of these, since they stay the machine's, but names each one that
+is missing or of another version and exits with `1` then, so that a machine it
+passes can run the cases.
 `nebensound-repo setup` may have put a jq into its cache, but the steps look for
 jq on the `PATH`. npm is asked for apart from Node.js, since some systems ship
 it as a package of its own. That the Docker daemon runs is not checked; the
-cases of `build-docker` fail without it. On another system the cases do not run, so `setup`
-leaves out what only they need and says so, and its exit code is the tool's.
+cases of `build-docker` fail without it. On another system the cases do not
+run, so `setup` leaves out what only they need and says so, and its exit code
+is the tool's.
 
 The cases are
 taken out of this repository's own checks with `[[exclude]]` and a reason in

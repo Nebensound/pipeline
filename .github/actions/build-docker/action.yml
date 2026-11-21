@@ -172,9 +172,10 @@ runs:
           exit 1
         fi
 
-    # The layout names one image manifest, and each file is the one its digest
-    # names. It is unpacked beside the tar for the scan, which reads a layout
-    # only as a folder; the tar stays what is handed on.
+    # The layout names one image manifest, and the manifest, each of its layers
+    # and the configuration are the files their digests name. It is unpacked
+    # beside the tar for the scan, which reads a layout only as a folder; the
+    # tar stays what is handed on.
     - name: Read the digest of the image
       id: digest
       shell: bash
@@ -204,7 +205,11 @@ runs:
         fi
         digest="$(jq --raw-output '.manifests[0].digest' "$layout/index.json")"
         blob "$digest"
-        configuration="$(jq --raw-output '.config.digest' "$file")"
+        manifest="$file"
+        while IFS= read -r layer; do
+          blob "$layer"
+        done < <(jq --raw-output '.layers[].digest' "$manifest")
+        configuration="$(jq --raw-output '.config.digest' "$manifest")"
         blob "$configuration"
         config="$file"
         platform="$(jq --raw-output '.os + "/" + .architecture' "$config")"
@@ -331,8 +336,9 @@ runs:
         echo "::error file=$DOCKERFILE::The image of '$UNIT' never became healthy: $reason."
         exit 1
 
-    # The IDs of the first process, real and effective, as the host sees them,
-    # taken back into the container's own user namespace through its uid_map.
+    # The IDs of the first process, real, effective and saved, as the host sees
+    # them, taken back into the container's own user namespace through its
+    # uid_map. A saved ID 0 would let the process switch back to root.
     - name: Require a user other than root
       shell: bash
       env:
@@ -346,17 +352,18 @@ runs:
           echo "::error::The container of '$UNIT' stopped before its user could be read."
           exit 1
         fi
-        read -r real effective < <(awk '/^Uid:/ { print $2, $3 }' "/proc/$pid/status")
+        read -r real effective saved < <(awk '/^Uid:/ { print $2, $3, $4 }' "/proc/$pid/status")
         inside() {
           awk -v id="$1" '$2 <= id && id < $2 + $3 { print $1 + id - $2; exit }' "/proc/$pid/uid_map"
         }
         real="$(inside "$real")"
         effective="$(inside "$effective")"
-        if [ -z "$real" ] || [ -z "$effective" ]; then
+        saved="$(inside "$saved")"
+        if [ -z "$real" ] || [ -z "$effective" ] || [ -z "$saved" ]; then
           echo "::error::The user of the container of '$UNIT' cannot be read from the host."
           exit 1
         fi
-        if [ "$real" -eq 0 ] || [ "$effective" -eq 0 ]; then
+        if [ "$real" -eq 0 ] || [ "$effective" -eq 0 ] || [ "$saved" -eq 0 ]; then
           echo "::error file=$DOCKERFILE::The image of '$UNIT' runs as root: its first process has the user ID 0. Give $DOCKERFILE a USER other than root."
           exit 1
         fi

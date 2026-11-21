@@ -304,9 +304,9 @@ package-ecosystem = "github-actions"
 manifests         = []
 
 # The programs the checks and builds call, each pinned to the version its
-# building block installs, and where that version comes from on each platform: a build per
-# operating system and architecture, or, for a program on a runtime, its one
-# package, which the runtime's installer puts in place. Every download carries
+# building block installs, and where that version comes from on each platform:
+# a build per operating system and architecture, or, for a program on a
+# runtime, its one package, which the runtime's installer puts in place. Every download carries
 # the digest its publisher states for it, in the release data named beside it;
 # a download with another digest is refused. `nebensound-repo setup` reads this.
 #
