@@ -692,7 +692,7 @@ fn reported(analysis: &Analysis, rule: Rule) -> Vec<(String, String)> {
         .collect()
 }
 
-const DOCKER: &str = "[repo]\npipeline = { check = [\"dockerfile\"], build = \"docker\", \
+const DOCKER: &str = "[repo]\naudience = \"public\"\npipeline = { check = [\"dockerfile\"], build = \"docker\", \
                       dependabot = [\"docker\"] }\n";
 
 #[test]
@@ -725,7 +725,7 @@ fn a_container_build_needs_its_dockerfile() {
 
     // A build that reads no file needs none.
     let crate_only = run(
-        "[repo]\npipeline = { dependabot = [\"cargo\"] }\n\n\
+        "[repo]\naudience = \"public\"\npipeline = { dependabot = [\"cargo\"] }\n\n\
          [component.thing]\npath = \"crates/thing\"\n\
          pipeline = { version = [\"cargo\"], check = [\"rust\"], \
          build = \"cargo-package\" }\n",
@@ -739,7 +739,7 @@ fn a_container_build_needs_its_dockerfile() {
 
     // A build the register does not know is reported as that, and only that.
     let unknown = run(
-        "[repo]\npipeline = { check = [\"dockerfile\"], build = \"nothing-like-it\", \
+        "[repo]\naudience = \"public\"\npipeline = { check = [\"dockerfile\"], build = \"nothing-like-it\", \
          dependabot = [\"docker\"] }\n",
         &["README.md", "Dockerfile"],
     );
@@ -758,7 +758,7 @@ fn a_container_build_needs_its_dockerfile() {
 #[test]
 fn each_service_needs_the_dockerfile_below_its_own_path() {
     let analysis = run(
-        "[repo]\npipeline = \"none\"\n\n\
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n\
          [component.api]\npath = \"api\"\n\
          pipeline = { check = [\"dockerfile\"], build = \"docker\", dependabot = [\"docker\"] }\n\n\
          [component.web]\npath = \"web\"\n\
@@ -780,7 +780,7 @@ fn every_generated_unit_needs_its_own_dockerfile() {
     // The children are what the plan builds, each from the files below its own
     // path; the generator leaves the building to them and needs none.
     let analysis = run(
-        "[repo]\npipeline = \"none\"\n\n\
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n\
          [component.services]\npath = \"services\"\nversioning = \"child-folders\"\n\
          pipeline = { check = [\"dockerfile\"], build = \"docker\", dependabot = [\"docker\"] }\n",
         &[
@@ -801,7 +801,7 @@ fn every_generated_unit_needs_its_own_dockerfile() {
 #[test]
 fn a_unit_that_is_never_built_needs_no_file_for_its_build() {
     let analysis = run(
-        "[repo]\npipeline = \"none\"\n\n\
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n\
          [component.api]\npath = \"api\"\nversioning = \"none\"\n\
          pipeline = { check = [\"dockerfile\"], build = \"docker\", dependabot = [\"docker\"] }\n",
         &["README.md", "api/Dockerfile"],
@@ -823,7 +823,7 @@ fn every_preset_that_builds_a_container_asks_for_its_dockerfile() {
         if preset.build.as_ref() != Some(&docker) {
             continue;
         }
-        let declaration = format!("[repo]\npipeline = \"{name}\"\n");
+        let declaration = format!("[repo]\naudience = \"public\"\npipeline = \"{name}\"\n");
         let without = run(&declaration, &["README.md"]);
         assert_eq!(
             reported(&without, Rule::BuildWithoutFile),

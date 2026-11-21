@@ -356,7 +356,7 @@ fn an_ignore_file_that_takes_out_more_than_the_declaration_fails_phase_0() {
 
 #[test]
 fn a_container_build_without_its_dockerfile_fails_phase_0() {
-    let declaration = "[repo]\npipeline = { check = [\"dockerfile\"], build = \"docker\", \
+    let declaration = "[repo]\naudience = \"public\"\npipeline = { check = [\"dockerfile\"], build = \"docker\", \
                        dependabot = [\"docker\"] }\n";
     let dir = repository(&[
         (".nebensound/repo.toml", declaration),
