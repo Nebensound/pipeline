@@ -9,9 +9,10 @@ carries, with the calls that read them back across the organization.
 
 Organization rulesets and the repository properties are not repository
 settings: they are described, as files that can be applied, in
-[the organization's rulesets and properties](organization/README.md).
-Organization secrets get their own document with the issue that introduces
-them.
+[the organization's rulesets and properties](organization/README.md). Which
+repository properties remain, and why, is summed up under
+[Repository properties](#repository-properties). Organization secrets get
+their own document with the issue that introduces them.
 
 ## Immutable releases
 
@@ -143,6 +144,35 @@ Set it for one repository:
 
 ```sh
 gh api -X PATCH repos/Nebensound/<repository> -F delete_branch_on_merge=true
+```
+
+## Repository properties
+
+A fact about a repository lives in one place, so that none is kept twice (see
+[Where a fact lives](declaration.md#where-a-fact-lives)). A repository property
+on GitHub holds only what GitHub has to decide without reading the
+repository's tree, which is what an organization ruleset targets. Two
+properties remain for that, described in
+[the organization's properties](organization/README.md#properties):
+
+- **`lifecycle`**: whether the repository is gated at all.
+- **`pipeline`**: whether the repository has switched to the central pipeline.
+
+For whom a repository is meant is declared in its `.nebensound/repo.toml` as
+`audience` (see [Audience](declaration.md#audience)), not as a property. A
+property that repeats a fact of the declaration would be a copy for
+administration, and no step of the pipeline reads a property to decide
+anything.
+
+The properties `language` and `kind` repeat what the declaration and the files
+already say, and no ruleset targets them. The organization owner removes them,
+with the calls in
+[the owner's checklist there](organization/README.md#checklist-for-the-organization-owner).
+Read back which properties the organization still defines (`lifecycle` and
+`pipeline` are expected once they are removed):
+
+```sh
+gh api orgs/Nebensound/properties/schema --jq '.[].property_name'
 ```
 
 ## Checklist for the organization owner

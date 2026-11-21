@@ -3,4 +3,5 @@
 # of Hadolint (DL3048), below the default threshold `info`: a warning that
 # fails nothing.
 [repo]
+audience = "public"
 pipeline = { check = ["dockerfile"], dependabot = ["docker"] }

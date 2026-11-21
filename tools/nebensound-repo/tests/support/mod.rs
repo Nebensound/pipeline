@@ -60,7 +60,7 @@ pub fn git(root: &Path, args: &[&str]) {
 }
 
 /// The smallest declaration that passes.
-pub const QUIET: &str = "[repo]\npipeline = \"none\"\n";
+pub const QUIET: &str = "[repo]\naudience = \"public\"\npipeline = \"none\"\n";
 
 /// One call of the tool, inside this process.
 ///

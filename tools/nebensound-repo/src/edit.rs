@@ -73,8 +73,10 @@ impl DeclarationFile {
 
     /// An empty declaration that says the repository publishes nothing.
     ///
-    /// This is the file every repository starts with, and it is deliberately
-    /// not empty: an empty file could not be told apart from a forgotten one.
+    /// It is deliberately not empty: an empty file could not be told apart
+    /// from a forgotten one. It names no `audience`, which phase 0 requires
+    /// at the commit at hand, so the caller adds the value before the file
+    /// is committed: there is no default for whom a repository is meant.
     #[must_use]
     pub fn minimal() -> Self {
         let mut document = DocumentMut::new();
