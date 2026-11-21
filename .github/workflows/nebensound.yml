@@ -205,7 +205,7 @@ jobs:
       - name: Not written yet
         env:
           CHECKS: ${{ toJSON(matrix.checks) }}
-          WRITTEN_CHECKS: '["json", "markdown", "rust", "toml", "yaml"]'
+          WRITTEN_CHECKS: '["dockerfile", "json", "markdown", "rust", "toml", "yaml"]'
           UNIT_PATH: ${{ matrix.path }}
         run: |
           set -euo pipefail
@@ -220,6 +220,12 @@ jobs:
             echo "::error::The check '$check' has no building block yet, so '$UNIT_PATH' is not checked for it. It is to be written under .github/actions/check-$check."
           done <<< "$missing"
           exit 1
+
+      - name: dockerfile
+        if: ${{ !cancelled() && contains(matrix.checks, 'dockerfile') }}
+        uses: $/.github/actions/check-dockerfile
+        with:
+          working-directory: ${{ matrix.path }}
 
       - name: json
         if: ${{ !cancelled() && contains(matrix.checks, 'json') }}

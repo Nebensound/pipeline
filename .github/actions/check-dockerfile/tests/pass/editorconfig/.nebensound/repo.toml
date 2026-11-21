@@ -1,0 +1,4 @@
+# The repository's .editorconfig decides how dockerfmt formats: continuation
+# lines indented by two spaces, where dockerfmt's default is four.
+[repo]
+pipeline = { check = ["dockerfile"], dependabot = ["docker"] }

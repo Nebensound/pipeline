@@ -1,0 +1,6 @@
+# The repository's Hadolint configuration is valid YAML but not a valid
+# configuration: `ignored` is a number, not a list of rules. Hadolint would
+# print a message and run without it; the block fails instead, with an
+# annotation on the configuration.
+[repo]
+pipeline = { check = ["dockerfile"], dependabot = ["docker"] }

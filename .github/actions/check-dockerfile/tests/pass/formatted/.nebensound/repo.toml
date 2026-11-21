@@ -1,0 +1,6 @@
+# A Dockerfile and a Containerfile, both formatted the way dockerfmt writes
+# them with its defaults. The label key of the Dockerfile is a style finding
+# of Hadolint (DL3048), below the default threshold `info`: a warning that
+# fails nothing.
+[repo]
+pipeline = { check = ["dockerfile"], dependabot = ["docker"] }
