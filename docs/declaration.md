@@ -731,8 +731,11 @@ Error. A unit is or was released in two stages, at the commit at hand or at any
 commit of the line of `main` that counts for it, and there is no branch
 `origin/release`. Its full releases are the commits promoted there, so neither
 its base nor its next version can be told, and a deleted branch must not move a
-version. Create the branch and fetch it. Only a unit released in one stage at
-every commit that counts for it needs no branch.
+version. Restore a deleted branch at the commit it pointed at, or create it
+where it never existed, and fetch it. A branch created anew where one was
+deleted holds none of the old promotions, so every commit after them would
+resolve again from the last full release before them. Only a unit released in
+one stage at every commit that counts for it needs no branch.
 
 ### `unreleased-before-switch`
 

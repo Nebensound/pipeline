@@ -1500,6 +1500,44 @@ fn a_two_stage_unit_without_the_branch_release_is_an_error() {
 }
 
 #[test]
+fn a_deleted_branch_release_is_restored_where_it_pointed() {
+    let git = units();
+    git.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
+    git.commit("fix: lib one");
+    git.promote();
+    git.write(&[("lib/b.md", "# Lib\n\nTwo.\n")]);
+    git.commit("fix: lib two");
+    let before = analysed(&git);
+    assert!(before.findings().is_empty(), "{:?}", before.findings());
+    assert_eq!(versions(&before)["lib-v"].as_deref(), Some("0.0.2-pre.1"));
+    assert_eq!(current(&before, "lib-v").as_deref(), Some("0.0.2-pre.1"));
+
+    let pointed = git.run(&["rev-parse", "release"]).trim().to_owned();
+    git.run(&["branch", "--delete", "--force", "release"]);
+    git.run(&["update-ref", "-d", "refs/remotes/origin/release"]);
+    let analysis = analysed(&git);
+    let missing = found(&analysis, Rule::MissingReleaseBranch);
+    assert_eq!(missing.len(), 1, "{:?}", analysis.findings());
+    // A branch created anew at the tip of main would hold none of the old
+    // promotions and move the versions after them, so the way out restores
+    // a deleted branch where it pointed.
+    assert!(
+        missing[0].contains("Restore a deleted branch at the commit it pointed at")
+            && missing[0].contains("create it where it never existed"),
+        "{missing:?}"
+    );
+    assert_eq!(versions(&analysis)["lib-v"], None);
+
+    // As the message says: restored and fetched, nothing has moved.
+    git.run(&["branch", "release", &pointed]);
+    git.run(&["update-ref", "refs/remotes/origin/release", "release"]);
+    let after = analysed(&git);
+    assert!(after.findings().is_empty(), "{:?}", after.findings());
+    assert_eq!(versions(&after), versions(&before));
+    assert_eq!(current(&after, "lib-v").as_deref(), Some("0.0.2-pre.1"));
+}
+
+#[test]
 fn switching_to_one_stage_before_promoting_is_an_error() {
     let git = units();
     git.tag("lib-v0.0.1-pre.1", &git.head());

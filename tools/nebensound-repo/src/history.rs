@@ -843,8 +843,9 @@ fn resolve_unit<'h>(
                 "this unit is or was released in two stages, and there is no branch \
                  origin/release. Its full releases are the commits promoted there, so without \
                  the branch neither its last full release nor its next version can be told, and \
-                 a deleted branch must not move a version. Create and fetch the branch; only a \
-                 unit released in one stage at every commit that counts for it needs none",
+                 a deleted branch must not move a version. Restore a deleted branch at the \
+                 commit it pointed at, or create it where it never existed, and fetch it; only \
+                 a unit released in one stage at every commit that counts for it needs none",
             )
             .about(unit.name.clone()),
         );
