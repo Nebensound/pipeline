@@ -983,7 +983,9 @@ whole package (see
 `#[rustfmt::skip]` is the means. A Python file that holds `# ruff: noqa`
 without rule codes takes itself out of Ruff's linter, which honours the line in
 `check-python` as well: give the file an `[[exclude]]` entry, or switch single
-rules off instead (`# ruff: noqa: <code>`).
+rules off instead (`# ruff: noqa: <code>`). Ruff's and Pyright's `exclude`
+take the place of the tool's default list; a file that list leaves out, such as
+one below `node_modules`, is never reported.
 [The README](../README.md#exclusions) lists the settings phase 0 reads.
 
 ### `unreadable-ignore-file`
