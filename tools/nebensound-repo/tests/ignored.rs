@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use nebensound_repo::finding::{Finding, Rule};
 use nebensound_repo::ignored::{Tool, findings};
 use nebensound_repo::path::RelativePath;
-use support::{QUIET, analysis, call, directory, git, repository};
+use support::{QUIET, analysis, call, central, directory, git, repository};
 
 /// The findings for a repository holding these files, read from memory.
 fn found(declaration: &str, files: &[(&str, &str)]) -> Vec<Finding> {
@@ -25,7 +25,7 @@ fn found(declaration: &str, files: &[(&str, &str)]) -> Vec<Finding> {
             .cloned()
             .ok_or_else(|| "no such file".to_owned())
     };
-    findings(&analysis, &read)
+    findings(&analysis, central().register(), &read)
 }
 
 /// Each finding as `<rule> <path>`.
@@ -134,7 +134,7 @@ fn a_line_that_does_not_parse_is_reported_at_its_file() {
 fn a_settings_file_that_cannot_be_read_is_reported() {
     let analysis = analysis(QUIET, &["README.md", "lychee.toml"]);
     let read = |_: &RelativePath| Err("it is a link".to_owned());
-    let found = findings(&analysis, &read);
+    let found = findings(&analysis, central().register(), &read);
 
     assert_eq!(summary(&found), ["unreadable-ignore-file lychee.toml"]);
     assert!(
@@ -195,10 +195,62 @@ fn taplo_include_leaves_out_no_file_taplo_does_not_read_by_default() {
 }
 
 #[test]
-fn taplo_exclude_takes_out_a_lockfile() {
-    let found = found(QUIET, &with(&[("taplo.toml", "exclude = [\"*.lock\"]\n")]));
+fn a_prettierignore_naming_only_a_json_lockfile_takes_nothing_out() {
+    let found = found(
+        &excusing(".prettierignore"),
+        &with(&[
+            ("composer.lock", "{}\n"),
+            (".prettierignore", "composer.lock\n"),
+        ]),
+    );
 
-    assert_eq!(summary(&found), ["unexcused-ignore Cargo.lock"]);
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn a_taplo_exclude_naming_only_a_toml_lockfile_takes_nothing_out() {
+    let found = found(
+        QUIET,
+        &with(&[("taplo.toml", "exclude = [\"Cargo.lock\"]\n")]),
+    );
+
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn a_pattern_that_matches_only_lockfiles_takes_nothing_out() {
+    let found = found(
+        QUIET,
+        &with(&[
+            ("api/uv.lock", "version = 1\n"),
+            ("taplo.toml", "exclude = [\"**/*.lock\"]\n"),
+        ]),
+    );
+
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn a_prettierignore_naming_a_lockfile_and_another_file_counts_at_the_other_file() {
+    let found = found(
+        &excusing(".prettierignore"),
+        &with(&[
+            ("composer.lock", "{}\n"),
+            (".prettierignore", "composer.lock\ndata.json\n"),
+        ]),
+    );
+
+    assert_eq!(summary(&found), ["unexcused-ignore data.json"]);
+}
+
+#[test]
+fn a_taplo_exclude_naming_a_lockfile_and_another_file_counts_at_the_other_file() {
+    let found = found(
+        QUIET,
+        &with(&[("taplo.toml", "exclude = [\"Cargo.lock\", \"Cargo.toml\"]\n")]),
+    );
+
+    assert_eq!(summary(&found), ["unexcused-ignore Cargo.toml"]);
 }
 
 #[test]

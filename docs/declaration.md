@@ -379,10 +379,15 @@ A repository that moves to the pipeline with releases made elsewhere sets
 `minimum-version` above the highest version it ever gave out, pre-releases
 included, so that no version is given out twice.
 
-A generated unit takes both from the unit that generated it. The report of phase
-0 and `nebensound-repo explain` show for every unit how it is released and its
-minimum version, each with where it came from: written on the unit, the default
-of its publish targets, or inherited from the unit that generated it.
+A generated unit takes both from the unit that generated it. On a unit that
+carries no version and generates no children, neither field has a version to act
+on; phase 0 warns about each with
+[`release-field-without-version`](#release-field-without-version).
+
+The report of phase 0 and `nebensound-repo explain` show for every unit how it
+is released and its minimum version, each with where it came from: written on
+the unit, the default of its publish targets, or inherited from the unit that
+generated it.
 
 Both fields take effect where the version of a commit is resolved, as described
 under [Versions](#versions). Nothing is tagged or released yet.
@@ -794,6 +799,15 @@ generates no children that carry one, so there is nothing to copy. Give it a
 `versioning` value that includes `self`, or let it generate children, or remove
 the version writer.
 
+### `release-field-without-version`
+
+Warning. A unit writes `release` or `minimum-version`, carries no version of its
+own and generates no children that would take the field over, so nothing ever
+reads the value. The finding stands at the field in `.nebensound/repo.toml`,
+with the line and column of its value, once for each of the two fields the unit
+writes. It is about the declaration at hand and changes no version. Give the unit
+a `versioning` value that includes `self`, or remove the field.
+
 ### `build-without-version-writer`
 
 Error. A unit declares a build, and does not select a version writer that build
@@ -807,6 +821,18 @@ generates children is reported once, for its own declaration, which the
 children inherit. A unit that carries no version of its own and generates no
 children is not reported: it gets no build job, so nothing it builds can carry
 a wrong version.
+
+### `build-without-file`
+
+Error. A unit gets a build job for its build, and does not hold a file that
+build reads below the unit's path. The build `docker` builds the image from
+`deploy/Dockerfile` below the unit's path and from nothing else, so without it
+the build job fails before it builds. The register names the files each build
+needs (see [Builds](register.md#builds)). Add the file at the path the finding
+names, or choose a build that fits the unit. Only the units the plan builds are
+held to it: a unit that carries a version of its own and generates no children.
+A generated unit needs the file below its own path; the unit that generated it
+leaves the building to its children and needs none.
 
 ### `unwatched-manifest`
 
@@ -928,7 +954,10 @@ Error. A tool's own setting takes a file out of what that tool reads in a
 building block (a line of `.prettierignore`, for example), and no `[[exclude]]`
 entry takes it out. The building block checks the file all the same, since it
 reads no such setting; run by hand, the tool would skip it. Give the file an
-`[[exclude]]` entry with a reason, or let the setting keep it in. A `.rs` file
+`[[exclude]]` entry with a reason, or let the setting keep it in. A lockfile
+the register names is never reported: no building block hands a lockfile to
+Prettier, and Taplo lints without its configuration, so taking one out takes
+nothing out of a check. A `.rs` file
 that rustfmt's `ignore` takes out is excused only by an entry that takes out its
 whole package (see
 [`partial-package-exclusion`](#partial-package-exclusion)); inside a package,

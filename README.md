@@ -380,8 +380,12 @@ read the unit's version of the run from it.
 
 - The Dockerfile is `deploy/Dockerfile` below the unit's path, and the build
   context is the repository root. Each unit has its own, so several services of
-  one workspace each build their own image. A unit without `deploy/Dockerfile`
-  fails by name.
+  one workspace each build their own image. Phase 0 refuses a unit without
+  `deploy/Dockerfile`
+  ([`build-without-file`](docs/declaration.md#build-without-file)). The
+  block's first step keeps a check of its own only as a safeguard: it fails by
+  name where the checkout cannot read a file phase 0 saw, such as a tracked
+  symlink whose target is missing.
 - The image is built once, for `linux/amd64` only, on an `x86_64` runner, by a
   BuildKit of its own pinned by digest, without a cache, without provenance and
   without an SBOM, into an OCI layout. It carries the labels
@@ -520,7 +524,12 @@ Only the files the tool reads in a block count: a `.prettierignore` that takes
 out a Rust file takes out nothing Prettier would have looked at. Taplo's
 `include` counts only against `.toml` files, the ones Taplo reads without it; a
 lockfile of the `toml` check (`Cargo.lock`, `uv.lock`, `poetry.lock`,
-`pdm.lock`) is taken out of Taplo only by `exclude`. Where
+`pdm.lock`) is taken out of Taplo only by `exclude`. A setting that takes out
+nothing but lockfiles the register names, such as a `.prettierignore` naming
+`composer.lock` or an `exclude` naming `Cargo.lock`, takes nothing out of a
+check: no block hands a lockfile to Prettier, and Taplo lints without its
+configuration. One that takes out another file as well is reported at that file
+only. Where
 yamllint's file sets neither `ignore` nor `ignore-from-file`, phase 0 reads them
 in the file its `extends` names, as yamllint does. rustfmt's `ignore` is read in
 every folder, relative to that folder, since which configuration rustfmt applies
@@ -592,9 +601,11 @@ not part of the case's repository.
   `if`, `uses` and `with`, and hands the block exactly
   `working-directory: ${{ matrix.path }}`, so that neither
   `continue-on-error` nor another path silences the check. Beside it the step
-  may hand `plan: ${{ needs.declare.outputs.plan }}`, the plan of phase 0, to a
-  check that writes the versions before it tests a package, as `check-rust`
-  does;
+  hands `plan: ${{ needs.declare.outputs.plan }}`, the plan of phase 0, exactly
+  when the block's `action.yml` declares the input `plan`, as `check-rust` does
+  to write the versions before it tests a package, and never otherwise: the
+  block's cases get the plan exactly then, so a step that dropped it would
+  leave every caller's run without what the cases test;
 - every version writer's block is called from a step named after its entry
   and switched on it with exactly `${{ contains(matrix.writers, '<writer>') }}`,
   and every build block from a step named after its entry and switched on it
@@ -605,9 +616,10 @@ not part of the case's repository.
   condition holds `!cancelled()`, so that nothing is built after a step that
   failed. The step has no other key than `name`, `if`, `uses` and `with`; it
   hands a version writer exactly `plan: ${{ needs.declare.outputs.plan }}` and
-  a build exactly `working-directory: ${{ matrix.path }}`, beside which it may
-  hand the plan to a build that labels what it builds with the unit's version,
-  as `build-docker` does;
+  a build exactly `working-directory: ${{ matrix.path }}`, beside which it
+  hands the plan exactly when the build block's `action.yml` declares the
+  input `plan`, as `build-docker` does to label what it builds with the unit's
+  version;
 - the step `Not written yet` of the check job counts exactly the checks that
   have a block as written (`WRITTEN_CHECKS`), the step `Not written yet` of
   the build job exactly the builds (`WRITTEN_BUILDS`), and the step

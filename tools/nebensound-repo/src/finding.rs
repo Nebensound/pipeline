@@ -82,9 +82,15 @@ pub enum Rule {
     PublishWithoutVersion,
     /// A version writer on a unit that carries no version to copy.
     VersionWriterWithoutVersion,
+    /// A `release` or `minimum-version` on a unit that carries no version for
+    /// it to act on.
+    ReleaseFieldWithoutVersion,
     /// A build without a version writer it needs, so that its artifact would
     /// carry a version the run did not write.
     BuildWithoutVersionWriter,
+    /// A build without a file it reads in the unit, so that its build job would
+    /// fail.
+    BuildWithoutFile,
     /// A manifest whose ecosystem no unit has watched.
     UnwatchedManifest,
     /// A watched ecosystem whose manifest does not exist.
@@ -155,7 +161,9 @@ impl Rule {
             Self::TargetDemandsCheck => "target-demands-check",
             Self::PublishWithoutVersion => "publish-without-version",
             Self::VersionWriterWithoutVersion => "version-writer-without-version",
+            Self::ReleaseFieldWithoutVersion => "release-field-without-version",
             Self::BuildWithoutVersionWriter => "build-without-version-writer",
+            Self::BuildWithoutFile => "build-without-file",
             Self::UnwatchedManifest => "unwatched-manifest",
             Self::PointlessWatch => "pointless-watch",
             Self::UnconventionalCommit => "unconventional-commit",
@@ -192,6 +200,25 @@ pub struct Position {
     pub line: usize,
     /// The column, in characters.
     pub column: usize,
+}
+
+impl Position {
+    /// The line and column of a byte offset in a text, the column counted in
+    /// characters. An offset past the end or inside a character points at the
+    /// start of the text.
+    #[must_use]
+    pub fn at(source: &str, offset: usize) -> Self {
+        let before = source.get(..offset).unwrap_or_default();
+        let line = before.matches('\n').count() + 1;
+        let column = before
+            .rsplit('\n')
+            .next()
+            .unwrap_or_default()
+            .chars()
+            .count()
+            + 1;
+        Self { line, column }
+    }
 }
 
 /// One thing the crate has to say.

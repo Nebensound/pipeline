@@ -12,8 +12,11 @@ description: >-
 # label. The version writers have run before this block in the same job, so a
 # Rust service already carries its version in the build context.
 #
-# The Dockerfile is `deploy/Dockerfile` below the unit's path, and nothing else:
-# a unit without one fails here by name. The build context is the repository
+# The Dockerfile is `deploy/Dockerfile` below the unit's path, and nothing else.
+# Phase 0 already refuses a unit without one (`build-without-file`), so the
+# check in the first step is only a safeguard and has no failing case: it fails
+# by name where phase 0 saw a tracked file the checkout cannot read, such as a
+# symlink whose target is missing. The build context is the repository
 # root, so a unit of a workspace reaches what it shares with its siblings, and
 # the path inside the context is the same for every language.
 #
