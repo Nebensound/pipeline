@@ -455,8 +455,8 @@ impl<'a> Setup<'a, '_> {
             .inspect_err(|_| drop(fs::remove_dir_all(dir)))
     }
 
-    /// Downloads and verifies a package, and installs it into `dir` with its
-    /// runtime's installer.
+    /// Downloads and verifies a package and its companions, and installs them
+    /// into `dir` together with their runtime's installer.
     fn package(
         &self,
         wanted: &Wanted,
@@ -478,7 +478,10 @@ impl<'a> Setup<'a, '_> {
             }
             Found::Missing => return Err(format!("it needs {runtime}, which is missing")),
         };
-        let file = fetch::download(download, staging, self.env)?;
+        let mut files = vec![fetch::download(download, staging, self.env)?];
+        for companion in &wanted.program.companions {
+            files.push(fetch::download(&companion.download(), staging, self.env)?);
+        }
         fresh(dir)?;
         let executable = find::installed_by(
             definition.installer,
@@ -489,7 +492,7 @@ impl<'a> Setup<'a, '_> {
         install::package(
             definition.installer,
             &runtime_executable,
-            &file,
+            &files,
             dir,
             self.env,
         )

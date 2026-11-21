@@ -1,0 +1,5 @@
+# A stylesheet with a long hex colour, which the default forbids and the
+# repository's .stylelintrc.json asks for.
+[repo]
+audience = "public"
+pipeline = { check = ["css"] }

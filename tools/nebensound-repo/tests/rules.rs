@@ -7,7 +7,7 @@ mod support;
 use std::collections::{BTreeMap, BTreeSet};
 
 use nebensound_repo::path::RelativePath;
-use nebensound_repo::rules::{Defaults, MARKDOWNLINT, YAMLLINT, report};
+use nebensound_repo::rules::{Defaults, HTML_VALIDATE, MARKDOWNLINT, STYLELINT, YAMLLINT, report};
 use support::{QUIET, analysis, call, repository};
 
 /// What the report says of a Markdownlint rule the pipeline's file does not
@@ -135,6 +135,8 @@ fn a_change_of_the_default_reaches_a_repository_that_did_not_name_the_rule() {
     let changed = Defaults {
         markdownlint: "{ \"MD013\": false, \"MD041\": false }",
         yamllint: YAMLLINT,
+        stylelint: STYLELINT,
+        html_validate: HTML_VALIDATE,
     };
 
     let before = rules(&files);
@@ -252,6 +254,8 @@ fn a_markdownlint_tag_over_rules_the_default_treats_apart_says_so() {
     let defaults = Defaults {
         markdownlint: "{ \"MD001\": false, \"heading-style\": false, \"whitespace\": false }",
         yamllint: YAMLLINT,
+        stylelint: STYLELINT,
+        html_validate: HTML_VALIDATE,
     };
 
     let text = rules_with(
@@ -278,6 +282,8 @@ fn the_default_of_markdownlint_stands_for_every_rule_it_does_not_name() {
     let defaults = Defaults {
         markdownlint: "{ \"Default\": false, \"MD013\": true }",
         yamllint: YAMLLINT,
+        stylelint: STYLELINT,
+        html_validate: HTML_VALIDATE,
     };
 
     let text = rules_with(
@@ -298,6 +304,8 @@ fn a_yamllint_default_without_extends_leaves_a_rule_it_does_not_name_off() {
     let defaults = Defaults {
         markdownlint: MARKDOWNLINT,
         yamllint: "rules:\n  comments: enable\n",
+        stylelint: STYLELINT,
+        html_validate: HTML_VALIDATE,
     };
 
     let text = rules_with(defaults, &[(".yamllint", "rules:\n  hyphens: enable\n")]);
@@ -501,6 +509,8 @@ fn a_default_that_does_not_read_is_named() {
     let broken = Defaults {
         markdownlint: "{",
         yamllint: "- a\n",
+        stylelint: STYLELINT,
+        html_validate: HTML_VALIDATE,
     };
 
     let text = rules_with(broken, &[(".yamllint", "rules: {}\n")]);
@@ -654,4 +664,265 @@ fn markdownlint_reads_yaml_as_1_2() {
     let text = rules(&[(".markdownlint.yaml", "MD013: no\n")]);
 
     assert_eq!(after(&text, "MD013"), ["\"no\" (over the default false)"]);
+}
+
+/// A declaration whose repository runs the checks for stylesheets and pages.
+const WEB: &str = "[repo]\naudience = \"public\"\npipeline = { check = [\"css\", \"html\"] }\n";
+
+/// The report for a repository that runs the checks for stylesheets and
+/// pages, with a stylesheet and a page at the root, in `web/` and in
+/// `web/admin/`, held against these defaults.
+fn web_with(defaults: Defaults<'_>, files: &[(&str, &str)]) -> String {
+    let paths = [
+        ".nebensound/repo.toml",
+        "README.md",
+        "site.css",
+        "index.html",
+        "web/theme.scss",
+        "web/page.html",
+        "web/admin/admin.css",
+        "web/admin/index.htm",
+    ];
+    report_for(WEB, &paths, files, defaults)
+}
+
+fn web(files: &[(&str, &str)]) -> String {
+    web_with(Defaults::BUILT_IN, files)
+}
+
+/// What the report says of a rule the pipeline's file for Stylelint does not
+/// name.
+const CSS_UNNAMED: &str = "the pipeline's file does not name it; what its `extends: stylelint-config-standard` sets holds";
+
+#[test]
+fn stylesheets_and_pages_show_their_defaults_only_where_their_check_covers_a_file() {
+    let text = web(&[]);
+    assert_eq!(
+        text.lines().skip(4).collect::<Vec<_>>(),
+        [
+            "  css                                                   Stylelint: the default, \
+             nothing laid over it",
+            "  html                                                  html-validate: the default, \
+             nothing laid over it",
+        ]
+    );
+    assert!(
+        STYLELINT.contains("stylelint-config-standard-scss"),
+        "{STYLELINT}"
+    );
+    assert!(
+        HTML_VALIDATE.contains("html-validate:a11y"),
+        "{HTML_VALIDATE}"
+    );
+
+    // Without a stylesheet or a page, neither is shown.
+    assert_eq!(rules(&[]).lines().count(), 4);
+}
+
+#[test]
+fn stylelint_reads_the_nearest_configuration_of_each_stylesheet() {
+    let text = web(&[
+        ("package.json", "{ \"name\": \"site\" }\n"),
+        (
+            ".stylelintrc.json",
+            "{ \"rules\": { \"color-hex-length\": \"long\" } }\n",
+        ),
+        (
+            "web/.stylelintrc.yaml",
+            "extends: stylelint-config-recess-order\n",
+        ),
+        (
+            "web/admin/package.json",
+            "{ \"stylelint\": { \"rules\": {} } }\n",
+        ),
+        ("docs/.stylelintrc", "rules:\n  a: 1\n"),
+    ]);
+
+    assert!(
+        text.contains("Stylelint: the default, with these laid over it"),
+        "{text}"
+    );
+    assert_eq!(
+        after(&text, ".stylelintrc.json"),
+        ["laid over the default rule by rule"]
+    );
+    assert_eq!(
+        after(&text, "color-hex-length"),
+        [format!("\"long\" ({CSS_UNNAMED})")]
+    );
+    assert_eq!(
+        after(&text, "web/.stylelintrc.yaml"),
+        ["laid over the default rule by rule, in place of any configuration above it"]
+    );
+    assert_eq!(
+        after(&text, "extends"),
+        ["stylelint-config-recess-order: what it sets lies beneath the rules here"]
+    );
+    assert_eq!(
+        after(&text, "web/admin/package.json"),
+        [
+            "laid over the default rule by rule, in place of any configuration above it; it \
+             names no rule"
+        ]
+    );
+    // A folder without a stylesheet below it is not read, nor is a
+    // package.json without a configuration of Stylelint.
+    assert!(!text.contains("docs/"), "{text}");
+    assert!(!text.contains("  package.json"), "{text}");
+}
+
+#[test]
+fn stylelint_reads_a_configuration_in_the_config_folder_and_names_one_in_javascript() {
+    let text = web(&[
+        (".config/stylelintrc.yml", "rules:\n  color-named: never\n"),
+        ("web/stylelint.config.mjs", "export default {};\n"),
+        ("web/admin/package.json", "{ \"stylelint\": "),
+    ]);
+
+    assert_eq!(
+        after(&text, ".config/stylelintrc.yml"),
+        ["laid over the default rule by rule"]
+    );
+    assert_eq!(
+        after(&text, "color-named"),
+        [format!("\"never\" ({CSS_UNNAMED})")]
+    );
+    assert_eq!(
+        after(&text, "web/stylelint.config.mjs"),
+        ["written in JavaScript, which phase 0 does not run"]
+    );
+    assert_eq!(after(&text, "web/admin/package.json").len(), 1, "{text}");
+    assert!(
+        after(&text, "web/admin/package.json")[0].starts_with("cannot be read: "),
+        "{text}"
+    );
+}
+
+#[test]
+fn html_validate_reads_every_configuration_above_a_page() {
+    let text = web(&[
+        (
+            ".htmlvalidate.json",
+            "{ \"extends\": [\"html-validate:standard\"], \"rules\": { \"no-inline-style\": \"off\" } }\n",
+        ),
+        (".htmlvalidate.cjs", "module.exports = {};\n"),
+        ("web/admin/.htmlvalidate.json", "{ \"root\": true }\n"),
+        (
+            "docs/.htmlvalidate.json",
+            "{ \"rules\": { \"a\": \"off\" } }\n",
+        ),
+    ]);
+
+    assert!(
+        text.contains("html-validate: the default, with these laid over it"),
+        "{text}"
+    );
+    assert_eq!(
+        after(&text, ".htmlvalidate.json"),
+        ["laid over the default rule by rule"]
+    );
+    assert_eq!(
+        after(&text, "extends"),
+        ["html-validate:standard: what it sets lies beneath the rules here"]
+    );
+    assert_eq!(
+        after(&text, "no-inline-style"),
+        [
+            "\"off\" (the pipeline's file does not name it; what its `extends: \
+             html-validate:recommended, html-validate:a11y, html-validate:prettier` sets holds)"
+        ]
+    );
+    assert_eq!(
+        after(&text, ".htmlvalidate.cjs"),
+        ["written in JavaScript, which phase 0 does not run"]
+    );
+    assert_eq!(
+        after(&text, "web/admin/.htmlvalidate.json"),
+        ["laid over the default and what lies above it, rule by rule; it names no rule"]
+    );
+    assert!(!text.contains("docs/"), "{text}");
+}
+
+#[test]
+fn a_rule_the_default_of_stylelint_or_html_validate_names_is_compared() {
+    let defaults = Defaults {
+        markdownlint: MARKDOWNLINT,
+        yamllint: YAMLLINT,
+        stylelint: "rules:\n  color-named: never\n",
+        html_validate: "{ \"extends\": \"html-validate:standard\", \"rules\": { \"void-style\": \"off\" } }",
+    };
+    let text = web_with(
+        defaults,
+        &[
+            (
+                ".stylelintrc.yaml",
+                "rules:\n  color-named: never\n  color-no-hex: true\n",
+            ),
+            (
+                ".htmlvalidate.json",
+                "{ \"rules\": { \"void-style\": \"error\" } }\n",
+            ),
+        ],
+    );
+
+    assert_eq!(
+        after(&text, "color-named"),
+        ["\"never\" (the same as the default)"]
+    );
+    assert_eq!(
+        after(&text, "color-no-hex"),
+        ["true (the pipeline's file does not name it, so it is off)"]
+    );
+    assert_eq!(
+        after(&text, "void-style"),
+        ["\"error\" (over the default \"off\")"]
+    );
+}
+
+#[test]
+fn a_configuration_of_stylelint_or_html_validate_that_does_not_read_says_why() {
+    for (file, source, why) in [
+        (
+            ".stylelintrc.json",
+            "[1]",
+            "cannot be read: it holds no mapping",
+        ),
+        (
+            ".stylelintrc.json",
+            "{ \"extends\": 3 }",
+            "cannot be read: `extends` is neither text nor a list of text",
+        ),
+        (
+            ".stylelintrc.json",
+            "{ \"extends\": [3] }",
+            "cannot be read: `extends` holds an entry that is not text",
+        ),
+        (
+            ".stylelintrc.json",
+            "{ \"rules\": [] }",
+            "cannot be read: `rules` is not a mapping",
+        ),
+        (".htmlvalidate.json", "{", "cannot be read: "),
+    ] {
+        let text = web(&[(file, source)]);
+        let shown = after(&text, file);
+        assert_eq!(shown.len(), 1, "{source}: {text}");
+        assert!(shown[0].starts_with(why), "{source}: {text}");
+    }
+
+    let broken = Defaults {
+        markdownlint: MARKDOWNLINT,
+        yamllint: YAMLLINT,
+        stylelint: "a: [\n",
+        html_validate: "{",
+    };
+    let text = web_with(broken, &[]);
+    assert!(
+        text.contains("Stylelint: the pipeline's default does not read: "),
+        "{text}"
+    );
+    assert!(
+        text.contains("html-validate: the pipeline's default does not read: "),
+        "{text}"
+    );
 }

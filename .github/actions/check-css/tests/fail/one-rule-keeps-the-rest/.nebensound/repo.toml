@@ -1,0 +1,5 @@
+# The repository asks for long hex colours and leaves every other rule of the
+# default as it is, so a font family without a generic one still fails.
+[repo]
+audience = "public"
+pipeline = { check = ["css"] }
