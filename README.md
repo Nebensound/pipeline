@@ -106,6 +106,29 @@ fills ([`.github/actions/tool`](.github/actions/tool)); it builds the tool
 only when the cache misses. The list does not travel through a job output,
 which is limited in size.
 
+The checks for JSON, Markdown, TOML and YAML run from the tool. Their blocks do
+two things: `nebensound-repo setup --pinned --with-runtimes <check>` puts the
+pinned version of every program the check calls into the tool's folder in the
+cache directory, with a runtime one of them needs where the runner has none
+that is new enough, and `nebensound-repo run <check> <unit path>` runs the
+check over exactly the files `files` names. `run` starts the programs the
+register pins with the flags described below, each part even when one before it
+failed, and reports every finding with its file, and its line and column where
+the program gives them: as an annotation in a workflow run, and as a line that
+starts with `file:line:col:` elsewhere. What the programs print stands in the
+output as well.
+
+The same call runs a check on a developer's computer, on Linux and macOS alike,
+once `nebensound-repo setup` has put the programs in place. `run` installs
+nothing: it takes the pinned copy of a program first and the computer's
+otherwise, and fails with a pointer to `setup` where there is neither, while
+the parts of the check whose programs are there still run.
+markdownlint-cli2 and yamllint are run through their internals, so that the
+repository's rules are laid over the pipeline's default, and of those two `run`
+takes only the pinned copy. What `run` hands the programs, its configuration for
+Biome, the schemas for Taplo and the pipeline's linter defaults, is compiled
+into the tool.
+
 ### `check-css`
 
 [`.github/actions/check-css`](.github/actions/check-css) checks every `.css`
@@ -190,8 +213,9 @@ finding.
   `jq`.
 - `.jsonc` is strict JSONC as [jsonc.org](https://jsonc.org) defines it: JSON
   plus comments, trailing commas allowed. Biome judges it as a parser only, with
-  the action's own configuration and no lint rule; a repository's Biome
-  configuration is not read.
+  the tool's own configuration
+  ([`run/biome.json`](tools/nebensound-repo/run/biome.json)) and no lint rule;
+  a repository's Biome configuration is not read.
 - `composer.lock`, `flake.lock` and `Pipfile.lock` are strict JSON like
   `.json`, judged by `jq`, but not format-checked: the tool that writes them
   decides their layout (Composer and pipenv indent with four spaces). Every file
@@ -202,7 +226,7 @@ finding.
   `requirePragma`, `checkIgnorePragma`, `rangeStart` and `rangeEnd` set aside,
   which would pass a whole file unchecked.
 
-Every step runs even when one before it failed, so one run shows every finding.
+Every part runs even when one before it failed, so one run shows every finding.
 
 ### `check-markdown`
 
@@ -219,10 +243,12 @@ Every step runs even when one before it failed, so one run shows every finding.
   the root, so excluded addresses, accepted status codes and timeouts stay the
   repository's configuration. An `exclude_path` there is held against the
   declaration by phase 0, like every setting that takes files out (see
-  [Exclusions](#exclusions)). The block names `lychee.toml` as the
+  [Exclusions](#exclusions)). `run` names `lychee.toml` as the
   configuration, so a lychee table in `Cargo.toml`, `pyproject.toml` or
   `package.json`, which lychee would otherwise read where there is no
-  `lychee.toml`, is not read.
+  `lychee.toml`, is not read. lychee's report stands in the output, and every
+  broken link in it is a finding on the file that holds it, at the line and
+  column lychee names.
 
 ### `check-python`
 
@@ -333,7 +359,7 @@ keeps in with an `[[include]]` is checked in every step, coverage included.
 
 [`.github/actions/check-toml`](.github/actions/check-toml) checks every `.toml`
 file of the unit, and `Cargo.lock`, `uv.lock`, `poetry.lock` and `pdm.lock`,
-with Taplo 0.10.0, the release binary pinned by SHA-256:
+with Taplo 0.10.0, the release binary the register pins by SHA-256:
 
 - Taplo reads each file from standard input. Given a path, it silently skips
   every `.lock` file (the lockfiles are fed through standard input all the
@@ -346,31 +372,32 @@ with Taplo 0.10.0, the release binary pinned by SHA-256:
   other.
 - Every file passes `taplo lint`, run without the repository's configuration so
   that it cannot switch the schema validation off.
-- Schemas are assigned by the action, so far to `Cargo.toml` by file name and
+- Schemas are assigned by the tool, so far to `Cargo.toml` by file name and
   to `.nebensound/repo.toml` by path (below). The schemas for `Cargo.toml` are
-  copies of SchemaStore's schemas that lie beside the action with their
-  licence notice (see [their README](.github/actions/check-toml/schemas/README.md)),
-  so the check makes no request to SchemaStore. Apart from the declaration, a
+  copies of SchemaStore's schemas that the tool compiles in from
+  `tools/nebensound-repo/schemas/`, where they lie with their licence notice
+  (see [their README](tools/nebensound-repo/schemas/README.md)), so the check
+  makes no request to SchemaStore. Apart from the declaration, a
   file whose leading comments hold its own `#:schema` directive with an
   absolute URL keeps that schema. A schema that cannot be read fails the check
   instead of being skipped.
 - `.nebensound/repo.toml` is always checked against the schema of the
-  declaration that lies beside the action, the one of the same pipeline
-  version as phase 0, directive or not. `nebensound-repo schema` derives it from
+  declaration the tool compiles in, the one of the same pipeline version as
+  phase 0, directive or not. `nebensound-repo schema` derives it from
   the types phase 0 reads the file with, so an unknown key fails with its line
   and column. The schema is looser than phase 0, never stricter.
 
 The schema of the declaration on `main` has a public address, for editors:
 
 ```text
-https://raw.githubusercontent.com/Nebensound/pipeline/main/.github/actions/check-toml/schemas/nebensound-declaration.json
+https://raw.githubusercontent.com/Nebensound/pipeline/main/tools/nebensound-repo/schemas/nebensound-declaration.json
 ```
 
 An editor that reads Taplo's directive finds it through this line before the
 first key or table of `.nebensound/repo.toml`:
 
 ```toml
-#:schema https://raw.githubusercontent.com/Nebensound/pipeline/main/.github/actions/check-toml/schemas/nebensound-declaration.json
+#:schema https://raw.githubusercontent.com/Nebensound/pipeline/main/tools/nebensound-repo/schemas/nebensound-declaration.json
 ```
 
 ### `check-yaml`
@@ -382,9 +409,11 @@ first key or table of `.nebensound/repo.toml`:
   default (see [Linter rules](#linter-rules)). Its `ignore` and
   `ignore-from-file` take nothing out.
 - Every workflow directly under `.github/workflows` passes actionlint, with
-  ShellCheck reading every `run:` script. actionlint 1.7.12 does not know `$/`
-  yet and reports every such call as invalid; the block drops exactly these
-  two messages, and only for a `uses:` that begins with `$/`.
+  ShellCheck reading every `run:` script and pyflakes every Python one where
+  they are on the search path, as ShellCheck is on GitHub's Linux runners; the
+  output says whether each was found. actionlint 1.7.12 does not know `$/`
+  yet and reports every such call as invalid; `run` drops exactly these two
+  messages, and only for a `uses:` that begins with `$/`.
 - `.github/dependabot.yml` matches the Dependabot schema (`check-jsonschema`,
   pinned, with the schema it brings along). An unknown key fails the check
   with the file and the key named, instead of surfacing only after the merge.
@@ -835,11 +864,23 @@ For now the xtask knows only how a check, a version writer and a build are
 called and tested, so a `publish-` block is reported until the xtask learns
 that kind. The first one teaches it, together with its cases.
 
-Then it runs every block against its cases. It builds the tool through
-[`.github/actions/tool`](.github/actions/tool), copies each case into a fresh
-Git repository, runs [`.github/actions/phase0`](.github/actions/phase0) on it,
-and runs a check block once for every unit the plan starts the block's check
-for, just as a unit job does, with the plan when the block takes one. A version
+Then it runs every block against its cases, each copied into a fresh Git
+repository. The blocks whose check runs from the tool (`check-json`,
+`check-markdown`, `check-toml`, `check-yaml`) hold nothing of their check in
+their steps, so their cases run through the tool itself: the xtask builds the
+tool of this commit with Cargo, runs phase 0 on the case with
+`nebensound-repo check` and `plan`, as `Declare` does, and calls
+`nebensound-repo run` once for every unit the plan starts the check for, in the
+environment of a workflow run, so that the findings are annotations. It takes
+the programs `nebensound-repo setup` put in place: in the gate, the blocks that
+ran before the xtask in `Check repository` have set them up, and on a
+developer's computer `cargo xtask setup --pinned --with-runtimes` does.
+
+Every other block runs its own steps. The xtask builds the tool through
+[`.github/actions/tool`](.github/actions/tool), runs
+[`.github/actions/phase0`](.github/actions/phase0) on the case, and runs a
+check block once for every unit the plan starts the block's check for, just as
+a unit job does, with the plan when the block takes one. A version
 writer's block runs once with the plan, provided a unit of the plan selects the
 writer. A build block runs once for every unit the plan starts the build for
 and gives a version of the run, just as a build job does: first the block of
@@ -849,14 +890,14 @@ block to succeed everywhere. A failing case needs it to fail and to print every
 finding the case names, so a block that fails for another reason does not
 count.
 
-The xtask keeps no copy of what a block does. It reads every step from the
+The xtask keeps no copy of what such a block does. It reads every step from the
 block's `action.yml` and runs it the way the runner of GitHub Actions does: it
 decides each `if:`, fills in every `${{ … }}`, hands each `run:` to bash and
 reads back what the step writes to `GITHUB_OUTPUT`, `GITHUB_ENV` and
-`GITHUB_PATH`. A composite action a block calls, such as lychee's, is fetched at
-the ref the block names, a branch, a tag or a full commit SHA, and run the same
-way. An action that runs on Node.js
-cannot run like that; for the ones the blocks call, the xtask stands in:
+`GITHUB_PATH`. A composite action a block calls is fetched at the ref the block
+names, a branch, a tag or a full commit SHA, and run the same way. An action
+that runs on Node.js cannot run like that; for the ones it knows, the xtask
+stands in:
 
 | Action                                                               | What stands in                                                                                                 |
 | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -864,10 +905,15 @@ cannot run like that; for the ones the blocks call, the xtask stands in:
 | `Swatinem/rust-cache`, `actions/cache/restore`, `actions/cache/save` | Nothing: a cache changes how fast a step runs, not what it finds.                                              |
 | `actions/upload-artifact`                                            | Nothing leaves the machine, but every path the step names has to exist, as `if-no-files-found: error` demands. |
 
-Any other such action fails the xtask until it has a stand-in. In the gate, the
-blocks that ran before the xtask in `Check repository` have put Node.js and Go
-on the PATH. One step does not run: `Make room on the runner` of `check-rust`,
-which deletes software of the machine with `sudo`; on a developer's machine,
+Any other such action fails the xtask until it has a stand-in. Of the blocks,
+`check-css` and `check-html` call `actions/setup-node` for Node.js 24, and none
+calls `actions/setup-go`; for such a step the xtask takes the `node` already on
+the PATH and fails the step unless it is version 24. In the gate, that is the
+Node.js of the runner image: no step before the xtask in `Check repository`
+puts one on the PATH, and `nebensound-repo setup` there finds it and installs
+none. On a developer's machine it is their own, which `cargo xtask setup`
+checks on Linux and does not install. One step does not run:
+`Make room on the runner` of `check-rust`, which deletes software of the machine with `sudo`; on a developer's machine,
 that software would be theirs. A step the xtask leaves out has to exist, so
 renaming it fails the xtask instead of letting the step run.
 
@@ -878,8 +924,8 @@ such as `CARGO_TERM_COLOR`, `RUSTFLAGS` or `NODE_OPTIONS`, would otherwise make
 a block print something else locally than in the gate. Of the variables the
 runner sets for every step, a step gets `CI`, `GITHUB_ACTIONS`, the `RUNNER_`
 and file-command variables, and fixed values for the repository and the run
-(`GITHUB_REPOSITORY`, `GITHUB_RUN_ID` and their kin), which lychee's action
-reads; a case belongs to no repository on GitHub and to no run. The
+(`GITHUB_REPOSITORY`, `GITHUB_RUN_ID` and their kin), which an action a block
+calls may read; a case belongs to no repository on GitHub and to no run. The
 expressions `github.*`, `runner.*` and `job.*` know only the names the blocks
 and the actions they call read, with the same values; any other name fails the
 xtask, since on GitHub it would have a value the xtask cannot give. Phase 0
@@ -888,32 +934,35 @@ reads the name and the default branch of the event's repository, which are
 installs with `cargo install` goes into a folder of the run that comes first on
 its `PATH`, so the cases leave the developer's own programs as they are.
 
-What a step prints stands in the log behind a `|`, so that the findings of a
-failing case do not become annotations of the gate. What the xtask itself
-finds is an annotation.
+What a step or a call of the tool prints stands in the log behind a `|`, so
+that the findings of a failing case do not become annotations of the gate. What
+the xtask itself finds is an annotation.
 
-The blocks are written for the Linux runners of GitHub Actions, and so for now
-the cases run on Linux only, in the gate on every pull request and locally on
-Linux. Elsewhere the xtask holds the blocks, the register and `nebensound.yml`
-to each other, says in one sentence that the cases run only on Linux for now,
-and exits with `1`, since the cases did not run. Running them on macOS comes
-with the checks that run from the tool (#73, #74).
+The cases of the blocks that run from the tool run wherever the tool does, on
+Linux and macOS alike. The steps of the other blocks are written for the Linux
+runners of GitHub Actions, and so for now their cases run on Linux only, in the
+gate on every pull request and locally on Linux. Elsewhere the xtask holds the
+blocks, the register and `nebensound.yml` to each other, runs the cases of the
+blocks that run from the tool, names the other blocks in one sentence and exits
+with `1`, since their cases did not run.
 
 `cargo xtask setup` calls `nebensound-repo setup` for this repository with the
 tool of this commit, built from `tools/nebensound-repo/` with the toolchain the
 tool pins, and hands it every option unchanged (`--pinned`, `--with-runtimes`,
-`--check`). Then, on Linux, it checks what only the test cases need: Node.js and
-Go on the `PATH` in the versions the blocks' steps ask for (read from their
-`action.yml`), Docker with Buildx, jq, npm, Python's pip and rustup. It
+`--check`, the names of checks). The programs it puts in place are also those
+the cases of the blocks that run from the tool take; markdownlint-cli2 and
+yamllint only as their pinned copies, which `--pinned` installs. Then, on
+Linux, it checks what only the cases of the other blocks need: a program an
+action of their steps would put on the `PATH`, in the version the step asks for
+(read from their `action.yml`), Docker with Buildx, jq, npm and rustup. It
 installs none of these, since they stay the machine's, but names each one that
 is missing or of another version and exits with `1` then, so that a machine it
-passes can run the cases.
-`nebensound-repo setup` may have put a jq into its cache, but the steps look for
-jq on the `PATH`. npm is asked for apart from Node.js, since some systems ship
-it as a package of its own. That the Docker daemon runs is not checked; the
-cases of `build-docker` fail without it. On another system the cases do not
-run, so `setup` leaves out what only they need and says so, and its exit code
-is the tool's.
+passes can run the cases. `nebensound-repo setup` may have put a jq into its
+cache, but the steps look for jq on the `PATH`. npm is asked for apart from
+Node.js, since some systems ship it as a package of its own. That the Docker
+daemon runs is not checked; the cases of `build-docker` fail without it. On
+another system those cases do not run, so `setup` leaves out what only they
+need and says so, and its exit code is the tool's.
 
 The cases are
 taken out of this repository's own checks with `[[exclude]]` and a reason in

@@ -1,15 +1,15 @@
 //! What the tools' own settings leave out, held against the declaration.
 //!
-//! A building block checks exactly the files `nebensound-repo files` names, and
-//! no block reads a tool's own way of leaving a file out, with one exception:
-//! `check-markdown` runs lychee with the repository's `lychee.toml`, for its
+//! A check runs over exactly the files `nebensound-repo files` names, and no
+//! check reads a tool's own way of leaving a file out, with one exception: the
+//! Markdown check runs lychee with the repository's `lychee.toml`, for its
 //! addresses and status codes, and that file's `exclude_path` comes along. Run
 //! by hand, the tools read all of them: a `.prettierignore` that takes out more
 //! than the declaration does makes a local run pass where the pipeline fails,
 //! and leaves a file out that nobody gave a reason for. So phase 0 reads these
 //! settings and reports every file they take out that no `[[exclude]]` entry
 //! takes out; for lychee, that also keeps its `exclude_path` from taking a
-//! listed file out in the block. A setting that takes out less is fine.
+//! listed file out in the check. A setting that takes out less is fine.
 //!
 //! Read are the settings that take a whole file out of a tool:
 //!
@@ -22,8 +22,8 @@
 //!   `.yamllint.yaml` or `.yamllint.yml` at the root, whichever yamllint reads,
 //!   or, where it sets neither, in the configuration its `extends` names.
 //! - lychee: `exclude_path` in `lychee.toml` at the root, matched against the
-//!   path from the root, the very string `check-markdown` and `check-html`
-//!   hand lychee.
+//!   path from the root, the very string `run markdown` and `check-html` hand
+//!   lychee.
 //! - Stylelint: `.stylelintignore` at the root, and `ignoreFiles` in the
 //!   configuration Stylelint reads in a folder (the first of the names it
 //!   looks for, `package.json` only where it holds a `stylelint` key),

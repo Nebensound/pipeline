@@ -222,8 +222,10 @@ fn elsewhere_than_linux_the_cases_do_not_run() {
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("They agree.\n"), "{out}");
     assert!(
-        out.contains("::error::For now the test cases run only on Linux, since they run the steps")
-            && out.contains("and this machine runs macos.\n"),
+        out.contains(
+            "::error::For now the test cases of check-demo, check-more run only on Linux, since \
+             they run the steps"
+        ) && out.contains("and this machine runs macos.\n"),
         "{out}"
     );
     assert!(!out.contains("::group::"), "{out}");
@@ -372,10 +374,6 @@ fn provide(bin: &Path) {
     );
     script(&bin.join("jq"), "echo jq-1.8.1");
     script(&bin.join("npm"), "echo 11.6.2");
-    script(
-        &bin.join("python3"),
-        "echo pip 25.3 from /usr/lib/python3/dist-packages/pip",
-    );
     script(&bin.join("rustup"), "echo rustup 1.29.0; echo info >&2");
 }
 
@@ -401,7 +399,6 @@ fn setup_calls_the_tool_of_this_commit_with_every_option() {
          docker: found, github.com/docker/buildx v0.29.1 0d71dd0\n\
          jq: found, jq-1.8.1\n\
          npm: found, 11.6.2\n\
-         pip: found, pip 25.3 from /usr/lib/python3/dist-packages/pip\n\
          rustup: found, rustup 1.29.0\n"
     );
     let manifest = root.join("tools/nebensound-repo/Cargo.toml");
@@ -468,17 +465,13 @@ fn setup_names_what_the_test_cases_need_and_the_machine_lacks() {
     let (_, bin, mut setup) = needy(&scene);
     setup.cargo = fake_cargo(&scene, 0);
 
-    // A Node.js of another version, a Go that prints nothing, a jq and an
-    // npm, a Python without pip and a rustup that fail; some systems ship
-    // Node.js without npm. The PATH ends in the system's directories, so a
-    // program of the system would be found behind a missing one.
+    // A Node.js of another version, a Go that prints nothing, a jq, an npm
+    // and a rustup that fail; some systems ship Node.js without npm. The PATH
+    // ends in the system's directories, so a program of the system would be
+    // found behind a missing one.
     script(&bin.join("node"), "echo v26.13.1");
     script(&bin.join("jq"), "exit 127");
     script(&bin.join("npm"), "exit 127");
-    script(
-        &bin.join("python3"),
-        "[ \"$*\" = '-m pip --version' ] && { echo 'No module named pip' >&2; exit 1; }; echo Python 3.13.1",
-    );
     script(&bin.join("go"), "exit 0");
     script(&bin.join("rustup"), "echo rustup 1.29.0; exit 1");
     // A Docker without Buildx.
@@ -496,9 +489,8 @@ fn setup_names_what_the_test_cases_need_and_the_machine_lacks() {
          docker: missing, `docker buildx version` fails on the PATH the steps get.\n\
          jq: missing, `jq --version` fails on the PATH the steps get.\n\
          npm: missing, `npm --version` fails on the PATH the steps get.\n\
-         pip: missing, `python3 -m pip --version` fails on the PATH the steps get.\n\
          rustup: missing, `rustup --version` fails on the PATH the steps get.\n\
-         7 program(s) the test cases need are missing, each named above.\n"
+         6 program(s) the test cases need are missing, each named above.\n"
     );
 }
 
@@ -515,8 +507,8 @@ fn elsewhere_than_linux_setup_leaves_out_what_only_the_cases_need() {
     assert_eq!(code, 0, "{out}");
     assert_eq!(
         out,
-        "For now the test cases run only on Linux, and this machine runs macos, so what only \
-         they need is not checked here.\n"
+        "For now the cases of the blocks the xtask runs step by step run only on Linux, and \
+         this machine runs macos, so what only they need is not checked here.\n"
     );
 
     // The tool's own exit code still counts.

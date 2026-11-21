@@ -1,4 +1,4 @@
-#:schema https://raw.githubusercontent.com/Nebensound/pipeline/main/.github/actions/check-toml/schemas/nebensound-declaration.json
+#:schema https://raw.githubusercontent.com/Nebensound/pipeline/main/tools/nebensound-repo/schemas/nebensound-declaration.json
 
 # The declaration of this repository: what it consists of and what the pipeline
 # does with it. The pipeline reads it in every run and checks it against the

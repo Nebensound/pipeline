@@ -339,7 +339,7 @@ manifests         = []
 # `engines.node` on npm. A runtime on the computer below it counts as missing.
 
 # actionlint_1.7.12_checksums.txt of the release; the same digests stand on
-# the release assets. The block builds the same version from its source.
+# the release assets.
 [program.actionlint]
 version = "1.7.12"
 command = "actionlint"
@@ -546,8 +546,8 @@ url    = "https://registry.npmjs.org/html-validate/-/html-validate-11.21.1.tgz"
 digest = "sha512:c28a7dc164ad1fc860b0356fef34d93c5de2daa0152ded5e546ad2544ef603c41444ce849f5272b53b523138fb1f45118b669e482b97740ffea7ed036f032b31"
 
 # sha256sum.txt of the release; the same digests stand on the release assets.
-# The block takes jq from the runner image, and this is the version the Linux
-# runners bring.
+# It is the version the Linux runners bring, which phase 0 and the other
+# blocks still take from the runner image.
 [program.jq]
 version = "1.8.1"
 command = "jq"
@@ -578,8 +578,7 @@ digest     = "sha256:23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22d
 executable = "jq.exe"
 
 # The `.sha256` files of the release; the same digests stand on the release
-# assets. The Linux archives are the ones lychee-action fetches for this
-# version.
+# assets.
 [program.lychee]
 version = "0.24.2"
 command = "lychee"

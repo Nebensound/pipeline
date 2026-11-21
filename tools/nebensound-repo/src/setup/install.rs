@@ -65,8 +65,9 @@ fn run(command: &mut Command, path: &OsString, what: &str) -> Result<(), String>
 }
 
 /// The search path with the runtime's folder in front, so that what the
-/// installer starts finds the same runtime.
-fn search_path_with(runtime: &Path, env: &Environment) -> OsString {
+/// installer, or a program installed through it, starts finds the same
+/// runtime.
+pub(crate) fn search_path_with(runtime: &Path, env: &Environment) -> OsString {
     let mut path = OsString::from(runtime.parent().unwrap_or(runtime));
     path.push(if env.windows { ";" } else { ":" });
     path.push(&env.search_path);

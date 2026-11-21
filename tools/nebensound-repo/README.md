@@ -21,18 +21,23 @@ answers with a tree. Everything that finds that tree and shows it lives beside
 it in the same package.
 
 What only the program needs is the feature `program`, which is on by default
-and which the binary requires: the downloading and unpacking of `setup`, and
-the JSON Schema of `schema`. Building and installing the tool take no flag. What
-builds on the library alone switches the default features off and compiles
-neither.
+and which the binary requires: the downloading and unpacking of `setup`, the
+programs `run` starts, and the JSON Schema of `schema`. Building and installing
+the tool take no flag. What builds on the library alone switches the default
+features off and compiles none of it.
 
-`rules/` holds the defaults that `check-markdown`, `check-yaml` and
-`check-python` lay a repository's own linter configuration over. The blocks
-read them from there, and the tool compiles the ones of Markdownlint and
-yamllint in to show how a repository's rules stand to them
-([The rules](#the-rules)), so both speak of the same files, and a change to
-one of them is a change to the tool, which builds it again. The same holds for
-the defaults of Stylelint, html-validate and Ruff.
+`rules/` holds the defaults that the Markdown and YAML checks, `check-python`,
+`check-css` and `check-html` lay a repository's own linter configuration over.
+The tool compiles the ones of Markdownlint and yamllint in, both to hand them to
+the linters in `run` and to show how a repository's rules stand to them
+([The rules](#the-rules)), so both speak of the same files, and a change to one
+of them is a change to the tool, which builds it again. The shell blocks
+`check-python`, `check-css` and `check-html` read theirs from there, and the
+tool compiles the defaults of Stylelint, html-validate and Ruff in to show them
+the same way. What else `run` hands the programs is compiled in as well:
+`run/biome.json`, the configuration that makes Biome a parser of JSONC and
+nothing else, and `schemas/`, the JSON Schemas the TOML check assigns
+([their README](schemas/README.md)).
 
 The tool itself is not to be published: whoever needs it is to get it through
 the composite action under `.github/actions/phase0`. A second distribution
@@ -41,7 +46,7 @@ channel would be a second version that can fall behind.
 ## Calls
 
 ```text
-nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branch>] [--visibility <public|private|internal>] | tree | explain <path> | plan [--pull-request <number> --message <message>] | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | excluded-packages | write-versions [--plan <file>] [--workspace <path>] | setup [--pinned] [--with-runtimes] [--check] | schema | register | ui]
+nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branch>] [--visibility <public|private|internal>] | tree | explain <path> | plan [--pull-request <number> --message <message>] | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | run <check> <unit> | excluded-packages | write-versions [--plan <file>] [--workspace <path>] | setup [--pinned] [--with-runtimes] [--check] [<check> ...] | schema | register | ui]
 ```
 
 | Call                | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -52,10 +57,11 @@ nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branc
 | `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read. With `--pull-request <number> --message <message>`, for a pull request, as `version` reads it. See [The plan](#the-plan).                                                                                                                                                                                                                                             |
 | `version`           | The version of every unit that carries one, as a table: release mode, current version, the version of the commit at hand and, in two stages, the commits waiting for the next promotion. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                                                                                                                                                                                |
 | `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                                                                                                                                                                                                                          |
+| `run`               | Runs one check over the files `files` names for it in one unit, with the programs `setup` finds or installs, the way its building block runs it: for the checks `json`, `markdown`, `toml` and `yaml`. Every finding names its file, and its line and column where the program gives them; in a workflow run it is an annotation. See [Running a check](#running-a-check).                                                                                                                        |
 | `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                                                                                                                                                                                                                        |
 | `write-versions`    | Writes the version of every unit with the version writer `cargo` into its `Cargo.toml`, the path dependencies on it and `Cargo.lock`, in the working tree; never committed. With `--plan <file>`, takes the versions from a printed plan instead of the history; with `--workspace <path>`, starts from the units of the workspace at that path.                                                                                                                                                  |
-| `setup`             | Finds or installs the programs that the checks the plan starts call, as the register pins them: by default it uses those on the computer and installs the pinned version of what is missing; `--pinned` installs every one into its own folder; `--check` changes nothing. See [Setting up the programs](#setting-up-the-programs).                                                                                                                                                               |
-| `schema`            | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. `check-toml` assigns the copy committed beside it; [its README](../../.github/actions/check-toml/schemas/README.md#nebensound-declarationjson) says how to write that copy again.                                                                                                                                                                                                  |
+| `setup`             | Finds or installs the programs that the checks the plan starts call, or those of the checks named, as the register pins them: by default it uses those on the computer and installs the pinned version of what is missing; `--pinned` installs every one into its own folder; `--check` changes nothing. See [Setting up the programs](#setting-up-the-programs).                                                                                                                                 |
+| `schema`            | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. The TOML check assigns the copy in `schemas/`, which `run` compiles in; [their README](schemas/README.md#nebensound-declarationjson) says how to write that copy again.                                                                                                                                                                                                            |
 | `register`          | The register as Markdown, exactly as [`docs/register.md`](../../docs/register.md) holds it, which a test compares with this output. Reads no repository.                                                                                                                                                                                                                                                                                                                                          |
 | `ui`                | The same result to walk through. Only in a build with the `ui` feature.                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
@@ -309,9 +315,9 @@ coverage.py, `exclude`, `extend-exclude`, `include`, `lint.exclude` and
 `format.exclude` of Ruff, through its `extend` as well, a Python file's
 `# ruff: noqa`, `.stylelintignore` and `ignoreFiles` of Stylelint,
 `.htmlvalidateignore` of html-validate — and fails on every file one of them
-takes out that no `[[exclude]]` entry does (`unexcused-ignore`). The building
-blocks read none of them except lychee's `exclude_path`, which phase 0 matches
-against the path from the root, the string `check-markdown` and `check-html`
+takes out that no `[[exclude]]` entry does (`unexcused-ignore`). The checks
+read none of them except lychee's `exclude_path`, which phase 0 matches
+against the path from the root, the string `run markdown` and `check-html`
 hand lychee, and rustfmt's `ignore`, which takes effect on a nightly toolchain,
 and Ruff's `# ruff: noqa`, which the file holds itself; run by hand, the tools
 read them all.
@@ -330,10 +336,13 @@ nebensound-repo setup                  # use what the computer has, install what
 nebensound-repo setup --pinned         # install the pinned version of every program
 nebensound-repo setup --with-runtimes  # the same, and a missing runtime without asking
 nebensound-repo setup --check          # change nothing; say what is missing or differs
+nebensound-repo setup --pinned toml    # only the programs of the check toml
 ```
 
-It sets up the programs of the checks the plan starts, so it reads the
-repository like `plan` does, and a repository with errors gets nothing set up,
+It sets up the programs of the checks the plan starts, or of the checks it is
+named, as the register names them; a building block names its own check, so
+that it installs only what that check calls. It reads the repository like
+`plan` does, and a repository with errors gets nothing set up,
 for the same reason it gets no plan. It does not read the history, though, like
 `files` and `excluded-packages`: which checks the plan starts never depends on a
 version, so a shallow clone or an error about a release does not keep anyone
@@ -344,7 +353,8 @@ from setting up the programs.
   installs the pinned version of what is missing, and nothing that is present.
 - **`--pinned`** installs the pinned version of every program into its own
   folder, whatever the computer has, and leaves the computer's programs alone.
-  This is the mode the gate is to run in once its blocks call `setup` (#73).
+  This is the mode the gate runs in: the blocks of the checks that run from the
+  tool call `setup --pinned --with-runtimes <check>`.
 - **`--check`** changes nothing. It lists every program, and every runtime the
   default mode would need, with where it was found, what is missing, and which
   version differs from the pinned one.
@@ -432,6 +442,48 @@ A call that runs a check asks where a program is with
 `nebensound_repo::setup::find::locate`: the pinned copy when it exists, else the
 one on the computer, together with the runtime it runs on, found the same way. A
 runtime on the computer that is too old for the program is not given.
+
+## Running a check
+
+`run` carries out the checks for JSON, Markdown, TOML and YAML the way their
+building blocks run them, on any computer the programs run on:
+
+```bash
+nebensound-repo setup --pinned --with-runtimes   # once, or after a change of the register
+nebensound-repo run markdown .                   # the Markdown check of the repository
+```
+
+It takes exactly the files `files` names for the check and the unit, and a
+pair the plan does not start is refused, as there. A repository with errors
+gets nothing checked. It starts the programs the register names for the check,
+found as [for the other calls](#for-the-other-calls), with the flags that set
+their own ignore mechanisms aside, at the repository root, where the
+repository keeps their configuration. It installs nothing: a program that is
+neither pinned nor on the computer fails the check and names `setup`, and the
+parts of the check whose programs are there still run. Two
+programs are run through their internals, so that the repository's rules are
+laid over the pipeline's default ([The rules](#the-rules)): markdownlint-cli2
+on Node.js and yamllint on the Python of its own environment. Of those two
+only the pinned copy is taken, since only its internals are known, and the
+check fails with a pointer to `setup --pinned` otherwise. actionlint uses the
+ShellCheck and pyflakes on the `PATH`, where there are any, and the output says
+whether it found them.
+
+Every part of a check runs even when one before it failed, so one run reports
+every finding. What the programs print stands in the output. A finding names
+its file, and its line and column where the program gives them: in a workflow
+run (`GITHUB_ACTIONS=true` without a terminal) as an annotation, elsewhere as a
+line such as `README.md:3: error: MD001/heading-increment …`. In an
+annotation the file name and the message are escaped the way the runner reads
+them, so a name holding `,` or `:` points at its file. Prettier names
+no position for a file it finds unformatted, and check-jsonschema a JSON path
+instead of a line; there the finding names the file alone.
+
+What `run` hands the programs (an empty ignore file, the list of files, the
+configurations, the schemas with their own location) goes into a folder of its
+own in the system's temporary directory, which it removes again. The exit code
+is `0` when nothing was found, `1` when something was or a program is missing,
+and `2` for a check `run` does not carry out.
 
 ## Excluded packages
 

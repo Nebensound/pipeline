@@ -11,7 +11,7 @@ which name, is described in [the phases](phases.md).
 ## The file
 
 ```toml
-#:schema https://raw.githubusercontent.com/Nebensound/pipeline/main/.github/actions/check-toml/schemas/nebensound-declaration.json
+#:schema https://raw.githubusercontent.com/Nebensound/pipeline/main/tools/nebensound-repo/schemas/nebensound-declaration.json
 
 [repo]
 audience = "public"
@@ -35,7 +35,7 @@ reason = "drawn in an editor that writes it; no tool here formats it"
   key fails instead of quietly meaning nothing.
 - `[repo]` is required, and in it `audience`. Everything else is optional.
 - The `#:schema` line gives an editor the
-  [JSON Schema of the file](../.github/actions/check-toml/schemas/nebensound-declaration.json),
+  [JSON Schema of the file](../tools/nebensound-repo/schemas/nebensound-declaration.json),
   for completion and for marking an unknown key where it is written. The
   `check-toml` building block checks the file against the same schema whether
   the line is there or not, and always against the schema of the version the

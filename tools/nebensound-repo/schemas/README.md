@@ -1,14 +1,15 @@
-# Schemas for check-toml
+# Schemas for the TOML check
 
-The JSON Schemas `check-toml` validates against, kept here for two reasons:
+The JSON Schemas the TOML check validates against, which `nebensound-repo run
+toml` compiles in, kept here for two reasons:
 
 - Validating against them needs no request to SchemaStore: a pull request
-  must not turn red because someone else's server does not answer. (The
-  action still downloads Taplo itself from its GitHub release in the
-  install step; this is about the schemas only.)
+  must not turn red because someone else's server does not answer. (Taplo
+  itself is still downloaded from its GitHub release by
+  `nebensound-repo setup`; this is about the schemas only.)
 - The check is deterministic: the schemas are part of the commit a caller
-  pins, so a change to a schema changes the version of the action, and
-  never reaches a repository behind its back.
+  pins, so a change to a schema changes the version of the tool, and never
+  reaches a repository behind its back.
 
 | File                          | For                                                    |
 | ----------------------------- | ------------------------------------------------------ |
@@ -32,8 +33,8 @@ file states them.
 Three changes, the first two made with `jq` for every file, the third by hand
 for `cargo.json`, then formatted by Prettier:
 
-- `$id` is removed. `check-toml` sets it at run time to the file's location on
-  the runner.
+- `$id` is removed. `run toml` sets it at run time to the location of the
+  copy it hands Taplo.
 - Every `$ref` to `https://www.schemastore.org/<name>.json` becomes `<name>.json`,
   so that it resolves to the file beside it.
 - `cargo.json` only, see [Deviation](#deviation-in-cargojson): `lints` no longer
@@ -72,7 +73,7 @@ fails. Two passing test cases of `check-toml` hold a manifest each, with a form
 that Cargo and upstream both accept: `tests/pass/cargo-lints/Cargo.toml` carries
 the `check-cfg` entry in `[lints.rust]`,
 `tests/pass/cargo-lints-workspace/Cargo.toml` carries `[lints] workspace = true`.
-`cargo xtask check` runs the block against them, so a new copy of the files that
+`cargo xtask check` runs the check against them, so a new copy of the files that
 brings the `anyOf` back turns the gate red here.
 
 Drop this deviation when a Taplo release reads the `anyOf` correctly and the
@@ -94,17 +95,17 @@ declaration format carries its schema in the same commit. To write it again, run
 in `tools/nebensound-repo`:
 
 ```sh
-cargo run --quiet -- schema > ../../.github/actions/check-toml/schemas/nebensound-declaration.json
+cargo run --quiet -- schema > schemas/nebensound-declaration.json
 ```
 
-and format it with Prettier, as `check-json` requires.
+and format it with Prettier, as the JSON check requires.
 
 The schema is looser than phase 0, never stricter: where a rule cannot be said
 in a schema, phase 0 rejects the file and the schema lets it through. Phase 0
 stays the judge; the schema lets an editor show the fields, the allowed values
 and a mistake while the file is written.
 
-`check-toml` always validates `.nebensound/repo.toml` against the copy here,
+The TOML check always validates `.nebensound/repo.toml` against the copy here,
 the one of the pipeline version that reads the file. The public address of the
 copy on `main`, and the `#:schema` line that points an editor at it, stand in
-the [README of the repository](../../../../README.md#check-toml).
+the [README of the repository](../../../README.md#check-toml).
