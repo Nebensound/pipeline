@@ -26,13 +26,10 @@ end.
 
 A ruleset file holds no organization condition. It is the body that the
 rulesets API of a single repository accepts, and it was applied in that form to
-a test repository and read back unchanged, except `required-checks.json`: it was
-applied and read back with `do_not_enforce_on_create` set to `false`, and its
-present form with `true` is still to be applied, read back and measured (see
-[`required-checks`](#required-checks)). The condition that selects
-repositories is a fragment of its own, which the apply command merges in, so
-that what was tested on a repository is what the organization gets, apart from
-that one step.
+a test repository and read back unchanged; see [Evidence](#evidence). The
+condition that selects repositories is a fragment of its own, which the apply
+command merges in, so that what was tested on a repository is what the
+organization gets, apart from that one step.
 
 The existing ruleset is described unchanged, under its live name, because the
 release model relies on its squash-only rule. Changing it is not part of this
@@ -122,11 +119,10 @@ tag: `v*` for the repository and `*-v*` for a component or a generated unit
 no update and no deletion, for anyone, administrators included. A tag that only
 looks like those, such as `vendor-drop`, is held as well.
 
-Tags are records once #98 is in: no version is read from a tag; the versions
-come from the history. Until then, [the declaration](../declaration.md#versions)
-still resolves versions from tags, and moving a tag would change a version.
-Either way, what a tag holds is what a caller pins and what the release stage
-wrote, and this ruleset keeps both where they were set. Measured on the test
+Tags are records: no version is read from a tag; the versions come from the
+history (see [the declaration](../declaration.md#versions)), so moving a tag
+would not change a version. What a tag holds is what a caller pins and what the
+release stage wrote, and this ruleset keeps both where they were set. Measured on the test
 repository: moving `v0.0.1` and `tool-v0.0.1` was refused with "Cannot update
 this protected ref", deleting them with "Cannot delete this tag", and a tag
 that matches neither pattern was created and deleted freely.
@@ -154,16 +150,16 @@ expected").
 
 It is not enforced when the branch is created (`do_not_enforce_on_create`), so
 that a new repository, which carries `central` from its creation, can be
-created at all. The intended behaviour: the first push into an empty repository
-creates the default branch and goes through, and every pull request afterwards
-needs the three checks to have passed. The repository's first pull request, the
-one that adds the caller, reports them itself, but it can merge only once they
-pass (see [Properties](#properties) for a repository the pipeline cannot pass
-yet). **Not yet measured**: both halves still have to
-be measured on a fresh, empty test repository, together with the question
-whether the existing ruleset refuses that first push to a creator who is not an
-administrator. `release-guard` keeps the rule on creation, so `release`
-can be created only at a commit that has passed the three checks.
+created at all. Measured on an empty test repository (see
+[Evidence](#evidence)): the first push, which creates the default branch, went
+through, and a pull request afterwards could not be merged before the three
+checks had passed. The repository's first pull request, the one that adds the
+caller, reports them itself, but it can merge only once they pass (see
+[Properties](#properties) for a repository the pipeline cannot pass yet). That
+measurement was taken with an administrating account and no bypass; a creator
+who is not an administrator was not measured separately. `release-guard` keeps
+the rule on creation, so `release` can be created only at a commit that has
+passed the three checks.
 
 It does not protect against a workflow of the repository reporting the names
 itself, which the next section explains, nor against what the first push into
@@ -277,8 +273,8 @@ repository of the organization at once, the `legacy` ones included.
 
 The default of `pipeline` is `central`, so a new repository is bound from the
 start: the four rulesets hold for it before it has a caller. It can still be
-created, because `required-checks` is not enforced on creation (still to be
-measured, see [`required-checks`](#required-checks)), and its first pull
+created, because `required-checks` is not enforced on creation (measured, see
+[Evidence](#evidence)), and its first pull
 request adds the caller, which reports the three checks; it merges once they
 have passed.
 
@@ -342,6 +338,40 @@ gh api -X PATCH orgs/Nebensound/properties/values --input - <<'EOF'
 }
 EOF
 ```
+
+## Evidence
+
+Every ruleset file was applied at repository level to a temporary public test
+repository with `gh api -X POST repos/Nebensound/<test repository>/rulesets
+--input <file>` and read back, which gave what is stated in the sections above.
+The measurements below were taken on a second, empty test repository, with the
+account of an organization administrator and no bypass actor.
+
+- **Applied and read back.** `required-checks.json` in its present form, with
+  `do_not_enforce_on_create` set to `true`, and
+  `grundschutz-standard-branch.json`, each accepted by the API. The read-back
+  of each, compared with its file as in
+  [Applying and reading back](#applying-and-reading-back), was identical. The
+  rules of the default branch then listed `required_status_checks` from the
+  repository-level `required-checks`, and `deletion`, `non_fast_forward` and
+  `pull_request` from both the repository-level copy and the live ruleset of
+  the organization of the same name, which binds the repository as well.
+- **Half one, the first push.** With both rulesets active, `git push origin
+  main` into the empty repository created the default branch and went through.
+  No ruleset refused it, so none was taken away. The ruleset of the
+  organization and its copy name the repository role Admin as a bypass, which
+  the account has; whether they would refuse a creator who is not an
+  administrator was not measured. `required-checks` has no bypass and did not
+  refuse the push.
+- **Half two, a pull request.** A pull request from a second branch into the
+  default branch showed `mergeable: MERGEABLE` and `mergeStateStatus: BLOCKED`.
+  A merge by the API, once with `squash` and once with `merge`, and a merge by
+  `gh pr merge --squash --admin` all answered HTTP 405 "Repository rule
+  violations found: 3 of 3 required status checks are expected." The
+  administrator did not get past it, since `required-checks` has no bypass.
+- **Not measured.** That the push is refused with `do_not_enforce_on_create`
+  set to `false` was not repeated on the empty repository; and a creator who is
+  not an administrator was not measured.
 
 ## Applying and reading back
 
