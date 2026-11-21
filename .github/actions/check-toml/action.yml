@@ -90,14 +90,16 @@ runs:
     # Taplo reads every file from standard input. Given a path, Taplo 0.10.0
     # silently skips a file outside its default `include` of `**/*.toml` —
     # every lockfile and every Pipfile — and one the repository's taplo.toml
-    # leaves out, and
-    # reports success for both. So a repository's `include` and `exclude` take
-    # nothing out of this check: what is not to be checked is not in the list.
+    # leaves out, and reports success for both. So a repository's `include` and
+    # `exclude` take nothing out of this check: what is not to be checked is not
+    # in the list.
     #
     # Formatting: `.toml` files and every Pipfile are formatted the way Taplo
     # writes them, with the repository's taplo.toml, and `--stdin-filepath`
-    # keeps its per-path rules working. A lockfile is not: the tool that writes it — Cargo, uv,
-    # Poetry, PDM — decides its layout, and no Cargo.lock matches Taplo's.
+    # keeps its per-path rules working. Since `taplo format` skips a Pipfile
+    # given as a path, the annotation on one names the standard-input form. A
+    # lockfile is not formatted: the tool that writes it — Cargo, uv, Poetry,
+    # PDM — decides its layout, and no Cargo.lock matches Taplo's.
     # Every listed file whose name ends in `.lock` is one, since the register
     # gives `toml` lockfiles by name and nothing else with that extension; a
     # lockfile the register names later is passed over here without a change.
@@ -171,10 +173,15 @@ runs:
           detail="${detail//'%'/'%25'}"
           detail="${detail//$'\r'/'%0D'}"
           detail="${detail//$'\n'/'%0A'}"
+          # The message can carry a path (the hint on a Pipfile names it), so
+          # it is escaped the same way.
+          message="${2//'%'/'%25'}"
+          message="${message//$'\r'/'%0D'}"
+          message="${message//$'\n'/'%0A'}"
           if [ -n "$detail" ]; then
-            echo "::error file=$name$position::$2%0A$detail"
+            echo "::error file=$name$position::$message%0A$detail"
           else
-            echo "::error file=$name$position::$2"
+            echo "::error file=$name$position::$message"
           fi
         }
 
@@ -185,7 +192,11 @@ runs:
             *)
               if ! "$taplo" format --check --colors never --stdin-filepath "$file" - \
                 < "$file" > "$out" 2>&1; then
-                annotate "$file" "does not parse, or is not formatted the way Taplo writes it; 'taplo format' fixes the latter"
+                hint="'taplo format' fixes the latter"
+                case "${file##*/}" in
+                  Pipfile) hint="'taplo format --stdin-filepath $file - < $file' prints the fixed file" ;;
+                esac
+                annotate "$file" "does not parse, or is not formatted the way Taplo writes it; $hint"
                 failed=1
               fi ;;
           esac
