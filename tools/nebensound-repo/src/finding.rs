@@ -90,7 +90,8 @@ pub enum Rule {
     UnconventionalCommit,
     /// A clone without the whole history, so no version can be told.
     ShallowClone,
-    /// A unit released in two stages, and no branch `origin/release`.
+    /// A unit that is or was released in two stages at a commit that counts
+    /// for it, and no branch `origin/release`.
     MissingReleaseBranch,
     /// A unit released in one stage with commits since its last full release
     /// that were released in two stages, and so given pre-releases that never
