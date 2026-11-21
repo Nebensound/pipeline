@@ -32,7 +32,9 @@ fn check(name: &str) -> CheckName {
 fn every_check_with_a_building_block_names_the_programs_it_calls() {
     let register = builtin();
     for (name, programs) in [
-        ("dockerfile", &["dockerfmt", "hadolint"][..]),
+        ("css", &["prettier", "stylelint"][..]),
+        ("dockerfile", &["dockerfmt", "hadolint"]),
+        ("html", &["html-validate", "lychee", "prettier"]),
         ("json", &["biome", "jq", "prettier"]),
         ("markdown", &["lychee", "markdownlint-cli2", "prettier"]),
         ("python", &["coverage", "pyright", "ruff", "uv"]),
@@ -78,12 +80,14 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
         ("coverage", "7.17.4", Some(("python", "3.11.0"))),
         ("dockerfmt", "1.0.0", None),
         ("hadolint", "2.15.1", None),
+        ("html-validate", "11.21.1", Some(("node", "22.22.0"))),
         ("jq", "1.8.1", None),
         ("lychee", "0.24.2", None),
         ("markdownlint-cli2", "0.23.2", Some(("node", "22.0.0"))),
         ("prettier", "3.9.6", Some(("node", "14.0.0"))),
         ("pyright", "1.1.414", Some(("node", "14.0.0"))),
         ("ruff", "0.17.6", None),
+        ("stylelint", "18.0.0", Some(("node", "22.22.2"))),
         ("taplo", "0.10.0", None),
         ("trivy", "0.76.2", None),
         ("uv", "0.13.9", None),
@@ -109,7 +113,38 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
             assert!(download.url.contains(version), "{name} {platform}");
         }
     }
-    assert_eq!(register.program.len(), 17);
+    assert_eq!(register.program.len(), 19);
+
+    // Stylelint brings the configurations the pipeline's default extends and
+    // the syntax it reads SCSS with; no other program brings anything.
+    for (name, program) in &register.program {
+        let companions: Vec<(&str, &str)> = program
+            .companions
+            .iter()
+            .map(|companion| (companion.name.as_str(), companion.version.as_str()))
+            .collect();
+        let expected: &[(&str, &str)] = if name.as_str() == "stylelint" {
+            &[
+                ("stylelint-config-standard", "41.0.0"),
+                ("stylelint-config-standard-scss", "18.0.0"),
+                ("postcss-scss", "4.0.9"),
+            ]
+        } else {
+            &[]
+        };
+        assert_eq!(companions, expected, "{name}");
+        for companion in &program.companions {
+            let download = companion.download();
+            assert!(download.url.starts_with("https://registry.npmjs.org/"));
+            assert!(
+                download
+                    .url
+                    .ends_with(&format!("-{}.tgz", companion.version))
+            );
+            assert_eq!(download.executable, None);
+            assert_eq!(download.digest.algorithm(), Algorithm::Sha512);
+        }
+    }
 
     let runtimes: Vec<(String, String, Installer)> = register
         .runtime
@@ -241,6 +276,27 @@ fn a_program_or_runtime_that_does_not_fit_is_refused() {
          [\".json\"]\n[program.bare]\nversion = \"1.0.0\"\ncommand = \"bare\"\ndownload = {}\n",
     );
     assert_eq!(message, "bare has no download");
+
+    // A companion is pinned like its program, and only a program on a runtime
+    // has one: its installer puts it beside the program.
+    let companion = "[[program.package.companion]]\nname = \"extra\"\nversion = \"1.0.0\"\n\
+                     url = \"https://example.org/extra.tgz\"\ndigest = \"sha256:\
+                     0000000000000000000000000000000000000000000000000000000000000000\"\n";
+    assert!(Register::parse(&format!("{SOUND}{companion}")).is_ok());
+    let message = refuses(&format!("{SOUND}{}", companion.replace("1.0.0", "1.0")));
+    assert_eq!(
+        message,
+        "the companion extra of package pins \"1.0\", and a version here is three numbers, \
+         such as 1.2.3"
+    );
+    let message = refuses(&format!(
+        "{SOUND}{}",
+        companion.replace("program.package.", "program.tool.")
+    ));
+    assert_eq!(
+        message,
+        "tool names a companion, and only a program on a runtime has one"
+    );
 
     let message = refuses(&SOUND.replace("installer = \"npm\"", "installer = \"cargo\""));
     assert!(message.contains("unknown variant"), "{message}");

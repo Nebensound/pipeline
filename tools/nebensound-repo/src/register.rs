@@ -247,6 +247,28 @@ fn minimum(
     })
 }
 
+/// Refuses a companion of a program on no runtime, whose installer would put
+/// it in place, and one whose version is not three numbers.
+fn companions(
+    name: &ProgramName,
+    program: &Program,
+    on_runtime: bool,
+) -> Result<(), RegisterError> {
+    if !on_runtime && !program.companions.is_empty() {
+        return Err(RegisterError::Download {
+            holder: name.to_string(),
+            problem: "names a companion, and only a program on a runtime has one",
+        });
+    }
+    for companion in &program.companions {
+        pinned(
+            &format!("the companion {} of {name}", companion.name),
+            &companion.version,
+        )?;
+    }
+    Ok(())
+}
+
 /// Refuses a pinned version that is not three numbers.
 fn pinned(holder: &dyn std::fmt::Display, version: &str) -> Result<(), RegisterError> {
     if is_version(version) {
@@ -333,6 +355,7 @@ impl Register {
                 });
             }
             minimum(name, runtime, program.runtime_minimum.as_deref())?;
+            companions(name, program, runtime.is_some())?;
         }
         for (name, build) in &self.build {
             for writer in &build.requires_version {

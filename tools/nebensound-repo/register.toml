@@ -80,9 +80,13 @@ extensions = [".qml"]
 
 [check.html]
 extensions = [".html", ".htm"]
+programs   = ["html-validate", "lychee", "prettier"]
 
+# `.scss` is linted with the SCSS counterpart of the standard configuration,
+# which the program entry of Stylelint brings along.
 [check.css]
 extensions = [".css", ".scss"]
+programs   = ["prettier", "stylelint"]
 
 [check.asciidoc]
 extensions = [".adoc", ".asciidoc"]
@@ -529,6 +533,18 @@ url        = "https://github.com/hadolint/hadolint/releases/download/v2.15.1/had
 digest     = "sha256:01d927294962b5387f9ead4f18679158452be4f17c765ad0bdffe5264b9c7b0a"
 executable = "hadolint.exe"
 
+# The npm registry's `dist.integrity`, in hexadecimal; `engines.node` is
+# "^22.22.0 || >= 24.8.0". It names its version as `html-validate-<version>`.
+[program.html-validate]
+version         = "11.21.1"
+command         = "html-validate"
+runtime         = "node"
+runtime-minimum = "22.22.0"
+
+[program.html-validate.download.any]
+url    = "https://registry.npmjs.org/html-validate/-/html-validate-11.21.1.tgz"
+digest = "sha512:c28a7dc164ad1fc860b0356fef34d93c5de2daa0152ded5e546ad2544ef603c41444ce849f5272b53b523138fb1f45118b669e482b97740ffea7ed036f032b31"
+
 # sha256sum.txt of the release; the same digests stand on the release assets.
 # The block takes jq from the runner image, and this is the version the Linux
 # runners bring.
@@ -667,6 +683,39 @@ executable = "ruff.exe"
 url        = "https://github.com/astral-sh/ruff/releases/download/0.17.6/ruff-aarch64-pc-windows-msvc.zip"
 digest     = "sha256:fdb5146498cd30b7af288c8becab610a30aa7d300d899927347f49e99766dd85"
 executable = "ruff.exe"
+
+# The npm registry's `dist.integrity`, in hexadecimal; `engines.node` is
+# "^22.22.2 || ^24.15.0 || >=26.0.0". Its companions are no commands: the
+# configurations the pipeline's default extends, and the syntax it reads SCSS
+# with, installed beside it so that the default finds them, each with the
+# registry's digest as well.
+[program.stylelint]
+version         = "18.0.0"
+command         = "stylelint"
+runtime         = "node"
+runtime-minimum = "22.22.2"
+
+[program.stylelint.download.any]
+url    = "https://registry.npmjs.org/stylelint/-/stylelint-18.0.0.tgz"
+digest = "sha512:908d741ac1d742fb07fc072495565d420c03bb1b478be03e875523cddee1f4b0dfddee634222d09161653eda729d7dc4ea85561c6d70a3dbfa74bd0cafe9e748"
+
+[[program.stylelint.companion]]
+name    = "stylelint-config-standard"
+version = "41.0.0"
+url     = "https://registry.npmjs.org/stylelint-config-standard/-/stylelint-config-standard-41.0.0.tgz"
+digest  = "sha512:10922f30e30046278138b870db2ccdec1695162218d84c7c0a46d76a1c4fead4192b8d7e37c395528e7b52fc7d893afceb687eb61a83a031fbbd06deb61d6bca"
+
+[[program.stylelint.companion]]
+name    = "stylelint-config-standard-scss"
+version = "18.0.0"
+url     = "https://registry.npmjs.org/stylelint-config-standard-scss/-/stylelint-config-standard-scss-18.0.0.tgz"
+digest  = "sha512:7f33c62680c64cd86dcd875db8ac10845d541019ef069f7d811b3c6b6628fea1e73180603b261d1e2a8c0c1fa262d9843861ae1d0cc620bd3e31621998a51cae"
+
+[[program.stylelint.companion]]
+name    = "postcss-scss"
+version = "4.0.9"
+url     = "https://registry.npmjs.org/postcss-scss/-/postcss-scss-4.0.9.tgz"
+digest  = "sha512:02328e7a2c008ad2ff317c505b60e5893dbc10aba4bef6c45b1dcb06624844df0a7c11996d14f13585b4912aa2d423a24d9e7b9d9f4d5b4e92eaec7ffcdd5cf4"
 
 # Taplo publishes no digests, and GitHub states none for these assets, which
 # are older than its digests. The Linux ones are those check-toml has pinned

@@ -662,14 +662,21 @@ fn a_rustfmt_configuration_that_does_not_read_is_reported() {
 
 #[test]
 fn every_tool_names_the_checks_it_reads() {
-    assert_eq!(Tool::Prettier.checks(), ["json", "markdown", "yaml"]);
+    assert_eq!(
+        Tool::Prettier.checks(),
+        ["css", "html", "json", "markdown", "yaml"]
+    );
     assert_eq!(Tool::Taplo.checks(), ["toml"]);
     assert_eq!(Tool::Markdownlint.checks(), ["markdown"]);
     assert_eq!(Tool::Yamllint.checks(), ["yaml"]);
-    assert_eq!(Tool::Lychee.checks(), ["markdown"]);
+    assert_eq!(Tool::Lychee.checks(), ["html", "markdown"]);
     assert_eq!(Tool::Lychee.name(), "lychee");
     assert_eq!(Tool::Rustfmt.checks(), ["rust"]);
     assert_eq!(Tool::Rustfmt.name(), "rustfmt");
+    assert_eq!(Tool::Stylelint.checks(), ["css"]);
+    assert_eq!(Tool::Stylelint.name(), "Stylelint");
+    assert_eq!(Tool::HtmlValidate.checks(), ["html"]);
+    assert_eq!(Tool::HtmlValidate.name(), "html-validate");
     for (tool, name) in [
         (Tool::Pyright, "Pyright"),
         (Tool::Coverage, "coverage.py"),
@@ -961,4 +968,211 @@ fn a_python_file_that_cannot_be_read_holds_no_ruff_line() {
     let found = findings(&analysis, central().register(), &read);
 
     assert_eq!(summary(&found), ["unexcused-ignore a.py"]);
+}
+
+/// A repository with stylesheets and pages: at the root, in `web/`, and in
+/// `web/admin/`.
+fn web(extra: &[(&'static str, &'static str)]) -> Vec<(&'static str, &'static str)> {
+    let mut files = with(&[
+        ("site.css", "a {}\n"),
+        ("web/page.html", "<p>a</p>\n"),
+        ("web/theme.scss", "a {}\n"),
+        ("web/admin/admin.css", "a {}\n"),
+        ("web/admin/index.htm", "<p>a</p>\n"),
+    ]);
+    files.extend_from_slice(extra);
+    files
+}
+
+#[test]
+fn prettier_and_lychee_read_stylesheets_and_pages_as_well() {
+    let found = found(
+        &excusing(".prettierignore"),
+        &web(&[
+            (".prettierignore", "web/\n"),
+            (
+                "lychee.toml",
+                "exclude_path = [\"^site\\\\.css$\", \"admin\"]\n",
+            ),
+        ]),
+    );
+
+    // lychee reads the pages of check-html and no stylesheet.
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore web/admin/admin.css",
+            "unexcused-ignore web/admin/index.htm",
+            "unexcused-ignore web/admin/index.htm",
+            "unexcused-ignore web/page.html",
+            "unexcused-ignore web/theme.scss",
+        ]
+    );
+}
+
+#[test]
+fn a_stylelintignore_at_the_root_takes_out_stylesheets_only() {
+    let taken = found(
+        &excusing(".stylelintignore"),
+        &web(&[(".stylelintignore", "admin/\n*.html\n")]),
+    );
+
+    assert_eq!(summary(&taken), ["unexcused-ignore web/admin/admin.css"]);
+    assert!(
+        taken[0].message.contains("Stylelint"),
+        "{}",
+        taken[0].message
+    );
+
+    let below = found(QUIET, &web(&[("web/.stylelintignore", "*\n")]));
+    assert!(below.is_empty(), "{below:?}");
+}
+
+#[test]
+fn stylelint_ignore_files_count_below_their_folder_up_to_a_nearer_configuration() {
+    let found = found(
+        QUIET,
+        &web(&[
+            (
+                ".stylelintrc.json",
+                "{ \"ignoreFiles\": [\"**/*.css\", \"web/*.scss\"] }\n",
+            ),
+            ("web/admin/.stylelintrc.yaml", "rules: {}\n"),
+        ]),
+    );
+
+    // The nearer configuration in web/admin/ governs admin.css, and its
+    // `ignoreFiles` takes nothing out.
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore site.css",
+            "unexcused-ignore web/theme.scss"
+        ]
+    );
+    assert!(
+        found[0].message.contains("through the pattern `**/*.css`"),
+        "{}",
+        found[0].message
+    );
+}
+
+#[test]
+fn stylelint_reads_ignore_files_in_order_with_negation() {
+    let taken = found(
+        QUIET,
+        &web(&[(
+            "web/.stylelintrc",
+            "ignoreFiles:\n  - \"**\"\n  - \"!admin/**\"\n",
+        )]),
+    );
+    assert_eq!(summary(&taken), ["unexcused-ignore web/theme.scss"]);
+
+    // A list of negated patterns alone takes out every file none of them
+    // names; a single pattern may stand as text.
+    let taken = found(
+        QUIET,
+        &web(&[("web/.stylelintrc.yml", "ignoreFiles:\n  - \"!admin/**\"\n")]),
+    );
+    assert_eq!(summary(&taken), ["unexcused-ignore web/theme.scss"]);
+    assert!(
+        taken[0]
+            .message
+            .contains("since it matches none of the patterns `!admin/**`"),
+        "{}",
+        taken[0].message
+    );
+    let taken = found(
+        QUIET,
+        &web(&[("web/.stylelintrc.yml", "ignoreFiles: admin/*.css\n")]),
+    );
+    assert_eq!(summary(&taken), ["unexcused-ignore web/admin/admin.css"]);
+    let taken = found(
+        QUIET,
+        &web(&[("web/.stylelintrc.yml", "ignoreFiles: []\n")]),
+    );
+    assert!(taken.is_empty(), "{taken:?}");
+}
+
+#[test]
+fn stylelint_takes_the_first_configuration_of_a_folder() {
+    // package.json counts only with a `stylelint` key; the hidden folder
+    // `.config` comes after the files in the folder itself.
+    let found = found(
+        QUIET,
+        &web(&[
+            ("package.json", "{ \"name\": \"site\" }\n"),
+            (".config/stylelintrc.yaml", "ignoreFiles: \"*.css\"\n"),
+            (
+                "web/package.json",
+                "{ \"stylelint\": { \"ignoreFiles\": [\"*.scss\"] } }\n",
+            ),
+            ("web/.stylelintrc.json", "{ \"ignoreFiles\": [\"**\"] }\n"),
+            ("web/admin/package.json", "{ \"name\": \"admin\" }\n"),
+        ]),
+    );
+    assert_eq!(
+        summary(&found),
+        [
+            "unexcused-ignore site.css",
+            "unexcused-ignore web/theme.scss"
+        ]
+    );
+}
+
+#[test]
+fn a_stylelint_configuration_in_javascript_is_not_read_and_still_governs_its_folder() {
+    let found = found(
+        QUIET,
+        &web(&[
+            (".stylelintrc.json", "{ \"ignoreFiles\": [\"**/*.css\"] }\n"),
+            (
+                "web/stylelint.config.mjs",
+                "export default { ignoreFiles: [\"**\"] };\n",
+            ),
+        ]),
+    );
+
+    assert_eq!(summary(&found), ["unexcused-ignore site.css"]);
+}
+
+#[test]
+fn a_stylelint_configuration_that_does_not_read_is_reported() {
+    for (file, source) in [
+        (".stylelintrc.json", "{ \"ignoreFiles\": [ }"),
+        (".stylelintrc.yaml", "ignoreFiles: 3\n"),
+        (".stylelintrc.yaml", "ignoreFiles: [\"a[\"]\n"),
+        ("package.json", "{ \"stylelint\": "),
+    ] {
+        let found = found(QUIET, &web(&[(file, source)]));
+        assert_eq!(
+            summary(&found),
+            [format!("unreadable-ignore-file {file}")],
+            "{source}"
+        );
+        assert!(
+            found[0].message.contains("Stylelint"),
+            "{}",
+            found[0].message
+        );
+    }
+}
+
+#[test]
+fn html_validate_ignore_files_count_in_every_folder() {
+    let found = found(
+        QUIET,
+        &web(&[
+            ("web/.htmlvalidateignore", "admin/\n"),
+            ("web/admin/.htmlvalidateignore", "*.css\n"),
+        ]),
+    );
+
+    // Only the pages count, and every ignore file relative to its folder.
+    assert_eq!(summary(&found), ["unexcused-ignore web/admin/index.htm"]);
+    assert!(
+        found[0].message.contains("html-validate"),
+        "{}",
+        found[0].message
+    );
 }

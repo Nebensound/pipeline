@@ -106,6 +106,23 @@ fills ([`.github/actions/tool`](.github/actions/tool)); it builds the tool
 only when the cache misses. The list does not travel through a job output,
 which is limited in size.
 
+### `check-css`
+
+[`.github/actions/check-css`](.github/actions/check-css) checks every `.css`
+and `.scss` file of the unit:
+
+- Formatted the way Prettier writes it, run as in `check-json`.
+- No Stylelint finding, with the repository's configuration laid over the
+  pipeline's default, `stylelint-config-standard`, and for `.scss`
+  `stylelint-config-standard-scss` read with `postcss-scss` (see
+  [Linter rules](#linter-rules)). Its `ignoreFiles` and `.stylelintignore`
+  take nothing out.
+
+Stylelint and the packages the default extends are pinned in the register,
+Stylelint's companions beside it, and nothing else is installed: a
+configuration that extends or loads another package fails, naming it. Every
+step runs even when one before it failed, so one run shows every finding.
+
 ### `check-dockerfile`
 
 [`.github/actions/check-dockerfile`](.github/actions/check-dockerfile) checks
@@ -126,6 +143,42 @@ Building the image, scanning it and running it belong to the build.
   [Linter rules](#linter-rules)).
 
 Every step runs even when one before it failed, so one run shows every finding.
+
+### `check-html`
+
+[`.github/actions/check-html`](.github/actions/check-html) checks every `.html`
+and `.htm` file of the unit. HTML that a build generates is checked like
+written HTML once it is committed; the build output of a run is not.
+
+- Formatted the way Prettier writes it, run as in `check-json`.
+- No html-validate finding, with the repository's configuration laid over the
+  pipeline's default, the presets `recommended`, `a11y` and `prettier` (see
+  [Linter rules](#linter-rules)). Its `.htmlvalidateignore` files take nothing
+  out. A flat configuration (`html-validate.config.*`), which html-validate
+  would read in place of every `.htmlvalidate.*`, is not read and fails the
+  check.
+- Every page carries a title (`page/title`), a description
+  (`<meta name="description">`, `page/description`), exactly one `h1`
+  (`page/one-h1`), and alternative text on every image (`page/image-alt`; an
+  empty `alt=""` counts, for an image that only decorates). A page is a file
+  whose document begins with `<!doctype html>` or has an `<html>` root; any
+  other HTML file, such as a fragment or header a generator includes, gets the
+  checks above without these. The page rules are html-validate rules shipped
+  beside the block ([`page-rules.mjs`](.github/actions/check-html/page-rules.mjs)),
+  switched on after the repository's configuration, so neither that
+  configuration nor an inline `html-validate-disable` comment switches them
+  off: only an `[[exclude]]` entry takes a page out. Each finding names the
+  page, the line and the field.
+- Every link into the repository leads to a file and an `id` that exist,
+  lychee run as in `check-markdown`, with the same `lychee.toml` handling: a
+  stylesheet or an image counts as much as an anchor. A link from the root of a
+  site, such as `/style.css` or `/login`, is not checked, since where the site
+  is served is not in the declaration; links to the outside are not checked in
+  a pull request.
+
+A template that does not parse as HTML needs an `[[exclude]]` entry with its
+reason. Every step runs even when one before it failed, so one run shows every
+finding.
 
 ### `check-json`
 
@@ -473,11 +526,17 @@ the end, whatever happened.
 
 ### Linter rules
 
-Markdownlint and yamllint run with a default of the pipeline:
+Markdownlint, yamllint, Stylelint and html-validate run with a default of the
+pipeline:
 [`tools/nebensound-repo/rules/markdownlint.jsonc`](tools/nebensound-repo/rules/markdownlint.jsonc)
-(`MD013` off, since Prettier does not wrap prose) and
+(`MD013` off, since Prettier does not wrap prose),
 [`tools/nebensound-repo/rules/yamllint.yaml`](tools/nebensound-repo/rules/yamllint.yaml)
-(yamllint's defaults, less what contradicts Prettier or GitHub Actions). The
+(yamllint's defaults, less what contradicts Prettier or GitHub Actions),
+[`tools/nebensound-repo/rules/stylelint.yaml`](tools/nebensound-repo/rules/stylelint.yaml)
+(`stylelint-config-standard`, for `.scss` `stylelint-config-standard-scss`) and
+[`tools/nebensound-repo/rules/html-validate.json`](tools/nebensound-repo/rules/html-validate.json)
+(the presets `recommended` and `a11y`, less what contradicts Prettier through
+html-validate's own preset `prettier`). The
 block reads it from the pipeline version that runs. A repository's own
 configuration is laid over that default rule by rule: its file names only the
 rules it wants different, every rule it does not name keeps the default's value,
@@ -526,6 +585,21 @@ a comment, stays, and so does every other rule, such as `line-length` off. An
 default as well: `extends: default` brings back yamllint's own line length.
 yamllint reads one configuration, at the root (`.yamllint`, `.yamllint.yaml`
 or `.yamllint.yml`).
+
+Stylelint reads, for each stylesheet, the configuration nearest to it: the
+first of the names it looks for (`package.json` with a `stylelint` key,
+`.stylelintrc`, `.stylelintrc.json`, `.stylelintrc.yaml`,
+`stylelint.config.mjs` and the others) in the file's folder or the nearest
+folder above it. `check-css` hands it that configuration as the last of what
+its configuration extends, after the default, so Stylelint itself lays the one
+over the other rule by rule, and what the repository's `extends` names comes
+along over the default as well. An `overrides` entry matches its `files` from
+the repository root. html-validate reads the `.htmlvalidate.json` (`.mjs`,
+`.cjs`, `.js`) of a page's folder and of every folder above it, up to one that
+says `root: true`; `check-html` lays them over the default, the nearer over
+the farther. The page rules lie over everything and cannot be switched off.
+Both blocks install only the pinned packages, so a configuration that names
+another one, such as a plugin, fails with the package named.
 
 Ruff runs with a default of the pipeline as well:
 [`tools/nebensound-repo/rules/ruff.toml`](tools/nebensound-repo/rules/ruff.toml),
@@ -582,9 +656,9 @@ No block lets a tool's own way of leaving files out take a file out: an ignore
 file needs no reason and can turn a check green that checked nothing.
 `.gitignore` takes nothing out either. The blocks read none of these settings,
 except lychee's `exclude_path`, which comes along with the `lychee.toml`
-`check-markdown` reads, and rustfmt's `ignore`, which comes along with the
-repository's rustfmt configuration and takes effect on a nightly toolchain,
-and Ruff's `# ruff: noqa`, which a Python file holds itself.
+`check-markdown` and `check-html` read, and rustfmt's `ignore`, which comes
+along with the repository's rustfmt configuration and takes effect on a nightly
+toolchain, and Ruff's `# ruff: noqa`, which a Python file holds itself.
 Settings in a tool's configuration that pass a whole file unchecked are set
 aside on the command line: Prettier's `requirePragma`, `checkIgnorePragma`,
 `rangeStart` and `rangeEnd`, and rustfmt's `disable_all_formatting`;
@@ -608,6 +682,8 @@ block hands lychee. A setting that takes out less is fine. Phase 0 reads:
 | coverage.py       | `omit` in `.coveragerc`, `setup.cfg`, `tox.ini` or `pyproject.toml`, in every folder        |
 | Ruff              | `# ruff: noqa` or `# flake8: noqa` without rule codes, in the Python file itself            |
 | rustfmt           | `ignore` in `.rustfmt.toml` or `rustfmt.toml`, in every folder                              |
+| Stylelint         | `.stylelintignore` at the root; `ignoreFiles` in the configuration of every folder          |
+| html-validate     | `.htmlvalidateignore` in every folder                                                       |
 
 Only the files the tool reads in a block count: a `.prettierignore` that takes
 out a Rust file takes out nothing Prettier would have looked at. Taplo's
@@ -624,7 +700,14 @@ in the file its `extends` names, as yamllint does. rustfmt's `ignore` is read in
 every folder, relative to that folder, since which configuration rustfmt applies
 to a file depends on where it runs; a `.rs` file it takes out cannot be excused
 by an `[[exclude]]` entry of its own, only by one that takes out its whole
-package. A setting phase 0 cannot read fails as well (`unreadable-ignore-file`). A JavaScript options file of markdownlint-cli2
+package. Stylelint's `ignoreFiles` is read in the configuration Stylelint
+finds in each folder, relative to that folder, in order with its negated
+patterns, and counts for the files below it that no nearer configuration
+governs; a configuration in JavaScript is not judged, the block sets its
+`ignoreFiles` aside all the same, and a file that something it extends would
+still take out fails in the block. html-validate's `.htmlvalidateignore` is
+read in every folder, relative to that folder, as html-validate's command line
+reads it. A setting phase 0 cannot read fails as well (`unreadable-ignore-file`). A JavaScript options file of markdownlint-cli2
 (`.markdownlint-cli2.cjs` or `.mjs`) is not judged, since phase 0 cannot read it
 without running it; the block sets its `ignores` aside all the same. A setting
 that switches a rule off for some files, such as yamllint's per-rule `ignore`

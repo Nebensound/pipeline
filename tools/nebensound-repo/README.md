@@ -305,12 +305,14 @@ Phase 0 also holds the tools' own ways of leaving a file out against the
 declaration — `.prettierignore`, `include` and `exclude` in `taplo.toml`,
 `ignores` of markdownlint-cli2, `ignore` of yamllint, `exclude_path` of lychee,
 `ignore` of rustfmt, `ignore` of Pyright, `omit` of coverage.py, a Python
-file's `# ruff: noqa` — and fails on every file one of them takes out that no
-`[[exclude]]` entry does (`unexcused-ignore`). The building blocks read none of
-them except lychee's `exclude_path`, which phase 0 matches against the path
-from the root, the string `check-markdown` hands lychee, and rustfmt's
-`ignore`, which takes effect on a nightly toolchain, and Ruff's `# ruff: noqa`,
-which the file holds itself; run by hand, the tools read them all.
+file's `# ruff: noqa`, `.stylelintignore` and `ignoreFiles` of Stylelint,
+`.htmlvalidateignore` of html-validate — and fails on every file one of them
+takes out that no `[[exclude]]` entry does (`unexcused-ignore`). The building
+blocks read none of them except lychee's `exclude_path`, which phase 0 matches
+against the path from the root, the string `check-markdown` and `check-html`
+hand lychee, and rustfmt's `ignore`, which takes effect on a nightly toolchain,
+and Ruff's `# ruff: noqa`, which the file holds itself; run by hand, the tools
+read them all.
 
 ## Setting up the programs
 
@@ -349,7 +351,10 @@ A download is refused unless it has the digest the register pins, and nothing
 of it is used then. Downloads go through `curl`, which macOS, Linux and Windows
 bring; a program on a runtime is installed by that runtime's installer: npm
 with `--ignore-scripts`, or pip into a virtual environment of its own, taking
-only wheels, so that no build code of a dependency runs.
+only wheels, so that no build code of a dependency runs. The installer gets the
+program's companions with it, the packages the register pins beside it that
+are no command (Stylelint's: the configurations the pipeline's default extends
+and the syntax it reads SCSS with), each held against its digest as well.
 
 A **runtime** (Node.js, Python) is needed only for the programs the run
 installs on it or starts through it: a program that is to be installed, since
@@ -453,8 +458,9 @@ sentence and exit code `1`, for the same reason it gets no plan.
 
 ## The rules
 
-Markdownlint and yamllint run with a default of the pipeline, which their
-blocks lay a repository's own configuration over rule by rule (see
+Markdownlint, yamllint, Stylelint and html-validate run with a default of the
+pipeline, which their blocks lay a repository's own configuration over rule by
+rule (see
 [Linter rules](../../README.md#linter-rules)). `check` shows, per check, every
 file that is laid over the default and every rule it sets, with how the rule
 stands to the default:
@@ -482,7 +488,11 @@ rules are matched by any of their names and tags, in any case, so
 `line-length` stands over the default's `MD013`; a tag over rules the default
 does not give one value says so. For yamllint, a rule's options are laid over
 the default's options of that rule, as yamllint does, so writing one option of
-a rule the default sets is a difference only where that option differs.
+a rule the default sets is a difference only where that option differs. The
+defaults of Stylelint and html-validate name no rule of their own, only what
+they extend (`stylelint-config-standard`; html-validate's presets
+`recommended`, `a11y` and `prettier`), so every rule a repository sets for them
+is shown as one the pipeline's file does not name.
 
 Read are, in every folder, the options file and the file of rules only that
 markdownlint-cli2 reads there, and yamllint's configuration at the root.
@@ -497,6 +507,19 @@ root is shown `in place of everything above it, the default included`, which
 is how markdownlint-cli2 reads it; the `config` of a `.markdownlint-cli2.*`
 beside it in the same folder is shown as not read, since markdownlint-cli2
 takes the file of rules only instead.
+
+Stylelint and html-validate are shown only where their check covers a file.
+For Stylelint, the configuration nearest to each stylesheet is read: the first
+of the names Stylelint looks for in its folder or the nearest folder above it,
+`package.json` only where it holds a `stylelint` key. Below the root it is
+shown `in place of any configuration above it`, as the block lays only the
+nearest one over the default. For html-validate, every `.htmlvalidate.*` of a
+folder that holds a page or holds one below it is read, each laid over the
+default and what lies above it, up to a folder whose `.htmlvalidate.json` says
+`root: true`: that folder's files are shown `in place of any configuration
+above it`, and one above it is shown only where a page outside that folder
+reaches it.
+A `root` in a JavaScript file is not read.
 
 ## Where the file list comes from
 

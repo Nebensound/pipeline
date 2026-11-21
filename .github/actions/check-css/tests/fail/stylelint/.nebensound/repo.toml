@@ -1,0 +1,4 @@
+# A stylesheet with a long hex colour, which the default forbids.
+[repo]
+audience = "public"
+pipeline = { check = ["css"] }

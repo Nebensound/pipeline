@@ -43,6 +43,38 @@ pub struct Program {
     /// package for every platform ([`Platform::Any`]); any other has a build
     /// per platform.
     pub download: BTreeMap<Platform, Download>,
+    /// The packages installed beside a program on a runtime that are no
+    /// command of their own, such as the configurations a linter extends,
+    /// each pinned like the program. The runtime's installer puts them in
+    /// place together with it.
+    #[serde(default, rename = "companion")]
+    pub companions: Vec<Companion>,
+}
+
+/// A package installed beside a program on a runtime, pinned by its digest.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Companion {
+    /// The name its installer knows it by.
+    pub name: String,
+    /// The version pinned, three numbers.
+    pub version: String,
+    /// Where it comes from.
+    pub url: String,
+    /// The digest the file has, as its publisher states it.
+    pub digest: Digest,
+}
+
+impl Companion {
+    /// The package as a download, which names no executable.
+    #[must_use]
+    pub fn download(&self) -> Download {
+        Download {
+            url: self.url.clone(),
+            digest: self.digest.clone(),
+            executable: None,
+        }
+    }
 }
 
 /// A runtime some programs run on, such as Node.js or Python.

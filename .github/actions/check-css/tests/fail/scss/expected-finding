@@ -1,0 +1,1 @@
+::error file=theme.scss,line=1,col=1::Expected variable name "Accent" to be kebab-case (scss/dollar-variable-pattern)
