@@ -151,9 +151,9 @@ fn programs(register: &Register) -> String {
         .collect();
     section(
         "Programs",
-        "Every program a check calls, pinned to one version. `nebensound-repo setup`\n\
-         finds or installs them (see\n\
-         [the tool](../tools/nebensound-repo/README.md#setting-up-the-programs)).\n\
+        "Every program a check or a build calls, pinned to one version.\n\
+         `nebensound-repo setup` finds or installs the ones a repository's checks call\n\
+         (see [the tool](../tools/nebensound-repo/README.md#setting-up-the-programs)).\n\
          A program on a runtime is one package, which the runtime's installer puts in\n\
          place, and needs at least the version of the runtime its package states;\n\
          every other one is a build per platform. Each download is refused unless it\n\
@@ -201,6 +201,7 @@ fn builds(register: &Register) -> String {
                 code(name),
                 code(&build.produces),
                 codes(&build.requires_version),
+                codes(&build.programs),
             ]
         })
         .collect();
@@ -209,8 +210,9 @@ fn builds(register: &Register) -> String {
         "A build produces one kind of artifact. The kind decides which targets can take\n\
          it. A build that needs version writers takes the version of what it produces\n\
          from what they write: a unit that declares it selects them, or phase 0 fails\n\
-         (see [`build-without-version-writer`](declaration.md#build-without-version-writer)).",
-        &["Build", "Produces", "Needs version writers"],
+         (see [`build-without-version-writer`](declaration.md#build-without-version-writer)).\n\
+         The programs are what the build calls (see [Programs](#programs)).",
+        &["Build", "Produces", "Needs version writers", "Programs"],
         &rows,
     )
 }

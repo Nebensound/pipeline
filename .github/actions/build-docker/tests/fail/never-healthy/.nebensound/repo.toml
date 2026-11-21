@@ -1,0 +1,4 @@
+# An image whose health check never passes. Docker reports it unhealthy, and
+# the block prints the container's log and what the last check printed.
+[repo]
+pipeline = { check = ["dockerfile"], build = "docker", dependabot = ["docker"] }

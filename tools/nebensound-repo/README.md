@@ -363,10 +363,10 @@ or the repository has errors. A version that differs from the pinned one is
 said and stops nothing.
 
 Not every program has a build for every platform: on Windows there is none of
-`dockerfmt`, and on Windows on ARM none of `hadolint`, `jq` and `lychee`. There
-the default mode uses the computer's copy, which then has to be on the `PATH`,
-and `--pinned` cannot install them: it says so for each and exits with `1`,
-even when the computer has them.
+`dockerfmt`, and on Windows on ARM none of `hadolint`, `jq`, `lychee` and
+`trivy`. There the default mode uses the computer's copy, which then has to be
+on the `PATH`, and `--pinned` cannot install them: it says so for each and
+exits with `1`, even when the computer has them.
 
 ### The folder
 

@@ -1,0 +1,4 @@
+# One finding per vulnerability, and the count. musl of Alpine 3.10.0 has
+# CVE-2019-14697, which a later release of musl for 3.10 fixed.
+::error file=deploy/Dockerfile::CVE-2019-14697 (*) in musl *, fixed in *
+::error file=deploy/Dockerfile::The image of '.' has * vulnerabilities of severity HIGH or CRITICAL with a fixed version.

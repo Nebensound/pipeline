@@ -1,0 +1,4 @@
+# The log of the container, the output of the last health check, and the reason.
+the service starts
+not ready yet
+::error file=deploy/Dockerfile::The image of '.' never became healthy: Docker reports it unhealthy.

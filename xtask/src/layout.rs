@@ -67,9 +67,10 @@ const CALL_KEYS: &[&str] = &["if", "name", "uses", "with"];
 const CALL_WITH: (&str, &str) = ("working-directory", "${{ matrix.path }}");
 
 /// The plan of phase 0: the one input of a version writer's block, and the
-/// one a step may hand a check block beside [`CALL_WITH`], for a check that
-/// writes the versions it carries before it tests a package. It says what the
-/// commit is, not where or how to check.
+/// one a step may hand a check or build block beside [`CALL_WITH`], for a
+/// check that writes the versions it carries before it tests a package, or a
+/// build that labels what it builds with the unit's version. It says what the
+/// commit is, not where or how to check or build.
 const CALL_PLAN: (&str, &str) = ("plan", "${{ needs.declare.outputs.plan }}");
 
 /// The matrix of the check job: one entry per unit that runs a check.
@@ -113,7 +114,7 @@ const VERSION: Form = Form {
 const BUILD: Form = Form {
     job: BUILD_JOB,
     switch: "${{ matrix.build == '{}' }}",
-    with: &[&[CALL_WITH]],
+    with: &[&[CALL_WITH], &[CALL_PLAN, CALL_WITH]],
 };
 
 /// What the comparison found.

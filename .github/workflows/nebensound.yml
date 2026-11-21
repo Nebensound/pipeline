@@ -368,6 +368,9 @@ jobs:
   #     with:
   #       working-directory: ${{ matrix.path }}
   #
+  # A build that labels what it builds with the unit's version also gets
+  # `plan: ${{ needs.declare.outputs.plan }}`, and nothing else.
+  #
   # Neither runs after a step that failed: a build from versions that were not
   # written would hand on the wrong artifact. Each build block adds its step
   # below and its name to the list `WRITTEN_BUILDS` in "Not written yet"; a
@@ -408,7 +411,7 @@ jobs:
       - name: Not written yet
         env:
           BUILD: ${{ matrix.build }}
-          WRITTEN_BUILDS: '["cargo-package"]'
+          WRITTEN_BUILDS: '["cargo-package", "docker"]'
           UNIT_PATH: ${{ matrix.path }}
         run: |
           set -euo pipefail
@@ -432,6 +435,13 @@ jobs:
         uses: $/.github/actions/build-cargo-package
         with:
           working-directory: ${{ matrix.path }}
+
+      - name: docker
+        if: ${{ matrix.build == 'docker' }}
+        uses: $/.github/actions/build-docker
+        with:
+          working-directory: ${{ matrix.path }}
+          plan: ${{ needs.declare.outputs.plan }}
 
   # The one name a ruleset can require for the builds, gathered like Check. When
   # nothing builds in this run it is green and says so, whatever Check found.

@@ -1,0 +1,5 @@
+# An image that names its user and still runs as root: the name it gives is
+# mapped to the user ID 0. It becomes healthy, and the ID of its first process
+# gives it away.
+[repo]
+pipeline = { check = ["dockerfile"], build = "docker", dependabot = ["docker"] }
