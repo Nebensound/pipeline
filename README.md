@@ -701,7 +701,8 @@ Only the files the tool reads in a block count: a `.prettierignore` that takes
 out a Rust file takes out nothing Prettier would have looked at. Taplo's
 `include` counts only against `.toml` files, the ones Taplo reads without it; a
 `Pipfile` or a lockfile of the `toml` check (`Cargo.lock`, `uv.lock`,
-`poetry.lock`, `pdm.lock`) is taken out of Taplo only by `exclude`. A setting that takes out
+`poetry.lock`, `pdm.lock`) is taken out of Taplo only by `exclude`. A setting
+that takes out
 nothing but lockfiles the register names, such as a `.prettierignore` naming
 `composer.lock` or an `exclude` naming `Cargo.lock`, takes nothing out of a
 check: no block hands a lockfile to Prettier, and Taplo lints without its
