@@ -2,4 +2,5 @@
 # mapped to the user ID 0. It becomes healthy, and the ID of its first process
 # gives it away.
 [repo]
+audience = "public"
 pipeline = { check = ["dockerfile"], build = "docker", dependabot = ["docker"] }

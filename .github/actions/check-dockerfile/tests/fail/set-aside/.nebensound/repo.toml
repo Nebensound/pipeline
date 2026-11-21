@@ -1,4 +1,5 @@
 # The repository's configuration would pass every finding: `no-fail`, and a
 # failure threshold of `none`. Both are set aside, so DL3007 fails the check.
 [repo]
+audience = "public"
 pipeline = { check = ["dockerfile"], dependabot = ["docker"] }

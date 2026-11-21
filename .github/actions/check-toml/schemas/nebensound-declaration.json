@@ -2,6 +2,26 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
   "definitions": {
+    "Audience": {
+      "description": "For whom a repository is meant: which layer of rules holds for it.\n\nWritten down rather than read off GitHub: GitHub knows whether a\nrepository is public, not whether a customer sees it.",
+      "oneOf": [
+        {
+          "const": "public",
+          "description": "Open source of the organization: the repository is public.",
+          "type": "string"
+        },
+        {
+          "const": "internal",
+          "description": "Private, for the organization alone.",
+          "type": "string"
+        },
+        {
+          "const": "customer",
+          "description": "Private, and a customer can see it. For rules it includes everything\nthat holds for `internal`.",
+          "type": "string"
+        }
+      ]
+    },
     "BuildName": {
       "description": "A valid build name: lowercase letters, digits, '-' and '.', starting and ending on a letter or digit, without '..'.",
       "pattern": "^[a-z0-9](?:(?:\\.?[a-z0-9-])*\\.?[a-z0-9])?$",
@@ -297,6 +317,14 @@
             }
           },
           "type": "object"
+        },
+        "audience": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Audience"
+            }
+          ],
+          "description": "For whom the repository is meant. Phase 0 demands it in the\ndeclaration of the commit at hand; a declaration of an earlier commit\nis read without it, since it takes no part in resolving versions."
         },
         "component": {
           "anyOf": [

@@ -16,6 +16,7 @@ use support::{Git, QUIET, call, central, repository};
 
 /// A repository and two components, `lib` released in two stages.
 const UNITS: &str = r#"[repo]
+audience = "public"
 pipeline = "none"
 
 [component.app]

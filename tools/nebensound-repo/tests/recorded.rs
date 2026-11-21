@@ -178,14 +178,16 @@ fn holds(account: &str, recorded: &str) {
 }
 
 /// The repository and a component `app`, both released in one stage.
-const ONE_STAGE: &str =
-    "[repo]\npipeline = \"none\"\n\n[component.app]\npath     = \"app\"\npipeline = \"none\"\n";
+const ONE_STAGE: &str = "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.app]\npath     = \"app\"\npipeline = \"none\"\n";
 
 #[test]
 fn a_history_in_one_stage() {
     let floored = |repo: &str, app: &str| {
         ONE_STAGE
-            .replace("[repo]\n", &format!("[repo]\n{repo}"))
+            .replace(
+                "[repo]\naudience = \"public\"\n",
+                &format!("[repo]\naudience = \"public\"\n{repo}"),
+            )
             .replace(
                 "path     = \"app\"\n",
                 &format!("path     = \"app\"\n{app}"),
@@ -324,7 +326,7 @@ const RECORDED_ONE_STAGE: &str = concat!(
 );
 
 /// The repository in one stage and a component `lib` in two.
-const TWO_STAGES: &str = "[repo]\npipeline = \"none\"\n\n[component.lib]\npath     = \"lib\"\npipeline = \"none\"\nrelease  = \"two-stage\"\n";
+const TWO_STAGES: &str = "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.lib]\npath     = \"lib\"\npipeline = \"none\"\nrelease  = \"two-stage\"\n";
 
 #[test]
 fn a_history_in_two_stages() {
@@ -416,14 +418,16 @@ const RECORDED_TWO_STAGES: &str = concat!(
 );
 
 /// The repository and a component `lib`, both released in one stage.
-const LIB: &str =
-    "[repo]\npipeline = \"none\"\n\n[component.lib]\npath     = \"lib\"\npipeline = \"none\"\n";
+const LIB: &str = "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.lib]\npath     = \"lib\"\npipeline = \"none\"\n";
 
 /// A history whose first commits hold a declaration this reader cannot read,
 /// as one written for another reader would be, until one that reads follows.
 /// With `release`, the branch `release` exists from the first commit on.
 fn adopted(history: &mut Recorder, release: bool) {
-    let legacy = LIB.replace("[repo]\n", "[repo]\nlegacy-field = true\n");
+    let legacy = LIB.replace(
+        "[repo]\naudience = \"public\"\n",
+        "[repo]\naudience = \"public\"\nlegacy-field = true\n",
+    );
     history.write(&[
         (".nebensound/repo.toml", &legacy),
         ("README.md", "# Adopted\n"),
@@ -526,7 +530,7 @@ const RECORDED_ADOPTED_THEN_SWITCHED: &str = concat!(
 );
 
 /// The repository and a component `docs` that generates a unit per folder.
-const GENERATED: &str = "[repo]\npipeline = \"none\"\n\n[component.docs]\npath       = \"docs\"\npipeline   = \"none\"\nversioning = \"child-folders\"\n";
+const GENERATED: &str = "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.docs]\npath       = \"docs\"\npipeline   = \"none\"\nversioning = \"child-folders\"\n";
 
 #[test]
 fn a_history_of_generated_units() {
@@ -580,7 +584,7 @@ const RECORDED_GENERATED: &str = concat!(
 
 /// The repository at `1.0.0` and a component `app` below it, both in one
 /// stage, before `feat-types` names a type of their own.
-const OWN_TYPES: &str = "[repo]\npipeline = \"none\"\nminimum-version = \"1.0.0\"\n\n[component.app]\npath     = \"app\"\npipeline = \"none\"\nminimum-version = \"0.1.0\"\n";
+const OWN_TYPES: &str = "[repo]\naudience = \"public\"\npipeline = \"none\"\nminimum-version = \"1.0.0\"\n\n[component.app]\npath     = \"app\"\npipeline = \"none\"\nminimum-version = \"0.1.0\"\n";
 
 #[test]
 fn a_history_with_types_of_its_own() {

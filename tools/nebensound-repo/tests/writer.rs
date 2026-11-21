@@ -18,6 +18,7 @@ use support::{Git, call, central, repository};
 /// A workspace of two packages, `app` depending on `lib` by path, each a unit
 /// of its own with the writer `cargo`.
 const DECLARATION: &str = r#"[repo]
+audience = "public"
 pipeline = { check = ["rust"], dependabot = ["cargo"] }
 
 [component.crates]
@@ -311,7 +312,7 @@ fn a_workspace_of_its_own_below_the_root_gets_its_lockfile_in_line() {
     git.write(&[
         (
             ".nebensound/repo.toml",
-            "[repo]\npipeline = \"none\"\n\n[component.lib]\npath = \"lib\"\npipeline = { \
+            "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.lib]\npath = \"lib\"\npipeline = { \
              version = [\"cargo\"], check = [\"rust\"] }\n\n[component.thing]\npath = \
              \"thing\"\npipeline = { version = [\"cargo\"], check = [\"rust\"] }\n",
         ),
@@ -378,7 +379,7 @@ fn a_workspace_reached_only_through_an_untouched_package_gets_its_lockfile_in_li
     git.write(&[
         (
             ".nebensound/repo.toml",
-            "[repo]\npipeline = \"none\"\n\n[component.lib]\npath = \"lib\"\npipeline = { \
+            "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.lib]\npath = \"lib\"\npipeline = { \
              version = [\"cargo\"], check = [\"rust\"] }\n\n[component.thing]\npath = \
              \"thing\"\npipeline = { check = [\"rust\"] }\n",
         ),
@@ -484,7 +485,7 @@ fn a_workspace_beside_the_package_gets_its_requirement_and_lockfile_in_line() {
     git.write(&[
         (
             ".nebensound/repo.toml",
-            "[repo]\npipeline = \"none\"\n\n[component.lib]\npath = \"shared/lib\"\npipeline \
+            "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.lib]\npath = \"shared/lib\"\npipeline \
              = { version = [\"cargo\"], check = [\"rust\"] }\n\n[component.server]\npath = \
              \"server\"\npipeline = { check = [\"rust\"] }\n",
         ),
@@ -751,7 +752,7 @@ fn a_path_dependency_on_a_package_without_a_version_is_left_to_cargo() {
     git.write(&[
         (
             ".nebensound/repo.toml",
-            "[repo]\npipeline = { check = [\"rust\"], dependabot = [\"cargo\"] }\n\n\
+            "[repo]\naudience = \"public\"\npipeline = { check = [\"rust\"], dependabot = [\"cargo\"] }\n\n\
              [component.app]\npath = \"crates/app\"\npipeline = { version = [\"cargo\"] }\n\n\
              [component.helper]\npath = \"crates/helper\"\nversioning = \"none\"\n",
         ),
@@ -796,7 +797,7 @@ fn the_workspace_dependencies_of_a_unit_that_gets_nothing_get_the_requirement() 
     git.write(&[
         (
             ".nebensound/repo.toml",
-            "[repo]\npipeline = \"none\"\n\n[component.app]\npath = \"app\"\npipeline = { \
+            "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.app]\npath = \"app\"\npipeline = { \
              version = [\"cargo\"], check = [\"rust\"] }\n\n[component.ws]\npath = \
              \"ws\"\npipeline = { version = [\"cargo\"], check = [\"rust\"] }\n\n\
              [component.member]\npath = \"ws/member\"\npipeline = { version = [\"cargo\"] \
@@ -859,7 +860,7 @@ fn a_workspace_root_that_gets_nothing_keeps_what_no_member_that_gets_a_version_i
     git.write(&[
         (
             ".nebensound/repo.toml",
-            "[repo]\npipeline = \"none\"\n\n[component.ws]\npath = \"ws\"\npipeline = { \
+            "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.ws]\npath = \"ws\"\npipeline = { \
              version = [\"cargo\"], check = [\"rust\"] }\n\n[component.lib]\npath = \
              \"lib\"\npipeline = { version = [\"cargo\"], check = [\"rust\"] }\n",
         ),
@@ -913,7 +914,7 @@ fn two_workspaces(b_needs: &str) -> Git {
     git.write(&[
         (
             ".nebensound/repo.toml",
-            "[repo]\npipeline = \"none\"\n\n[component.a]\npath = \"a\"\nversioning = \
+            "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.a]\npath = \"a\"\nversioning = \
              \"child-folders\"\npipeline = { version = [\"cargo\"], check = [\"rust\"] }\n\n\
              [component.b]\npath = \"b\"\npipeline = { version = [\"cargo\"], check = \
              [\"rust\"] }\n",
@@ -1076,7 +1077,7 @@ fn a_workspace_inside_another() -> Git {
     git.write(&[
         (
             ".nebensound/repo.toml",
-            "[repo]\npipeline = { version = [\"cargo\"], check = [\"rust\"] }\n\n[component.b]\n\
+            "[repo]\naudience = \"public\"\npipeline = { version = [\"cargo\"], check = [\"rust\"] }\n\n[component.b]\n\
              path = \"b\"\nversioning = \"child-folders\"\npipeline = { version = [\"cargo\"] }\n",
         ),
         ("Cargo.toml", ROOT),
@@ -1728,6 +1729,7 @@ fn the_workspace_is_found_the_way_cargo_finds_it() {
         (
             ".nebensound/repo.toml",
             r#"[repo]
+audience = "public"
 pipeline = { version = ["cargo"], check = ["rust"], dependabot = ["cargo"] }
 
 [component.own]
@@ -1802,7 +1804,7 @@ pipeline = { version = ["cargo"] }
 fn one_unit_at(path: &str, files: &[(&str, &str)]) -> Git {
     let git = Git::new();
     let declaration = format!(
-        "[repo]\npipeline = {{ check = [\"rust\"] }}\n\n[component.pkg]\npath     = \
+        "[repo]\naudience = \"public\"\npipeline = {{ check = [\"rust\"] }}\n\n[component.pkg]\npath     = \
          \"{path}\"\npipeline = {{ version = [\"cargo\"] }}\n"
     );
     let manifest = format!("{path}/Cargo.toml");
@@ -1959,7 +1961,7 @@ fn a_package_outside_any_workspace_without_a_lockfile_gets_its_version() {
     git.write(&[
         (
             ".nebensound/repo.toml",
-            "[repo]\npipeline = \"none\"\n\n[component.alone]\npath = \"tools/alone\"\npipeline \
+            "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.alone]\npath = \"tools/alone\"\npipeline \
              = { version = [\"cargo\"], check = [\"rust\"] }\n",
         ),
         (
@@ -1990,7 +1992,7 @@ fn path_dependencies_are_found_wherever_a_manifest_writes_them() {
     git.write(&[
         (
             ".nebensound/repo.toml",
-            "[repo]\npipeline = { check = [\"rust\"], dependabot = [\"cargo\"] }\n\n\
+            "[repo]\naudience = \"public\"\npipeline = { check = [\"rust\"], dependabot = [\"cargo\"] }\n\n\
              [component.lib]\npath = \"crates/lib\"\npipeline = { version = [\"cargo\"] }\n",
         ),
         (
@@ -2219,7 +2221,7 @@ fn thing(files: &[(&str, &str)]) -> Git {
     let git = Git::new();
     let mut all = vec![(
         ".nebensound/repo.toml",
-        "[repo]\npipeline = \"none\"\n\n[component.thing]\npath = \"thing\"\npipeline = { \
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.thing]\npath = \"thing\"\npipeline = { \
          version = [\"cargo\"] }\n",
     )];
     all.extend_from_slice(files);

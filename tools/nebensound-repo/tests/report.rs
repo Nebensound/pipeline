@@ -10,6 +10,7 @@ use support::{analysis, central};
 
 const WORKSPACE: &str = "\
 [repo]
+audience = \"public\"
 pipeline = \"rust-library\"
 
 [component.docs]
@@ -29,7 +30,7 @@ const WORKSPACE_FILES: &[&str] = &[
     "doc/b.typ",
 ];
 
-const MIXED: &str = "[repo]\npipeline = \"none\"\n";
+const MIXED: &str = "[repo]\naudience = \"public\"\npipeline = \"none\"\n";
 const MIXED_FILES: &[&str] = &[
     "README.md",
     "LICENSE",
@@ -71,6 +72,7 @@ fn the_configuration_names_every_origin() {
     let analysis = analysis(
         "\
 [repo]
+audience = \"public\"
 pipeline = { check = [\"rust\"] }
 
 [repo.component]
@@ -149,7 +151,7 @@ fn the_line_at_the_end_counts() {
     assert_eq!(many, "5 files, 2 gaps, 2 errors, 0 warnings");
 
     let one = report::summary(&analysis(
-        "[repo]\npipeline = \"none\"\n\n[[exclude]]\npath = \"missing.md\"\nreason = \"there is none\"\n",
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[[exclude]]\npath = \"missing.md\"\nreason = \"there is none\"\n",
         &["README.md"],
     ));
     assert_eq!(one, "1 file, 0 gaps, 0 errors, 1 warning");
@@ -181,7 +183,7 @@ fn row<'a>(text: &'a str, label: &str) -> &'a str {
 
 #[test]
 fn the_report_and_explain_show_the_types_that_count_like_feat() {
-    let listed = "[repo]\npipeline = \"none\"\nfeat-types = [\"rule\", \"announcement\"]\n";
+    let listed = "[repo]\naudience = \"public\"\npipeline = \"none\"\nfeat-types = [\"rule\", \"announcement\"]\n";
     let written = analysis(listed, &["README.md"]);
 
     let configuration = report::configuration(&written, &central());
@@ -242,6 +244,7 @@ fn a_name_that_could_forge_a_line_is_escaped() {
 fn the_tree_shows_a_file_the_declaration_excludes_with_its_reason() {
     let declaration = "\
 [repo]
+audience = \"public\"
 pipeline = \"none\"
 
 [[exclude]]
