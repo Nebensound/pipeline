@@ -584,7 +584,7 @@ const RECORDED_GENERATED: &str = concat!(
 
 /// The repository at `1.0.0` and a component `app` below it, both in one
 /// stage, before `feat-types` names a type of their own.
-const OWN_TYPES: &str = "[repo]\npipeline = \"none\"\nminimum-version = \"1.0.0\"\n\n[component.app]\npath     = \"app\"\npipeline = \"none\"\nminimum-version = \"0.1.0\"\n";
+const OWN_TYPES: &str = "[repo]\naudience = \"public\"\npipeline = \"none\"\nminimum-version = \"1.0.0\"\n\n[component.app]\npath     = \"app\"\npipeline = \"none\"\nminimum-version = \"0.1.0\"\n";
 
 #[test]
 fn a_history_with_types_of_its_own() {

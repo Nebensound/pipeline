@@ -183,7 +183,7 @@ fn row<'a>(text: &'a str, label: &str) -> &'a str {
 
 #[test]
 fn the_report_and_explain_show_the_types_that_count_like_feat() {
-    let listed = "[repo]\npipeline = \"none\"\nfeat-types = [\"rule\", \"announcement\"]\n";
+    let listed = "[repo]\naudience = \"public\"\npipeline = \"none\"\nfeat-types = [\"rule\", \"announcement\"]\n";
     let written = analysis(listed, &["README.md"]);
 
     let configuration = report::configuration(&written, &central());
