@@ -12,6 +12,14 @@
       "pattern": "^[a-z0-9](?:(?:\\.?[a-z0-9-])*\\.?[a-z0-9])?$",
       "type": "string"
     },
+    "CommitType": {
+      "description": "A commit type as a Conventional Commit writes it before the colon: letters only, compared without regard to case. Neither feat nor fix.",
+      "not": {
+        "pattern": "^(?:[Ff][Ee][Aa][Tt]|[Ff][Ii][Xx])$"
+      },
+      "pattern": "^[A-Za-z]+$",
+      "type": "string"
+    },
     "Component": {
       "additionalProperties": false,
       "description": "A part of the repository that is a unit of its own.",
@@ -164,6 +172,14 @@
       },
       "type": "object"
     },
+    "FeatTypes": {
+      "description": "Commit types that count like feat in this repository, beside feat itself. Each commit is read with the list its own declaration holds.",
+      "items": {
+        "$ref": "#/definitions/CommitType"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
     "Inclusion": {
       "additionalProperties": false,
       "description": "An entry that pulls something back into the check.\n\nThe reason is optional here: adding work is harmless and does not have to\njustify itself. The same table shape all the same, so that both directions\nlook alike and an entry can carry one more field later.",
@@ -289,6 +305,14 @@
             }
           ],
           "description": "The default a component can ask for with `pipeline.repo = true`."
+        },
+        "feat-types": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/FeatTypes"
+            }
+          ],
+          "description": "Commit types that count like `feat` in this repository, beside `feat`\nitself. Each commit is read with the list its own declaration holds."
         },
         "minimum-version": {
           "anyOf": [

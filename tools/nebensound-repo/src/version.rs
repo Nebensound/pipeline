@@ -8,7 +8,9 @@
 //!
 //! What a commit asks of a version follows from its message, read as a
 //! Conventional Commit ([`change_of`]): a breaking change raises the major
-//! version, `feat` the minor one, everything else the patch. Below `1.0.0`
+//! version, `feat` the minor one, everything else the patch. A repository can
+//! name commit types of its own that count like `feat` ([`FeatTypes`]). Below
+//! `1.0.0`
 //! less is promised, and less is raised ([`Version::raised`]): below `0.1.0`
 //! every change is a patch, and from there a breaking change raises the minor
 //! version. The steps to `0.1.0` and to `1.0.0` are a person's, taken with
@@ -288,7 +290,8 @@ impl fmt::Display for TagVersion {
 pub enum Change {
     /// A compatible correction, or anything that is neither of the others.
     Patch,
-    /// `feat`: something new, compatible.
+    /// `feat`, or a type the repository counts like it: something new,
+    /// compatible.
     Minor,
     /// `!` after the type, or a `BREAKING CHANGE` footer.
     Major,
@@ -305,17 +308,157 @@ pub struct Unconventional {
     pub header: String,
 }
 
+/// Why a commit type cannot be named in `feat-types`.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum CommitTypeError {
+    /// The string is not a type a Conventional Commit can carry.
+    #[error(
+        "a commit type is one or more letters, as a Conventional Commit writes it before the \
+         colon; {value:?} is not"
+    )]
+    Letters {
+        /// The rejected string.
+        value: String,
+    },
+    /// The type is `feat` or `fix`, which the table of changes already counts.
+    #[error(
+        "{value:?} is not listed: `feat` counts like `feat` without it, and `fix` stays a patch"
+    )]
+    Implied {
+        /// The rejected string.
+        value: String,
+    },
+    /// The type is listed twice.
+    #[error("{value:?} is listed twice; commit types are compared without regard to case")]
+    Twice {
+        /// The type listed a second time, as written there.
+        value: String,
+    },
+}
+
+/// A commit type a repository counts like `feat`, as `feat-types` names it.
+///
+/// Letters only, as [`change_of`] reads the type of a header, and neither
+/// `feat` nor `fix` in any case: `feat` counts like itself already, and `fix`
+/// is a correction, which no declaration turns into a feature.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CommitType(String);
+
+impl CommitType {
+    /// Accepts the string if it can be named in `feat-types`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommitTypeError`] when it is not letters only, or when it is
+    /// `feat` or `fix`.
+    pub fn new(value: &str) -> Result<Self, CommitTypeError> {
+        if value.is_empty() || !value.chars().all(|c| c.is_ascii_alphabetic()) {
+            return Err(CommitTypeError::Letters {
+                value: value.to_owned(),
+            });
+        }
+        if ["feat", "fix"]
+            .iter()
+            .any(|implied| value.eq_ignore_ascii_case(implied))
+        {
+            return Err(CommitTypeError::Implied {
+                value: value.to_owned(),
+            });
+        }
+        Ok(Self(value.to_owned()))
+    }
+
+    /// The type as written.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for CommitType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for CommitType {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        Self::new(&raw).map_err(de::Error::custom)
+    }
+}
+
+/// The commit types a repository counts like `feat`, beside `feat` itself:
+/// the field `feat-types` of `[repo]`.
+///
+/// A repository whose changes are not features writes its compatible
+/// additions in its own words and still raises versions by the one table of
+/// changes. Only the column `feat` can be reached this way: a breaking change
+/// stays what it is for every type, `!` after the type or the footer, and
+/// every type not listed counts as everything else. Empty when the field is
+/// left out, which reads every commit as before.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FeatTypes(Vec<CommitType>);
+
+impl FeatTypes {
+    /// The list as written, each type once.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommitTypeError::Twice`] when a type is listed twice,
+    /// compared without regard to case as the type of a header is.
+    pub fn new(types: Vec<CommitType>) -> Result<Self, CommitTypeError> {
+        for (position, kind) in types.iter().enumerate() {
+            if types[..position]
+                .iter()
+                .any(|earlier| earlier.0.eq_ignore_ascii_case(&kind.0))
+            {
+                return Err(CommitTypeError::Twice {
+                    value: kind.0.clone(),
+                });
+            }
+        }
+        Ok(Self(types))
+    }
+
+    /// The types, in the order written.
+    #[must_use]
+    pub fn types(&self) -> &[CommitType] {
+        &self.0
+    }
+
+    /// Whether the type of a header counts like `feat`: `feat` itself, or one
+    /// of the types listed, compared without regard to case.
+    #[must_use]
+    pub fn counts_like_feat(&self, kind: &str) -> bool {
+        kind.eq_ignore_ascii_case("feat")
+            || self
+                .0
+                .iter()
+                .any(|listed| listed.0.eq_ignore_ascii_case(kind))
+    }
+}
+
+impl<'de> Deserialize<'de> for FeatTypes {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let types = Vec::<CommitType>::deserialize(deserializer)?;
+        Self::new(types).map_err(de::Error::custom)
+    }
+}
+
 /// What a commit message asks of the version.
 ///
 /// The header is `<type>[(<scope>)][!]: <description>`. The type is letters
 /// only and compared without regard to case, as the specification allows;
 /// `BREAKING CHANGE: ` and `BREAKING-CHANGE: ` count only as written, at the
-/// start of a line below the header.
+/// start of a line below the header. `feat`, and every type `feat_types`
+/// lists, counts like `feat`.
 ///
 /// # Errors
 ///
 /// Returns [`Unconventional`] when the header does not have that form.
-pub fn change_of(message: &str) -> Result<Change, Unconventional> {
+pub fn change_of(message: &str, feat_types: &FeatTypes) -> Result<Change, Unconventional> {
     let mut lines = message.lines();
     let header = lines.next().unwrap_or_default();
     let unconventional = || Unconventional {
@@ -350,7 +493,7 @@ pub fn change_of(message: &str) -> Result<Change, Unconventional> {
         });
     Ok(if breaking {
         Change::Major
-    } else if kind.eq_ignore_ascii_case("feat") {
+    } else if feat_types.counts_like_feat(kind) {
         Change::Minor
     } else {
         Change::Patch
