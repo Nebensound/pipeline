@@ -7,9 +7,11 @@ setting, why it is set, and the `gh api` call that reads it back.
 The last part lists the settings that every repository of the organization
 carries, with the calls that read them back across the organization.
 
-Organization rulesets, the repository custom property and organization secrets
-are not repository settings and are not described here. They get their own
-documents with the issues that introduce them.
+Organization rulesets and the repository properties are not repository
+settings: they are described, as files that can be applied, in
+[the organization's rulesets and properties](organization/README.md).
+Organization secrets get their own document with the issue that introduces
+them.
 
 ## Immutable releases
 
@@ -54,7 +56,7 @@ gh api repos/Nebensound/pipeline/private-vulnerability-reporting
   Conventional Commit without anyone retyping it.
 - Merge commits are allowed in the settings because a later branch behind
   `main` takes its changes as merge commits. On `main` a ruleset allows squash
-  only.
+  only (see [the organization's rulesets](organization/README.md)).
 - Rebase is off: it would put a pull request's individual commits on `main`,
   and those are not required to be Conventional Commits.
 - Head branches are deleted after merge so that no stale branch lingers.
@@ -111,8 +113,9 @@ below, and the read-back call shows any repository that was missed.
 - **Head branches are deleted after merge.** A merged pull request leaves no
   stale branch behind. The setting never deletes the default branch or a
   protected branch, and a branch that no pull request was merged from is not
-  touched either. A `release` branch therefore relies on its ruleset, not on
-  this setting, to stay.
+  touched either. A `release` branch therefore relies on its ruleset
+  ([`release-guard`](organization/README.md#release-guard)), not on this
+  setting, to stay.
 - **Forks are left out.** A fork belongs to someone else's project, and its
   settings follow that project's habits. The read-back call lists no fork, and
   archived repositories are left out as well because nobody merges there.
@@ -157,3 +160,7 @@ are listed here with the exact call (and the response, if refused).
     -f default_workflow_permissions=read \
     -F can_approve_pull_request_reviews=false
   ```
+
+- The organization rulesets and the switch of this repository to them, with
+  the calls, are listed in
+  [the owner's checklist there](organization/README.md#checklist-for-the-organization-owner).
