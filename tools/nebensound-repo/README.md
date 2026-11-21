@@ -31,8 +31,8 @@ neither.
 read them from there, and the tool compiles the ones of Markdownlint and
 yamllint in to show how a repository's rules stand to them
 ([The rules](#the-rules)), so both speak of the same files, and a change to
-one of them is a change to the tool, which builds it again. Ruff's default is
-not shown yet.
+one of them is a change to the tool, which builds it again. The same holds for
+the defaults of Stylelint, html-validate and Ruff.
 
 The tool itself is not to be published: whoever needs it is to get it through
 the composite action under `.github/actions/phase0`. A second distribution
@@ -458,9 +458,9 @@ sentence and exit code `1`, for the same reason it gets no plan.
 
 ## The rules
 
-Markdownlint, yamllint, Stylelint and html-validate run with a default of the
-pipeline, which their blocks lay a repository's own configuration over rule by
-rule (see
+Markdownlint, yamllint, Stylelint, html-validate and Ruff run with a default of
+the pipeline, which their blocks lay a repository's own configuration over rule
+by rule (see
 [Linter rules](../../README.md#linter-rules)). `check` shows, per check, every
 file that is laid over the default and every rule it sets, with how the rule
 stands to the default:
@@ -520,6 +520,34 @@ default and what lies above it, up to a folder whose `.htmlvalidate.json` says
 above it`, and one above it is shown only where a page outside that folder
 reaches it.
 A `root` in a JavaScript file is not read.
+
+Ruff is shown only where the python check covers a file, too. Read is, for
+each unit the check runs at, the configuration `check-python` lays over the
+default: the first of `.ruff.toml`, `ruff.toml` and a `pyproject.toml` with a
+`[tool.ruff]` table in the unit's folder or the nearest folder above it, and
+every file its `extend` names, each shown beneath the one that names it:
+
+```text
+  python                                                Ruff: the default, with these laid over it
+      pyproject.toml                                    laid over the default rule by rule
+          D100                                          off by `lint.ignore` (the default's `ignore` does not name it; its `select` is ["ALL"])
+          CPY001                                        on by `lint.extend-select` (over the default, whose `ignore` names it)
+          T201                                          off in "scripts/*" by `lint.per-file-ignores` (the default names no such pattern)
+```
+
+Ruff's rules are no map from rule to value: `select`, `extend-select`,
+`ignore`, `extend-ignore`, `per-file-ignores` and `extend-per-file-ignores`
+name rules and prefixes of them (`D`, `PLR2`, `ALL`), which Ruff weighs by how
+specific each one is. The report does not resolve a prefix into the rules it
+stands for: each entry is shown as the file writes it, and compared with the
+same entry of the default, so `D` is `on` or `off` as written, with whether the
+default's `select` or `ignore` names `D` itself. A `select` is shown as one
+list, since it starts over: the `select` and `ignore` beneath it, the
+default's `select = ["ALL"]` included, no longer hold. A `per-file-ignores`
+starts over as well, and the report names the default's patterns that no
+longer hold. The settings are read in the `lint` table, or at the top where
+`lint` does not name one. An `extend` that leaves the repository or that Ruff
+would expand (`~`, `$`) is named, not read.
 
 ## Where the file list comes from
 

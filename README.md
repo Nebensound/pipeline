@@ -617,7 +617,10 @@ rest of the default, its `select` and `per-file-ignores` start over, and every
 other setting it names wins. What its own `extend` names comes along, over the
 default as well. A rule switched off for one line (`# noqa: <code>`) or one
 file (`# ruff: noqa: <code>`) stays the repository's choice.
-`nebensound-repo check` does not show Ruff's rules yet.
+`nebensound-repo check` shows every rule and prefix the repository's
+configuration and the files its `extend` names switch on or off, as each file
+writes it, against the same entry of the default (see
+[the tool's README](tools/nebensound-repo/README.md#the-rules)).
 
 Pyright runs in strict mode, with the repository's configuration laid over it:
 the one Pyright finds for the unit, `pyrightconfig.json` or the

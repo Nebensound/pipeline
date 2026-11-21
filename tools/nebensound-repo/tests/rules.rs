@@ -7,7 +7,9 @@ mod support;
 use std::collections::{BTreeMap, BTreeSet};
 
 use nebensound_repo::path::RelativePath;
-use nebensound_repo::rules::{Defaults, HTML_VALIDATE, MARKDOWNLINT, STYLELINT, YAMLLINT, report};
+use nebensound_repo::rules::{
+    Defaults, HTML_VALIDATE, MARKDOWNLINT, RUFF, STYLELINT, YAMLLINT, report,
+};
 use support::{QUIET, analysis, call, repository};
 
 /// What the report says of a Markdownlint rule the pipeline's file does not
@@ -137,6 +139,7 @@ fn a_change_of_the_default_reaches_a_repository_that_did_not_name_the_rule() {
         yamllint: YAMLLINT,
         stylelint: STYLELINT,
         html_validate: HTML_VALIDATE,
+        ruff: RUFF,
     };
 
     let before = rules(&files);
@@ -256,6 +259,7 @@ fn a_markdownlint_tag_over_rules_the_default_treats_apart_says_so() {
         yamllint: YAMLLINT,
         stylelint: STYLELINT,
         html_validate: HTML_VALIDATE,
+        ruff: RUFF,
     };
 
     let text = rules_with(
@@ -284,6 +288,7 @@ fn the_default_of_markdownlint_stands_for_every_rule_it_does_not_name() {
         yamllint: YAMLLINT,
         stylelint: STYLELINT,
         html_validate: HTML_VALIDATE,
+        ruff: RUFF,
     };
 
     let text = rules_with(
@@ -306,6 +311,7 @@ fn a_yamllint_default_without_extends_leaves_a_rule_it_does_not_name_off() {
         yamllint: "rules:\n  comments: enable\n",
         stylelint: STYLELINT,
         html_validate: HTML_VALIDATE,
+        ruff: RUFF,
     };
 
     let text = rules_with(defaults, &[(".yamllint", "rules:\n  hyphens: enable\n")]);
@@ -511,6 +517,7 @@ fn a_default_that_does_not_read_is_named() {
         yamllint: "- a\n",
         stylelint: STYLELINT,
         html_validate: HTML_VALIDATE,
+        ruff: RUFF,
     };
 
     let text = rules_with(broken, &[(".yamllint", "rules: {}\n")]);
@@ -888,6 +895,7 @@ fn a_rule_the_default_of_stylelint_or_html_validate_names_is_compared() {
         yamllint: YAMLLINT,
         stylelint: "rules:\n  color-named: never\n",
         html_validate: "{ \"extends\": \"html-validate:standard\", \"rules\": { \"void-style\": \"off\" } }",
+        ruff: RUFF,
     };
     let text = web_with(
         defaults,
@@ -953,6 +961,7 @@ fn a_configuration_of_stylelint_or_html_validate_that_does_not_read_says_why() {
         yamllint: YAMLLINT,
         stylelint: "a: [\n",
         html_validate: "{",
+        ruff: RUFF,
     };
     let text = web_with(broken, &[]);
     assert!(
@@ -962,5 +971,426 @@ fn a_configuration_of_stylelint_or_html_validate_that_does_not_read_says_why() {
     assert!(
         text.contains("html-validate: the pipeline's default does not read: "),
         "{text}"
+    );
+}
+
+/// A declaration whose repository runs the check for Python, with a unit at
+/// `app` that names it again and one at `tools` that names it alone.
+const PYTHON: &str = "[repo]\naudience = \"public\"\npipeline = { check = [\"python\"] }\n\
+                      \n\
+                      [component.app]\npath     = \"app\"\npipeline = { check = [\"python\"] }\n";
+
+/// The report for a repository that runs the check for Python, with a module
+/// at the root and in `app/`, held against these defaults.
+fn python_with(defaults: Defaults<'_>, files: &[(&str, &str)]) -> String {
+    let paths = [
+        ".nebensound/repo.toml",
+        "README.md",
+        "main.py",
+        "app/run.py",
+    ];
+    report_for(PYTHON, &paths, files, defaults)
+}
+
+fn python(files: &[(&str, &str)]) -> String {
+    python_with(Defaults::BUILT_IN, files)
+}
+
+/// What the report says of an entry the default's `ignore` does not name.
+const NOT_IGNORED: &str = "the default's `ignore` does not name it; its `select` is [\"ALL\"]";
+
+#[test]
+fn without_a_configuration_of_its_own_ruff_runs_with_the_default_alone() {
+    let text = python(&[]);
+
+    assert_eq!(
+        text.lines().skip(4).collect::<Vec<_>>(),
+        [
+            "  python                                                Ruff: the default, \
+          nothing laid over it"
+        ]
+    );
+    assert!(RUFF.contains("select = [\"ALL\"]"), "{RUFF}");
+    // Without a Python file the check covers, Ruff is not shown.
+    assert_eq!(rules(&[]).lines().count(), 4);
+}
+
+#[test]
+fn a_rule_switched_off_names_the_rule_and_the_file() {
+    let text = python(&[(
+        "pyproject.toml",
+        "[project]\nname = \"thing\"\n\n[tool.ruff]\nline-length = 100\n\n\
+         [tool.ruff.lint]\nignore = [\"D100\", \"COM812\"]\n\
+         extend-select = [\"CPY001\", \"ALL\", \"E\"]\n",
+    )]);
+
+    assert!(
+        text.contains("Ruff: the default, with these laid over it"),
+        "{text}"
+    );
+    assert_eq!(
+        after(&text, "pyproject.toml"),
+        ["laid over the default rule by rule"]
+    );
+    assert_eq!(
+        after(&text, "D100"),
+        [format!("off by `lint.ignore` ({NOT_IGNORED})")]
+    );
+    assert_eq!(
+        after(&text, "COM812"),
+        ["off by `lint.ignore` (the same as the default: its `ignore` names it)"]
+    );
+    assert_eq!(
+        after(&text, "CPY001"),
+        ["on by `lint.extend-select` (over the default, whose `ignore` names it)"]
+    );
+    assert_eq!(
+        after(&text, "ALL"),
+        ["on by `lint.extend-select` (the same as the default: its `select` names it)"]
+    );
+    assert_eq!(
+        after(&text, "E"),
+        [
+            "on by `lint.extend-select` (the default names it in neither `select` nor \
+             `ignore`; its `select` is [\"ALL\"])"
+        ]
+    );
+}
+
+#[test]
+fn a_select_and_per_file_ignores_start_over() {
+    let text = python(&[(
+        "ruff.toml",
+        "[lint]\nselect = [\"E\", \"F\"]\n\n[lint.per-file-ignores]\n\
+         \"**/tests/**\" = [\"S101\", \"PLR2004\"]\n\"scripts/*\" = [\"T201\"]\n\n\
+         [lint.extend-per-file-ignores]\n\"**/conftest.py\" = [\"ANN\"]\n",
+    )]);
+
+    assert_eq!(
+        after(&text, "lint.select"),
+        [
+            "[\"E\",\"F\"] (starts over: the `select` and `ignore` beneath it no longer hold, \
+             the default's `select` [\"ALL\"] included)"
+        ]
+    );
+    assert_eq!(
+        after(&text, "lint.per-file-ignores"),
+        [
+            "starts over: the default's for [\"**/*_test.py\",\"**/conftest.py\",\
+             \"**/test_*.py\"] no longer hold"
+        ]
+    );
+    assert_eq!(
+        after(&text, "S101"),
+        ["off in \"**/tests/**\" by `lint.per-file-ignores` (the same as the default)"]
+    );
+    assert_eq!(
+        after(&text, "PLR2004"),
+        [
+            "off in \"**/tests/**\" by `lint.per-file-ignores` (the default switches off \
+             [\"S101\"] there)"
+        ]
+    );
+    assert_eq!(
+        after(&text, "T201"),
+        ["off in \"scripts/*\" by `lint.per-file-ignores` (the default names no such pattern)"]
+    );
+    assert_eq!(
+        after(&text, "ANN"),
+        [
+            "off in \"**/conftest.py\" by `lint.extend-per-file-ignores` (the default \
+             switches off [\"S101\"] there)"
+        ]
+    );
+}
+
+#[test]
+fn per_file_ignores_naming_every_pattern_of_the_default_still_start_over() {
+    let text = python(&[(
+        ".ruff.toml",
+        "[lint.per-file-ignores]\n\"**/tests/**\" = []\n\"**/test_*.py\" = []\n\
+         \"**/*_test.py\" = []\n\"**/conftest.py\" = []\n",
+    )]);
+
+    assert_eq!(
+        after(&text, "lint.per-file-ignores"),
+        ["starts over, in place of the default's"]
+    );
+}
+
+#[test]
+fn settings_at_the_top_count_where_the_lint_table_does_not_name_them() {
+    let text = python(&[(
+        "ruff.toml",
+        "select = [\"E\"]\nextend-ignore = [\"E501\"]\nignore = [\"W\"]\n\n\
+         [lint]\nignore = [\"D\"]\n",
+    )]);
+
+    assert_eq!(after(&text, "select").len(), 1, "{text}");
+    assert_eq!(
+        after(&text, "D"),
+        [format!("off by `lint.ignore` ({NOT_IGNORED})")]
+    );
+    assert!(after(&text, "W").is_empty(), "{text}");
+    assert_eq!(
+        after(&text, "E501"),
+        [format!("off by `extend-ignore` ({NOT_IGNORED})")]
+    );
+}
+
+#[test]
+fn the_configuration_ruff_finds_for_each_unit_is_read() {
+    // `.ruff.toml` comes before `ruff.toml`; a `pyproject.toml` without a
+    // `[tool.ruff]` table is passed by, and the one above it found.
+    let text = python(&[
+        (".ruff.toml", "[lint]\nignore = [\"D100\"]\n"),
+        ("ruff.toml", "[lint]\nignore = [\"D101\"]\n"),
+        ("app/pyproject.toml", "[project]\nname = \"app\"\n"),
+        ("app/sub/ruff.toml", "[lint]\nignore = [\"D102\"]\n"),
+    ]);
+
+    assert_eq!(
+        after(&text, ".ruff.toml"),
+        ["laid over the default rule by rule"]
+    );
+    assert!(!after(&text, "D100").is_empty(), "{text}");
+    for unread in ["D101", "D102", "app/pyproject.toml", "ruff.toml"] {
+        assert!(after(&text, unread).is_empty(), "{unread}: {text}");
+    }
+}
+
+#[test]
+fn a_unit_inside_another_that_runs_the_check_reads_no_configuration_of_its_own() {
+    let text = python(&[("app/ruff.toml", "[lint]\nignore = [\"D100\"]\n")]);
+    assert!(
+        text.contains("Ruff: the default, nothing laid over it"),
+        "{text}"
+    );
+
+    // A unit that runs the check where the repository does not reads its own,
+    // and two units that find the same file show it once.
+    let declaration = "[repo]\naudience = \"public\"\npipeline = \"none\"\n\
+                       \n\
+                       [component.app]\npath     = \"app\"\npipeline = { check = [\"python\"] }\n\
+                       \n\
+                       [component.cli]\npath     = \"app/cli\"\npipeline = { check = [\"python\"] }\n\
+                       \n\
+                       [component.web]\npath     = \"web\"\npipeline = { check = [\"python\"] }\n";
+    let text = report_for(
+        declaration,
+        &[
+            ".nebensound/repo.toml",
+            "app/run.py",
+            "app/cli/main.py",
+            "web/site.py",
+        ],
+        &[
+            ("app/ruff.toml", "[lint]\nignore = [\"D100\"]\n"),
+            (
+                "pyproject.toml",
+                "[tool.ruff]\nextend-select = [\"D213\"]\n",
+            ),
+        ],
+        Defaults::BUILT_IN,
+    );
+    assert_eq!(after(&text, "app/ruff.toml").len(), 1, "{text}");
+    assert_eq!(after(&text, "pyproject.toml").len(), 1, "{text}");
+    assert_eq!(after(&text, "D213").len(), 1, "{text}");
+}
+
+#[test]
+fn a_ruff_configuration_that_names_no_rule_says_so() {
+    let text = python(&[("ruff.toml", "line-length = 100\n")]);
+
+    assert_eq!(
+        after(&text, "ruff.toml"),
+        ["laid over the default rule by rule; it names no rule"]
+    );
+}
+
+#[test]
+fn what_extend_names_lies_beneath_it_over_the_default() {
+    let text = python(&[
+        (
+            "app/ruff.toml",
+            "extend = \"../config/./base.toml\"\n[lint]\nignore = [\"D100\"]\n",
+        ),
+        ("config/base.toml", "extend = \"pyproject.toml\"\n"),
+        ("config/pyproject.toml", "[project]\nname = \"config\"\n"),
+        (
+            "pyproject.toml",
+            "[tool.ruff]\nextend = \"app/ruff.toml\"\n",
+        ),
+    ]);
+
+    let lines: Vec<&str> = text.lines().skip(5).map(str::trim).collect();
+    let squeezed: Vec<String> = lines
+        .iter()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect();
+    assert_eq!(
+        squeezed,
+        [
+            "pyproject.toml laid over the default rule by rule",
+            "extend \"app/ruff.toml\": what it names lies beneath the rules here",
+            "app/ruff.toml laid over the default beneath pyproject.toml, whose `extend` names it",
+            format!("D100 off by `lint.ignore` ({NOT_IGNORED})").as_str(),
+            "extend \"../config/./base.toml\": what it names lies beneath the rules here",
+            "config/base.toml laid over the default beneath app/ruff.toml, whose `extend` names it",
+            "extend \"pyproject.toml\": what it names lies beneath the rules here",
+            "config/pyproject.toml laid over the default beneath config/base.toml, whose \
+             `extend` names it; it names no rule",
+        ],
+        "{text}"
+    );
+}
+
+#[test]
+fn an_extend_that_cannot_be_followed_says_why() {
+    for (extend, why) in [
+        (
+            "~/ruff.toml",
+            "lies outside the repository: named, not read",
+        ),
+        (
+            "$HOME/ruff.toml",
+            "lies outside the repository: named, not read",
+        ),
+        (
+            "/etc/ruff.toml",
+            "lies outside the repository: named, not read",
+        ),
+        (
+            "../ruff.toml",
+            "lies outside the repository: named, not read",
+        ),
+        (
+            "ruff.toml",
+            "comes back round to a file above it, which Ruff refuses",
+        ),
+    ] {
+        let text = python(&[("ruff.toml", &format!("extend = {extend:?}\n"))]);
+        assert_eq!(
+            after(&text, "extend"),
+            [format!("{extend:?}: {why}")],
+            "{text}"
+        );
+    }
+
+    let text = python(&[
+        ("ruff.toml", "extend = \"base.toml\"\n"),
+        ("base.toml", "extend = \"ruff.toml\"\n"),
+    ]);
+    assert_eq!(
+        after(&text, "extend").last().map(String::as_str),
+        Some("\"ruff.toml\": comes back round to a file above it, which Ruff refuses"),
+        "{text}"
+    );
+
+    let text = python(&[("ruff.toml", "extend = \"missing.toml\"\n")]);
+    assert_eq!(
+        after(&text, "missing.toml"),
+        ["cannot be read: no such file"],
+        "{text}"
+    );
+}
+
+#[test]
+fn a_configuration_of_ruff_that_does_not_read_says_why() {
+    for (file, source, why) in [
+        ("ruff.toml", "a = [", "cannot be read: "),
+        (
+            "ruff.toml",
+            "extend = 3\n",
+            "cannot be read: `extend` is not text",
+        ),
+        (
+            "ruff.toml",
+            "lint = 3\n",
+            "cannot be read: `lint` is not a table",
+        ),
+        (
+            "ruff.toml",
+            "[lint]\nselect = \"E\"\n",
+            "cannot be read: `lint.select` is not a list of text",
+        ),
+        (
+            "ruff.toml",
+            "ignore = [3]\n",
+            "cannot be read: `ignore` is not a list of text",
+        ),
+        (
+            "ruff.toml",
+            "[lint]\nper-file-ignores = 3\n",
+            "cannot be read: `lint.per-file-ignores` is not a table",
+        ),
+        (
+            "ruff.toml",
+            "[lint.per-file-ignores]\n\"a.py\" = \"E\"\n",
+            "cannot be read: `lint.per-file-ignores.a.py` is not a list of text",
+        ),
+        (
+            "pyproject.toml",
+            "[tool]\nruff = 3\n",
+            "cannot be read: `tool.ruff` is not a table",
+        ),
+        ("pyproject.toml", "[tool", "cannot be read: "),
+    ] {
+        let text = python(&[(file, source)]);
+        let shown = after(&text, file);
+        assert_eq!(shown.len(), 1, "{source}: {text}");
+        assert!(shown[0].starts_with(why), "{source}: {text}");
+    }
+
+    // A `pyproject.toml` whose `tool` is no table, or holds no `ruff`, holds
+    // no Ruff settings.
+    for source in ["tool = 3\n", "[tool.black]\nline-length = 100\n"] {
+        let text = python(&[("pyproject.toml", source)]);
+        assert!(
+            text.contains("Ruff: the default, nothing laid over it"),
+            "{text}"
+        );
+    }
+
+    for ruff in ["a = [", "extend = 3\n"] {
+        let broken = Defaults {
+            ruff,
+            ..Defaults::BUILT_IN
+        };
+        let text = python_with(broken, &[]);
+        assert!(
+            text.contains("Ruff: the pipeline's default does not read: "),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn a_default_that_names_rules_in_every_setting_is_read_in_full() {
+    let defaults = Defaults {
+        ruff: "extend-select = [\"D213\"]\nextend-ignore = [\"E501\"]\n\
+               [extend-per-file-ignores]\n\"a.py\" = [\"T201\"]\n",
+        ..Defaults::BUILT_IN
+    };
+    let text = python_with(
+        defaults,
+        &[(
+            "ruff.toml",
+            "[lint]\nextend-select = [\"D213\", \"E501\"]\n\
+             [lint.extend-per-file-ignores]\n\"a.py\" = [\"T201\"]\n",
+        )],
+    );
+
+    assert_eq!(
+        after(&text, "D213"),
+        ["on by `lint.extend-select` (the same as the default: its `select` names it)"]
+    );
+    assert_eq!(
+        after(&text, "E501"),
+        ["on by `lint.extend-select` (over the default, whose `ignore` names it)"]
+    );
+    assert_eq!(
+        after(&text, "T201"),
+        ["off in \"a.py\" by `lint.extend-per-file-ignores` (the same as the default)"]
     );
 }
