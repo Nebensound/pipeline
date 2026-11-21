@@ -104,7 +104,7 @@ fn the_more_specific_entry_wins_and_on_a_tie_the_inclusion() {
     let central = Central::parse(
         REGISTER,
         &format!(
-            "[repo]\npipeline = {{ check = [] }}\n\n[[exclude]]\npath = \"*.png\"\nreason =              \"image\"\n{POLICY}"
+            "[repo]\npipeline = {{ check = [] }}\n\n[[exclude]]\npath = \"*.png\"\nreason = \"image\"\n{POLICY}"
         ),
     )
     .expect("the defaults");
