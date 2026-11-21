@@ -106,6 +106,27 @@ fills ([`.github/actions/tool`](.github/actions/tool)); it builds the tool
 only when the cache misses. The list does not travel through a job output,
 which is limited in size.
 
+### `check-dockerfile`
+
+[`.github/actions/check-dockerfile`](.github/actions/check-dockerfile) checks
+every `Dockerfile`, `Containerfile` and `.dockerfile` file of the unit with
+dockerfmt 1.0.0 and Hadolint 2.15.1, the release binaries pinned by SHA-256.
+Building the image, scanning it and running it belong to the build.
+
+- Formatted the way dockerfmt writes it (`dockerfmt --check`). dockerfmt has no
+  configuration file, and the block hands it no style flag: the repository's
+  `.editorconfig` decides the indentation, tabs, the final newline and
+  dockerfmt's own `space_redirects`. An instruction dockerfmt leaves as written
+  because it cannot format it safely, which it only warns about, fails the
+  check on its line: it was not checked. `# dockerfmt-ignore` on the line
+  before an instruction leaves it as written on purpose.
+- No Hadolint finding at or above the failure threshold, by default `info`. A
+  finding below it, such as a style finding by default, is a warning and fails
+  nothing. The pipeline has no Hadolint default (see
+  [Linter rules](#linter-rules)).
+
+Every step runs even when one before it failed, so one run shows every finding.
+
 ### `check-json`
 
 [`.github/actions/check-json`](.github/actions/check-json) checks every
@@ -444,6 +465,18 @@ default as well: `extends: default` brings back yamllint's own line length.
 yamllint reads one configuration, at the root (`.yamllint`, `.yamllint.yaml`
 or `.yamllint.yml`).
 
+Hadolint runs without a default of the pipeline: its own rules contradict no
+other tool of the pipeline, so there is nothing to lay beneath them, and
+`nebensound-repo check` reports nothing for it. `check-dockerfile` hands it the
+repository's `.hadolint.yaml` or `.hadolint.yml` at the root, and without one an
+empty configuration, so that no configuration in a user's home folder counts.
+`ignored`, `override`, the trusted registries, the label schema, a failure
+threshold and the inline and global ignore pragmas stay the repository's rule
+configuration. What would pass every finding is set aside: `no-fail`, a
+`failure-threshold` of `none` or `ignore` (Hadolint's default, `info`, holds
+then), and every `HADOLINT_*` variable. A configuration Hadolint cannot read
+fails the check, where Hadolint itself would run without it.
+
 Settings that take whole files out stay what they are: set aside by the block
 and held against the declaration by phase 0 (see [Exclusions](#exclusions)).
 
@@ -494,7 +527,9 @@ without running it; the block sets its `ignores` aside all the same. A setting
 that switches a rule off for some files, such as yamllint's per-rule `ignore`
 or markdownlint-cli2's `overrides`, takes no file out of the tool and stays the
 repository's rule configuration. lychee's `.lycheeignore` leaves out addresses,
-not files, so phase 0 does not judge it.
+not files, so phase 0 does not judge it. dockerfmt and Hadolint have no setting
+that takes a file out: `# dockerfmt-ignore` leaves one instruction as written,
+and Hadolint's `ignored` and ignore pragmas switch rules off.
 
 ## A repository's own checks
 

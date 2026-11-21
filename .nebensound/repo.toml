@@ -42,6 +42,10 @@ path   = ".github/actions/build-docker/tests"
 reason = "test cases of build-docker, judged by that block through the xtask; the failing ones are wrong on purpose"
 
 [[exclude]]
+path   = ".github/actions/check-dockerfile/tests"
+reason = "test cases of check-dockerfile, judged by that block through the xtask; the failing ones are wrong on purpose"
+
+[[exclude]]
 path   = ".github/actions/check-json/tests"
 reason = "test cases of check-json, judged by that block through the xtask; the failing ones are wrong on purpose"
 

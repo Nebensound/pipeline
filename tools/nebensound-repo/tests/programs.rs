@@ -32,7 +32,8 @@ fn check(name: &str) -> CheckName {
 fn every_check_with_a_building_block_names_the_programs_it_calls() {
     let register = builtin();
     for (name, programs) in [
-        ("json", &["biome", "jq", "prettier"][..]),
+        ("dockerfile", &["dockerfmt", "hadolint"][..]),
+        ("json", &["biome", "jq", "prettier"]),
         ("markdown", &["lychee", "markdownlint-cli2", "prettier"]),
         ("rust", &["cargo-llvm-cov"]),
         ("toml", &["taplo"]),
@@ -69,6 +70,8 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
         ("biome", "2.5.15", None),
         ("cargo-llvm-cov", "0.9.0", None),
         ("check-jsonschema", "0.39.0", Some(("python", "3.11.0"))),
+        ("dockerfmt", "1.0.0", None),
+        ("hadolint", "2.15.1", None),
         ("jq", "1.8.1", None),
         ("lychee", "0.24.2", None),
         ("markdownlint-cli2", "0.23.2", Some(("node", "22.0.0"))),
@@ -97,7 +100,7 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
             assert!(download.url.contains(version), "{name} {platform}");
         }
     }
-    assert_eq!(register.program.len(), 11);
+    assert_eq!(register.program.len(), 13);
 
     let runtimes: Vec<(String, String, Installer)> = register
         .runtime

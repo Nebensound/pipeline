@@ -94,7 +94,7 @@ fn the_page_names_what_the_register_says() {
             "`dockerfile`",
             "`.dockerfile`",
             "`Dockerfile`, `Containerfile`",
-            "none",
+            "`dockerfmt`, `hadolint`",
         ],
         &[
             "`json`",
