@@ -345,15 +345,12 @@ pub fn annotation(finding: &Finding, file: Option<(&RelativePath, Option<Positio
     )
 }
 
-/// The message of a workflow command. A line break would end the command and
-/// `%` starts an escape, so both are escaped the way the runner reads them;
-/// every other control character is escaped as the rest of the report escapes
-/// it.
+/// The message of a workflow command. `shown` already writes every control
+/// character, line breaks included, as an escape, so no line break can end the
+/// command; only `%`, which starts an escape, is left to escape the way the
+/// runner reads it.
 fn data(text: &str) -> String {
-    shown(text)
-        .replace('%', "%25")
-        .replace('\r', "%0D")
-        .replace('\n', "%0A")
+    shown(text).replace('%', "%25")
 }
 
 /// A property of a workflow command, where `:` and `,` end the value as well.
