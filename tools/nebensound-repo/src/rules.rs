@@ -34,8 +34,9 @@
 //!   the place of one farther up, not its rules.
 //! - html-validate: `rules` in every `.htmlvalidate.json` (`.mjs`, `.cjs`,
 //!   `.js`) of a folder that holds a file the html check covers, or holds one
-//!   below it. The block lays them over the default, each nearer one over the
-//!   ones above it.
+//!   below it, up to a folder whose `.htmlvalidate.json` says `root: true`.
+//!   The block lays them over the default, each nearer one over the ones above
+//!   it; one in a folder that says `root: true` lies over the default alone.
 //!
 //! The two of them are shown only where their check covers a file.
 //!
@@ -627,7 +628,8 @@ enum Place {
     /// `config`.
     Unread,
     /// Laid over the default, in place of any configuration in a folder
-    /// above it, for the files it is the nearest configuration of.
+    /// above it: Stylelint's for the files it is the nearest configuration
+    /// of, html-validate's in a folder that says `root: true`.
     Nearest,
 }
 
@@ -820,27 +822,65 @@ fn stylelint_layers(
         .collect()
 }
 
+/// Whether a configuration of html-validate says `root: true`, so that
+/// html-validate reads nothing above its folder. Only a JSON file is read; one
+/// written in JavaScript or one that does not read is taken not to say it.
+fn says_root(file: &RelativePath, read: &Read<'_>) -> bool {
+    file.file_name() == Some(".htmlvalidate.json")
+        && read(file)
+            .ok()
+            .and_then(|source| parse(Format::Jsonc, &source).ok())
+            .and_then(|value| value.get("root").and_then(Value::as_bool))
+            == Some(true)
+}
+
 /// Every configuration html-validate reads for the files the html check
-/// covers: all of its files in each folder that holds such a file or holds
-/// one below it, the root first.
-fn html_validate_layers(files: &[&RelativePath], pages: &[&RelativePath]) -> Vec<Layer> {
-    let folders: BTreeSet<RelativePath> = files
-        .iter()
-        .filter(|file| HTML_VALIDATE_FILES.contains(&file.file_name().unwrap_or_default()))
-        .map(|file| folder(file))
-        .filter(|dir| pages.iter().any(|page| dir.contains(page)))
-        .collect();
+/// covers: all of its files in the folder of such a file and in each folder
+/// above it, up to a folder whose JSON file says `root: true`, the root first.
+/// Such a folder's files lie over the default alone.
+fn html_validate_layers(
+    files: &[&RelativePath],
+    pages: &[&RelativePath],
+    read: &Read<'_>,
+) -> Vec<Layer> {
+    let in_folder = |dir: &RelativePath| -> Vec<&RelativePath> {
+        HTML_VALIDATE_FILES
+            .iter()
+            .filter_map(|name| file_in(files, dir, name))
+            .collect()
+    };
+    let mut folders: BTreeSet<RelativePath> = BTreeSet::new();
+    let mut roots: BTreeSet<RelativePath> = BTreeSet::new();
+    for page in pages {
+        let mut dir = folder(page);
+        loop {
+            let here = in_folder(&dir);
+            if !here.is_empty() {
+                folders.insert(dir.clone());
+            }
+            if here.iter().any(|file| says_root(file, read)) {
+                roots.insert(dir.clone());
+                break;
+            }
+            if dir.is_root() {
+                break;
+            }
+            dir = folder(&dir);
+        }
+    }
     folders
         .iter()
         .flat_map(|dir| {
-            HTML_VALIDATE_FILES
-                .iter()
-                .filter_map(move |name| file_in(files, dir, name))
-        })
-        .map(|file| Layer {
-            file: file.clone(),
-            place: Place::Over,
-            kind: Kind::HtmlValidate,
+            let place = if roots.contains(dir) && !dir.is_root() {
+                Place::Nearest
+            } else {
+                Place::Over
+            };
+            in_folder(dir).into_iter().map(move |file| Layer {
+                file: file.clone(),
+                place,
+                kind: Kind::HtmlValidate,
+            })
         })
         .collect()
 }
@@ -969,7 +1009,7 @@ pub fn report(analysis: &Analysis, read: &Read<'_>, defaults: Defaults<'_>) -> S
         lines.extend(section(
             Program::HtmlValidate,
             defaults.html_validate,
-            &html_validate_layers(&files, &pages),
+            &html_validate_layers(&files, &pages, read),
             read,
         ));
     }

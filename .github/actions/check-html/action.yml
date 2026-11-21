@@ -233,6 +233,9 @@ runs:
             const escape = (value) =>
               value.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
             const property = (value) => escape(value).replaceAll(":", "%3A").replaceAll(",", "%2C");
+            // A plain log line carries text from the checked file too; a line
+            // break in it would start a workflow command of its own.
+            const flat = (value) => value.replace(/[\r\n]+/g, " ");
 
             for (const name of [
               "html-validate.config.mjs", "html-validate.config.cjs", "html-validate.config.js",
@@ -262,7 +265,7 @@ runs:
                 for (const found of result.messages) {
                   const kind = found.severity >= 2 ? "error" : "warning";
                   const text = `${found.ruleId}: ${found.message}`;
-                  console.log(`${file}:${found.line}:${found.column} ${kind} ${text}`);
+                  console.log(`${flat(file)}:${found.line}:${found.column} ${kind} ${flat(text)}`);
                   console.log(`::${kind} file=${property(file)},line=${found.line},col=${found.column}::${escape(text)}`);
                   if (kind === "error") {
                     process.exitCode = 1;

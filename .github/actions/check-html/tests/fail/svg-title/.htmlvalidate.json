@@ -1,0 +1,5 @@
+{
+  "rules": {
+    "element-required-content": "off"
+  }
+}

@@ -838,9 +838,47 @@ fn html_validate_reads_every_configuration_above_a_page() {
     );
     assert_eq!(
         after(&text, "web/admin/.htmlvalidate.json"),
-        ["laid over the default and what lies above it, rule by rule; it names no rule"]
+        [
+            "laid over the default rule by rule, in place of any configuration above it; \
+             it names no rule"
+        ]
     );
     assert!(!text.contains("docs/"), "{text}");
+}
+
+#[test]
+fn html_validate_reads_nothing_above_a_configuration_that_says_root() {
+    let paths = [
+        ".nebensound/repo.toml",
+        "site/index.html",
+        "site/admin/index.html",
+    ];
+    let text = report_for(
+        WEB,
+        &paths,
+        &[
+            (".htmlvalidate.json", "{ \"rules\": { \"a\": \"off\" } }\n"),
+            ("site/.htmlvalidate.json", "{ \"root\": true }\n"),
+            (
+                "site/admin/.htmlvalidate.json",
+                "{ \"root\": false, \"rules\": { \"b\": \"off\" } }\n",
+            ),
+        ],
+        Defaults::BUILT_IN,
+    );
+
+    assert_eq!(
+        after(&text, "site/.htmlvalidate.json"),
+        [
+            "laid over the default rule by rule, in place of any configuration above it; \
+             it names no rule"
+        ]
+    );
+    assert_eq!(
+        after(&text, "site/admin/.htmlvalidate.json"),
+        ["laid over the default and what lies above it, rule by rule"]
+    );
+    assert!(after(&text, ".htmlvalidate.json").is_empty(), "{text}");
 }
 
 #[test]

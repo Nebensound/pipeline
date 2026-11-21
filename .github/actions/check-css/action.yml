@@ -180,6 +180,9 @@ runs:
             const escape = (value) =>
               value.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
             const property = (value) => escape(value).replaceAll(":", "%3A").replaceAll(",", "%2C");
+            // A plain log line carries text from the checked file too; a line
+            // break in it would start a workflow command of its own.
+            const flat = (value) => value.replace(/[\r\n]+/g, " ");
             const message = (error) => (error instanceof Error ? error.message : String(error));
 
             const list = fs.readFileSync(LIST, "utf8").split("\0").filter((file) => file !== "");
@@ -193,7 +196,7 @@ runs:
                 if (config && !shown.has(config.filepath)) {
                   shown.add(config.filepath);
                   laid = true;
-                  console.log(`Rules: the pipeline default, and laid over it ${relative(root, config.filepath)}`);
+                  console.log(`Rules: the pipeline default, and laid over it ${flat(relative(root, config.filepath))}`);
                 }
                 // The configuration is named by its file, so that the paths
                 // in it stay relative to it, except where it stands in
@@ -228,7 +231,7 @@ runs:
               // nothing, an error fails the step, as on the command line.
               for (const warning of result.warnings) {
                 const kind = warning.severity === "error" ? "error" : "warning";
-                console.log(`${file}:${warning.line}:${warning.column} ${kind} ${warning.text}`);
+                console.log(`${flat(file)}:${warning.line}:${warning.column} ${kind} ${flat(warning.text)}`);
                 console.log(`::${kind} file=${property(file)},line=${warning.line},col=${warning.column}::${escape(warning.text)}`);
                 if (kind === "error") {
                   process.exitCode = 1;

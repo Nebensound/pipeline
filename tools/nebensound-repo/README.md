@@ -511,7 +511,11 @@ of the names Stylelint looks for in its folder or the nearest folder above it,
 shown `in place of any configuration above it`, as the block lays only the
 nearest one over the default. For html-validate, every `.htmlvalidate.*` of a
 folder that holds a page or holds one below it is read, each laid over the
-default and what lies above it.
+default and what lies above it, up to a folder whose `.htmlvalidate.json` says
+`root: true`: that folder's files are shown `in place of any configuration
+above it`, and one above it is shown only where a page outside that folder
+reaches it.
+A `root` in a JavaScript file is not read.
 
 ## Where the file list comes from
 

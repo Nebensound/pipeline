@@ -1,0 +1,6 @@
+# A page without a title of its own: the only <title> names an inline <svg>.
+# The repository switches off the rule of html-validate that wants a <title>
+# in <head>, so only the page rule stands between the page and a pass.
+[repo]
+audience = "public"
+pipeline = { check = ["html"] }

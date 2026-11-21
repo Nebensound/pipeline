@@ -80,6 +80,8 @@ export default function pageRules(Rule) {
 
     setup() {
       this.onPage((document) => {
+        // html-validate names the <title> of an inline <svg> `svg:title`, so
+        // only a title of the document matches here (case svg-title).
         const titled = document
           .querySelectorAll("title")
           .some((title) => title.textContent.trim() !== "");
