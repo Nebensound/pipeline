@@ -13,16 +13,16 @@
 //! job, a version writer and a build in the build job, every version writer
 //! above every build. A check or build step hands its block the plan of
 //! phase 0 exactly when the block's `action.yml` declares the input `plan`,
-//! since that is when the block's test cases get it. A check or a build the register knows and nobody
-//! has written yet has no directory: a step `Not written yet` fails for it by
-//! name, so the list of written checks in one such step and the list of
-//! written builds in another name exactly the checks and builds that have a
-//! block. Each list stands in the job of its kind, the one whose units it
-//! fails for: a list in another job leaves the units of its own kind without
-//! the step. A version writer is held the same way by the step
-//! `Version writers not written yet`. Every block brings its test cases, at
-//! least one passing and one failing. Beside the blocks lie only the
-//! workflow's own machinery ([`MACHINERY`]), which belongs to no register
+//! since that is when the block's test cases get it. A check or a build the
+//! register knows and nobody has written yet has no directory: a step
+//! `Not written yet` fails for it by name, so the list of written checks in
+//! one such step and the list of written builds in another name exactly the
+//! checks and builds that have a block. Each list stands in the job of its
+//! kind, the one whose units it fails for: a list in another job leaves the
+//! units of its own kind without the step. A version writer is held the same
+//! way by the step `Version writers not written yet`. Every block brings its
+//! test cases, at least one passing and one failing. Beside the blocks lie only
+//! the workflow's own machinery ([`MACHINERY`]), which belongs to no register
 //! entry; it is called from `nebensound.yml` all the same.
 
 use std::collections::{BTreeMap, BTreeSet};
