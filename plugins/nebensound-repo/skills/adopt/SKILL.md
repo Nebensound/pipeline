@@ -13,11 +13,13 @@ listed in its description.
 
 What this skill never does:
 
-- merge anything, push to the default branch, or touch the branch `release`;
+- merge anything or push to the default branch;
+- create, merge into or delete a pre-branch, a branch that gathers several
+  pull requests before it lands in `main`;
 - change a repository setting, a ruleset or a repository property;
 - create a tag or a release, or rewrite history;
-- release anything. Releasing is not part of this skill; `nebensound-repo
-release` comes with issue #21 of `Nebensound/pipeline`.
+- release anything. Every merge into `main` is a full release
+  (`docs/declaration.md#releases` at the pin), and the merge is the owner's.
 
 ## What exists and what is still coming
 
@@ -26,16 +28,16 @@ finding only once the tool at the pin knows it. When a step needs something that
 has not arrived, say which issue brings it and stop that step. Never imitate a
 missing command by hand.
 
-| What                                                                                                                                                                   | State                                     |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `nebensound-repo check` with `--name`, `--default-branch` and `--visibility`                                                                                           | exists                                    |
-| The fields of `.nebensound/repo.toml`, among them `audience`, `release`, `minimum-version` and `feat-types`, and the findings of phase 0, all in `docs/declaration.md` | exist                                     |
-| The conformance warnings `nonconforming-name`, `nonconforming-default-branch` and `missing-minimum-file`, and the errors `missing-audience` and `mismatched-audience`  | exist                                     |
-| The versions, from the history alone                                                                                                                                   | exist                                     |
-| `nebensound-repo init`, its `TODO(init)` markers, the finding `check` gives for a remaining marker, and the list of what needs judgement that `init` ends with         | #26, not yet                              |
-| A documented way to get the tool, and a tool that warns when it is older than the pin                                                                                  | #94, not yet; until then step 2           |
-| `nebensound-repo release`, and creating the branch `release`                                                                                                           | #21, not yet                              |
-| A release of the pipeline to pin                                                                                                                                       | none yet: pin a full commit SHA of `main` |
+| What                                                                                                                                                                  | State                                                  |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `nebensound-repo check` with `--name`, `--default-branch` and `--visibility`                                                                                          | exists                                                 |
+| The fields of `.nebensound/repo.toml`, among them `audience`, `minimum-version` and `feat-types`, and the findings of phase 0, all in `docs/declaration.md`           | exist                                                  |
+| The conformance warnings `nonconforming-name`, `nonconforming-default-branch` and `missing-minimum-file`, and the errors `missing-audience` and `mismatched-audience` | exist                                                  |
+| The versions, from the history alone; every merge into `main` a full release                                                                                          | exist                                                  |
+| Pre-releases                                                                                                                                                          | not yet: no version the history gives is a pre-release |
+| `nebensound-repo init`, its `TODO(init)` markers, the finding `check` gives for a remaining marker, and the list of what needs judgement that `init` ends with        | #26, not yet                                           |
+| A documented way to get the tool, and a tool that warns when it is older than the pin                                                                                 | #94, not yet; until then step 2                        |
+| A release of the pipeline to pin                                                                                                                                      | none yet: pin a full commit SHA of `main`              |
 
 When one of these lands, the reference at the pin describes it: read
 `README.md`, `docs/declaration.md`, `docs/calling.md`,
@@ -51,8 +53,8 @@ before you rely on a detail.
 - **Settle only what is certain.** You decide alone only what `init` or phase 0
   states as certain, and the judgements of language and naming (step 9).
   Everything else is the user's answer.
-- **Always ask** about these six, even where `init` offers a value: publication,
-  audience, release mode, `minimum-version`, components, and the reason of
+- **Always ask** about these five, even where `init` offers a value:
+  publication, audience, `minimum-version`, components, and the reason of
   every exclusion.
 - **The pull request fixes only what phase 0 needs.** Every other piece of work
   becomes an issue of its own in the adopted repository (step 9), linked from
@@ -148,10 +150,13 @@ Otherwise read its report: the files it wrote, what it recognised, every
 the list of what needs judgement. A second run changes nothing.
 
 Check the caller it wrote, `.github/workflows/nebensound.yml`, against
-`README.md#calling-the-pipeline` and `docs/calling.md` at the pin: one job, no
-inputs, `permissions: contents: read`, and the reference pinned to the SHA of
-step 2 with the `YYYY-MM-DD` date of step 2 as a comment behind it. A pin that differs from
-step 2 is set to it, since the tool and the pin are the same commit.
+`README.md#calling-the-pipeline` and `docs/calling.md` at the pin. It is the
+caller the README shows there, apart from its name: today the triggers
+`pull_request` and `push` to `main`, `permissions: contents: read` for the
+workflow and the job, one job, no inputs, and the reference pinned to the SHA
+of step 2 with the `YYYY-MM-DD` date of step 2 as a comment behind it. Where it
+differs from the README, the README at the pin is right. A pin that differs
+from step 2 is set to it, since the tool and the pin are the same commit.
 
 ## 5. Replace the old standard
 
@@ -183,17 +188,15 @@ Always asked, one question each:
 | --------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Is anything published, and where? | `publish` of each unit's `pipeline` | `false`. A public target is chosen only by an explicit answer and is never the default.                                                                                                                                                                 |
 | For whom is it meant?             | `audience` in `[repo]` (required)   | Suggest from the visibility on GitHub: `public` for a public repository, `internal` or `customer` for a private one. Never write it silently.                                                                                                           |
-| One stage or two?                 | `release`                           | The mode the publish targets give (`docs/declaration.md#releases`).                                                                                                                                                                                     |
 | From which version on?            | `minimum-version`                   | Per unit, from the highest version of its own prefix (step 1): the next patch above a release (`1.4.3` gives `1.4.4`), the release itself above a pre-release (`1.5.0-pre.2` gives `1.5.0`). Without any old version of that unit, leave the field out. |
 | Which parts are components?       | `[component.<name>]`                | The candidates `init` recognised.                                                                                                                                                                                                                       |
 | Why is this path excluded?        | `reason` of `[[exclude]]`           | Propose a wording; the user confirms or rewrites it.                                                                                                                                                                                                    |
 
-Two stages need the branch `release`; phase 0 fails without it
-(`missing-release-branch`). This skill does not create it: tell the user so
-when they choose two stages. Creating it comes with #21. Until the branch
-exists, that one error is expected: steps 7 and 9 leave it, name it in the
-description as an owner step, and end their loops there. Never answer it by
-writing `release = "single-stage"` or by creating the branch.
+`minimum-version` is three numbers, `"X.Y.Z"`, with no `v` and no pre-release
+part such as `-pre.1`; anything else stops phase 0
+(`docs/declaration.md#releases`). It matters here because the history alone
+gives the versions: no tag is read, and a unit's count starts from `0.0.0`, so
+without the field a unit could be given a version it already had.
 
 ## 7. Run `check` until phase 0 passes
 
@@ -211,23 +214,25 @@ git commit -m "ci: switch to the central pipeline"   # later rounds: --amend
 or `internal`), as the job `nebensound / Declare` passes it; with it, `check`
 holds the declared `audience` against it.
 
-Repeat until `check` reports no error and no remaining `TODO(init)`. The one
-exception is `missing-release-branch` for a unit the user chose to release in
-two stages (step 6): leave it, and stop the loop once it is the only error.
+Repeat until `check` reports no error and no remaining `TODO(init)`.
 
 - **An error**: its entry in `docs/declaration.md#findings` at the pin names the
   way out. Take it alone where it is certain; where it is a choice from the
-  table of step 6 (the audience, a component, an exclusion and its reason),
-  ask. For `mismatched-audience`, ask whether the value or the visibility is
-  wrong. A wrong value you correct; a wrong visibility is a repository
-  setting: stop, and tell the user that changing it is an owner step.
+  table of step 6 (the audience, `minimum-version`, a component, an exclusion
+  and its reason), ask. For `mismatched-audience`, ask whether the value or the
+  visibility is wrong. A wrong value you correct; a wrong visibility is a
+  repository setting: stop, and tell the user that changing it is an owner
+  step. For `conflicting-tag`, an old tag at or above the unit's version, the
+  finding names the `minimum-version` that passes it: offer that value when
+  you ask again.
 - **A warning about a statement of the declaration** (`pointless-exclusion`,
   `pointless-inclusion`, `pointless-suppression`, `pointless-watch`,
-  `unwatched-manifest`, `childless-generator`): fix it, since this pull request
-  writes the declaration.
+  `unwatched-manifest`, `childless-generator`,
+  `release-field-without-version`): fix it, since this pull request writes the
+  declaration.
 - **Any other warning** (`nonconforming-name`, `nonconforming-default-branch`,
-  `missing-minimum-file`, `pointless-release-branch`): leave the repository as
-  it is. A rename or a new default branch is an owner step; the rest becomes a
+  `missing-minimum-file`, `missing-lockfile`): leave the repository as it is. A
+  rename or a new default branch is an owner step; the rest becomes a
   follow-up issue.
 - **`unconventional-commit`** needs no work, since history is not rewritten for
   it: name the commits in the pull request description as a note (they count
@@ -236,19 +241,28 @@ two stages (step 6): leave it, and stop the loop once it is the only error.
 ## 8. Read the repository settings
 
 Read every setting that `docs/repository-settings.md` at the pin lists under
-"Every repository of the organization" (today: head branches are deleted after
-merge):
+"Every repository of the organization". Today these are the merge methods and
+the titles and messages of the commits they leave, which decide the version a
+merge into `main` gets, and the deletion of head branches after merge:
 
 ```sh
-gh api repos/<owner>/<repo> --jq .delete_branch_on_merge
+gh api repos/<owner>/<repo> \
+  --jq '{allow_squash_merge, squash_merge_commit_title,
+         squash_merge_commit_message, allow_merge_commit,
+         merge_commit_title, merge_commit_message, delete_branch_on_merge}'
+# expected: allow_squash_merge true, squash_merge_commit_title "PR_TITLE",
+#           squash_merge_commit_message "PR_BODY", allow_merge_commit true,
+#           merge_commit_title "PR_TITLE", merge_commit_message "PR_BODY",
+#           delete_branch_on_merge true
 ```
 
-GitHub returns this field only to an account with admin rights on the
-repository. An empty result means the setting could not be read: say so in the
-pull request description, as a setting the owner checks, not as a difference.
-A value that differs from the expected one is an owner step for the pull
-request description, with the call the document gives to set it. Never run that
-call.
+Where the document at the pin lists other settings or other values, the
+document is right. GitHub leaves these fields out for an account without
+enough rights on the repository. A field that comes back `null` could not be
+read: say so in the pull request description, as a setting the owner checks,
+not as a difference. A value that differs from the expected one is an owner
+step for the pull request description, with the call the document gives to set
+them for one repository. Never run that call.
 
 ## 9. Open the pull request and write the follow-up issues
 
@@ -260,26 +274,19 @@ call.
      the judgements below.
    - **Phase 0**: the summary line of the last local `check`, and the commits
      `unconventional-commit` names, as a note that they count as patches.
-   - **Owner steps**: settings that differ or could not be read, a rename, a
-     new default branch, and the branch `release` for a unit released in two
-     stages.
+   - **Owner steps**: settings that differ or could not be read, a rename, and
+     a new default branch.
    - **The pin**: the SHA and its date; raised by hand until the pipeline has
      a release.
    - **Follow-up issues**: links, added in step 3 of this list.
 2. Wait for the run (`gh pr checks <number> --watch`). `nebensound / Declare`
-   has to pass; when it fails, fix the branch and push again. The one
-   exception is `missing-release-branch` for a unit the user chose to release
-   in two stages (step 6): leave it, name it in the description as an owner
-   step, and go on with step 3 of this list. Declare then fails, so
-   `nebensound / Check` and `nebensound / Build` do not run: say in the
-   description that they have not run yet, and add to the owner step that
-   their findings are filed as issues once the branch exists and a run has
-   passed Declare. What `nebensound / Check` or `nebensound / Build` find is
-   not fixed here: it becomes follow-up issues. The step `Not written yet` fails for a check or
+   has to pass; when it fails, fix the branch and push again. What
+   `nebensound / Check` or `nebensound / Build` find is not fixed here: it
+   becomes follow-up issues. The step `Not written yet` fails for a check or
    build the pipeline has no building block for; that gap is the pipeline's,
    so name it in the description instead of writing an issue for it.
 3. Write the follow-up issues in the adopted repository. Sources: the findings
-   of `Check` and `Build`, where they ran; the warnings left in step 7 apart
+   of `Check` and `Build`; the warnings left in step 7 apart
    from `unconventional-commit`; the workflows kept in step 5; and your
    judgement of the list `init` ends with, which names what
    only a person or an assistant can tell: the language of comments and
@@ -295,4 +302,8 @@ call.
 
 Finish by telling the user the link of the pull request, the result of
 `nebensound / Declare`, the decisions asked, the owner steps and the follow-up
-issues. The pull request is theirs to review and merge.
+issues. The pull request is theirs to review and merge. Its merge into `main`
+is a full release of every unit that carries a version, at the version
+`nebensound / Version` shows for the pull request without `-pr.<number>`, as
+long as its title and description stay as they are; nothing is tagged or
+published yet.

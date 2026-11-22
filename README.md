@@ -99,8 +99,10 @@ what the tool states as certain, asks the rest one question at a time, and ends
 with one pull request whose phase 0 passes and whose description lists the
 decisions it asked for. What only phase 0 needs goes into that pull request;
 everything else becomes an issue of its own in the adopted repository. It never
-merges, never touches the branch `release` and never changes a repository
-setting. `init` arrives with #26; until then the skill stops at that step.
+merges, never creates, merges into or deletes a pre-branch, and never changes a
+repository setting: it reads the merge settings every repository carries and
+names a difference as a step for the owner. `init` arrives with #26; until
+then the skill stops at that step.
 
 This repository is the marketplace `nebensound-pipeline`
 ([`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json)), and the
