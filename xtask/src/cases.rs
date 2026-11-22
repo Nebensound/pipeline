@@ -44,6 +44,7 @@ use crate::{Error, say};
 pub const FROM_THE_TOOL: &[&str] = &[
     "check-css",
     "check-dockerfile",
+    "check-html",
     "check-json",
     "check-markdown",
     "check-toml",
