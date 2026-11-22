@@ -22,7 +22,7 @@
 //!   `.yamllint.yaml` or `.yamllint.yml` at the root, whichever yamllint reads,
 //!   or, where it sets neither, in the configuration its `extends` names.
 //! - lychee: `exclude_path` in `lychee.toml` at the root, matched against the
-//!   path from the root, the very string `run markdown` and `check-html` hand
+//!   path from the root, the very string `run markdown` and `run html` hand
 //!   lychee.
 //! - Stylelint: `.stylelintignore` at the root, and `ignoreFiles` in the
 //!   configuration Stylelint reads in a folder (the first of the names it

@@ -1,5 +1,5 @@
-//! `nebensound-repo run`: the checks for CSS, Dockerfiles, JSON, Markdown,
-//! TOML and YAML, run from the tool.
+//! `nebensound-repo run`: the checks for CSS, Dockerfiles, HTML, JSON,
+//! Markdown, TOML and YAML, run from the tool.
 //!
 //! No real program runs here. Every program is a shell script that acts like
 //! the program on what it is given and prints what it was called with, so
@@ -22,7 +22,9 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use nebensound_repo::Register;
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::programs::Platform;
-use nebensound_repo::run::{self, Check, Context, Level, css, dockerfile, markdown, toml, yaml};
+use nebensound_repo::run::{
+    self, Check, Context, Level, css, dockerfile, html, markdown, toml, yaml,
+};
 use nebensound_repo::setup::{Environment, find};
 use support::{QUIET, call};
 use tempfile::TempDir;
@@ -111,10 +113,36 @@ printf '%s\n' "# Summary" > "$out"
 exit 0
 "####;
 
+/// lychee as the HTML check calls it: every configuration it is handed, the
+/// folder a link from the root of a site is resolved below, and a report with
+/// a broken link when a page asks for one.
+const LYCHEE_PAGES: &str = r####"#!/bin/sh
+printf '%s\n' "lychee $*"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) out=$2; shift ;;
+    --files-from) list=$2; shift ;;
+    --config) echo "config: $(cat "$2")"; shift ;;
+    --root-dir) root=$2; shift ;;
+  esac
+  shift
+done
+echo "lines: $(cat "$list")"
+set -- "$root"/*
+if [ -d "$root" ] && [ "$1" = "$root/*" ]; then echo "root: an empty folder"; fi
+if grep -q broken "$list"; then
+  printf '%s\n' "# Summary" "" "## Errors per input" "" "### Errors in broken.html" "" \
+    "* [ERROR] <file:///x/missing.html> (at 11:29) | File not found" > "$out"
+  exit 2
+fi
+printf '%s\n' "# Summary" > "$out"
+exit 0
+"####;
+
 /// Node.js, which prints its version or runs the script it is handed the way
-/// that script would: Stylelint, which prints each finding as a plain line and
-/// as an annotation, or markdownlint-cli2, which names every file from the
-/// folder it starts in, three levels below the fixture.
+/// that script would: Stylelint or html-validate, which print each finding as
+/// a plain line and as an annotation, or markdownlint-cli2, which names every
+/// file from the folder it starts in, three levels below the fixture.
 const NODE: &str = r##"#!/bin/sh
 if [ "$1" = "--version" ]; then echo v24.0.0; exit 0; fi
 echo "node $1 $2 TOOLS=$TOOLS"
@@ -138,6 +166,25 @@ case "$3" in
       esac
     done
     echo "Rules: the pipeline default"
+    exit "$status" ;;
+  *'"html-validate", "dist"'*)
+    echo "default: $(grep -c 'html-validate:' "$DEFAULT") presets"
+    echo "page rules: $(grep -c '^export' "$RULES") exports"
+    status=0
+    for f in $(tr '\0' ' ' < "$LIST"); do
+      case "$f" in
+        *invalid*)
+          echo "$f:3:4 error no-implicit-button-type: <button> is missing recommended \"type\" attribute"
+          echo "::error file=$f,line=3,col=4::no-implicit-button-type: <button> is missing recommended \"type\" attribute"
+          status=1 ;;
+        *loose*)
+          echo "$f:2:1 warning no-trailing-whitespace: Trailing whitespace"
+          echo "::warning file=$f,line=2,col=1::no-trailing-whitespace: Trailing whitespace" ;;
+        *plugin*)
+          echo "::error file=$f::html-validate cannot check it: Failed to load plugin \"html-validate-angular\""
+          status=1 ;;
+      esac
+    done
     exit "$status" ;;
 esac
 echo "Rules: the pipeline default"
@@ -324,8 +371,8 @@ impl Fixture {
         self.base.join("cache/programs").join(name).join(version)
     }
 
-    /// The programs of every check, on the computer, and the two that are
-    /// taken only pinned, pinned.
+    /// The programs of every check, on the computer, and those that are taken
+    /// only pinned, pinned.
     fn everything(&self) -> &Self {
         self.computer("prettier", PRETTIER)
             .computer("jq", JQ)
@@ -337,6 +384,12 @@ impl Fixture {
             .computer("check-jsonschema", JSONSCHEMA)
             .computer("dockerfmt", DOCKERFMT)
             .computer("hadolint", HADOLINT)
+            .pinned(
+                "html-validate",
+                "11.21.1",
+                "node_modules/.bin/html-validate",
+                "#!/bin/sh\n",
+            )
             .pinned(
                 "markdownlint-cli2",
                 "0.23.2",
@@ -986,6 +1039,7 @@ fn without_a_folder_for_the_programs_nothing_runs() {
     for (check, name) in [
         (Check::Css, "a.css"),
         (Check::Dockerfile, "Dockerfile"),
+        (Check::Html, "a.html"),
         (Check::Json, "a.json"),
         (Check::Markdown, "a.md"),
         (Check::Toml, "a.toml"),
@@ -1082,6 +1136,7 @@ fn helpers_take_paths_and_lists_apart() {
     for (check, name) in [
         (Check::Css, "css"),
         (Check::Dockerfile, "dockerfile"),
+        (Check::Html, "html"),
         (Check::Json, "json"),
         (Check::Markdown, "markdown"),
         (Check::Toml, "toml"),
@@ -1217,8 +1272,8 @@ fn the_call_refuses_what_it_does_not_run() {
     assert_eq!(code, 2, "{text}");
     assert!(
         text.contains(
-            "`run` carries out the checks css, dockerfile, json, markdown, toml and yaml; \"rust\" \
-             is not"
+            "`run` carries out the checks css, dockerfile, html, json, markdown, toml and yaml; \
+             \"rust\" is not"
         ),
         "{text}"
     );
@@ -2010,5 +2065,310 @@ fn stylelint_needs_a_runtime_from_the_register() {
     has(
         &text,
         "::error::Stylelint runs on Node.js, and the register gives it no runtime to run on",
+    );
+}
+
+/// The line of the output that starts with `prefix`.
+fn line_of<'t>(text: &'t str, prefix: &str) -> &'t str {
+    text.lines()
+        .find(|line| line.starts_with(prefix))
+        .unwrap_or_else(|| panic!("no line starting with {prefix:?} in\n{text}"))
+}
+
+#[test]
+fn pages_are_formatted_pass_html_validate_and_link_somewhere() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture
+        .everything()
+        .computer("lychee", LYCHEE_PAGES)
+        .file("index.html", "<!doctype html>\n")
+        .file("docs/header.htm", "<header></header>\n")
+        .file("lychee.toml", "max_retries = 1\n");
+    let files = ["docs/header.htm", "index.html"];
+    let (code, text) = fixture.run(Check::Html, &files, true);
+    assert_eq!(code, 0, "{text}");
+    has(&text, "2 HTML file(s) to check:");
+    has(&text, "docs/header.htm");
+    let prettier = line_of(&text, "prettier ");
+    assert!(
+        prettier.starts_with("prettier --check --no-color --with-node-modules --ignore-path "),
+        "{prettier}"
+    );
+    assert!(
+        prettier.ends_with(
+            " --no-require-pragma --no-check-ignore-pragma --range-start=0 --range-end=Infinity \
+             -- docs/header.htm index.html"
+        ),
+        "{prettier}"
+    );
+    // html-validate runs on its runtime, from its pinned folder, with the
+    // default and the page rules compiled into the tool.
+    let folder = fixture.folder("html-validate", "11.21.1");
+    has(
+        &text,
+        "Rules: the pipeline default, with the repository's configuration and the page rules \
+         laid over it",
+    );
+    has(
+        &text,
+        &format!("node --input-type=module --eval TOOLS={}", folder.display()),
+    );
+    has(&text, "default: 3 presets");
+    has(&text, "page rules: 3 exports");
+    assert!(html::HTML_VALIDATE.contains("pathToFileURL(RULES)"));
+    assert!(html::PAGE_RULES.contains("export default function pageRules(Rule)"));
+    // The link check reads the repository's configuration, then the one that
+    // leaves out what lies below the empty folder links from the root of a
+    // site are resolved below.
+    let lychee = line_of(&text, "lychee ");
+    assert!(
+        lychee.starts_with(
+            "lychee --offline --include-fragments --no-progress --hidden --no-ignore --config "
+        ),
+        "{lychee}"
+    );
+    let tmp = fixture.base.join("tmp");
+    let root = lychee
+        .split(" --root-dir ")
+        .nth(1)
+        .and_then(|rest| rest.split(' ').next())
+        .unwrap();
+    assert!(
+        root.starts_with(&format!("{}/nebensound-repo-run-", tmp.display()))
+            && root.ends_with("/root"),
+        "{lychee}"
+    );
+    assert!(
+        lychee.contains("/lychee-rooted.toml --root-dir "),
+        "{lychee}"
+    );
+    assert!(lychee.contains(" --format markdown --output "), "{lychee}");
+    has(&text, "config: max_retries = 1");
+    has(
+        &text,
+        &format!("config: {}", html::excluded(Path::new(root)).trim_end()),
+    );
+    has(&text, "root: an empty folder");
+    has(&text, "lines: docs/header.htm");
+    // What `run` wrote for the programs is gone again.
+    assert_eq!(fs::read_dir(&tmp).unwrap().count(), 0);
+
+    let (code, text) = fixture.run(Check::Html, &[], true);
+    assert_eq!(code, 0, "{text}");
+    assert_eq!(text, "No HTML file below '.'; there is nothing to check.\n");
+}
+
+#[test]
+fn every_kind_of_html_finding_is_reported() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.everything().computer("lychee", LYCHEE_PAGES);
+    let files = [
+        "broken.html",
+        "invalid.html",
+        "loose.html",
+        "plugin.html",
+        "unformatted.html",
+        "unreadable.htm",
+    ];
+    for file in files {
+        fixture.file(file, "<p></p>\n");
+    }
+    let (code, text) = fixture.run(Check::Html, &files, true);
+    assert_eq!(code, 1, "{text}");
+    for line in [
+        "::error file=unformatted.html::not formatted the way Prettier writes it",
+        "::error file=unreadable.htm::Prettier cannot read it: SyntaxError: Unexpected token (1:1)",
+        "invalid.html:3:4 error no-implicit-button-type: <button> is missing recommended \"type\" \
+         attribute",
+        "::error file=invalid.html,line=3,col=4::no-implicit-button-type: <button> is missing \
+         recommended \"type\" attribute",
+        "::warning file=loose.html,line=2,col=1::no-trailing-whitespace: Trailing whitespace",
+        "::error file=plugin.html::html-validate cannot check it: Failed to load plugin \
+         \"html-validate-angular\"",
+        // The report stands in the output, and the broken link is a finding
+        // at lychee's line and column.
+        "* [ERROR] <file:///x/missing.html> (at 11:29) | File not found",
+        "::error file=broken.html,line=11,col=29::[ERROR] <file:///x/missing.html> | File not \
+         found",
+        "config: ",
+    ] {
+        has(&text, line);
+    }
+
+    // A warning fails nothing.
+    let (code, text) = fixture.run(Check::Html, &["loose.html"], true);
+    assert_eq!(code, 0, "{text}");
+
+    // Elsewhere, an annotation reads as a line that starts with the place.
+    let (code, text) = fixture.run(Check::Html, &["broken.html", "loose.html"], false);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "broken.html:11:29: error: [ERROR] <file:///x/missing.html> | File not found",
+    );
+    has(
+        &text,
+        "loose.html:2:1: warning: no-trailing-whitespace: Trailing whitespace",
+    );
+}
+
+#[test]
+fn links_from_the_root_of_a_site_are_left_out_below_the_folder_without_links() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture
+        .everything()
+        .computer("lychee", LYCHEE_PAGES)
+        .file("index.html", "<p></p>\n");
+    // The temporary folder behind a link, as on macOS, in a folder whose name
+    // holds what a pattern or TOML would read otherwise.
+    let real = fixture.base.join("t.m+p(x)'s\"$");
+    fs::create_dir(&real).unwrap();
+    let link = fixture.base.join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let register = Register::builtin().unwrap();
+    let (code, text) = fixture.run_in(&register, &link, Check::Html, &["index.html"], true);
+    assert_eq!(code, 0, "{text}");
+    let lychee = line_of(&text, "lychee ");
+    let root = format!("{}/nebensound-repo-run-", real.display());
+    assert!(lychee.contains(&format!(" --root-dir {root}")), "{lychee}");
+    let config = line_of(&text, "config: exclude");
+    let table: ::toml::Table = ::toml::from_str(config.trim_start_matches("config: ")).unwrap();
+    let pattern = table["exclude"][0].as_str().unwrap();
+    let escaped = ::regex::escape(&real.display().to_string());
+    assert!(
+        pattern.starts_with(&format!("^file://{escaped}/nebensound\\-repo\\-run\\-"))
+            && pattern.ends_with("/root/"),
+        "{pattern}"
+    );
+    // The pattern takes every character literally.
+    let address = ::regex::Regex::new(pattern).unwrap();
+    let below = lychee
+        .split(" --root-dir ")
+        .nth(1)
+        .and_then(|rest| rest.split(" --files-from").next())
+        .unwrap();
+    assert!(
+        address.is_match(&format!("file://{below}/login")),
+        "{pattern}"
+    );
+    assert!(!address.is_match(&format!("file://{}/login", link.display())));
+
+    // A folder that is not there is taken as it is written.
+    assert_eq!(
+        html::rooted(Path::new("/nowhere/at/all")),
+        PathBuf::from("/nowhere/at/all/root")
+    );
+    let table: ::toml::Table = ::toml::from_str(&html::excluded(Path::new("/a.b/r"))).unwrap();
+    assert_eq!(table["exclude"][0].as_str(), Some("^file:///a\\.b/r/"));
+}
+
+#[test]
+fn without_its_programs_the_html_check_fails() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    // html-validate is taken pinned only: a copy on the computer does not
+    // count.
+    fixture
+        .computer("prettier", PRETTIER)
+        .computer("node", NODE)
+        .computer("html-validate", "#!/bin/sh\n")
+        .file("unformatted.html", "<p></p>\n");
+    let (code, text) = fixture.run(Check::Html, &["unformatted.html"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error::html-validate 11.21.1 is not pinned in the tool's folder, and the check calls \
+         the internals of the pinned copy only; `nebensound-repo setup --pinned` installs it",
+    );
+    has(
+        &text,
+        "::error::lychee 0.24.2 is neither pinned in the tool's folder nor on the computer; \
+         `nebensound-repo setup` installs it",
+    );
+    // The other part still runs.
+    has(
+        &text,
+        "::error file=unformatted.html::not formatted the way Prettier writes it",
+    );
+
+    fs::remove_file(fixture.base.join("bin/prettier")).unwrap();
+    fixture
+        .pinned(
+            "html-validate",
+            "11.21.1",
+            "node_modules/.bin/html-validate",
+            "#!/bin/sh\n",
+        )
+        .computer("lychee", LYCHEE_PAGES)
+        .file("invalid.html", "<p></p>\n");
+    let (code, text) = fixture.run(Check::Html, &["invalid.html"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error::prettier 3.9.6 is neither pinned in the tool's folder nor on the computer; \
+         `nebensound-repo setup` installs it",
+    );
+    has(
+        &text,
+        "::error file=invalid.html,line=3,col=4::no-implicit-button-type: <button> is missing \
+         recommended \"type\" attribute",
+    );
+    has(&text, "root: an empty folder");
+
+    // A pinned html-validate needs its runtime.
+    fs::remove_file(fixture.base.join("bin/node")).unwrap();
+    let (code, text) = fixture.run(Check::Html, &["invalid.html"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error::html-validate 11.21.1 needs node 22.22.0 or later, and there is none; \
+         `nebensound-repo setup --with-runtimes` installs it",
+    );
+
+    // An unreadable lychee.toml stops the check before anything runs.
+    fixture.file("lychee.toml", "x = 1\n");
+    let config = fixture.root().join("lychee.toml");
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read(&config).is_err() {
+        let (code, text) = fixture.run(Check::Html, &["invalid.html"], true);
+        assert_eq!(code, 1, "{text}");
+        assert!(
+            text.contains("::error file=lychee.toml::cannot be read: "),
+            "{text}"
+        );
+        assert!(!text.contains("lychee --"), "{text}");
+    }
+}
+
+#[test]
+fn html_validate_needs_a_runtime_from_the_register() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    let source = nebensound_repo::register::BUILTIN_REGISTER;
+    let start = source.find("[program.html-validate]").unwrap();
+    let end = source.find("[program.html-validate.download.any]").unwrap();
+    let end = end + source[end..].find("\n\n").unwrap() + 2;
+    let native = format!(
+        "{}[program.html-validate]\nversion = \"11.21.1\"\ncommand = \"html-validate\"\n\n\
+         [program.html-validate.download.linux-x86_64]\nurl = \"https://example.invalid/h\"\n\
+         digest = \"sha256:{}\"\nexecutable = \"html-validate\"\n\n{}",
+        &source[..start],
+        "0".repeat(64),
+        &source[end..]
+    );
+    let register = Register::parse(&native).unwrap();
+    fixture
+        .everything()
+        .computer("lychee", LYCHEE_PAGES)
+        .pinned("html-validate", "11.21.1", "html-validate", "#!/bin/sh\n")
+        .file("a.html", "<p></p>\n");
+    let (code, text) = fixture.run_with(&register, Check::Html, &["a.html"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error::html-validate runs on Node.js, and the register gives it no runtime to run on",
     );
 }
