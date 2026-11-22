@@ -18,9 +18,11 @@
 //!
 //! A finding names its file, and the line and column where the program gives
 //! them. In a workflow run it is an annotation of the run; elsewhere it is a
-//! line that starts with `file:line:col:`. What the programs print stands in
-//! the output as well.
+//! line that starts with `file:line:col:`. A finding that fails nothing, such
+//! as a Hadolint finding below the failure threshold, is a warning. What the
+//! programs print stands in the output as well.
 
+pub mod dockerfile;
 pub mod json;
 pub mod markdown;
 pub mod toml;
@@ -31,7 +33,7 @@ use std::fmt::Write as _;
 use std::fs::{self, File};
 use std::io::{Read as _, Write};
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Output, Stdio};
 
 use tempfile::TempDir;
 
@@ -52,6 +54,8 @@ pub const ARGUMENTS: usize = 30_000;
 /// One of the checks `run` carries out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Check {
+    /// `Dockerfile`, `Containerfile` and `.dockerfile` files.
+    Dockerfile,
     /// `.json`, `.jsonc` and `.geojson` files and the JSON lockfiles.
     Json,
     /// `.md` and `.markdown` files.
@@ -67,6 +71,7 @@ impl Check {
     #[must_use]
     pub fn of(name: &str) -> Option<Self> {
         match name {
+            "dockerfile" => Some(Self::Dockerfile),
             "json" => Some(Self::Json),
             "markdown" => Some(Self::Markdown),
             "toml" => Some(Self::Toml),
@@ -79,6 +84,7 @@ impl Check {
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
+            Self::Dockerfile => "dockerfile",
             Self::Json => "json",
             Self::Markdown => "markdown",
             Self::Toml => "toml",
@@ -86,13 +92,14 @@ impl Check {
         }
     }
 
-    /// What its files are called in a sentence.
-    fn title(self) -> &'static str {
+    /// What one of its files is called in a sentence.
+    fn noun(self) -> &'static str {
         match self {
-            Self::Json => "JSON",
-            Self::Markdown => "Markdown",
-            Self::Toml => "TOML",
-            Self::Yaml => "YAML",
+            Self::Dockerfile => "Dockerfile",
+            Self::Json => "JSON file",
+            Self::Markdown => "Markdown file",
+            Self::Toml => "TOML file",
+            Self::Yaml => "YAML file",
         }
     }
 }
@@ -128,15 +135,15 @@ pub fn run(
         out,
         workflow: context.workflow,
     };
-    let title = check.title();
+    let noun = check.noun();
     if files.is_empty() {
         log.line(&format!(
-            "No {title} file below '{}'; there is nothing to check.",
+            "No {noun} below '{}'; there is nothing to check.",
             shown(&unit.to_string())
         ));
         return 0;
     }
-    log.line(&format!("{} {title} file(s) to check:", files.len()));
+    log.line(&format!("{} {noun}(s) to check:", files.len()));
     for file in files {
         log.line(&shown(&file.to_string()));
     }
@@ -147,6 +154,7 @@ pub fn run(
         log,
     };
     let passed = match check {
+        Check::Dockerfile => dockerfile::run(&mut session),
         Check::Json => json::run(&mut session),
         Check::Markdown => markdown::run(&mut session),
         Check::Toml => toml::run(&mut session),
@@ -188,6 +196,36 @@ impl Log<'_> {
     fn error(&mut self, file: Option<&str>, position: Option<(&str, Option<&str>)>, message: &str) {
         self.line(&annotation(file, position, message));
     }
+
+    /// Writes a finding that fails nothing, the way [`Log::error`] writes
+    /// one that does.
+    fn warning(
+        &mut self,
+        file: Option<&str>,
+        position: Option<(&str, Option<&str>)>,
+        message: &str,
+    ) {
+        self.line(&annotation_at(Level::Warning, file, position, message));
+    }
+}
+
+/// How much a finding weighs: whether it fails the check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Level {
+    /// It fails the check: the workflow command `error`.
+    Error,
+    /// It fails nothing: the workflow command `warning`.
+    Warning,
+}
+
+impl Level {
+    /// The name of its workflow command.
+    fn command(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warning => "warning",
+        }
+    }
 }
 
 /// A finding as the workflow command `error`, on a file if it names one, at a
@@ -198,8 +236,21 @@ pub fn annotation(
     position: Option<(&str, Option<&str>)>,
     message: &str,
 ) -> String {
+    annotation_at(Level::Error, file, position, message)
+}
+
+/// A finding as the workflow command of its level, written as [`annotation`]
+/// writes it.
+#[must_use]
+pub fn annotation_at(
+    level: Level,
+    file: Option<&str>,
+    position: Option<(&str, Option<&str>)>,
+    message: &str,
+) -> String {
+    let level = level.command();
     let Some(file) = file else {
-        return format!("::error::{}", data(message));
+        return format!("::{level}::{}", data(message));
     };
     let mut properties = format!("file={}", property(file));
     if let Some((line, column)) = position {
@@ -208,7 +259,7 @@ pub fn annotation(
             let _ = write!(properties, ",col={column}");
         }
     }
-    format!("::error {properties}::{}", data(message))
+    format!("::{level} {properties}::{}", data(message))
 }
 
 /// The message of a workflow command: a line break would end the command, and
@@ -347,6 +398,26 @@ fn has_extension(path: &str, extension: &str) -> bool {
 /// passed over the same way without a change here.
 fn is_lockfile(path: &str) -> bool {
     has_extension(path, "lock")
+}
+
+/// Takes every variable whose name starts with `prefix` out of what `command`
+/// inherits from this process: a program that reads its settings from such
+/// variables then reads none of a developer's or a runner's.
+fn without_variables(command: &mut Command, prefix: &str) {
+    for (name, _) in std::env::vars_os() {
+        if name.as_encoded_bytes().starts_with(prefix.as_bytes()) {
+            command.env_remove(name);
+        }
+    }
+}
+
+/// How a program ended, as a message says it: with its exit status, or, in
+/// brackets, what ended it when it gave none.
+fn ended(status: ExitStatus) -> String {
+    status.code().map_or_else(
+        || format!("({status})"),
+        |code| format!("with exit status {code}"),
+    )
 }
 
 /// What goes into the folder of what the programs are handed: a file with
@@ -543,6 +614,20 @@ impl Session<'_, '_> {
                 self.log
                     .error(None, None, &format!("{what} cannot be started: {error}"));
                 Ran::failed()
+            }
+        }
+    }
+
+    /// Runs a program to its end and keeps what it printed on each output
+    /// apart, with its exit status. A program that cannot be started is
+    /// written as a finding, and nothing is returned.
+    fn output(&mut self, mut command: Command, what: &str) -> Option<Output> {
+        match command.output() {
+            Ok(output) => Some(output),
+            Err(error) => {
+                self.log
+                    .error(None, None, &format!("{what} cannot be started: {error}"));
+                None
             }
         }
     }

@@ -1,5 +1,5 @@
-//! `nebensound-repo run`: the checks for JSON, Markdown, TOML and YAML, run
-//! from the tool.
+//! `nebensound-repo run`: the checks for Dockerfiles, JSON, Markdown, TOML and
+//! YAML, run from the tool.
 //!
 //! No real program runs here. Every program is a shell script that acts like
 //! the program on what it is given and prints what it was called with, so
@@ -22,7 +22,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use nebensound_repo::Register;
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::programs::Platform;
-use nebensound_repo::run::{self, Check, Context, markdown, toml, yaml};
+use nebensound_repo::run::{self, Check, Context, Level, dockerfile, markdown, toml, yaml};
 use nebensound_repo::setup::{Environment, find};
 use support::{QUIET, call};
 use tempfile::TempDir;
@@ -172,6 +172,81 @@ fi
 echo "ok -- validation done"
 "#;
 
+/// dockerfmt, which says what dockerfmt says about a file of that name.
+const DOCKERFMT: &str = r#"#!/bin/sh
+echo "dockerfmt $*"
+for last in "$@"; do :; done
+case "$last" in
+  *unformatted*) echo "$last is not formatted"; echo "other is not formatted"; exit 1 ;;
+  *left*)
+    echo "$last:2: left unformatted: BuildKit would read it differently" >&2
+    echo "$last:9: left unformatted: beyond the end" >&2
+    echo "$last:x: left unformatted: no number" >&2
+    exit 0 ;;
+  *unreadable*)
+    echo "dockerfmt: $last: line 3: unknown instruction: FORM" >&2
+    echo "dockerfmt: $last: no such thing" >&2
+    exit 1 ;;
+  *warned*) echo "dockerfmt: warning: indent_size 3 is not used" >&2; exit 0 ;;
+  *crashing*) echo "panic: somewhere" >&2; exit 3 ;;
+  *killed*) kill -9 $$ ;;
+esac
+exit 0
+"#;
+
+/// Hadolint: with `--verbose` and no file, the configuration it would run
+/// with, as the words in the configuration file ask; with a file, the JSON
+/// report that file's name asks for, written to the last `--output`.
+const HADOLINT: &str = r#"#!/bin/sh
+outputs=; file=; verbose=; seen=
+while [ $# -gt 0 ]; do
+  if [ -n "$seen" ]; then file=$1; shift; continue; fi
+  case "$1" in
+    --verbose) verbose=1 ;;
+    --config) config=$2; shift ;;
+    --output) outputs="$outputs $2"; shift ;;
+    --) seen=1 ;;
+  esac
+  shift
+done
+if [ -n "$verbose" ]; then
+  echo "never shown"
+  words=$(cat "$config")
+  case "$words" in
+    *broken*) echo '"Error parsing your config file at line 1"' >&2; exit 0 ;;
+    *silent*) echo "Configuration:" >&2; exit 0 ;;
+  esac
+  echo "Configuration:" >&2
+  case "$words" in *nofail*) echo "  no fail: True" >&2 ;; *) echo "  no fail: False" >&2 ;; esac
+  case "$words" in
+    *ignore*) echo "  failure threshold: ignore" >&2 ;;
+    *error*) echo "  failure threshold: error" >&2 ;;
+    *) echo "  failure threshold: info" >&2 ;;
+  esac
+  case "$words" in *formats*) printf '%s\n' "  output format:" "    - tty" "    - sarif" "  verbose: True" >&2 ;; esac
+  exit 0
+fi
+echo "hadolint --config $config with $(export -p | grep -c HADOLINT_) HADOLINT variable(s)"
+echo "hadolint about $file" >&2
+names=
+for out in $outputs; do names="$names ${out##*/}"; last=$out; done
+echo "outputs:$names"
+for out in $outputs; do [ "$out" = "$last" ] || echo tty > "$out"; done
+case "$file" in
+  *noreport*) exit 1 ;;
+  *garbage*) echo "not json" > "$last" ;;
+  *object*) echo "{}" > "$last" ;;
+  *latest*)
+    printf '%s\n' '[{"line":1,"code":"DL3007","message":"Using latest is prone to errors","column":1,"file":"x","level":"warning"},' \
+      '{"line":2,"code":"DL3059","message":"Multiple consecutive RUN","column":1,"level":"info"},' \
+      '{"line":3,"code":"SC1001","message":"odd%\nline","column":"5","level":"style"},' \
+      '{"code":"X","level":null}]' > "$last"
+    exit 1 ;;
+  *) echo "[]" > "$last" ;;
+esac
+exit 0
+"#;
+
 /// A program whose interpreter is not there: starting it fails.
 const GARBAGE: &str = "#!/nonexistent/interpreter\n";
 
@@ -237,6 +312,8 @@ impl Fixture {
             .computer("node", NODE)
             .computer("actionlint", ACTIONLINT)
             .computer("check-jsonschema", JSONSCHEMA)
+            .computer("dockerfmt", DOCKERFMT)
+            .computer("hadolint", HADOLINT)
             .pinned(
                 "markdownlint-cli2",
                 "0.23.2",
@@ -878,6 +955,7 @@ fn without_a_folder_for_the_programs_nothing_runs() {
     fs::write(&file, "").unwrap();
     let register = Register::builtin().unwrap();
     for (check, name) in [
+        (Check::Dockerfile, "Dockerfile"),
         (Check::Json, "a.json"),
         (Check::Markdown, "a.md"),
         (Check::Toml, "a.toml"),
@@ -972,6 +1050,7 @@ fn helpers_take_paths_and_lists_apart() {
     assert_eq!(Check::of("json"), Some(Check::Json));
     assert_eq!(Check::of("rust"), None);
     for (check, name) in [
+        (Check::Dockerfile, "dockerfile"),
         (Check::Json, "json"),
         (Check::Markdown, "markdown"),
         (Check::Toml, "toml"),
@@ -1107,7 +1186,8 @@ fn the_call_refuses_what_it_does_not_run() {
     assert_eq!(code, 2, "{text}");
     assert!(
         text.contains(
-            "`run` carries out the checks json, markdown, toml and yaml; \"rust\" is not"
+            "`run` carries out the checks dockerfile, json, markdown, toml and yaml; \"rust\" is \
+             not"
         ),
         "{text}"
     );
@@ -1302,4 +1382,424 @@ fn actionlint_json_is_read_list_by_list() {
     assert_eq!(yaml::actionlint_findings(""), Some(Vec::new()));
     assert_eq!(yaml::actionlint_findings("[]\nnot json\n"), None);
     assert_eq!(yaml::actionlint_findings(r#"[{"message":"m"}]"#), None);
+}
+
+#[test]
+fn dockerfiles_are_formatted_and_pass_hadolint() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.everything();
+    fixture
+        .file("Dockerfile", "FROM scratch\n")
+        .file("images/app.dockerfile", "FROM scratch\n");
+    let files = ["Dockerfile", "images/app.dockerfile"];
+    let (code, text) = fixture.run(Check::Dockerfile, &files, true);
+    assert_eq!(code, 0, "{text}");
+    for line in [
+        "2 Dockerfile(s) to check:",
+        "dockerfmt --check -- Dockerfile",
+        "dockerfmt --check -- images/app.dockerfile",
+        "Rules: Hadolint's own",
+        "Failure threshold: info",
+        "hadolint about images/app.dockerfile",
+    ] {
+        has(&text, line);
+    }
+    // The empty configuration, from the folder of what the programs are
+    // handed, which is gone again; what the configuration printed on its
+    // standard output is not shown.
+    assert!(
+        text.contains("hadolint --config ") && text.contains("/hadolint.yaml with "),
+        "{text}"
+    );
+    assert!(!text.contains("never shown"), "{text}");
+    assert_eq!(fs::read_dir(fixture.base.join("tmp")).unwrap().count(), 0);
+
+    let (code, text) = fixture.run(Check::Dockerfile, &[], true);
+    assert_eq!(code, 0, "{text}");
+    assert_eq!(
+        text,
+        "No Dockerfile below '.'; there is nothing to check.\n"
+    );
+}
+
+#[test]
+fn every_kind_of_dockerfmt_finding_is_reported() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.everything();
+    let files = [
+        "unformatted.dockerfile",
+        "left.dockerfile",
+        "unreadable.dockerfile",
+        "warned.dockerfile",
+        "crashing.dockerfile",
+        "killed.dockerfile",
+    ];
+    for file in files {
+        fixture.file(file, "FROM scratch\n  run\techo hi\n");
+    }
+    let (code, text) = fixture.run(Check::Dockerfile, &files, true);
+    assert_eq!(code, 1, "{text}");
+    for line in [
+        "unformatted.dockerfile is not formatted",
+        "::error file=unformatted.dockerfile::not formatted the way dockerfmt writes it; \
+         'dockerfmt --write' fixes it",
+        "left.dockerfile:2: left unformatted: BuildKit would read it differently",
+        "::error file=left.dockerfile,line=2::dockerfmt left the RUN instruction on this line \
+         unformatted (BuildKit would read it differently), so it was not checked; write it so \
+         that dockerfmt can format it, or put '# dockerfmt-ignore' on the line before it to \
+         leave it as written on purpose",
+        "::error file=left.dockerfile,line=9::dockerfmt left the instruction on this line \
+         unformatted (beyond the end), so it was not checked; write it so that dockerfmt can \
+         format it, or put '# dockerfmt-ignore' on the line before it to leave it as written on \
+         purpose",
+        "::error file=left.dockerfile::left.dockerfile:x: left unformatted: no number",
+        "::error file=unreadable.dockerfile,line=3::dockerfmt cannot read it: unknown \
+         instruction: FORM",
+        "::error file=unreadable.dockerfile::dockerfmt cannot read it: no such thing",
+        "::warning file=warned.dockerfile::dockerfmt is indent_size 3 is not used",
+        "::error file=crashing.dockerfile::dockerfmt failed on it with exit status 3; its output \
+         stands in the log",
+        "::error file=killed.dockerfile::dockerfmt failed on it (signal: 9 (SIGKILL)); its \
+         output stands in the log",
+    ] {
+        has(&text, line);
+    }
+    // Another file's name is no finding on this one.
+    assert!(!text.contains("::error file=other"), "{text}");
+
+    // A warning alone fails nothing; elsewhere it reads as a line.
+    let (code, text) = fixture.run(Check::Dockerfile, &["warned.dockerfile"], false);
+    assert_eq!(code, 0, "{text}");
+    has(
+        &text,
+        "warned.dockerfile: warning: dockerfmt is indent_size 3 is not used",
+    );
+
+    // A dockerfmt that cannot be started.
+    fixture.computer("dockerfmt", GARBAGE);
+    let (code, text) = fixture.run(Check::Dockerfile, &["warned.dockerfile"], true);
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains("::error::dockerfmt cannot be started: "),
+        "{text}"
+    );
+}
+
+#[test]
+fn hadolint_findings_are_judged_against_the_threshold() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.everything();
+    fixture.file("latest.dockerfile", "FROM x:latest\n");
+    let (code, text) = fixture.run(Check::Dockerfile, &["latest.dockerfile"], true);
+    assert_eq!(code, 1, "{text}");
+    for line in [
+        "::error file=latest.dockerfile,line=1,col=1::DL3007 (warning): Using latest is prone to \
+         errors",
+        "::error file=latest.dockerfile,line=2,col=1::DL3059 (info): Multiple consecutive RUN",
+        "::warning file=latest.dockerfile,line=3,col=5::SC1001 (style): odd%25%0Aline",
+        "::warning file=latest.dockerfile,line=null,col=null::X (null): null",
+        "hadolint about latest.dockerfile",
+    ] {
+        has(&text, line);
+    }
+
+    // The repository's configuration, at the root, with a threshold that
+    // leaves every finding a warning.
+    fixture.file(".hadolint.yml", "threshold error\n");
+    let (code, text) = fixture.run(Check::Dockerfile, &["latest.dockerfile"], true);
+    assert_eq!(code, 0, "{text}");
+    has(&text, "Rules: Hadolint's own, with .hadolint.yml");
+    has(&text, "Failure threshold: error");
+    has(
+        &text,
+        "::warning file=latest.dockerfile,line=1,col=1::DL3007 (warning): Using latest is prone \
+         to errors",
+    );
+    assert!(
+        text.contains("hadolint --config .hadolint.yml with "),
+        "{text}"
+    );
+
+    // `.hadolint.yaml` comes first. `ignore` and `no-fail` are set aside, and
+    // every output format the configuration names goes into a file of its
+    // own before the report.
+    fixture.file(".hadolint.yaml", "ignore nofail formats\n");
+    let (code, text) = fixture.run(Check::Dockerfile, &["latest.dockerfile"], true);
+    assert_eq!(code, 1, "{text}");
+    for line in [
+        "Rules: Hadolint's own, with .hadolint.yaml",
+        "A failure threshold of none or ignore is set aside; Hadolint's default, info, holds.",
+        "no-fail is set aside: a finding at or above the threshold fails the check.",
+        "Failure threshold: info",
+        "outputs: discarded-0 discarded-1 report",
+    ] {
+        has(&text, line);
+    }
+}
+
+#[test]
+fn a_hadolint_that_says_too_little_fails_the_check() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.everything();
+    for file in [
+        "noreport.dockerfile",
+        "garbage.dockerfile",
+        "object.dockerfile",
+    ] {
+        fixture.file(file, "FROM scratch\n");
+        let (code, text) = fixture.run(Check::Dockerfile, &[file], true);
+        assert_eq!(code, 1, "{text}");
+        has(
+            &text,
+            &format!(
+                "::error file={file}::Hadolint gave no report for it; its output stands in the log"
+            ),
+        );
+    }
+
+    fixture.file(".hadolint.yaml", "broken\n");
+    let (code, text) = fixture.run(Check::Dockerfile, &["object.dockerfile"], true);
+    assert_eq!(code, 1, "{text}");
+    has(&text, "\"Error parsing your config file at line 1\"");
+    has(
+        &text,
+        "::error file=.hadolint.yaml::Hadolint cannot read this configuration and would run \
+         without it; its message stands in the log",
+    );
+    assert!(!text.contains("hadolint about"), "{text}");
+
+    fixture.file(".hadolint.yaml", "silent\n");
+    let (code, text) = fixture.run(Check::Dockerfile, &["object.dockerfile"], true);
+    assert_eq!(code, 1, "{text}");
+    has(&text, "Configuration:");
+    has(
+        &text,
+        "::error::Hadolint printed no failure threshold for .hadolint.yaml; the configuration it \
+         runs with is not known",
+    );
+
+    // A Hadolint that cannot be started, and one that cannot be started a
+    // second time, after it printed its configuration.
+    fixture.computer("hadolint", GARBAGE);
+    let (code, text) = fixture.run(Check::Dockerfile, &["object.dockerfile"], true);
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains("::error::Hadolint cannot be started: "),
+        "{text}"
+    );
+    fixture.computer(
+        "hadolint",
+        "#!/bin/sh\necho '  failure threshold: info' >&2\nprintf '#!/nonexistent/x\\n' > \"$0\"\n",
+    );
+    let (code, text) = fixture.run(Check::Dockerfile, &["object.dockerfile"], true);
+    assert_eq!(code, 1, "{text}");
+    has(&text, "Failure threshold: info");
+    assert!(
+        text.contains("::error::Hadolint cannot be started: "),
+        "{text}"
+    );
+}
+
+#[test]
+fn without_its_programs_the_dockerfile_check_fails() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.file("unformatted.dockerfile", "FROM scratch\n");
+    fixture.computer("dockerfmt", DOCKERFMT);
+    let (code, text) = fixture.run(Check::Dockerfile, &["unformatted.dockerfile"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error::hadolint 2.15.1 is neither pinned in the tool's folder nor on the computer; \
+         `nebensound-repo setup` installs it",
+    );
+    // The other part still runs.
+    has(
+        &text,
+        "::error file=unformatted.dockerfile::not formatted the way dockerfmt writes it; \
+         'dockerfmt --write' fixes it",
+    );
+    fs::remove_file(fixture.base.join("bin/dockerfmt")).unwrap();
+    fixture.computer("hadolint", HADOLINT);
+    let (code, text) = fixture.run(Check::Dockerfile, &["unformatted.dockerfile"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error::dockerfmt 1.0.0 is neither pinned in the tool's folder nor on the computer; \
+         `nebensound-repo setup` installs it",
+    );
+    has(&text, "Failure threshold: info");
+}
+
+#[test]
+fn what_dockerfmt_prints_is_taken_apart() {
+    let file = "a,b.dockerfile";
+    for (line, expected) in [
+        (
+            "a,b.dockerfile is not formatted",
+            Some(dockerfile::Said::Unformatted),
+        ),
+        ("a,b.dockerfile is not formatted!", None),
+        ("x a,b.dockerfile is not formatted", None),
+    ] {
+        assert_eq!(dockerfile::said_out(line, file), expected, "{line:?}");
+    }
+    let left = |line: Option<&str>, reason: &str| dockerfile::Said::LeftUnformatted {
+        line: line.map(str::to_owned),
+        reason: reason.to_owned(),
+    };
+    let unreadable = |line: Option<&str>, detail: &str| dockerfile::Said::Unreadable {
+        line: line.map(str::to_owned),
+        detail: detail.to_owned(),
+    };
+    for (line, expected) in [
+        (
+            "a,b.dockerfile:12: left unformatted: why",
+            Some(left(Some("12"), "why")),
+        ),
+        (
+            "a,b.dockerfile:: left unformatted: why",
+            Some(left(None, "why")),
+        ),
+        (
+            "a,b.dockerfile:1x: left unformatted: why",
+            Some(left(None, "why")),
+        ),
+        (
+            "a,b.dockerfile:3:4: left unformatted: a: left unformatted: b",
+            Some(left(Some("3"), "a: left unformatted: b")),
+        ),
+        ("a,b.dockerfile: left unformatted: why", None),
+        ("a,b.dockerfile:3 left unformatted: why", None),
+        (
+            "dockerfmt: a,b.dockerfile: line 7: bad",
+            Some(unreadable(Some("7"), "bad")),
+        ),
+        (
+            "dockerfmt: a,b.dockerfile: line x: bad",
+            Some(unreadable(None, "line x: bad")),
+        ),
+        (
+            "dockerfmt: a,b.dockerfile: line : bad",
+            Some(unreadable(None, "line : bad")),
+        ),
+        ("dockerfmt: a,b.dockerfile:bad", None),
+        (
+            "dockerfmt: warning: careful",
+            Some(dockerfile::Said::Warning("careful".to_owned())),
+        ),
+        ("dockerfmt: other: bad", None),
+        ("anything else", None),
+    ] {
+        assert_eq!(dockerfile::said_err(line, file), expected, "{line:?}");
+    }
+    let text = "FROM scratch\n\n \t run  echo\nexpose 80";
+    for (number, expected) in [
+        ("1", Some("FROM")),
+        ("2", None),
+        ("3", Some("RUN")),
+        ("04", Some("EXPOSE")),
+        ("5", None),
+        ("0", None),
+        ("", None),
+        ("x", None),
+    ] {
+        assert_eq!(
+            dockerfile::instruction(text, number).as_deref(),
+            expected,
+            "{number:?}"
+        );
+    }
+}
+
+#[test]
+fn what_hadolint_prints_with_verbose_is_read_as_it_reads_it() {
+    let settings = dockerfile::settings(
+        "Configuration:\n  no fail: True\n  failure threshold: style\n  output format:\n    - \
+         tty\n  output format:\n    - json\n  verbose: True\n  output format:\n    - sarif\n",
+    );
+    assert_eq!(
+        settings,
+        dockerfile::Settings {
+            unreadable: false,
+            threshold: Some("style".to_owned()),
+            no_fail: true,
+            formats: 2,
+        }
+    );
+    let settings = dockerfile::settings(
+        "\"Error parsing your config file\n  failure threshold: \n  failure threshold: \
+         Info\n  no fail: true\n  output format:\n    - tty",
+    );
+    assert_eq!(
+        settings,
+        dockerfile::Settings {
+            unreadable: true,
+            threshold: None,
+            no_fail: false,
+            formats: 1,
+        }
+    );
+    for (level, rank) in [
+        ("error", 1),
+        ("warning", 2),
+        ("info", 3),
+        ("style", 4),
+        ("ignore", 5),
+        ("", 5),
+    ] {
+        assert_eq!(dockerfile::rank(level), rank, "{level:?}");
+    }
+    assert_eq!(
+        dockerfile::CONFIGURATIONS,
+        [".hadolint.yaml", ".hadolint.yml"]
+    );
+    assert_eq!(
+        run::annotation_at(Level::Warning, Some("a,b"), Some(("1", Some("2"))), "m%"),
+        "::warning file=a%2Cb,line=1,col=2::m%25"
+    );
+    assert_eq!(
+        run::annotation_at(Level::Warning, None, None, "m"),
+        "::warning::m"
+    );
+}
+
+#[test]
+fn hadolint_reads_no_variable_of_its_own_from_the_computer() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture
+        .computer("dockerfmt", DOCKERFMT)
+        .computer("hadolint", HADOLINT)
+        .file(
+            ".nebensound/repo.toml",
+            "[repo]\naudience = \"public\"\npipeline = { check = [\"dockerfile\"], dependabot =              [\"docker\"] }\n",
+        )
+        .file("Dockerfile", "FROM scratch\n");
+    support::git(&fixture.root(), &["init", "--quiet"]);
+    support::git(&fixture.root(), &["add", "--all"]);
+    let git = find::search("git", &std::env::var_os("PATH").unwrap_or_default(), false).unwrap();
+    std::os::unix::fs::symlink(git, fixture.base.join("bin/git")).unwrap();
+    fs::create_dir_all(fixture.base.join("home")).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nebensound-repo"))
+        .args(["run", "dockerfile", "--", "."])
+        .current_dir(fixture.root())
+        .env("PATH", fixture.base.join("bin"))
+        .env("HOME", fixture.base.join("home"))
+        .env("TMPDIR", fixture.base.join("tmp"))
+        .env("GITHUB_ACTIONS", "true")
+        .env("HADOLINT_NOFAIL", "1")
+        .env("HADOLINT_FAILURE_THRESHOLD", "error")
+        .env_remove("XDG_CACHE_HOME")
+        .output()
+        .expect("the built binary");
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(output.status.code(), Some(0), "{text}");
+    has(&text, "1 Dockerfile(s) to check:");
+    assert!(text.contains(" with 0 HADOLINT variable(s)"), "{text}");
 }
