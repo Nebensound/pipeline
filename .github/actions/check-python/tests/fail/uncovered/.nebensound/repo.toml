@@ -1,0 +1,4 @@
+# A function no test calls: its body is not covered.
+[repo]
+audience = "public"
+pipeline = { check = ["python"], dependabot = ["uv"] }

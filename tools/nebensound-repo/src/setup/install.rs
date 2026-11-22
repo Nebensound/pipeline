@@ -1,7 +1,8 @@
 //! Installing a package through its runtime's own installer.
 //!
 //! A program written in JavaScript or Python comes as one package, which the
-//! register pins by its digest. Its dependencies are the installer's business,
+//! register pins by its digest, with the companions the register pins beside
+//! it, such as the configurations a linter extends. Its dependencies are the installer's business,
 //! resolved as the building blocks resolve them: npm installs the verified
 //! package file with `--ignore-scripts`, so nothing of it runs while it is put
 //! in place; pip installs the verified wheel into a virtual environment of its
@@ -9,15 +10,15 @@
 //! wheels for its dependencies, so that no build code of one runs either.
 
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::programs::Installer;
 
 use super::{Environment, execute, find};
 
-/// Installs the package `file` into `dir` with the installer of the runtime
-/// whose executable is `runtime`.
+/// Installs the packages `files`, a program and its companions, into `dir`
+/// together, with the installer of the runtime whose executable is `runtime`.
 ///
 /// # Errors
 ///
@@ -25,7 +26,7 @@ use super::{Environment, execute, find};
 pub fn package(
     installer: Installer,
     runtime: &Path,
-    file: &Path,
+    files: &[PathBuf],
     dir: &Path,
     env: &Environment,
 ) -> Result<(), String> {
@@ -41,7 +42,7 @@ pub fn package(
                 .arg(dir)
                 .args(["--no-save", "--no-package-lock", "--ignore-scripts"])
                 .args(["--no-fund", "--no-audit"])
-                .arg(file);
+                .args(files);
             run(&mut command, &path, "npm")
         }
         Installer::Pip => {
@@ -52,7 +53,7 @@ pub fn package(
             pip.args(["-m", "pip", "install"])
                 .args(["--disable-pip-version-check", "--no-cache-dir", "--quiet"])
                 .arg("--only-binary=:all:")
-                .arg(file);
+                .args(files);
             run(&mut pip, &path, "pip")
         }
     }

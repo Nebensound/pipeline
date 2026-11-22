@@ -11,7 +11,7 @@
 
 use std::fmt::Display;
 
-use crate::programs::{Download, Platform};
+use crate::programs::{Companion, Download, Platform};
 use crate::{Central, Publish, Register};
 
 /// What stands above the tables: what the page is and where it comes from.
@@ -39,9 +39,9 @@ What a name means does not change within an edition. Versions are resolved from
 the declaration of every earlier commit, read in its edition with the register
 of the tool that runs (see [Versions](declaration.md#versions) and
 [Editions](declaration.md#editions)). A default that changed under the same name
-(the release mode of a target, or what a preset brings) would change what the
-declarations of old commits mean, and with it the versions of an existing
-history. Such a change comes as a new name or as a new edition.";
+(what a preset brings, for example) would change what the declarations of old
+commits mean, and with it the versions of an existing history. Such a change
+comes as a new name or as a new edition.";
 
 /// The page, as `docs/register.md` holds it.
 #[must_use]
@@ -145,7 +145,7 @@ fn programs(register: &Register) -> String {
                     let minimum = program.runtime_minimum.as_deref().unwrap_or_default();
                     format!("{}, {} or later", code(runtime), code(minimum))
                 }),
-                platforms(&program.download),
+                companions(platforms(&program.download), &program.companions),
             ]
         })
         .collect();
@@ -155,7 +155,8 @@ fn programs(register: &Register) -> String {
          `nebensound-repo setup` finds or installs the ones a repository's checks call\n\
          (see [the tool](../tools/nebensound-repo/README.md#setting-up-the-programs)).\n\
          A program on a runtime is one package, which the runtime's installer puts in\n\
-         place, and needs at least the version of the runtime its package states;\n\
+         place together with its companions, the packages pinned beside it that are\n\
+         no command, and needs at least the version of the runtime its package states;\n\
          every other one is a build per platform. Each download is refused unless it\n\
          has the digest the register pins; the addresses and digests stand in\n\
          `register.toml`, each with the release data it was taken from. On a platform\n\
@@ -201,6 +202,7 @@ fn builds(register: &Register) -> String {
                 code(name),
                 code(&build.produces),
                 codes(&build.requires_version),
+                codes(&build.requires_file),
                 codes(&build.programs),
             ]
         })
@@ -211,8 +213,17 @@ fn builds(register: &Register) -> String {
          it. A build that needs version writers takes the version of what it produces\n\
          from what they write: a unit that declares it selects them, or phase 0 fails\n\
          (see [`build-without-version-writer`](declaration.md#build-without-version-writer)).\n\
-         The programs are what the build calls (see [Programs](#programs)).",
-        &["Build", "Produces", "Needs version writers", "Programs"],
+         A build that needs files reads them below the unit's path: a unit it builds\n\
+         holds them, or phase 0 fails (see\n\
+         [`build-without-file`](declaration.md#build-without-file)). The programs are\n\
+         what the build calls (see [Programs](#programs)).",
+        &[
+            "Build",
+            "Produces",
+            "Needs version writers",
+            "Needs files",
+            "Programs",
+        ],
         &rows,
     )
 }
@@ -226,18 +237,14 @@ fn targets(register: &Register) -> String {
                 code(name),
                 codes(&target.accepts),
                 target.requires_check.as_ref().map_or_else(none, code),
-                code(&target.release),
             ]
         })
         .collect();
     section(
         "Publish targets",
         "A target accepts some kinds of artifact, and it can demand that a check is in\n\
-         force for the unit that publishes there. It also says how a unit that publishes\n\
-         there is released when the unit does not say: a unit with several targets is\n\
-         released in two stages if any of them is, and a unit without a target in one\n\
-         (see [Releases](declaration.md#releases)).",
-        &["Target", "Accepts", "Requires check", "Release"],
+         force for the unit that publishes there.",
+        &["Target", "Accepts", "Requires check"],
         &rows,
     )
 }
@@ -265,14 +272,24 @@ fn ecosystems(register: &Register) -> String {
                 code(name),
                 code(&ecosystem.package_ecosystem),
                 codes(&ecosystem.manifests),
+                ecosystem.lockfile.as_ref().map_or_else(none, |lockfile| {
+                    format!(
+                        "{} of a {}, {}",
+                        code(&lockfile.name),
+                        code(&lockfile.manifest),
+                        lockfile.stands
+                    )
+                }),
             ]
         })
         .collect();
     section(
         "Ecosystems",
         "The package ecosystems Dependabot can watch, and the file names phase 0\n\
-         recognizes a manifest of each by.",
-        &["Ecosystem", "Dependabot name", "Manifests"],
+         recognizes a manifest of each by. Where an ecosystem knows a lockfile, phase 0\n\
+         warns when Git does not track the lockfile of a manifest (see\n\
+         [`missing-lockfile`](declaration.md#missing-lockfile)).",
+        &["Ecosystem", "Dependabot name", "Manifests", "Lockfile"],
         &rows,
     )
 }
@@ -363,6 +380,18 @@ fn platforms(downloads: &std::collections::BTreeMap<Platform, Download>) -> Stri
         return "one package for every platform".to_owned();
     }
     codes(&downloads.keys().collect::<Vec<_>>())
+}
+
+/// The builds of a program, and the companions installed with it.
+fn companions(builds: String, companions: &[Companion]) -> String {
+    if companions.is_empty() {
+        return builds;
+    }
+    let pinned: Vec<String> = companions
+        .iter()
+        .map(|companion| format!("{} {}", code(&companion.name), code(&companion.version)))
+        .collect();
+    format!("{builds}, with {}", pinned.join(", "))
 }
 
 /// Where a preset publishes.

@@ -191,7 +191,7 @@ jobs:
       - name: Not written yet
         env:
           CHECKS: ${{ toJSON(matrix.checks) }}
-          WRITTEN_CHECKS: '["dockerfile", "json", "markdown", "rust", "toml", "yaml"]'
+          WRITTEN_CHECKS: '["css", "dockerfile", "html", "json", "markdown", "python", "rust", "toml", "yaml"]'
           UNIT_PATH: ${{ matrix.path }}
         run: |
           set -euo pipefail
@@ -207,9 +207,21 @@ jobs:
           done <<< "$missing"
           exit 1
 
+      - name: css
+        if: ${{ !cancelled() && contains(matrix.checks, 'css') }}
+        uses: $/.github/actions/check-css
+        with:
+          working-directory: ${{ matrix.path }}
+
       - name: dockerfile
         if: ${{ !cancelled() && contains(matrix.checks, 'dockerfile') }}
         uses: $/.github/actions/check-dockerfile
+        with:
+          working-directory: ${{ matrix.path }}
+
+      - name: html
+        if: ${{ !cancelled() && contains(matrix.checks, 'html') }}
+        uses: $/.github/actions/check-html
         with:
           working-directory: ${{ matrix.path }}
 
@@ -222,6 +234,12 @@ jobs:
       - name: markdown
         if: ${{ !cancelled() && contains(matrix.checks, 'markdown') }}
         uses: $/.github/actions/check-markdown
+        with:
+          working-directory: ${{ matrix.path }}
+
+      - name: python
+        if: ${{ !cancelled() && contains(matrix.checks, 'python') }}
+        uses: $/.github/actions/check-python
         with:
           working-directory: ${{ matrix.path }}
 

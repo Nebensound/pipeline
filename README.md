@@ -132,6 +132,23 @@ fills ([`.github/actions/tool`](.github/actions/tool)); it builds the tool
 only when the cache misses. The list does not travel through a job output,
 which is limited in size.
 
+### `check-css`
+
+[`.github/actions/check-css`](.github/actions/check-css) checks every `.css`
+and `.scss` file of the unit:
+
+- Formatted the way Prettier writes it, run as in `check-json`.
+- No Stylelint finding, with the repository's configuration laid over the
+  pipeline's default, `stylelint-config-standard`, and for `.scss`
+  `stylelint-config-standard-scss` read with `postcss-scss` (see
+  [Linter rules](#linter-rules)). Its `ignoreFiles` and `.stylelintignore`
+  take nothing out.
+
+Stylelint and the packages the default extends are pinned in the register,
+Stylelint's companions beside it, and nothing else is installed: a
+configuration that extends or loads another package fails, naming it. Every
+step runs even when one before it failed, so one run shows every finding.
+
 ### `check-dockerfile`
 
 [`.github/actions/check-dockerfile`](.github/actions/check-dockerfile) checks
@@ -153,11 +170,47 @@ Building the image, scanning it and running it belong to the build.
 
 Every step runs even when one before it failed, so one run shows every finding.
 
+### `check-html`
+
+[`.github/actions/check-html`](.github/actions/check-html) checks every `.html`
+and `.htm` file of the unit. HTML that a build generates is checked like
+written HTML once it is committed; the build output of a run is not.
+
+- Formatted the way Prettier writes it, run as in `check-json`.
+- No html-validate finding, with the repository's configuration laid over the
+  pipeline's default, the presets `recommended`, `a11y` and `prettier` (see
+  [Linter rules](#linter-rules)). Its `.htmlvalidateignore` files take nothing
+  out. A flat configuration (`html-validate.config.*`), which html-validate
+  would read in place of every `.htmlvalidate.*`, is not read and fails the
+  check.
+- Every page carries a title (`page/title`), a description
+  (`<meta name="description">`, `page/description`), exactly one `h1`
+  (`page/one-h1`), and alternative text on every image (`page/image-alt`; an
+  empty `alt=""` counts, for an image that only decorates). A page is a file
+  whose document begins with `<!doctype html>` or has an `<html>` root; any
+  other HTML file, such as a fragment or header a generator includes, gets the
+  checks above without these. The page rules are html-validate rules shipped
+  beside the block ([`page-rules.mjs`](.github/actions/check-html/page-rules.mjs)),
+  switched on after the repository's configuration, so neither that
+  configuration nor an inline `html-validate-disable` comment switches them
+  off: only an `[[exclude]]` entry takes a page out. Each finding names the
+  page, the line and the field.
+- Every link into the repository leads to a file and an `id` that exist,
+  lychee run as in `check-markdown`, with the same `lychee.toml` handling: a
+  stylesheet or an image counts as much as an anchor. A link from the root of a
+  site, such as `/style.css` or `/login`, is not checked, since where the site
+  is served is not in the declaration; links to the outside are not checked in
+  a pull request.
+
+A template that does not parse as HTML needs an `[[exclude]]` entry with its
+reason. Every step runs even when one before it failed, so one run shows every
+finding.
+
 ### `check-json`
 
 [`.github/actions/check-json`](.github/actions/check-json) checks every
-`.json`, `.jsonc` and `.geojson` file of the unit, and every `composer.lock` and
-`flake.lock`:
+`.json`, `.jsonc` and `.geojson` file of the unit, and every `composer.lock`,
+`flake.lock` and `Pipfile.lock`:
 
 - `.json` and `.geojson` are strict JSON, exactly one value per file, judged by
   `jq`.
@@ -165,9 +218,11 @@ Every step runs even when one before it failed, so one run shows every finding.
   plus comments, trailing commas allowed. Biome judges it as a parser only, with
   the action's own configuration and no lint rule; a repository's Biome
   configuration is not read.
-- `composer.lock` and `flake.lock` are strict JSON like `.json`, judged by `jq`,
-  but not format-checked: the tool that writes them decides their layout
-  (Composer indents with four spaces).
+- `composer.lock`, `flake.lock` and `Pipfile.lock` are strict JSON like
+  `.json`, judged by `jq`, but not format-checked: the tool that writes them
+  decides their layout (Composer and pipenv indent with four spaces). Every file
+  of the check whose name ends in `.lock` is such a lockfile, as the register
+  gives `json` no other.
 - The three extensions are formatted the way Prettier writes them, with the
   repository's Prettier configuration, without its ignore files, and with
   `requirePragma`, `checkIgnorePragma`, `rangeStart` and `rangeEnd` set aside,
@@ -194,6 +249,60 @@ Every step runs even when one before it failed, so one run shows every finding.
   configuration, so a lychee table in `Cargo.toml`, `pyproject.toml` or
   `package.json`, which lychee would otherwise read where there is no
   `lychee.toml`, is not read.
+
+### `check-python`
+
+[`.github/actions/check-python`](.github/actions/check-python) checks one uv
+project, the unit's path: its `pyproject.toml` lies there, and its `uv.lock`
+there or at the root of the uv workspace above it. The interpreter is the one
+`.python-version` names, at the unit or at that root, installed by uv from its
+own downloads and never taken from the machine; like the toolchain of
+`check-rust`, it is no input. uv 0.13.9, Ruff 0.17.6, Pyright 1.1.414 on
+Node.js 24.22.3 and coverage.py 7.17.4 are pinned by their digests, as
+[the register](docs/register.md#programs) pins them. pytest and its plugins are
+the project's own, from its lockfile, since they import its code. coverage.py
+runs on Python 3.11 or later, so the project's interpreter has to be one.
+
+- The project installs as its `uv.lock` pins it (`uv sync --locked`), with its
+  default dependency groups. A missing `pyproject.toml`, `uv.lock` or
+  `.python-version` fails by name.
+- Formatted the way Ruff writes it (`ruff format --check`).
+- No Ruff finding, with the repository's configuration laid over the
+  pipeline's default (see [Linter rules](#linter-rules)).
+- No Pyright error in strict mode, with the repository's configuration laid
+  over it (see [Linter rules](#linter-rules)).
+- The tests pass: the project's pytest, run by coverage.py. Each failed test is
+  an annotation on its file and line, and a project without pytest fails by
+  name.
+- Every line and every branch is covered, of every Python file of the list,
+  tests and scripts included and stubs (`.pyi`) not. A file coverage.py never
+  saw, which no test imports, counts as not covered at all; one without a
+  statement has nothing to cover. The repository's `# pragma: no cover` and
+  `exclude_also` stay its choice, like `#[coverage(off)]`; its `fail_under`
+  decides nothing.
+- The wheel builds (`uv build --wheel`) and installs into a clean environment of
+  the same interpreter, with the project's locked runtime dependencies
+  (`uv export --frozen --no-default-groups`, no dependency group); there every
+  command of `[project.scripts]` answers `--help` within 60 seconds, and every
+  package and module at the top of the wheel imports, each with nothing on its
+  standard input. A project without a `[build-system]`, or with
+  `tool.uv.package = false`, fails: every Python unit is an installable
+  package. No version is stored in the tree, so the wheel gets the placeholder
+  version `0.0.0` for this step alone, and `pyproject.toml` is put back as
+  committed afterwards. The wheel is never handed on.
+
+A file an `[[exclude]]` entry takes out is handed to no tool: Ruff and Pyright
+get the list, pytest does not collect such a file, and coverage does not judge
+it. An entry that takes out the unit's whole folder leaves nothing to check.
+Ruff runs with `--no-force-exclude`, so its `exclude` takes no listed file out;
+Pyright's `ignore` and `exclude` are set aside; coverage.py's `omit` counts for
+nothing, since a file it leaves out counts as not covered.
+
+Every step runs even when one before it failed, so one run shows every finding;
+a step that needs the installed project is left out when installing it failed.
+uv's cache, the interpreter and the project's environment lie in the runner's
+temporary folder, and Ruff, pytest and Python write no cache and no bytecode
+into the checkout.
 
 ### `check-rust`
 
@@ -249,16 +358,23 @@ keeps in with an `[[include]]` is checked in every step, coverage included.
 ### `check-toml`
 
 [`.github/actions/check-toml`](.github/actions/check-toml) checks every `.toml`
-file of the unit, and `Cargo.lock` and `uv.lock`, with Taplo 0.10.0, the
-release binary pinned by SHA-256:
+file of the unit, and `Cargo.lock`, `uv.lock`, `poetry.lock` and `pdm.lock`,
+with Taplo 0.10.0, the release binary pinned by SHA-256:
 
 - Taplo reads each file from standard input. Given a path, it silently skips
-  every `.lock` file (the lockfiles are fed through standard input all the
-  same) and every file the `include` or `exclude` of the repository's
-  `taplo.toml` leaves out, and reports success.
+  every `.lock` file and every `Pipfile` (all of them are fed through standard
+  input all the same) and every file the `include` or `exclude` of the
+  repository's `taplo.toml` leaves out, and reports success.
 - `.toml` files are formatted the way Taplo writes them, with the repository's
-  `taplo.toml`. Lockfiles are not format-checked: the tool that writes them
-  (Cargo, uv) decides their layout.
+  `taplo.toml`, and so is `Pipfile`, TOML without an extension that the register
+  gives `toml` by name. Since `taplo format Pipfile` skips the file, a
+  `Pipfile` is formatted by hand through standard input,
+  `taplo format --stdin-filepath Pipfile - < Pipfile > Pipfile.new`, then moved
+  over the original; or the `include` of `taplo.toml` names `**/Pipfile` beside
+  `**/*.toml`. Lockfiles are not format-checked: the tool that writes them
+  (Cargo, uv, Poetry, PDM) decides their layout. Every file of the check whose
+  name ends in `.lock` is such a lockfile, as the register gives `toml` no
+  other.
 - Every file passes `taplo lint`, run without the repository's configuration so
   that it cannot switch the schema validation off.
 - Schemas are assigned by the action, so far to `Cargo.toml` by file name and
@@ -402,8 +518,12 @@ read the unit's version of the run from it.
 
 - The Dockerfile is `deploy/Dockerfile` below the unit's path, and the build
   context is the repository root. Each unit has its own, so several services of
-  one workspace each build their own image. A unit without `deploy/Dockerfile`
-  fails by name.
+  one workspace each build their own image. Phase 0 refuses a unit without
+  `deploy/Dockerfile`
+  ([`build-without-file`](docs/declaration.md#build-without-file)). The
+  block's first step keeps a check of its own only as a safeguard: it fails by
+  name where the checkout cannot read a file phase 0 saw, such as a tracked
+  symlink whose target is missing.
 - The image is built once, for `linux/amd64` only, on an `x86_64` runner, by a
   BuildKit of its own pinned by digest, without a cache, without provenance and
   without an SBOM, into an OCI layout. It carries the labels
@@ -437,11 +557,17 @@ the end, whatever happened.
 
 ### Linter rules
 
-Markdownlint and yamllint run with a default of the pipeline:
+Markdownlint, yamllint, Stylelint and html-validate run with a default of the
+pipeline:
 [`tools/nebensound-repo/rules/markdownlint.jsonc`](tools/nebensound-repo/rules/markdownlint.jsonc)
-(`MD013` off, since Prettier does not wrap prose) and
+(`MD013` off, since Prettier does not wrap prose),
 [`tools/nebensound-repo/rules/yamllint.yaml`](tools/nebensound-repo/rules/yamllint.yaml)
-(yamllint's defaults, less what contradicts Prettier or GitHub Actions). The
+(yamllint's defaults, less what contradicts Prettier or GitHub Actions),
+[`tools/nebensound-repo/rules/stylelint.yaml`](tools/nebensound-repo/rules/stylelint.yaml)
+(`stylelint-config-standard`, for `.scss` `stylelint-config-standard-scss`) and
+[`tools/nebensound-repo/rules/html-validate.json`](tools/nebensound-repo/rules/html-validate.json)
+(the presets `recommended` and `a11y`, less what contradicts Prettier through
+html-validate's own preset `prettier`). The
 block reads it from the pipeline version that runs. A repository's own
 configuration is laid over that default rule by rule: its file names only the
 rules it wants different, every rule it does not name keeps the default's value,
@@ -491,6 +617,54 @@ default as well: `extends: default` brings back yamllint's own line length.
 yamllint reads one configuration, at the root (`.yamllint`, `.yamllint.yaml`
 or `.yamllint.yml`).
 
+Stylelint reads, for each stylesheet, the configuration nearest to it: the
+first of the names it looks for (`package.json` with a `stylelint` key,
+`.stylelintrc`, `.stylelintrc.json`, `.stylelintrc.yaml`,
+`stylelint.config.mjs` and the others) in the file's folder or the nearest
+folder above it. `check-css` hands it that configuration as the last of what
+its configuration extends, after the default, so Stylelint itself lays the one
+over the other rule by rule, and what the repository's `extends` names comes
+along over the default as well. An `overrides` entry matches its `files` from
+the repository root. html-validate reads the `.htmlvalidate.json` (`.mjs`,
+`.cjs`, `.js`) of a page's folder and of every folder above it, up to one that
+says `root: true`; `check-html` lays them over the default, the nearer over
+the farther. The page rules lie over everything and cannot be switched off.
+Both blocks install only the pinned packages, so a configuration that names
+another one, such as a plugin, fails with the package named.
+
+Ruff runs with a default of the pipeline as well:
+[`tools/nebensound-repo/rules/ruff.toml`](tools/nebensound-repo/rules/ruff.toml),
+every rule (`ALL`) less the ones Ruff names as conflicting with its formatter,
+one of each of two pairs of docstring rules that contradict each other, the
+copyright notice in every file (`CPY001`), since the licence stands in the
+`LICENSE` every repository holds, and `S101` in tests, since pytest asserts
+with `assert`. The repository's own
+configuration is the one Ruff finds for the unit: `.ruff.toml`, `ruff.toml` or
+the `[tool.ruff]` table of a `pyproject.toml`, in the unit's folder or the
+nearest one above it. `check-python` lays it over the default the way Ruff
+lays a configuration over the one its `extend` names: its `ignore`,
+`extend-select` and `extend-per-file-ignores` change single rules and keep the
+rest of the default, its `select` and `per-file-ignores` start over, and every
+other setting it names wins. What its own `extend` names comes along, over the
+default as well. A rule switched off for one line (`# noqa: <code>`) or one
+file (`# ruff: noqa: <code>`) stays the repository's choice.
+`nebensound-repo check` shows every rule and prefix the repository's
+configuration and the files its `extend` names switch on or off, as each file
+writes it, against the same entry of the default, and for an
+`extend-select` entry the entries of the default's `ignore` it switches back
+on (see [the tool's README](tools/nebensound-repo/README.md#the-rules)).
+
+Pyright runs in strict mode, with the repository's configuration laid over it:
+the one Pyright finds for the unit, `pyrightconfig.json` or the
+`[tool.pyright]` table of a `pyproject.toml`. Its rule severities, Python
+version and platform, execution environments and stub paths stay the
+repository's choice, and so does `# pyright: reportX=false` in a file. A lower
+mode is a finding, as `typeCheckingMode` in the configuration and as
+`# pyright: basic` or `# pyright: standard` in a file; strict mode holds all
+the same. A `# type: ignore` without rules before a file's first statement,
+which takes the whole file out of Pyright, is a finding as well; on a line of
+its own it stays the repository's choice.
+
 Hadolint runs without a default of the pipeline: its own rules contradict no
 other tool of the pipeline, so there is nothing to lay beneath them, and
 `nebensound-repo check` reports nothing for it. `check-dockerfile` hands it the
@@ -517,11 +691,15 @@ No block lets a tool's own way of leaving files out take a file out: an ignore
 file needs no reason and can turn a check green that checked nothing.
 `.gitignore` takes nothing out either. The blocks read none of these settings,
 except lychee's `exclude_path`, which comes along with the `lychee.toml`
-`check-markdown` reads, and rustfmt's `ignore`, which comes along with the
-repository's rustfmt configuration and takes effect on a nightly toolchain.
+`check-markdown` and `check-html` read, and rustfmt's `ignore`, which comes
+along with the repository's rustfmt configuration and takes effect on a nightly
+toolchain, and Ruff's `# ruff: noqa`, which a Python file holds itself.
 Settings in a tool's configuration that pass a whole file unchecked are set
 aside on the command line: Prettier's `requirePragma`, `checkIgnorePragma`,
-`rangeStart` and `rangeEnd`, and rustfmt's `disable_all_formatting`. Run by
+`rangeStart` and `rangeEnd`, and rustfmt's `disable_all_formatting`;
+`check-python` runs Pyright without its `ignore` and `exclude` and Ruff with
+`--no-force-exclude`, and judges coverage itself, so that coverage.py's `omit`
+takes nothing out. Run by
 hand, the tools read all of them, so phase 0
 holds them against the declaration and fails on every file one of them takes
 out that no `[[exclude]]` entry takes out (`unexcused-ignore`). For lychee,
@@ -529,25 +707,87 @@ that also keeps `exclude_path` from taking a file out in the block: phase 0
 matches it against the path from the root, such as `docs/a.md`, the string the
 block hands lychee. A setting that takes out less is fine. Phase 0 reads:
 
-| Tool              | Setting                                                                                     |
-| ----------------- | ------------------------------------------------------------------------------------------- |
-| Prettier          | `.prettierignore` at the root                                                               |
-| Taplo             | `include` and `exclude` in `.taplo.toml` or `taplo.toml` at the root                        |
-| markdownlint-cli2 | `ignores` in `.markdownlint-cli2.jsonc` or `.markdownlint-cli2.yaml`, in every folder       |
-| yamllint          | `ignore` and `ignore-from-file` in `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at root |
-| lychee            | `exclude_path` in `lychee.toml` at the root                                                 |
-| rustfmt           | `ignore` in `.rustfmt.toml` or `rustfmt.toml`, in every folder                              |
+| Tool              | Setting                                                                                                  |
+| ----------------- | -------------------------------------------------------------------------------------------------------- |
+| Prettier          | `.prettierignore` at the root                                                                            |
+| Taplo             | `include` and `exclude` in `.taplo.toml` or `taplo.toml` at the root                                     |
+| markdownlint-cli2 | `ignores` in `.markdownlint-cli2.jsonc` or `.markdownlint-cli2.yaml`, in every folder                    |
+| yamllint          | `ignore` and `ignore-from-file` in `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at root              |
+| lychee            | `exclude_path` in `lychee.toml` at the root                                                              |
+| Pyright           | `include`, `ignore`, `exclude` in `pyrightconfig.json` or `[tool.pyright]`, in every folder              |
+| coverage.py       | `omit` in `.coveragerc`, `.coveragerc.toml`, `setup.cfg`, `tox.ini` or `pyproject.toml`, in every folder |
+| Ruff              | `# ruff: noqa` or `# flake8: noqa` without rule codes, in the Python file itself                         |
+| Ruff              | `exclude`, `extend-exclude` in `.ruff.toml`, `ruff.toml` or `[tool.ruff]`, in every folder               |
+| Ruff              | `include`, `lint.exclude`, `format.exclude` in the configuration that governs a file                     |
+| rustfmt           | `ignore` in `.rustfmt.toml` or `rustfmt.toml`, in every folder                                           |
+| Stylelint         | `.stylelintignore` at the root; `ignoreFiles` in the configuration of every folder                       |
+| html-validate     | `.htmlvalidateignore` in every folder                                                                    |
 
 Only the files the tool reads in a block count: a `.prettierignore` that takes
 out a Rust file takes out nothing Prettier would have looked at. Taplo's
 `include` counts only against `.toml` files, the ones Taplo reads without it; a
-`Cargo.lock` or `uv.lock` is taken out of Taplo only by `exclude`. Where
+`Pipfile` or a lockfile of the `toml` check (`Cargo.lock`, `uv.lock`,
+`poetry.lock`, `pdm.lock`) is taken out of Taplo only by `exclude`. A setting
+that takes out nothing but lockfiles the register names, such as a
+`.prettierignore` naming `composer.lock` or an `exclude` naming `Cargo.lock`,
+takes nothing out of a check: no block hands a lockfile to Prettier, and Taplo
+lints without its configuration. One that takes out another file as well is
+reported at that file only. Where
 yamllint's file sets neither `ignore` nor `ignore-from-file`, phase 0 reads them
 in the file its `extends` names, as yamllint does. rustfmt's `ignore` is read in
 every folder, relative to that folder, since which configuration rustfmt applies
 to a file depends on where it runs; a `.rs` file it takes out cannot be excused
 by an `[[exclude]]` entry of its own, only by one that takes out its whole
-package. A setting phase 0 cannot read fails as well (`unreadable-ignore-file`). A JavaScript options file of markdownlint-cli2
+package. Stylelint's `ignoreFiles` is read in the configuration Stylelint
+finds in each folder, relative to that folder, in order with its negated
+patterns, and counts for the files below it that no nearer configuration
+governs; a configuration in JavaScript is not judged, the block sets its
+`ignoreFiles` aside all the same, and a file that something it extends would
+still take out fails in the block. html-validate's `.htmlvalidateignore` is
+read in every folder, relative to that folder, as html-validate's command line
+reads it. coverage.py takes its settings from the first of `.coveragerc` (or the
+file `--rcfile` or `COVERAGE_RCFILE` names), `.coveragerc.toml`, `setup.cfg`,
+`tox.ini` and `pyproject.toml` in the folder it runs in that exists, where
+`setup.cfg`, `tox.ini` and `pyproject.toml` count only when they hold settings
+of its own; since that depends on where it runs, phase 0 reads `omit` of the
+run and report sections in every one of them in every folder, relative to that
+folder. In `.coveragerc` the sections are `[coverage:run]` and
+`[coverage:report]`, or `[run]` and `[report]` where the prefixed section is
+missing; in `setup.cfg` and `tox.ini` `[coverage:run]` and
+`[coverage:report]`; in `pyproject.toml` `[tool.coverage.run]` and
+`[tool.coverage.report]`; and in `.coveragerc.toml` the latter, or `[run]` and
+`[report]` where the prefixed table is missing, as coverage.py looks them up.
+coverage.py picks the section before it reads `omit`, so a prefixed section
+without `omit` hides the plain one. In the INI files, an `omit` under
+`[DEFAULT]` counts as set in the section picked, since Python's configparser
+hands it on to every section, and a section name keeps the spaces inside its
+brackets, so `[ run ]` is not `[run]`.
+Ruff's `exclude` and `extend-exclude` are read in the configuration
+Ruff finds in each folder (the first of `.ruff.toml`, `ruff.toml` and a
+`pyproject.toml` with a `[tool.ruff]` table), relative to that folder, `*`
+crossing a `/` and a pattern without a `/` naming a file or folder of that name
+anywhere below, as Ruff matches them; each counts for what lies below its
+folder that no nearer configuration governs, and for the folder of a nearer one
+itself, which Ruff checks with the configuration above it. Ruff's `include`,
+`lint.exclude` and `format.exclude` are read in the configuration that governs
+a file, the nearest one above it, and matched as Ruff matches them: against
+the file's path and, for `lint.exclude` and `format.exclude`, its name, but not
+against the folders above it, so a folder's name there takes nothing out.
+`lint.exclude` takes a file out of `ruff check` alone and `format.exclude` out
+of `ruff format` alone, and the finding names the step. Ruff's default
+`include` takes every `.py` and `.pyi` file, all the check covers, so only an
+`include` of the configuration's own can leave one out; `extend-include` only
+adds to `include` and is never a finding. Where a configuration names another
+in `extend`, the settings of that one count beneath its own, as Ruff lays
+them, each pattern relative to the folder of the file that writes it; an
+`extend` is followed inside the repository only, and one that comes back round
+is a loop, which Ruff refuses (`unreadable-ignore-file`). Pyright's `exclude`
+is read like its `ignore`; its `include` takes out every file below the folder
+of its configuration that none of its entries names. Ruff's `exclude` takes the
+place of its default list, Pyright's adds to its own; what those lists leave
+out (Ruff's `.venv`, `node_modules`, `dist` and the like; Pyright's
+`**/node_modules`, `**/__pycache__` and `**/.*`) is no finding, whether a
+setting names it again or not. A setting phase 0 cannot read fails as well (`unreadable-ignore-file`). A JavaScript options file of markdownlint-cli2
 (`.markdownlint-cli2.cjs` or `.mjs`) is not judged, since phase 0 cannot read it
 without running it; the block sets its `ignores` aside all the same. A setting
 that switches a rule off for some files, such as yamllint's per-rule `ignore`
@@ -613,9 +853,11 @@ not part of the case's repository.
   `if`, `uses` and `with`, and hands the block exactly
   `working-directory: ${{ matrix.path }}`, so that neither
   `continue-on-error` nor another path silences the check. Beside it the step
-  may hand `plan: ${{ needs.declare.outputs.plan }}`, the plan of phase 0, to a
-  check that writes the versions before it tests a package, as `check-rust`
-  does;
+  hands `plan: ${{ needs.declare.outputs.plan }}`, the plan of phase 0, exactly
+  when the block's `action.yml` declares the input `plan`, as `check-rust` does
+  to write the versions before it tests a package, and never otherwise: the
+  block's cases get the plan exactly then, so a step that dropped it would
+  leave every caller's run without what the cases test;
 - every version writer's block is called from a step named after its entry
   and switched on it with exactly `${{ contains(matrix.writers, '<writer>') }}`,
   and every build block from a step named after its entry and switched on it
@@ -626,9 +868,10 @@ not part of the case's repository.
   condition holds `!cancelled()`, so that nothing is built after a step that
   failed. The step has no other key than `name`, `if`, `uses` and `with`; it
   hands a version writer exactly `plan: ${{ needs.declare.outputs.plan }}` and
-  a build exactly `working-directory: ${{ matrix.path }}`, beside which it may
-  hand the plan to a build that labels what it builds with the unit's version,
-  as `build-docker` does;
+  a build exactly `working-directory: ${{ matrix.path }}`, beside which it
+  hands the plan exactly when the build block's `action.yml` declares the
+  input `plan`, as `build-docker` does to label what it builds with the unit's
+  version;
 - the step `Not written yet` of the check job counts exactly the checks that
   have a block as written (`WRITTEN_CHECKS`), the step `Not written yet` of
   the build job exactly the builds (`WRITTEN_BUILDS`), and the step

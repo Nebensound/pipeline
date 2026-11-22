@@ -115,9 +115,12 @@ fn a_lockfile_goes_to_the_check_its_name_assigns() {
         ".nebensound/repo.toml",
         "Cargo.lock",
         "Gemfile.lock",
+        "Pipfile.lock",
         "app/uv.lock",
         "composer.lock",
         "flake.lock",
+        "pdm.lock",
+        "poetry.lock",
         "web/yarn.lock",
     ];
     let analysis = analysis(
@@ -131,8 +134,42 @@ fn a_lockfile_goes_to_the_check_its_name_assigns() {
     let toml = files(&analysis, &central, "toml", &root).unwrap();
     assert_eq!(
         names(&toml),
-        [".nebensound/repo.toml", "Cargo.lock", "app/uv.lock"]
+        [
+            ".nebensound/repo.toml",
+            "Cargo.lock",
+            "app/uv.lock",
+            "pdm.lock",
+            "poetry.lock"
+        ]
     );
     let json = files(&analysis, &central, "json", &root).unwrap();
-    assert_eq!(names(&json), ["composer.lock", "flake.lock"]);
+    assert_eq!(
+        names(&json),
+        ["Pipfile.lock", "composer.lock", "flake.lock"]
+    );
+}
+
+#[test]
+fn a_pipfile_goes_to_toml_beside_the_toml_files() {
+    let analysis = analysis(
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n",
+        &[
+            ".nebensound/repo.toml",
+            "Pipfile",
+            "api/Pipfile",
+            "pyproject.toml",
+        ],
+    );
+    assert!(!analysis.failed(), "{:?}", analysis.findings());
+
+    let toml = files(&analysis, &central(), "toml", &RelativePath::root()).unwrap();
+    assert_eq!(
+        names(&toml),
+        [
+            ".nebensound/repo.toml",
+            "Pipfile",
+            "api/Pipfile",
+            "pyproject.toml"
+        ]
+    );
 }

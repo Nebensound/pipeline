@@ -1,0 +1,4 @@
+# A configuration that extends a package the block does not install.
+[repo]
+audience = "public"
+pipeline = { check = ["css"] }

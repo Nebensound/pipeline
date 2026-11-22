@@ -4,7 +4,7 @@
 //! A version is three numbers, `X.Y.Z` ([`Version`]). A tag carries one, and
 //! a pre-release appends `-pre.N` to it ([`TagVersion`]). A declaration names
 //! a version where a person takes a step by hand, the floor below which a
-//! unit's version never falls, and writes it the way a tag carries it.
+//! unit's version never falls, and writes it as three numbers.
 //!
 //! What a commit asks of a version follows from its message, read as a
 //! Conventional Commit ([`change_of`]): a breaking change raises the major
@@ -153,6 +153,13 @@ impl Version {
     }
 }
 
+impl<'de> Deserialize<'de> for Version {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(de::Error::custom)
+    }
+}
+
 impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
@@ -200,8 +207,7 @@ impl TagVersion {
     /// The three numbers as [`Version::parse`] reads them, and `N` digits only,
     /// at least 1 and without a leading zero. Anything else, such as `-rc.1`,
     /// `-pre1` or a build suffix, is refused: a tag that holds it is no release
-    /// the pipeline made, and a floor that names it names a version the
-    /// pipeline never gives out.
+    /// the pipeline made.
     ///
     /// # Errors
     ///
@@ -249,13 +255,6 @@ impl TagVersion {
     #[must_use]
     pub fn parse(value: &str) -> Option<Self> {
         Self::read(value).ok()
-    }
-}
-
-impl<'de> Deserialize<'de> for TagVersion {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let raw = String::deserialize(deserializer)?;
-        Self::read(&raw).map_err(de::Error::custom)
     }
 }
 

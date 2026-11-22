@@ -182,3 +182,18 @@ only-if-empty = true
 path          = "**/.keep"
 reason        = "an empty marker that keeps a folder"
 only-if-empty = true
+
+# Two files every uv project holds. A package that ships its type hints marks
+# itself with an empty py.typed (PEP 561); one with content marks partial stubs
+# and is a file like any other. .python-version names the interpreter uv
+# installs, and check-python requires it; a version number has no format to
+# check.
+
+[[exclude]]
+path          = "**/py.typed"
+reason        = "an empty marker of a typed package (PEP 561)"
+only-if-empty = true
+
+[[exclude]]
+path   = "**/.python-version"
+reason = "a version number read by uv; no tool has an opinion about its format"
