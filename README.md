@@ -51,7 +51,6 @@ on:
   push:
     branches:
       - main
-      - release
 
 permissions:
   contents: read
@@ -72,10 +71,7 @@ release tag, which Dependabot raises as a pull request.
 
 The job grants `contents: write` because the release stage on `main` writes
 tags and releases. Only its job `Publish` asks for that permission; every other
-job, and every job of a pull request, keeps a read token. A push to `release`
-is the merge of a promotion, where the second stage of a unit released in two
-stages belongs; until that stage exists, such a run checks and builds, and
-releases nothing.
+job, and every job of a pull request, keeps a read token.
 
 A run reports as `nebensound / Declare` (phase 0: the declaration read and
 checked against the tree), `nebensound / Version` (the version of every unit,
@@ -99,7 +95,7 @@ is running, so a change to the pipeline is checked by the pipeline it changes.
 Its declaration gives the tool `nebensound-repo` neither a version nor a build,
 so the repository's own tags `vX.Y.Z` are the only ones, and its Build phase has
 nothing to build. Every merge to `main` touches the repository and is released
-in one stage, as `vX.Y.Z`, the latest release, with nothing attached. The
+in full, as `vX.Y.Z`, the latest release, with nothing attached. The
 version writer `cargo` and the build `cargo-package` are held to their test
 cases instead.
 

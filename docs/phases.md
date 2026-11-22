@@ -221,12 +221,13 @@ pushed commit touches, gets its records: a tag on the pushed commit, named as
 [the declaration](declaration.md#tag-names) names a unit's records, and a
 GitHub Release of it.
 
-| Unit                       | Version on `main` | The release                                    |
-| -------------------------- | ----------------- | ---------------------------------------------- |
-| The repository, one stage  | `X.Y.Z`           | A full release, and the latest.                |
-| A component, one stage     | `X.Y.Z`           | A full release, not the latest.                |
-| Any unit, two stages       | `X.Y.Z-pre.N`     | A pre-release, never the latest.               |
-| Any unit, two stages, full | `X.Y.Z`           | None here: its full release is the next stage. |
+| Unit           | Version on `main` | The release                     |
+| -------------- | ----------------- | ------------------------------- |
+| The repository | `X.Y.Z`           | A full release, and the latest. |
+| A component    | `X.Y.Z`           | A full release, not the latest. |
+
+Every merge into `main` is a full release: a version on `main` is never a
+pre-release.
 
 A unit the commit does not touch gets nothing, also where a version writer
 writes its current version for a package that depends on it: a tag on the
@@ -252,9 +253,9 @@ its steps are:
 3. **The publish targets**, while the releases are drafts: an immutable release
    takes no file once it is published. No target has a building block yet, so
    this step does not exist yet.
-4. **Publish the releases.** Each draft is published, as a pre-release or not,
-   and marked as the latest release or not, in the same call: GitHub honours
-   that mark only there. When the published release shows that it is not
+4. **Publish the releases.** Each draft is published as a full release, and
+   marked as the latest release or not in the same call: GitHub honours that
+   mark only there. When the published release shows that it is not
    immutable, because the repository has immutable releases switched off, the
    job writes a warning and a line in the summary of the run, and goes on.
 
@@ -296,7 +297,7 @@ that are not built yet.
 ## Pull request and push
 
 The caller file starts the workflow on every pull request and on every push to
-`main` and to `release`:
+`main`:
 
 ```yaml
 on:
@@ -304,7 +305,6 @@ on:
   push:
     branches:
       - main
-      - release
 ```
 
 Both run the same jobs, Declare, Version, Check and Build, with the same steps,
@@ -314,8 +314,8 @@ on a pull request `Version` shows the version the merge would get with
 package test of `check-rust` and the build jobs write and build with.
 
 A newer push to a pull request cancels its run that is still going: only the
-newest commit of a pull request counts. A run after a push, on `main` or on
-`release`, is never cancelled. It waits in the one queue of the repository
+newest commit of a pull request counts. A run after a push to `main` is never
+cancelled. It waits in the one queue of the repository
 until the run before it has finished, so the runs after two merges publish in
 the order of their pushes and with two different versions, and a run that
 waits is never replaced by a newer one. The workflow sets this itself, in its

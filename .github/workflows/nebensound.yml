@@ -12,10 +12,9 @@ on:
 # Here and not at the caller, so that it reads the same in every repository.
 #
 # The event decides. A run of a pull request has the group of its pull request,
-# the pull request from main into release included, and a newer push to it
-# cancels the run in progress: only its newest commit counts. Every other run,
-# a run after a push, which is a run after a merge, joins the one group of the
-# repository, whichever branch it is on: nothing in it is cancelled, and every
+# and a newer push to it cancels the run in progress: only its newest commit
+# counts. Every other run, a run after a push, which is a run after a merge,
+# joins the one group of the repository: nothing in it is cancelled, and every
 # waiting run keeps its place (`queue: max`) instead of being replaced by the
 # next one, so that the releases of two merges are published in the order of
 # their pushes and no release stops halfway. GitHub refuses `queue: max`
@@ -556,11 +555,10 @@ jobs:
 
   # The release stage on main: after a push to main, and only there, every unit
   # the plan gives a version of this run gets its records, a tag on the pushed
-  # commit and a GitHub Release. A unit released in one stage gets its full
-  # release, a unit released in two stages its pre-release `-pre.N`; its full
-  # release is the stage on release. A unit the commit does not touch has no
-  # version of the run and gets nothing: a tag on this commit with its current
-  # version would not stand on the commit the history gives that version.
+  # commit and a GitHub Release, a full one: every merge into main is a full
+  # release. A unit the commit does not touch has no version of the run and
+  # gets nothing: a tag on this commit with its current version would not stand
+  # on the commit the history gives that version.
   #
   # It starts only when Declare, Check and Build passed. Check is named on its
   # own: Build is green when nothing builds, whatever Check found, and nothing
@@ -617,7 +615,8 @@ jobs:
           # The record of the unit nearest to its version on one side, among
           # the tags `git tag` lists. A tag is the unit's record when what
           # follows its prefix reads as a version as strictly as phase 0 reads
-          # it. The key sorts the way versions do, exactly and however long
+          # it, a pre-release among them, since a tag of that form is still a
+          # record. The key sorts the way versions do, exactly and however long
           # the numbers are: each number by its length and then by its digits,
           # and a full release above every pre-release of its three numbers.
           nearest() {
@@ -649,7 +648,6 @@ jobs:
             name="$(jq --raw-output .name <<< "$unit")"
             prefix="$(jq --raw-output .prefix <<< "$unit")"
             version="$(jq --raw-output .version <<< "$unit")"
-            release="$(jq --raw-output .release <<< "$unit")"
             if [ "$kind" = "repository" ]; then
               label="the repository"
               display="$REPOSITORY"
@@ -658,14 +656,6 @@ jobs:
               display="$name"
             fi
             tag="$prefix$version"
-            prerelease=false
-            if [[ "$version" == *-pre.* ]]; then
-              prerelease=true
-            fi
-            if [ "$release" = "two-stage" ] && [ "$prerelease" = "false" ]; then
-              say "$label is released in two stages, and this commit resolves to its full version $version. Main releases such a unit as a pre-release only; its full release is the stage on release. Nothing is released for it here."
-              continue
-            fi
             if tagged="$(git rev-parse --quiet --verify "refs/tags/$tag^{commit}")" \
               && [ "$tagged" != "$SHA" ]; then
               echo "::error::The tag $tag stands on the commit $tagged, and the history gives $version of $label to $SHA, the commit pushed. A version belongs to exactly one commit, so nothing is released in this run. Delete the tag if nobody published it, or raise minimum-version past it, as for the finding conflicting-tag."
@@ -679,21 +669,18 @@ jobs:
             fi
             previous="$(git tag --list "$prefix*" --merged "$SHA" | nearest "$prefix" "$version" below)"
             latest=false
-            if [ "$kind" = "repository" ] && [ "$prerelease" = "false" ]; then
+            if [ "$kind" = "repository" ]; then
               latest=true
             fi
             jq --compact-output \
               --arg label "$label" --arg display "$display" --arg tag "$tag" \
-              --arg previous "$previous" --argjson prerelease "$prerelease" \
-              --argjson latest "$latest" '
+              --arg previous "$previous" --argjson latest "$latest" '
               { kind, name, path, version, targets, label: $label, display: $display,
                 title: "\($display) \(.version)", tag: $tag,
                 previous: (if $previous == "" then null else $previous end),
-                prerelease: $prerelease, latest: $latest }' \
+                latest: $latest }' \
               <<< "$unit" >> "$entries"
-            if [ "$prerelease" = "true" ]; then
-              what="a pre-release"
-            elif [ "$latest" = "true" ]; then
+            if [ "$latest" = "true" ]; then
               what="a full release, the latest"
             else
               what="a full release, not the latest"
@@ -763,7 +750,7 @@ jobs:
               fi
               id="$(jq --arg sha "$SHA" --arg notes "$notes" \
                 '{tag_name: .tag, target_commitish: $sha, name: .title, body: $notes,
-                  draft: true, prerelease: .prerelease}' <<< "$entry" \
+                  draft: true, prerelease: false}' <<< "$entry" \
                 | gh api --method POST "repos/$GITHUB_REPOSITORY/releases" --input - --jq .id)"
               echo "$label: drafted the release $tag."
             fi
@@ -777,10 +764,10 @@ jobs:
       # anything is built, so no unit that reaches this job names one yet; the
       # first block sets how it is called.
 
-      # A pre-release is never the latest release, and neither is a release of
-      # a component: only a full release of the repository is. A repository
-      # that has immutable releases switched off still gets its release, with a
-      # warning that says so.
+      # Every release is a full one, also a draft an earlier attempt left. Only
+      # the release of the repository is the latest, never one of a component.
+      # A repository that has immutable releases switched off still gets its
+      # release, with a warning that says so.
       - name: Publish the releases
         env:
           GH_TOKEN: ${{ github.token }}
@@ -803,12 +790,12 @@ jobs:
             label="$(jq --raw-output .label <<< "$entry")"
             tag="$(jq --raw-output .tag <<< "$entry")"
             id="$(jq --raw-output .id <<< "$entry")"
-            jq '{draft: false, prerelease: .prerelease,
+            jq '{draft: false, prerelease: false,
                  make_latest: (if .latest then "true" else "false" end)}' <<< "$entry" \
               | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$id" --input - > /dev/null
             release="$(gh api "repos/$GITHUB_REPOSITORY/releases/$id")"
             url="$(jq --raw-output .html_url <<< "$release")"
-            kind="$(jq --raw-output 'if .prerelease then "pre-release" elif .latest then "full release, latest" else "full release" end' <<< "$entry")"
+            kind="$(jq --raw-output 'if .latest then "full release, latest" else "full release" end' <<< "$entry")"
             echo "$label: published $tag, $kind: $url"
             echo "| $label | [$tag]($url) | $kind |" >> "$GITHUB_STEP_SUMMARY"
             if [ "$(jq --raw-output .immutable <<< "$release")" != "true" ]; then
