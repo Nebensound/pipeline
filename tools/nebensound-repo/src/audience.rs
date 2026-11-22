@@ -128,11 +128,8 @@ fn named(text: &str) -> Option<Audience> {
 
 /// The audience the commit before the commit at hand on the line declares:
 /// on a pull request into `main` the tip of `main`, otherwise the commit
-/// before on the line of `main`. At a merge from `main` into `release` that
-/// is the commit of `main` it merges, not the tip of `release`, so a
-/// promotion shows no change: the change was shown on its pull request into
-/// `main`. [`None`] when there is no such commit, or its declaration is
-/// missing or names no valid audience.
+/// before on the line of `main`. [`None`] when there is no such commit, or its
+/// declaration is missing or names no valid audience.
 #[must_use]
 pub fn previous(history: &History) -> Option<Audience> {
     let object = history.line.get(1)?.declaration.as_deref()?;

@@ -168,54 +168,6 @@ impl Git {
         self.run(&["tag", name, commit]);
     }
 
-    /// Promotes the tip of `main` into `release` the way the pull request from
-    /// `main` does, with a merge commit, and makes `origin/release` point at
-    /// it. The branch starts at the first commit of `main` when it does not
-    /// exist yet. Returns the promoted commit.
-    pub fn promote(&self) -> String {
-        let promoted = self.head();
-        if self.run(&["branch", "--list", "release"]).is_empty() {
-            let first = self.run(&["rev-list", "--max-parents=0", "HEAD"]);
-            self.run(&["branch", "release", first.trim()]);
-        }
-        self.run(&["checkout", "--quiet", "release"]);
-        self.run(&[
-            "merge",
-            "--quiet",
-            "--no-ff",
-            "--message",
-            "Promote",
-            "main",
-        ]);
-        self.run(&["checkout", "--quiet", "main"]);
-        self.run(&["update-ref", "refs/remotes/origin/release", "release"]);
-        promoted
-    }
-
-    /// Checks out the merge commit GitHub builds for a pull request from
-    /// `main` into `release`: `release` merged with the tip of `main`, `HEAD`
-    /// detached on it, and `origin/main` where `main` is. Returns the merge.
-    pub fn merge_into_release(&self) -> String {
-        self.merge_into_release_from("main")
-    }
-
-    /// Checks out a merge of `release` with any commit, the way a pull request
-    /// into `release` would build it: `HEAD` detached on it, and `origin/main`
-    /// where `main` is. Returns the merge.
-    pub fn merge_into_release_from(&self, commit: &str) -> String {
-        self.run(&["update-ref", "refs/remotes/origin/main", "main"]);
-        self.run(&["checkout", "--quiet", "--detach", "release"]);
-        self.run(&[
-            "merge",
-            "--quiet",
-            "--no-ff",
-            "--message",
-            "Merge into release",
-            commit,
-        ]);
-        self.head()
-    }
-
     /// One call of git, without the configuration of whoever runs it.
     pub fn run(&self, args: &[&str]) -> String {
         let output = Command::new("git")

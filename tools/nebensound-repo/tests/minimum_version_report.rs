@@ -1,5 +1,5 @@
-//! How each unit is released and its minimum version, as the report and
-//! `explain` show them: the value, and where it came from.
+//! The minimum version of each unit, as the report and `explain` show it:
+//! the value, and where it came from.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
@@ -9,8 +9,8 @@ use nebensound_repo::path::RelativePath;
 use nebensound_repo::report;
 use support::{Git, analysis, call, central, repository};
 
-/// One unit of each kind: the repository, declared components whose release
-/// mode their targets decide or that write it, and generated units.
+/// One unit of each kind: the repository, declared components with and without
+/// a minimum version, and generated units.
 const KINDS: &str = r#"[repo]
 audience = "public"
 pipeline        = "rust-workspace"
@@ -24,7 +24,6 @@ minimum-version = "1.0.0"
 [component.tool]
 path     = "crates/tool"
 pipeline = "rust-library-package"
-release  = "single-stage"
 
 [component.service]
 path     = "service"
@@ -84,20 +83,16 @@ fn the_fixture_passes_phase_0() {
     assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
 }
 
+/// Whether a text holds a row of this label.
+fn has_row(text: &str, label: &str) -> bool {
+    text.lines()
+        .any(|line| line.trim_start().starts_with(&format!("{label} ")))
+}
+
 #[test]
-fn explain_says_how_each_unit_containing_a_path_is_released() {
+fn explain_names_the_minimum_version_of_each_unit_containing_a_path() {
     let text = explained("crates/library/src/lib.rs");
 
-    assert!(
-        row(&text, "Release", "the repository")
-            .ends_with("single-stage (the default for a unit that publishes nothing)"),
-        "{text}"
-    );
-    assert!(
-        row(&text, "Release", "component library")
-            .ends_with("two-stage (the default for publishing to crates.io)"),
-        "{text}"
-    );
     assert!(
         row(&text, "Minimum version", "the repository").ends_with("0.1.0 (written)"),
         "{text}"
@@ -106,19 +101,16 @@ fn explain_says_how_each_unit_containing_a_path_is_released() {
         row(&text, "Minimum version", "component library").ends_with("1.0.0 (written)"),
         "{text}"
     );
-    // Units that do not contain the path are not named.
+    // Units that do not contain the path are not named, and no row says how
+    // a unit is released.
     assert!(!text.contains("component tool"), "{text}");
+    assert!(!has_row(&text, "Release"), "{text}");
 }
 
 #[test]
-fn explain_says_when_a_written_value_wins_over_the_default() {
+fn explain_says_none_for_a_unit_without_a_minimum_version() {
     let text = explained("crates/tool");
 
-    assert!(
-        row(&text, "Release", "component tool")
-            .ends_with("single-stage (written, over the default two-stage)"),
-        "{text}"
-    );
     assert!(
         row(&text, "Minimum version", "component tool").ends_with("none"),
         "{text}"
@@ -130,76 +122,36 @@ fn explain_says_what_a_generated_unit_inherited() {
     let text = explained("docs/guide.typ");
 
     assert!(
-        row(&text, "Release", "component guide")
-            .ends_with("single-stage (inherited from component docs)"),
-        "{text}"
-    );
-    assert!(
         row(&text, "Minimum version", "component guide")
             .ends_with("0.2.0 (inherited from component docs)"),
         "{text}"
     );
-    assert!(
-        row(&text, "Release", "component docs")
-            .ends_with("single-stage (the default for publishing to release-assets)"),
-        "{text}"
-    );
 }
 
 #[test]
-fn a_written_value_equal_to_the_default_says_so() {
-    let analysis = analysis(
-        "[repo]\naudience = \"public\"\npipeline = \"none\"\nrelease = \"single-stage\"\n",
-        &["README.md"],
-    );
-    let text = report::explain(&analysis, &path("README.md")).expect("the file is in the tree");
-
-    assert!(
-        row(&text, "Release", "the repository")
-            .ends_with("single-stage (written, the same as the default)"),
-        "{text}"
-    );
-}
-
-#[test]
-fn the_configuration_names_both_fields_for_every_unit() {
+fn the_configuration_names_the_minimum_version_of_every_unit() {
     let analysis = analysis(KINDS, &paths());
     let text = report::configuration(&analysis, &central());
 
     // The repository, four declared components and two generated units.
-    assert_eq!(text.matches("\n      Release ").count(), 7, "{text}");
     assert_eq!(
         text.matches("\n      Minimum version ").count(),
         7,
         "{text}"
     );
-    assert!(
-        text.contains("two-stage (the default for publishing to crates.io)"),
-        "{text}"
-    );
-    assert!(
-        text.contains("single-stage (the default for publishing to ghcr)"),
-        "{text}"
-    );
-    assert!(
-        text.contains("single-stage (written, over the default two-stage)"),
-        "{text}"
-    );
+    assert!(!has_row(&text, "Release"), "{text}");
 }
 
 #[test]
-fn explain_on_a_repository_shows_both_fields() {
-    // The library is released in two stages, which needs the branch release.
+fn explain_on_a_repository_shows_the_minimum_version() {
     let git = Git::new();
     git.write(KINDS_FILES).commit("feat: one unit of each kind");
-    git.promote();
 
     let (text, code) = call(&["nebensound-repo", "-C", git.root(), "explain", "service"]);
 
     assert_eq!(code, 0, "{text}");
     assert!(
-        row(&text, "Release", "component service")
-            .ends_with("single-stage (the default for publishing to ghcr)"),
+        row(&text, "Minimum version", "component service").ends_with("none"),
         "{text}"
     );
 }

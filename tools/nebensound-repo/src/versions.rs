@@ -26,28 +26,24 @@ pub fn of_pull_request(version: &TagVersion, number: u64) -> String {
 }
 
 /// The column headers, in the order of [`row`].
-fn headers(pull_request: Option<u64>) -> [&'static str; 6] {
+fn headers(pull_request: Option<u64>) -> [&'static str; 4] {
     [
         "Unit",
         "Path",
-        "Release",
         "Current",
         if pull_request.is_some() {
             "This pull request"
         } else {
             "This commit"
         },
-        "Waiting",
     ]
 }
 
 /// One unit as a row of the table, unescaped.
 ///
 /// The current version is the commit's own where it has one, and only that
-/// one carries the number of a pull request. Waiting is filled in two stages
-/// only: in one stage every commit that touches the unit is a release of its
-/// own, and nothing waits.
-fn row(unit: &UnitVersion, pull_request: Option<u64>) -> [String; 6] {
+/// one carries the number of a pull request.
+fn row(unit: &UnitVersion, pull_request: Option<u64>) -> [String; 4] {
     let written = |version: &TagVersion| match pull_request {
         None => version.to_string(),
         Some(number) => of_pull_request(version, number),
@@ -61,16 +57,11 @@ fn row(unit: &UnitVersion, pull_request: Option<u64>) -> [String; 6] {
         (None, Some(current)) => current.to_string(),
         (None, None) => "none".to_owned(),
     };
-    let waiting = unit
-        .waiting
-        .map_or_else(String::new, |waiting| waiting.to_string());
     [
         unit.name.to_string(),
         unit.path.to_string(),
-        unit.release.to_string(),
         current,
         version,
-        waiting,
     ]
 }
 
@@ -100,7 +91,7 @@ pub fn text(versions: &[UnitVersion], pull_request: Option<u64>) -> String {
             .iter()
             .map(|unit| row(unit, pull_request).map(|cell| shown(&cell))),
     );
-    let mut widths = [0; 6];
+    let mut widths = [0; 4];
     for cells in &rows {
         for (width, cell) in widths.iter_mut().zip(cells) {
             *width = (*width).max(cell.chars().count());
@@ -133,9 +124,7 @@ pub fn markdown(versions: &[UnitVersion], pull_request: Option<u64>) -> String {
     lines.push(String::new());
     lines.push(
         "Current is the highest version the history gives a commit up to this one. A unit this \
-         commit does not touch has no version of its own here. Waiting, for a unit released in \
-         two stages, is the commits since its last full release that touch it, this commit \
-         included."
+         commit does not touch has no version of its own here."
             .to_owned(),
     );
     if let Some(number) = pull_request {

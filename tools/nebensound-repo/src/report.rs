@@ -8,7 +8,7 @@ use crate::annotate::{Coverage, Node};
 use crate::finding::{Finding, Position, UnitName};
 use crate::names::CheckName;
 use crate::path::RelativePath;
-use crate::resolve::{MinimumVersionSource, Origin, PipelineSource, ReleaseSource, Unit};
+use crate::resolve::{MinimumVersionSource, Origin, PipelineSource, Unit};
 use crate::{Analysis, Central, Publish, Severity};
 
 /// The column the annotations start in.
@@ -83,25 +83,6 @@ fn listed<T: ToString>(names: &[T]) -> String {
         .join(", ")
 }
 
-/// How the unit is released, and where that came from.
-fn release(unit: &Unit) -> String {
-    let resolved = &unit.release;
-    let why = match &resolved.source {
-        ReleaseSource::Written { default } if *default == resolved.release => {
-            "written, the same as the default".to_owned()
-        }
-        ReleaseSource::Written { default } => format!("written, over the default {default}"),
-        ReleaseSource::Targets { deciding } if deciding.is_empty() => {
-            "the default for a unit that publishes nothing".to_owned()
-        }
-        ReleaseSource::Targets { deciding } => {
-            format!("the default for publishing to {}", listed(deciding))
-        }
-        ReleaseSource::Inherited { by } => format!("inherited from {by}"),
-    };
-    format!("{} ({why})", resolved.release)
-}
-
 /// The version below which the unit's version never falls, and where it came
 /// from.
 fn minimum_version(unit: &Unit) -> String {
@@ -171,7 +152,6 @@ fn unit_lines(unit: &Unit) -> Vec<String> {
         column(6, "Version"),
         unit.versioning
     ));
-    lines.push(format!("{}{}", column(6, "Release"), release(unit)));
     lines.push(format!(
         "{}{}",
         column(6, "Minimum version"),
@@ -415,21 +395,13 @@ pub fn explain(analysis: &Analysis, path: &RelativePath) -> Option<String> {
             .map_or("none declared", crate::Audience::as_str)
     ));
     lines.push(format!("{}{units}", column(2, "Units")));
-    // Every unit containing the path is released on its own terms, so each
-    // says how, and where that came from.
+    // Every unit containing the path has a floor of its own, so each says
+    // which, and where it came from.
     let containing: Vec<&Unit> = analysis
         .units
         .iter()
         .filter(|unit| node.units.contains(&unit.name))
         .collect();
-    for unit in &containing {
-        lines.push(format!(
-            "{}{}: {}",
-            column(2, "Release"),
-            unit.name,
-            release(unit)
-        ));
-    }
     for unit in &containing {
         lines.push(format!(
             "{}{}: {}",

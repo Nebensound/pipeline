@@ -100,13 +100,6 @@ impl Recorder {
         self.note(message);
     }
 
-    /// Promotes the tip of `main` and notes what the run of the promoted
-    /// commit shows once the merge into `release` exists.
-    fn promote(&mut self) {
-        self.git.promote();
-        self.note("(promoted)");
-    }
-
     /// Merges a branch into `main` with a merge commit and notes what the run
     /// of the merge shows.
     fn merge(&mut self, branch: &str, message: &str) {
@@ -177,13 +170,13 @@ fn holds(account: &str, recorded: &str) {
     );
 }
 
-/// The repository and a component `app`, both released in one stage.
-const ONE_STAGE: &str = "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.app]\npath     = \"app\"\npipeline = \"none\"\n";
+/// The repository and a component `app`.
+const RELEASES: &str = "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.app]\npath     = \"app\"\npipeline = \"none\"\n";
 
 #[test]
-fn a_history_in_one_stage() {
+fn a_history_of_releases() {
     let floored = |repo: &str, app: &str| {
-        ONE_STAGE
+        RELEASES
             .replace(
                 "[repo]\naudience = \"public\"\n",
                 &format!("[repo]\naudience = \"public\"\n{repo}"),
@@ -197,10 +190,7 @@ fn a_history_in_one_stage() {
     let mut history = Recorder::new();
     history.write(&[("README.md", "# One\n")]);
     history.commit("chore: before the declaration");
-    history.write(&[
-        (".nebensound/repo.toml", ONE_STAGE),
-        ("app/a.md", "# App\n"),
-    ]);
+    history.write(&[(".nebensound/repo.toml", RELEASES), ("app/a.md", "# App\n")]);
     history.commit("feat: declare the repository and the app");
     history.write(&[("app/a.md", "# App\n\nFixed.\n")]);
     history.commit("fix(app): a correction");
@@ -280,8 +270,9 @@ fn a_history_in_one_stage() {
     history.write(&[(".nebensound/repo.toml", &with_tool)]);
     history.commit("fix: the declaration reads again");
 
-    // One stage gives out no pre-release: a pre-release floor the versions
-    // have not reached is an error, and the commit counts all the same.
+    // A minimum version is three numbers: one with a pre-release part does
+    // not read, and the commit counts with what the next readable
+    // declaration says.
     let aimed = |floor: &str| {
         with_tool.replace(
             "path     = \"apps\"\n",
@@ -293,11 +284,11 @@ fn a_history_in_one_stage() {
     history.write(&[(".nebensound/repo.toml", &aimed("3.0.0"))]);
     history.commit("chore: take the app to 3.0.0");
 
-    holds(&history.finish(), RECORDED_ONE_STAGE);
+    holds(&history.finish(), RECORDED_RELEASES);
 }
 
-/// What every run of [`a_history_in_one_stage`] showed.
-const RECORDED_ONE_STAGE: &str = concat!(
+/// What every run of [`a_history_of_releases`] showed.
+const RECORDED_RELEASES: &str = concat!(
     "chore: before the declaration             | does not read\n",
     "feat: declare the repository and the app  | repo 0.0.1, app 0.0.1\n",
     "fix(app): a correction                    | repo 0.0.2, app 0.0.2\n",
@@ -321,109 +312,16 @@ const RECORDED_ONE_STAGE: &str = concat!(
     "feat: the tool is a unit again            | repo 0.3.9, app 2.3.0, tool 0.0.3\n",
     "chore: a declaration that does not read   | does not read\n",
     "fix: the declaration reads again          | repo 0.3.11, app 2.3.2, tool 0.0.5\n",
-    "chore: aim the app at a pre-release       | repo 0.3.12, app (2.3.2), tool 0.0.6, [pre-release-minimum]\n",
+    "chore: aim the app at a pre-release       | does not read\n",
     "chore: take the app to 3.0.0              | repo 0.3.13, app 3.0.0, tool 0.0.7\n",
 );
 
-/// The repository in one stage and a component `lib` in two.
-const TWO_STAGES: &str = "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.lib]\npath     = \"lib\"\npipeline = \"none\"\nrelease  = \"two-stage\"\n";
-
-#[test]
-fn a_history_in_two_stages() {
-    let one_stage = TWO_STAGES.replace("release  = \"two-stage\"\n", "");
-    let mut history = Recorder::new();
-    history.write(&[
-        (".nebensound/repo.toml", TWO_STAGES),
-        ("README.md", "# Two\n"),
-        ("lib/b.md", "# Lib\n"),
-    ]);
-    history.git.commit("chore: start");
-    // The branch release exists from the first commit on.
-    history.git(&["branch", "release"]).git(&[
-        "update-ref",
-        "refs/remotes/origin/release",
-        "release",
-    ]);
-    history.note("chore: start");
-    history.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
-    history.commit("fix(lib): one");
-    history.write(&[("lib/b.md", "# Lib\n\nTwo.\n")]);
-    history.commit("feat(lib): two");
-    history.promote();
-
-    // Promoted with nothing since the last promotion, it releases nothing.
-    history.write(&[("README.md", "# Two\n\nWords.\n")]);
-    history.commit("docs: the readme only");
-    history.promote();
-
-    // A pre-release floor sets the number of the next pre-release.
-    let aimed = TWO_STAGES.replace(
-        "release  = \"two-stage\"\n",
-        "release  = \"two-stage\"\nminimum-version = \"1.0.0-pre.5\"\n",
-    );
-    history.write(&[(".nebensound/repo.toml", &aimed)]);
-    history.commit("chore: aim the library at 1.0.0-pre.5");
-    history.write(&[("lib/b.md", "# Lib\n\nThree.\n")]);
-    history.commit("fix(lib): the next correction");
-    history.promote();
-    history.write(&[("lib/b.md", "# Lib\n\nFour.\n")]);
-    history.commit("feat(lib): a feature");
-    history.write(&[("lib/b.md", "# Lib\n\nFive.\n")]);
-    history.commit("fix(lib)!: a breaking correction");
-    history.promote();
-
-    // A switch to one stage after a promotion goes on from it, and one back
-    // to two stages from the releases of one stage.
-    history.write(&[(".nebensound/repo.toml", &one_stage)]);
-    history.commit("chore: release the library in one stage");
-    history.write(&[("lib/b.md", "# Lib\n\nSix.\n")]);
-    history.commit("fix(lib): in one stage");
-    history.write(&[(".nebensound/repo.toml", TWO_STAGES)]);
-    history.commit("chore: release the library in two stages again");
-
-    // A switch to one stage before promoting is an error until the switch is
-    // reverted and the tip promoted.
-    history.write(&[(".nebensound/repo.toml", &one_stage)]);
-    history.commit("chore: switch back before promoting");
-    history.write(&[(".nebensound/repo.toml", TWO_STAGES)]);
-    history.commit("revert: release the library in two stages");
-    history.promote();
-    history.write(&[(".nebensound/repo.toml", &one_stage)]);
-    history.commit("chore: release the library in one stage after the promotion");
-
-    holds(&history.finish(), RECORDED_TWO_STAGES);
-}
-
-/// What every run of [`a_history_in_two_stages`] showed.
-const RECORDED_TWO_STAGES: &str = concat!(
-    "chore: start                                                | repo 0.0.1, lib 0.0.1-pre.1\n",
-    "fix(lib): one                                               | repo 0.0.2, lib 0.0.1-pre.2\n",
-    "feat(lib): two                                              | repo 0.0.3, lib 0.0.1-pre.3\n",
-    "(promoted)                                                  | repo 0.0.3, lib 0.0.1\n",
-    "docs: the readme only                                       | repo 0.0.4, lib (0.0.1)\n",
-    "(promoted)                                                  | repo 0.0.4, lib (0.0.1)\n",
-    "chore: aim the library at 1.0.0-pre.5                       | repo 0.0.5, lib 1.0.0-pre.5\n",
-    "fix(lib): the next correction                               | repo 0.0.6, lib 1.0.0-pre.6\n",
-    "(promoted)                                                  | repo 0.0.6, lib 1.0.0\n",
-    "feat(lib): a feature                                        | repo 0.0.7, lib 1.1.0-pre.1\n",
-    "fix(lib)!: a breaking correction                            | repo 0.0.8, lib 2.0.0-pre.2\n",
-    "(promoted)                                                  | repo 0.0.8, lib 2.0.0\n",
-    "chore: release the library in one stage                     | repo 0.0.9, lib 2.0.1\n",
-    "fix(lib): in one stage                                      | repo 0.0.10, lib 2.0.2\n",
-    "chore: release the library in two stages again              | repo 0.0.11, lib 2.0.3-pre.1\n",
-    "chore: switch back before promoting                         | repo 0.0.12, lib (2.0.3-pre.1), [unreleased-before-switch]\n",
-    "revert: release the library in two stages                   | repo 0.0.13, lib 2.0.3-pre.3\n",
-    "(promoted)                                                  | repo 0.0.13, lib 2.0.3\n",
-    "chore: release the library in one stage after the promotion | repo 0.0.14, lib 2.0.4\n",
-);
-
-/// The repository and a component `lib`, both released in one stage.
+/// The repository and a component `lib`.
 const LIB: &str = "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.lib]\npath     = \"lib\"\npipeline = \"none\"\n";
 
 /// A history whose first commits hold a declaration this reader cannot read,
 /// as one written for another reader would be, until one that reads follows.
-/// With `release`, the branch `release` exists from the first commit on.
-fn adopted(history: &mut Recorder, release: bool) {
+fn adopted(history: &mut Recorder) {
     let legacy = LIB.replace(
         "[repo]\naudience = \"public\"\n",
         "[repo]\naudience = \"public\"\nlegacy-field = true\n",
@@ -433,16 +331,7 @@ fn adopted(history: &mut Recorder, release: bool) {
         ("README.md", "# Adopted\n"),
         ("lib/b.md", "# Lib\n"),
     ]);
-    let first = "chore: a declaration for another reader";
-    history.git.commit(first);
-    if release {
-        history.git(&["branch", "release"]).git(&[
-            "update-ref",
-            "refs/remotes/origin/release",
-            "release",
-        ]);
-    }
-    history.note(first);
+    history.commit("chore: a declaration for another reader");
     history.write(&[("lib/b.md", "# Lib\n\nOne.\n")]);
     history.commit("fix(lib): one");
     history.write(&[("README.md", "# Adopted\n\nWords.\n")]);
@@ -450,7 +339,7 @@ fn adopted(history: &mut Recorder, release: bool) {
     history.write(&[("lib/b.md", "# Lib\n\nTwo.\n")]);
     history.commit("fix(lib): two");
     // From here on the commits before count with what this declaration
-    // says: the library at `lib`, in one stage.
+    // says: the library at `lib`.
     history.write(&[(".nebensound/repo.toml", LIB)]);
     history.commit("chore: adopt the declaration");
     history.write(&[("lib/b.md", "# Lib\n\nThree.\n")]);
@@ -461,7 +350,7 @@ fn adopted(history: &mut Recorder, release: bool) {
 fn a_history_that_starts_with_declarations_that_do_not_read_then_moves() {
     let moved = LIB.replace("path     = \"lib\"\n", "path     = \"libs\"\n");
     let mut history = Recorder::new();
-    adopted(&mut history, false);
+    adopted(&mut history);
 
     // The library moves: the commits whose declaration does not read are not
     // counted again at `libs`, where only the first of them would touch it.
@@ -495,38 +384,6 @@ const RECORDED_ADOPTED_THEN_MOVED: &str = concat!(
     "fix(lib): after the adoption            | repo 0.0.6, lib 0.0.5\n",
     "refactor(lib): move the library to libs | repo 0.0.7, lib 0.0.6\n",
     "feat: declare the tool                  | repo 0.0.8, lib 0.0.7, tool 0.0.1\n",
-);
-
-#[test]
-fn a_history_that_starts_with_declarations_that_do_not_read_then_switches() {
-    let mut history = Recorder::new();
-    adopted(&mut history, true);
-
-    // The library switches to two stages: the commits whose declaration does
-    // not read stay releases of one stage, and its first target goes on from
-    // the release before the switch.
-    history.write(&[(
-        ".nebensound/repo.toml",
-        &format!("{LIB}release  = \"two-stage\"\n"),
-    )]);
-    history.commit("feat: release the library in two stages");
-    history.promote();
-
-    holds(&history.finish(), RECORDED_ADOPTED_THEN_SWITCHED);
-}
-
-/// What every run of
-/// [`a_history_that_starts_with_declarations_that_do_not_read_then_switches`]
-/// showed.
-const RECORDED_ADOPTED_THEN_SWITCHED: &str = concat!(
-    "chore: a declaration for another reader | does not read\n",
-    "fix(lib): one                           | does not read\n",
-    "docs: the readme only                   | does not read\n",
-    "fix(lib): two                           | does not read\n",
-    "chore: adopt the declaration            | repo 0.0.5, lib 0.0.4, [pointless-release-branch]\n",
-    "fix(lib): after the adoption            | repo 0.0.6, lib 0.0.5, [pointless-release-branch]\n",
-    "feat: release the library in two stages | repo 0.0.7, lib 0.0.6-pre.1\n",
-    "(promoted)                              | repo 0.0.7, lib 0.0.6\n",
 );
 
 /// The repository and a component `docs` that generates a unit per folder.
@@ -582,8 +439,8 @@ const RECORDED_GENERATED: &str = concat!(
     "feat: the guide comes back       | repo 0.0.8, guide 0.2.2, handbook (0.2.2)\n",
 );
 
-/// The repository at `1.0.0` and a component `app` below it, both in one
-/// stage, before `feat-types` names a type of their own.
+/// The repository at `1.0.0` and a component `app` below it, before
+/// `feat-types` names a type of their own.
 const OWN_TYPES: &str = "[repo]\naudience = \"public\"\npipeline = \"none\"\nminimum-version = \"1.0.0\"\n\n[component.app]\npath     = \"app\"\npipeline = \"none\"\nminimum-version = \"0.1.0\"\n";
 
 #[test]
