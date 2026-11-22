@@ -51,13 +51,6 @@ reason = "test cases of check-css, judged by that block through the xtask; the f
 path   = ".github/actions/check-dockerfile/tests"
 reason = "test cases of check-dockerfile, judged by that block through the xtask; the failing ones are wrong on purpose"
 
-# The page rules of check-html, html-validate rules in JavaScript that the
-# block loads. No building block checks JavaScript yet; the block's test cases
-# are what holds them.
-[[exclude]]
-path   = ".github/actions/check-html/page-rules.mjs"
-reason = "JavaScript, for which no check has a building block yet; the test cases of check-html run it on every pull request"
-
 [[exclude]]
 path   = ".github/actions/check-html/tests"
 reason = "test cases of check-html, judged by that block through the xtask; the failing ones are wrong on purpose"
