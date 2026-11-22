@@ -413,11 +413,13 @@ records against the history (see [Records](#records)).
 | A unit a component generates    | `<component>-<entry>-vX.Y.Z` | `<component>-<entry>-vX.Y.Z-pre.N` |
 | A unit the repository generates | `<entry>-vX.Y.Z`             | `<entry>-vX.Y.Z-pre.N`             |
 
-These are the names the release stage gives a unit's records. Everything
-before `X.Y.Z` is the unit's **prefix**: `v`, `<component>-v`, and so on. The
-repository has no name, so a unit it generates is named like a component. A
-tag is read as a release strictly: three numbers without a leading zero, and
-`N` a number from 1 without a leading zero. A tag reads as the release of the
+These are the names the release stage gives a unit's records. No version the
+history gives is a pre-release yet; a tag of that form is still read as a
+record and held against the history. Everything before `X.Y.Z` is the unit's
+**prefix**: `v`, `<component>-v`, and so on. The repository has no name, so a
+unit it generates is named like a component. A tag is read as a release
+strictly: three numbers without a leading zero, and `N` a number from 1 without
+a leading zero. A tag reads as the release of the
 unit whose prefix it starts with when its version reads after it; a tag that
 reads as no unit's release is passed over. A tag that reads
 `<name>-vX.Y.Z` or `<name>-vX.Y.Z-pre.N` is the release of a unit named
@@ -829,9 +831,9 @@ tag, its commit and the commit the history gives that version, if any. There
 are two ways out: delete the tag if nobody published it, or raise
 `minimum-version` so that the unit's versions pass it: past a tag
 `X.Y.Z-pre.N` write `X.Y.Z` or higher, and past a tag `X.Y.Z` three numbers
-above it. The finding names the value that applies. A tag on exactly the commit to which the history
-gives its version is a faithful record, and one below the unit's version stays
-unnoticed (see [Records](#records)).
+above it. The finding names the value that applies. A tag on exactly the
+commit to which the history gives its version is a faithful record, and one
+below the unit's version stays unnoticed (see [Records](#records)).
 
 ### `unexcused-ignore`
 
