@@ -955,9 +955,9 @@ stands in:
 | `actions/upload-artifact`                                            | Nothing leaves the machine, but every path the step names has to exist, as `if-no-files-found: error` demands. |
 
 Any other such action fails the xtask until it has a stand-in. No block calls
-`actions/setup-node` or `actions/setup-go` today: the checks that run on
-Node.js run from the tool, and `nebensound-repo setup` finds or installs the
-runtime they need. The two stand-ins stay, so that a block calling one of them
+`actions/setup-node` or `actions/setup-go` today: the checks that run from the
+tool get Node.js from `nebensound-repo setup`, and `check-python` downloads the
+Node.js that Pyright runs on itself. The two stand-ins stay, so that a block calling one of them
 is run as well; for such a step the xtask takes the program already on the
 PATH and fails the step unless it is the version the step asks for. One step
 does not run:
