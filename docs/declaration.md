@@ -433,7 +433,10 @@ would write both units' records under the same names.
 
 ### How a version is resolved
 
-- **The line of `main`** is the first-parent line of `HEAD`.
+- **The line of `main`** is the first-parent line of `HEAD`. A merge commit on
+  it is a commit of the line like any other. The commits that only its second
+  or a later parent reaches are not on the line and count for nothing,
+  whatever their messages say.
 - **Each commit's own declaration** says where a unit lived at that commit and
   which minimum version it had there. A unit is recognised across commits by
   its name. Its path at a commit is that of the declaration that commit holds,
@@ -478,8 +481,13 @@ would write both units' records under the same names.
 
 - **A commit touches a unit** when it changes a file below the unit's path as
   that commit declares it, or `.nebensound/repo.toml`. The repository is
-  touched by every commit. Only the line of `main` counts, and a merge commit
-  touches nothing. A moved or removed file touches the unit it left as well.
+  touched by every commit. Only the line of `main` counts. What a commit
+  changes is read against its first parent, so a merge commit touches what
+  the branch it merges brings into the line, exactly as a squash commit of the
+  same changes would, and its message decides its change like any other
+  commit's. A merge that changes nothing against its first parent touches
+  only the repository. A moved or removed file touches the unit it left as
+  well.
 - **The change of a commit** follows from its message as a
   [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/). A
   message that is not a Conventional Commit counts as a patch. What a change

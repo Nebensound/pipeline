@@ -221,7 +221,7 @@ fn one_commit_raises_every_unit_it_touches() {
 }
 
 #[test]
-fn the_declaration_touches_every_unit_and_a_merge_touches_none() {
+fn the_declaration_touches_every_unit_and_a_merge_what_it_brings_in() {
     let git = units();
     git.write(&[(
         ".nebensound/repo.toml",
@@ -247,13 +247,116 @@ fn the_declaration_touches_every_unit_and_a_merge_touches_none() {
         "Merge side",
         "side",
     ]);
+    // The merge touches what it changes against its first parent: the app
+    // and the repository, not the library. Its own message decides, and it
+    // is no Conventional Commit; the commit of the side branch is off the
+    // line and is not read.
     let analysis = analysed(&git);
+    let found_versions = versions(&analysis);
+    assert_eq!(found_versions["v"].as_deref(), Some("0.0.3"));
+    assert_eq!(found_versions["app-v"].as_deref(), Some("0.0.3"));
+    assert_eq!(found_versions["lib-v"], None);
+    let unconventional = found(&analysis, Rule::UnconventionalCommit);
+    assert_eq!(unconventional.len(), 1, "{unconventional:?}");
     assert!(
-        versions(&analysis).values().all(Option::is_none),
-        "{:?}",
-        versions(&analysis)
+        unconventional[0].contains(&git.head()[..12])
+            && unconventional[0].contains("\"Merge side\""),
+        "{unconventional:?}"
     );
-    assert!(found(&analysis, Rule::UnconventionalCommit).is_empty());
+}
+
+/// What a run at the commit at hand shows of every unit: the version of the
+/// commit and the current version, by prefix, and the code of every finding.
+type Shown = (
+    BTreeMap<String, (Option<String>, Option<String>)>,
+    Vec<&'static str>,
+);
+
+/// [`Shown`] for the commit at hand.
+fn shown(git: &Git) -> Shown {
+    let analysis = analysed(git);
+    let units = analysis
+        .versions
+        .iter()
+        .map(|unit| {
+            (
+                unit.prefix.clone(),
+                (
+                    unit.version.as_ref().map(ToString::to_string),
+                    unit.current.as_ref().map(ToString::to_string),
+                ),
+            )
+        })
+        .collect();
+    let mut codes: Vec<&'static str> = analysis
+        .findings()
+        .iter()
+        .map(|finding| finding.rule.code())
+        .collect();
+    codes.sort_unstable();
+    (units, codes)
+}
+
+#[test]
+fn a_merge_commit_counts_exactly_as_a_squash_commit_of_the_same_change() {
+    let git = units_declared(&lib_floored("1.0.0"));
+    // The branch: a message that is no Conventional Commit and a breaking
+    // change, neither of which the commit that lands it says.
+    git.run(&["checkout", "--quiet", "-b", "topic"]);
+    git.write(&[("lib/b.md", "# Lib\n\nStarted.\n")]);
+    git.commit("wip");
+    git.write(&[("lib/b.md", "# Lib\n\nBroken.\n")]);
+    git.commit("feat(lib)!: break on the branch");
+    // Meanwhile `main` moves on.
+    git.run(&["checkout", "--quiet", "main"]);
+    git.write(&[("app/a.md", "# App\n\nMeanwhile.\n")]);
+    git.commit("fix: app on main");
+
+    for (message, lib, codes) in [
+        ("feat(lib): land the branch", "1.1.0", vec![]),
+        (
+            "Land the branch",
+            "1.0.1",
+            vec![Rule::UnconventionalCommit.code()],
+        ),
+        (
+            "fix: land the branch\n\nBREAKING CHANGE: the format changes",
+            "2.0.0",
+            vec![],
+        ),
+    ] {
+        // The same change lands once by merge commit, once by squash commit,
+        // each on a branch of its own from the same point of `main`, and a
+        // commit follows each.
+        let land = |squash: bool| {
+            git.run(&["checkout", "--quiet", "-B", "landed", "main"]);
+            if squash {
+                git.run(&["merge", "--quiet", "--squash", "topic"]);
+                git.commit(message);
+            } else {
+                git.run(&["merge", "--quiet", "--no-ff", "--message", message, "topic"]);
+            }
+            let landed = shown(&git);
+            git.write(&[("lib/b.md", "# Lib\n\nAfter.\n")]);
+            git.commit("fix(lib): after the landing");
+            let after = shown(&git);
+            (landed, after)
+        };
+        let (merged, after_merge) = land(false);
+        let (squashed, after_squash) = land(true);
+
+        assert_eq!(merged, squashed, "{message}");
+        assert_eq!(after_merge, after_squash, "{message}");
+        let (units, found_codes) = merged;
+        assert_eq!(found_codes, codes, "{message}");
+        assert_eq!(units["lib-v"].0.as_deref(), Some(lib), "{message}");
+        assert_eq!(units["v"].0.as_deref(), Some("0.0.3"), "{message}");
+        assert_eq!(
+            units["app-v"],
+            (None, Some("0.0.2".to_owned())),
+            "{message}"
+        );
+    }
 }
 
 /// The findings `conflicting-tag`, each with the tag it names.
@@ -318,11 +421,11 @@ fn a_release_tag_on_a_merged_side_branch_moves_nothing_and_conflicts() {
         );
     }
     assert!(analysis.failed());
-    // The commit after the merge is the one since the release that touched
-    // the app, and the tags move nothing.
-    assert_eq!(versions(&analysis)["app-v"].as_deref(), Some("0.0.2"));
+    // The merge touched the app once, its side commit not at all, and the
+    // commit after it once more; the tags move nothing.
+    assert_eq!(versions(&analysis)["app-v"].as_deref(), Some("0.0.3"));
     delete_tags(&git);
-    assert_eq!(version(&git, "app-v").as_deref(), Some("0.0.2"));
+    assert_eq!(version(&git, "app-v").as_deref(), Some("0.0.3"));
 }
 
 #[test]
@@ -847,10 +950,10 @@ fn only_a_tag_that_reads_as_a_release_on_a_commit_of_this_history_is_held() {
 
 #[test]
 fn a_unit_no_commit_has_given_a_version_yet_has_none_and_every_tag_conflicts() {
-    // The declaration of `tool` comes in through a merge commit, which
-    // touches nothing, and its own commit lies off the line of main.
+    // The declaration of `tool` and its file are not committed yet, so no
+    // commit of the line declares it.
     let git = units();
-    git.run(&["checkout", "--quiet", "-b", "side"]);
+    let first = git.head();
     git.write(&[
         (
             ".nebensound/repo.toml",
@@ -858,23 +961,14 @@ fn a_unit_no_commit_has_given_a_version_yet_has_none_and_every_tag_conflicts() {
         ),
         ("tool/t.md", "# Tool\n"),
     ]);
-    let side = git.commit("feat: add the tool");
-    git.run(&["checkout", "--quiet", "main"]);
-    git.run(&[
-        "merge",
-        "--quiet",
-        "--no-ff",
-        "--message",
-        "Merge the tool",
-        "side",
-    ]);
+    git.run(&["add", "--all"]);
     let analysis = analysed(&git);
     assert!(analysis.findings().is_empty(), "{:?}", analysis.findings());
     assert_eq!(versions(&analysis)["tool-v"], None);
     assert_eq!(current(&analysis, "tool-v"), None);
 
     // So any tag that reads as one of its releases could meet a release.
-    git.tag("tool-v0.0.1", &side);
+    git.tag("tool-v0.0.1", &first);
     let analysis = analysed(&git);
     let conflicting = conflicting(&analysis);
     assert_eq!(conflicting.len(), 1, "{:?}", analysis.findings());
