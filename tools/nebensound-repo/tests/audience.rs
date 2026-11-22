@@ -344,16 +344,13 @@ fn resolved(git: &Git) -> BTreeMap<String, (Option<String>, Option<String>)> {
         .collect()
 }
 
-/// A history of a repository with a component in two stages, every earlier
+/// A history of a repository with a component, every earlier
 /// declaration with the given audience line, and the commit at hand with the
 /// field whatever came before. Returns the versions at the commit at hand,
 /// which the declarations of every commit of the line count into.
 fn history(earlier: &str) -> BTreeMap<String, (Option<String>, Option<String>)> {
     let declaration = |audience: &str, floor: &str| {
-        format!(
-            "[repo]\n{audience}pipeline = \"none\"\n\n[component.lib]\npath = \"lib\"\n\
-             release = \"two-stage\"\n{floor}"
-        )
+        format!("[repo]\n{audience}pipeline = \"none\"\n\n[component.lib]\npath = \"lib\"\n{floor}")
     };
     let git = Git::new();
     git.write(&[
@@ -362,7 +359,6 @@ fn history(earlier: &str) -> BTreeMap<String, (Option<String>, Option<String>)> 
         ("lib/a.md", "# A\n"),
     ]);
     git.commit("feat: start");
-    git.promote();
     git.write(&[("lib/b.md", "# B\n")]);
     git.commit("feat!: change the library");
     git.write(&[("README.md", "# y\n")]);
@@ -372,7 +368,6 @@ fn history(earlier: &str) -> BTreeMap<String, (Option<String>, Option<String>)> 
         &declaration(earlier, "minimum-version = \"0.1.0\"\n"),
     )]);
     git.commit("chore: raise the floor");
-    git.promote();
     git.write(&[("lib/c.md", "# C\n")]);
     git.commit("feat: add to the library");
     // The commit at hand declares the field in both histories, and changes
@@ -397,9 +392,6 @@ fn the_versions_of_a_history_are_the_same_with_and_without_the_field_before() {
     // The history gives something to compare: the component's versions move.
     assert_eq!(
         without["lib-v"],
-        (
-            Some("0.1.1-pre.2".to_owned()),
-            Some("0.1.1-pre.2".to_owned())
-        )
+        (Some("0.1.2".to_owned()), Some("0.1.2".to_owned()))
     );
 }

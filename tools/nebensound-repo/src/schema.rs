@@ -24,7 +24,7 @@ use crate::names::{
 };
 use crate::path::RelativePath;
 use crate::pattern::Pattern;
-use crate::version::{CommitType, FeatTypes, TagVersion};
+use crate::version::{CommitType, FeatTypes, Version};
 
 /// The schema of `.nebensound/repo.toml`, as JSON Schema draft 7.
 ///
@@ -68,8 +68,7 @@ const SEGMENT: &str = r"(?:[^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+)";
 
 /// One number of a version as `Version::parse` accepts it: `0`, or digits
 /// that do not start on `0`. The parser also refuses a number beyond `u64`,
-/// which a pattern cannot say; there the schema is looser. The same holds for
-/// `N` of a pre-release.
+/// which a pattern cannot say; there the schema is looser.
 const NUMBER: &str = r"(?:0|[1-9][0-9]*)";
 
 fn name_schema(kind: &str) -> Schema {
@@ -142,7 +141,7 @@ impl JsonSchema for RelativePath {
     }
 }
 
-impl JsonSchema for TagVersion {
+impl JsonSchema for Version {
     fn schema_name() -> Cow<'static, str> {
         "Version".into()
     }
@@ -150,10 +149,9 @@ impl JsonSchema for TagVersion {
     fn json_schema(_: &mut SchemaGenerator) -> Schema {
         json_schema!({
             "type": "string",
-            "description": "A version as X.Y.Z, or X.Y.Z-pre.N for a pre-release: three numbers \
-                            without a leading zero or a prefix, and N a number from 1 without a \
-                            leading zero. No other suffix.",
-            "pattern": format!(r"^{NUMBER}\.{NUMBER}\.{NUMBER}(?:-pre\.[1-9][0-9]*)?$"),
+            "description": "A version as X.Y.Z: three numbers without a leading zero, a prefix \
+                            or a suffix.",
+            "pattern": format!(r"^{NUMBER}\.{NUMBER}\.{NUMBER}$"),
         })
     }
 }
