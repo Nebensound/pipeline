@@ -289,8 +289,9 @@ bypass them.
   the API, read back identical to its file as in
   [Applying and reading back](#applying-and-reading-back), and removed again.
 - **Not measured.** That the push is refused with `do_not_enforce_on_create`
-  set to `false` was not repeated on the empty repository; and a creator who is
-  not an administrator was not measured.
+  set to `false` was not repeated on the empty repository; a creator who is
+  not an administrator was not measured; and a pull request landed by merge
+  commit, with the version table of its push run, was not measured (#165).
 
 ## Applying and reading back
 
