@@ -1,7 +1,8 @@
 # Organization rulesets and properties
 
 The release model relies on rules that GitHub enforces: what may enter the
-default branch, who may release, and that a version tag stays where it was set.
+default branch, which checks it needs, and that a version tag stays where it
+was set.
 This directory holds those rules as files that can be applied, each a JSON body
 for GitHub's rulesets API, and says for each what it protects against and what
 it does not.
@@ -13,16 +14,14 @@ end.
 
 ## The files
 
-| File                                                                   | What it is                                                             | State    |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------- |
-| [`release-guard.json`](release-guard.json)                             | How `release` may change: by pull request, merge commit, three checks. | to apply |
-| [`release-updaters.json`](release-updaters.json)                       | Who may create and update `release`: Maintain and Admin.               | to apply |
-| [`version-tags.json`](version-tags.json)                               | Version tags `v*` and `*-v*` are never moved or deleted.               | to apply |
-| [`required-checks.json`](required-checks.json)                         | The default branch needs `Version`, `Check` and `Build`.               | to apply |
-| [`grundschutz-standard-branch.json`](grundschutz-standard-branch.json) | The existing ruleset on the default branch: pull request, squash only. | live     |
-| [`conditions-central.json`](conditions-central.json)                   | Which repositories the four rulesets above bind.                       | to apply |
-| [`conditions-active.json`](conditions-active.json)                     | Which repositories the existing ruleset binds.                         | live     |
-| [`property-pipeline.json`](property-pipeline.json)                     | The repository property `pipeline`.                                    | live     |
+| File                                                                   | What it is                                                                        | State    |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------- | -------- |
+| [`version-tags.json`](version-tags.json)                               | Version tags `v*` and `*-v*` are never moved or deleted.                          | to apply |
+| [`required-checks.json`](required-checks.json)                         | The default branch needs `Version`, `Check` and `Build`.                          | to apply |
+| [`grundschutz-standard-branch.json`](grundschutz-standard-branch.json) | The existing ruleset on the default branch: pull request, squash or merge commit. | to apply |
+| [`conditions-central.json`](conditions-central.json)                   | Which repositories the two new rulesets bind.                                     | to apply |
+| [`conditions-active.json`](conditions-active.json)                     | Which repositories the existing ruleset binds.                                    | live     |
+| [`property-pipeline.json`](property-pipeline.json)                     | The repository property `pipeline`.                                               | live     |
 
 A ruleset file holds no organization condition. It is the body that the
 rulesets API of a single repository accepts, and it was applied in that form to
@@ -31,85 +30,29 @@ condition that selects repositories is a fragment of its own, which the apply
 command merges in, so that what was tested on a repository is what the
 organization gets, apart from that one step.
 
-The existing ruleset is described unchanged, under its live name, because the
-release model relies on its squash-only rule. Changing it is not part of this
-directory. A second ruleset of the organization requests an automatic Copilot
-review on every branch; the release model does not rely on it, and it is not
-described here.
+The existing ruleset is described under its live name. Its file differs from
+the live ruleset in one parameter: `allowed_merge_methods` holds `merge` beside
+`squash`, because a pre-branch lands in the default branch by merge commit (see
+[`Grundschutz Standard-Branch`](#grundschutz-standard-branch)). Until the owner
+applies the file, the live ruleset allows squash only. A second ruleset of the
+organization requests an automatic Copilot review on every branch; the release
+model does not rely on it, and it is not described here.
 
 ## Which repositories they bind
 
-The four rulesets to apply hold only for a repository whose property `pipeline`
-is `central` and whose property `lifecycle` is neither `sandbox` nor
+The two new rulesets hold only for a repository whose property `pipeline` is
+`central` and whose property `lifecycle` is neither `sandbox` nor
 `archived`. A repository that has not switched yet stays untouched as long as
 it carries `legacy`; a new repository and a new fork carry `central` from their
 creation (see [Properties](#properties)). The existing ruleset holds for every repository whose
 `lifecycle` is neither `sandbox` nor `archived`, whatever its `pipeline`.
 
-None of the four has a bypass for administrators, except that
-`release-updaters` names who may release. The way out in an emergency is the
-owner setting the repository's property `pipeline` to `legacy`: all four stop
-holding for it at once. That is deliberate and visible, unlike a bypass that
-nobody sees being used.
+Neither of the two has a bypass for anyone, administrators included. The way
+out in an emergency is the owner setting the repository's property `pipeline`
+to `legacy`: both stop holding for it at once. That is deliberate and visible,
+unlike a bypass that nobody sees being used.
 
 ## The rulesets
-
-### `release-guard`
-
-On `release`, with no bypass for anyone, administrators included:
-
-- a change arrives only through a pull request;
-- the only merge method is a merge commit, so the promoted commit of `main`
-  becomes the second parent of the merge, unchanged;
-- `nebensound / Version`, `nebensound / Check` and `nebensound / Build` must
-  have passed, reported by GitHub Actions;
-- `release` cannot be deleted, and no push may rewrite it.
-
-The pull-request parameters are those of the existing ruleset on the default
-branch: no approval required, every review thread resolved, a stale review
-dismissed on a new push, and its further parameter
-`require_extra_approval_for_unattributed_changes` as it stands there. "Branch
-must be up to date" stays off, on `release` as on the default branch.
-
-It protects against a direct push to `release`, a force push, deleting the
-branch, a squash or rebase merge, and a merge before the checks have passed.
-Measured on the test repository: a direct push by an administrator was refused
-with "Changes must be made through a pull request", deleting the branch with
-"Cannot delete this branch", a squash merge with "Squash merges are not allowed
-on this repository", a rebase merge likewise, and a merge commit went through
-once the checks had passed.
-
-It does not protect against what the pull request brings. The ruleset accepts
-a pull request from any branch, not only from `main`, and the three checks are
-reported by the workflow of the pull request itself, which the pull request can
-change (see [Where the checks come from](#where-the-checks-come-from)). **A
-person allowed to merge into `release` must still look at the head of the pull
-request**: it has to be `main` at its tip, so that every workflow it runs,
-changed or not, has passed the review of its pull request into `main`. The
-pipeline refuses to release a merge whose second parent is not the tip of
-`main`.
-
-### `release-updaters`
-
-On `release`: only those on its bypass list may create the branch or update
-it. The bypass list holds the repository roles Maintain and Admin, by role and
-not by team, so whoever holds one of those roles in a repository may release in
-it, and nobody else.
-
-The bypass mode is `always`, not `pull_request`. Measured on the test
-repository: in the mode `pull_request` an administrator could not create
-`release` at all ("Cannot create ref due to creations being restricted"),
-because creating a branch is not a pull request. In the mode `always` the
-administrator created it, and a direct push afterwards was still refused by
-`release-guard`, which has no bypass. A bypass covers only its own ruleset, so
-the mode `always` here lets a maintainer create `release` and merge into it,
-and nothing more: pushing, force pushing and deleting stay refused by
-`release-guard`.
-
-It protects against a person without Maintain or Admin merging into `release`
-or creating it. Anyone with write access can still open a pull request into
-`release`; only the merge is reserved. It does not judge what is merged; that
-is the look at the head that `release-guard` leaves to the person merging.
 
 ### `version-tags`
 
@@ -160,8 +103,7 @@ measurement was taken with an administrating account, which `required-checks`
 does not exempt but the two `Grundschutz Standard-Branch` rulesets do (role
 Admin, bypass `always`); a creator who is not an administrator was not
 measured, and [#119](https://github.com/Nebensound/pipeline/issues/119)
-tracks it. `release-guard` keeps the rule on creation, so `release` can be
-created only at a commit that has passed the three checks.
+tracks it.
 
 It does not protect against a workflow of the repository reporting the names
 itself, which the next section explains, nor against what the first push into
@@ -169,86 +111,50 @@ an empty repository brings.
 
 ### `Grundschutz Standard-Branch`
 
-The existing ruleset on the default branch, live and unchanged: a change
-arrives only through a pull request, squash is the only merge method, every
-review thread is resolved, a stale review is dismissed, no approval is
-required, the branch cannot be deleted, and no push may rewrite it. The
-repository role Admin may bypass it, always.
+The existing ruleset on the default branch: a change arrives only through a
+pull request, squash and merge commit are the merge methods, every review
+thread is resolved, a stale review is dismissed, no approval is required, the
+branch cannot be deleted, and no push may rewrite it. The repository role Admin
+may bypass it, always. The live ruleset allows squash only; the file adds the
+merge commit, and the owner applies it (see
+[the checklist](#checklist-for-the-organization-owner)).
 
-The release model relies on its squash-only rule: each pull request becomes one
-commit on the default branch, with the pull request's title as a Conventional
-Commit, and versions are computed from those commits. It protects against a
-direct push, a force push and a merge commit or rebase into the default branch,
-for everyone below Admin. It does not hold for an administrator: measured on
-the test repository, an administrator merged a pull request into the default
-branch with a merge commit. `required-checks` still held for that
-administrator, since it has no bypass.
+The release model relies on its merge methods, because the title of the commit
+that lands on the default branch decides the version. A pull request becomes
+one squash commit with the pull request's title as a Conventional Commit. A
+pre-branch, a branch that gathers several pull requests, lands as one merge
+commit, which keeps the commits of the pre-branch in the history. A merge
+commit carries the title of its pull request only when the repository sets
+`merge_commit_title` to `PR_TITLE`; that and the other merge settings every
+repository carries are in
+[the repository settings](../repository-settings.md#every-repository-of-the-organization).
+Counting a merge commit on the line of the default branch is
+[#160](https://github.com/Nebensound/pipeline/issues/160). Rebase stays
+excluded: it would put the individual commits of a pull request on the default
+branch, and those are not required to be Conventional Commits.
+
+It protects against a direct push, a force push and a rebase merge into the
+default branch, for everyone below Admin. It does not hold for an
+administrator: measured on the test repository while the ruleset allowed squash
+only, an administrator merged a pull request into the default branch with a
+merge commit. `required-checks` still held for that administrator, since it has
+no bypass.
 
 ## Where the checks come from
 
-Both `release-guard` and `required-checks` count the three names only when
-GitHub Actions reports them: the rules pin the integration (`integration_id`
-15368, the app `github-actions`). A status that a person or another app sets
-under the same name does not count.
+`required-checks` counts the three names only when GitHub Actions reports
+them: the rule pins the integration (`integration_id` 15368, the app
+`github-actions`). A status that a person or another app sets under the same
+name does not count.
 
 The gap that remains: every workflow of the repository runs as GitHub Actions,
 including the workflow of the pull request being judged. A pull request that
 changes the caller file, or adds a workflow whose jobs are named like the
-pipeline's, reports the three names itself and satisfies both rulesets.
+pipeline's, reports the three names itself and satisfies the ruleset.
 Measured on the test repository: a stand-in workflow that only printed a line
-in jobs named `Version`, `Check` and `Build` satisfied both. So the review of a
+in jobs named `Version`, `Check` and `Build` satisfied it. So the review of a
 pull request that touches `.github/workflows/` decides whether the checks mean
-anything, and the person merging into `release` looks at the head.
-
-A second gap on `release`: on a pull request from `main` the three names are
-already reported by the push run of `main` on the same commit. Required checks
-are judged on the head commit, so `release-guard` can be satisfied before the
-pull request's own run has judged the merge. The checks then show that the
-promoted commit passed on `main`, not that the merge into `release` passed.
-Wait for the pull request's own run before merging.
-
-## How `release` comes into being
-
-Measured on the test repository, with both rulesets for `release` applied
-before the branch existed:
-
-- `release-guard` does not refuse creating `release`, as long as the commit has
-  passed the three checks. At the tip of `main` after its push run the creation
-  went through; at a commit without the checks it was refused ("3 of 3 required
-  status checks are expected"), and while the checks were still running as
-  well.
-- `release-updaters` refuses creating `release` to everyone not on its bypass
-  list, and in the mode `pull_request` to those on it as well; hence the mode
-  `always`.
-
-So a person with Maintain or Admin creates `release` at the tip of `main`, once
-the push run of that commit has passed the three checks:
-
-```sh
-git fetch origin
-git push origin origin/main:refs/heads/release
-```
-
-No owner step is needed for it, as long as some commit of `main` has passed the
-three checks. That fails for a repository that is bound while a unit of it is
-released in two stages and `release` does not exist yet: phase 0 reports
-`missing-release-branch` (see [the declaration](../declaration.md#missing-release-branch)),
-`nebensound / Check` fails on every run, no commit passes, and `release-guard`
-refuses to create `release` anywhere while `required-checks` refuses every
-merge into the default branch. A repository that switches avoids it by creating
-`release` before the property is set (see
-[the day a repository switches](#the-day-a-repository-switches)). A new
-repository carries `central` from its creation, so for it the owner takes the
-step:
-
-1. Set the repository's property `pipeline` to `legacy`, which takes it out of
-   the four rulesets.
-2. Create `release` at the tip of `main`, as above, and re-run the failed push
-   run of `main` until the three checks pass.
-3. Set the property back to `central`.
-4. Read back the rules of `release` and of the default branch, as in step 7 of
-   [the day a repository switches](#the-day-a-repository-switches), with
-   `release` as the branch as well.
+anything.
 
 ## Properties
 
@@ -275,7 +181,7 @@ switched, the owner deletes both properties; that removes them from every
 repository of the organization at once, the `legacy` ones included.
 
 The default of `pipeline` is `central`, so a new repository is bound from the
-start: the four rulesets hold for it before it has a caller. It can still be
+start: the two new rulesets hold for it before it has a caller. It can still be
 created, because `required-checks` is not enforced on creation (measured, see
 [Evidence](#evidence)), and its first pull
 request adds the caller, which reports the three checks; it merges once they
@@ -287,12 +193,9 @@ What follows from it:
   passes for it. One that the pipeline cannot pass yet stays blocked until the
   owner sets it to `legacy`: a check the pipeline has not written yet fails by
   name, and a kind of file that no check covers is `language-without-check`
-  (see [the declaration](../declaration.md#language-without-check)). One whose
-  unit is released in two stages needs `release` first, which only the owner's
-  step in [How `release` comes into being](#how-release-comes-into-being)
-  creates.
+  (see [the declaration](../declaration.md#language-without-check)).
 - A fork of someone else's project carries `central` as well and is bound by
-  the four rulesets until the owner sets it to `legacy`. A ruleset condition
+  the two new rulesets until the owner sets it to `legacy`. A ruleset condition
   cannot tell a fork apart.
 - The rulesets see only properties, not whether a repository really calls the
   pipeline. A daily pass over all repositories of the organization (#108) will
@@ -378,6 +281,12 @@ bypass them.
   `gh pr merge --squash --admin` all answered HTTP 405 "Repository rule
   violations found: 3 of 3 required status checks are expected." The
   administrator did not get past it, since `required-checks` has no bypass.
+- **The merge commit on the default branch.** On 2026-11-22,
+  `grundschutz-standard-branch.json` in its present form, with
+  `allowed_merge_methods` `["squash", "merge"]`, was applied as a
+  repository-level ruleset to a temporary public test repository, accepted by
+  the API, read back identical to its file as in
+  [Applying and reading back](#applying-and-reading-back), and removed again.
 - **Not measured.** That the push is refused with `do_not_enforce_on_create`
   set to `false` was not repeated on the empty repository; and a creator who is
   not an administrator was not measured.
@@ -391,21 +300,22 @@ file as it is.
 
 ```sh
 gh api -X POST repos/Nebensound/<test repository>/rulesets \
-  --input docs/organization/release-guard.json
+  --input docs/organization/required-checks.json
 ```
 
-**In the organization**: merge the condition in and post the result. The four
+**In the organization**: merge the condition in and post the result. The two
 new rulesets take `conditions-central.json`; the existing one is described by
 `conditions-active.json`.
 
 ```sh
 jq -s '.[0] * {conditions: .[1]}' \
-  docs/organization/release-guard.json \
+  docs/organization/required-checks.json \
   docs/organization/conditions-central.json |
   gh api -X POST orgs/Nebensound/rulesets --input -
 ```
 
-To change a ruleset that exists already, send the same body with `-X PUT` to
+To change a ruleset that exists already, such as `Grundschutz Standard-Branch`
+with `conditions-active.json`, send the same body with `-X PUT` to
 `orgs/Nebensound/rulesets/<id>`.
 
 **Read back** a ruleset of the organization and compare it with its file and
@@ -416,7 +326,7 @@ a repository; the comparison leaves those out.
 ```sh
 normalize='{name, target, enforcement, bypass_actors, conditions, rules}
   | del(.rules[].parameters.dismissal_restriction | select(.enabled == false))'
-name=release-guard file=release-guard fragment=conditions-central
+name=required-checks file=required-checks fragment=conditions-central
 # existing ruleset: name='Grundschutz Standard-Branch'
 #   file=grundschutz-standard-branch fragment=conditions-active
 id="$(gh api --paginate orgs/Nebensound/rulesets \
@@ -453,21 +363,10 @@ pass them:
 1. **Merge the caller**, pinned to a version of the pipeline that reports all
    three checks, and wait until the push run on the default branch has reported
    them.
-2. **Allow merge commits** in the repository's settings
-   (`allow_merge_commit`) if a unit of it is released in two stages; a pull
-   request into `release` is merged with a merge commit, and GitHub offers only
-   the methods that both the settings and the rulesets allow.
-3. **Create `release`** at the tip of `main` if a unit is released in two
-   stages and the branch does not exist yet, before the property is set.
-   Without the branch, phase 0 reports `missing-release-branch` and the push
-   run of step 1 fails; once `release-guard` binds, `release` can be created
-   only at a commit that passed the three checks, so no commit ever would.
-   Create it as in [How `release` comes into being](#how-release-comes-into-being)
-   and re-run the push run of step 1.
-4. **Wait until the three checks have passed** on the tip of the default
+2. **Wait until the three checks have passed** on the tip of the default
    branch, not only been reported. If they fail, fix that first: with the
    property set while they fail, nothing can merge into the default branch.
-5. **Set the property** `pipeline` to `central`:
+3. **Set the property** `pipeline` to `central`:
 
    ```sh
    gh api -X PATCH orgs/Nebensound/properties/values --input - <<'EOF'
@@ -478,7 +377,7 @@ pass them:
    EOF
    ```
 
-6. **Delete the local ruleset**: a ruleset of the repository itself that the
+4. **Delete the local ruleset**: a ruleset of the repository itself that the
    organization rulesets now replace, such as one that required checks.
 
    ```sh
@@ -487,7 +386,7 @@ pass them:
    gh api -X DELETE repos/Nebensound/<repository>/rulesets/<id>
    ```
 
-7. **Read back** the rules of the default branch: the required checks of
+5. **Read back** the rules of the default branch: the required checks of
    `required-checks` are among them.
 
    ```sh
@@ -500,12 +399,16 @@ pass them:
 
 - Run [the one-time step](#the-one-time-step) once, before applying the
   rulesets, and read it back.
-- Apply `release-guard`, `release-updaters`, `version-tags` and
-  `required-checks` with `conditions-central.json`, and read each back.
+- Apply `version-tags` and `required-checks` with `conditions-central.json`,
+  and read each back.
+- Apply the changed `grundschutz-standard-branch.json` with
+  `conditions-active.json` to the existing ruleset of that name with `-X PUT`,
+  and read it back. Before that, set the merge settings of every repository
+  (see [the repository settings](../repository-settings.md#every-repository-of-the-organization)),
+  so that no merge commit lands with GitHub's default title.
 - Switch this repository first, `Nebensound/pipeline`, by
   [the steps above](#the-day-a-repository-switches). Its default branch already
-  reports the three checks, it allows merge commits, and it has no local
-  ruleset.
+  reports the three checks, and it has no local ruleset.
 - Once the first repository has switched, delete the properties `language` and
   `kind`, once for the whole organization (each call removes the property from
   every repository):
