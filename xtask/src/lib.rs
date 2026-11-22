@@ -76,8 +76,8 @@ Usage: cargo xtask check --all
 check --all   Holds the building blocks, the register and nebensound.yml to
               each other, and runs every building block against its test cases
               in tests/pass/ and tests/fail/. The blocks whose check the tool
-              carries out (dockerfile, json, markdown, toml, yaml) run through
-              the tool of this commit, on every system, after
+              carries out (css, dockerfile, json, markdown, toml, yaml) run
+              through the tool of this commit, on every system, after
               `nebensound-repo setup --pinned <check>` has set up the programs
               of their check; a runtime one of them needs is taken from the
               computer. The cases of the other blocks run the blocks' own steps,
