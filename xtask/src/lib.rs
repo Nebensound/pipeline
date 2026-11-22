@@ -54,10 +54,9 @@ const MISUSE: u8 = 2;
 /// `check-rust` run jq; `nebensound-repo setup` can install a jq of its own,
 /// but into its cache and not onto the `PATH` the steps search. `build-docker`
 /// builds with Docker's Buildx and starts what it built with Docker.
-/// `check-css` and `check-html` install their programs with npm, which
-/// `actions/setup-node` puts beside Node.js on GitHub, and which some systems
-/// ship apart from Node.js. The tool and `check-rust` install toolchains with
-/// rustup.
+/// `check-html` installs its programs with npm, which `actions/setup-node`
+/// puts beside Node.js on GitHub, and which some systems ship apart from
+/// Node.js. The tool and `check-rust` install toolchains with rustup.
 pub const MACHINE: &[(&str, &str, &[&str])] = &[
     ("docker", "docker", &["buildx", "version"]),
     ("jq", "jq", &["--version"]),

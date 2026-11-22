@@ -947,8 +947,8 @@ stands in:
 | `actions/upload-artifact`                                            | Nothing leaves the machine, but every path the step names has to exist, as `if-no-files-found: error` demands. |
 
 Any other such action fails the xtask until it has a stand-in. Of the blocks,
-`check-css` and `check-html` call `actions/setup-node` for Node.js 24, and none
-calls `actions/setup-go`; for such a step the xtask takes the `node` already on
+`check-html` calls `actions/setup-node` for Node.js 24, and none calls
+`actions/setup-go`; for such a step the xtask takes the `node` already on
 the PATH and fails the step unless it is version 24. In the gate, that is the
 Node.js of the runner image: no step before the xtask in `Check repository`
 puts one on the PATH, and `nebensound-repo setup` there finds it and installs
