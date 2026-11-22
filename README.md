@@ -106,17 +106,19 @@ fills ([`.github/actions/tool`](.github/actions/tool)); it builds the tool
 only when the cache misses. The list does not travel through a job output,
 which is limited in size.
 
-The checks for JSON, Markdown, TOML and YAML run from the tool. Their blocks do
-two things: `nebensound-repo setup --pinned --with-runtimes <check>` puts the
-pinned version of every program the check calls into the tool's folder in the
-cache directory, with a runtime one of them needs where the runner has none
-that is new enough, and `nebensound-repo run <check> <unit path>` runs the
+The checks for Dockerfiles, JSON, Markdown, TOML and YAML run from the tool.
+Their blocks do two things:
+`nebensound-repo setup --pinned --with-runtimes <check>` puts the pinned
+version of every program the check calls into the tool's folder in the cache
+directory, with a runtime one of them needs where the runner has none that is
+new enough, and `nebensound-repo run <check> <unit path>` runs the
 check over exactly the files `files` names. `run` starts the programs the
 register pins with the flags described below, each part even when one before it
 failed, and reports every finding with its file, and its line and column where
 the program gives them: as an annotation in a workflow run, and as a line that
-starts with `file:line:col:` elsewhere. What the programs print stands in the
-output as well.
+starts with `file:line:col:` elsewhere. A finding that fails nothing, such as a
+Hadolint finding below the failure threshold, is a warning. What the programs
+print stands in the output as well.
 
 The same call runs a check on a developer's computer, on Linux and macOS alike,
 once `nebensound-repo setup` has put the programs in place. `run` installs
@@ -150,22 +152,26 @@ step runs even when one before it failed, so one run shows every finding.
 
 [`.github/actions/check-dockerfile`](.github/actions/check-dockerfile) checks
 every `Dockerfile`, `Containerfile` and `.dockerfile` file of the unit with
-dockerfmt 1.0.0 and Hadolint 2.15.1, the release binaries pinned by SHA-256.
-Building the image, scanning it and running it belong to the build.
+dockerfmt 1.0.0 and Hadolint 2.15.1, the release binaries the register pins by
+SHA-256, through `nebensound-repo run dockerfile`. Building the image, scanning
+it and running it belong to the build.
 
 - Formatted the way dockerfmt writes it (`dockerfmt --check`). dockerfmt has no
-  configuration file, and the block hands it no style flag: the repository's
+  configuration file, and `run` hands it no style flag: the repository's
   `.editorconfig` decides the indentation, tabs, the final newline and
   dockerfmt's own `space_redirects`. An instruction dockerfmt leaves as written
   because it cannot format it safely, which it only warns about, fails the
   check on its line: it was not checked. `# dockerfmt-ignore` on the line
-  before an instruction leaves it as written on purpose.
+  before an instruction leaves it as written on purpose. A setting of
+  `.editorconfig` dockerfmt cannot use, for which it takes its default, is a
+  warning.
 - No Hadolint finding at or above the failure threshold, by default `info`. A
   finding below it, such as a style finding by default, is a warning and fails
   nothing. The pipeline has no Hadolint default (see
-  [Linter rules](#linter-rules)).
+  [Linter rules](#linter-rules)). Hadolint's JSON report is read by the tool,
+  and every finding becomes an annotation at its line and column.
 
-Every step runs even when one before it failed, so one run shows every finding.
+Both parts run even when the other failed, so one run shows every finding.
 
 ### `check-html`
 
@@ -671,9 +677,10 @@ its own it stays the repository's choice.
 
 Hadolint runs without a default of the pipeline: its own rules contradict no
 other tool of the pipeline, so there is nothing to lay beneath them, and
-`nebensound-repo check` reports nothing for it. `check-dockerfile` hands it the
-repository's `.hadolint.yaml` or `.hadolint.yml` at the root, and without one an
-empty configuration, so that no configuration in a user's home folder counts.
+`nebensound-repo check` reports nothing for it. `nebensound-repo run dockerfile`
+hands it the repository's `.hadolint.yaml` or `.hadolint.yml` at the root, and
+without one an empty configuration, so that no configuration in a user's home
+folder counts.
 `ignored`, `override`, the trusted registries, the label schema, a failure
 threshold and the inline and global ignore pragmas stay the repository's rule
 configuration. What would pass every finding is set aside: `no-fail`, a
@@ -888,16 +895,22 @@ called and tested, so a `publish-` block is reported until the xtask learns
 that kind. The first one teaches it, together with its cases.
 
 Then it runs every block against its cases, each copied into a fresh Git
-repository. The blocks whose check runs from the tool (`check-json`,
-`check-markdown`, `check-toml`, `check-yaml`) hold nothing of their check in
-their steps, so their cases run through the tool itself: the xtask builds the
-tool of this commit with Cargo, runs phase 0 on the case with
+repository. The blocks whose check runs from the tool (`check-dockerfile`,
+`check-json`, `check-markdown`, `check-toml`, `check-yaml`) hold nothing of
+their check in their steps, so their cases run through the tool itself: the
+xtask builds the tool of this commit with Cargo, runs phase 0 on the case with
 `nebensound-repo check` and `plan`, as `Declare` does, and calls
 `nebensound-repo run` once for every unit the plan starts the check for, in the
-environment of a workflow run, so that the findings are annotations. It takes
-the programs `nebensound-repo setup` put in place: in the gate, the blocks that
-ran before the xtask in `Check repository` have set them up, and on a
-developer's computer `cargo xtask setup --pinned --with-runtimes` does.
+environment of a workflow run, so that the findings are annotations. Before
+the cases of each such block it sets up the programs of its check with
+`nebensound-repo setup --pinned <check>`, the first of the two calls the block
+makes, without `--with-runtimes`: it installs the pinned version of every
+program the check calls where it is missing, so that the cases do not depend on
+which blocks ran before the xtask, and it installs no runtime. A runtime one of
+those programs needs is the computer's, one that is new enough, or one
+`cargo xtask setup --with-runtimes` put in place. A setup that fails is a
+problem of its own, and the block's cases still run with the programs that are
+there.
 
 Every other block runs its own steps. The xtask builds the tool through
 [`.github/actions/tool`](.github/actions/tool), runs
@@ -972,12 +985,12 @@ with `1`, since their cases did not run.
 `cargo xtask setup` calls `nebensound-repo setup` for this repository with the
 tool of this commit, built from `tools/nebensound-repo/` with the toolchain the
 tool pins, and hands it every option unchanged (`--pinned`, `--with-runtimes`,
-`--check`, the names of checks). The programs it puts in place are also those
-the cases of the blocks that run from the tool take; markdownlint-cli2 and
-yamllint only as their pinned copies, which `--pinned` installs. Then, on
-Linux, it checks what only the cases of the other blocks need: a program an
-action of their steps would put on the `PATH`, in the version the step asks for
-(read from their `action.yml`), Docker with Buildx, jq, npm and rustup. It
+`--check`, the names of checks). The cases of the blocks that run from the tool
+take the pinned programs `cargo xtask check --all` sets up itself, and a
+runtime from the computer or from `--with-runtimes`. Then, on Linux, it checks
+what only the cases of the other blocks need: a program an action of their
+steps would put on the `PATH`, in the version the step asks for (read from
+their `action.yml`), Docker with Buildx, jq, npm and rustup. It
 installs none of these, since they stay the machine's, but names each one that
 is missing or of another version and exits with `1` then, so that a machine it
 passes can run the cases. `nebensound-repo setup` may have put a jq into its
