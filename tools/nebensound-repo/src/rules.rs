@@ -2,15 +2,15 @@
 //!
 //! Four programs of the checks read a rule configuration that the pipeline
 //! gives a default for: Markdownlint in the Markdown check, yamllint in the
-//! YAML check, Stylelint in `check-css` and html-validate in `check-html`.
-//! `run` and the two blocks lay the repository's own configuration over that
+//! YAML check, Stylelint in the CSS check and html-validate in `check-html`.
+//! `run` and the block lay the repository's own configuration over that
 //! default rule by rule, so the repository's file names only what differs, and
 //! a change of the default reaches every repository that did not name the
 //! rule. The defaults lie beside this tool in `rules/`: the tool compiles them
 //! in, both to hand them to the linters in `run` and to report on them here,
-//! and the two blocks read theirs from there, so all speak of the same files.
+//! and the block reads its own from there, so all speak of the same files.
 //!
-//! Read are the files the blocks lay over the default:
+//! Read are the files the checks lay over the default:
 //!
 //! - Markdownlint: in every folder, the first options file markdownlint-cli2
 //!   reads there (`.markdownlint-cli2.jsonc`, `.yaml`, `.cjs`, `.mjs`) with
@@ -30,7 +30,7 @@
 //! - Stylelint: `rules` in the configuration nearest to a file the css check
 //!   covers, the first of the names Stylelint looks for in that file's folder
 //!   or in the nearest folder above it (`package.json` only where it holds a
-//!   `stylelint` key). The block lays it over the default; a nearer one takes
+//!   `stylelint` key). `run` lays it over the default; a nearer one takes
 //!   the place of one farther up, not its rules.
 //! - html-validate: `rules` in every `.htmlvalidate.json` (`.mjs`, `.cjs`,
 //!   `.js`) of a folder that holds a file the html check covers, or holds one
@@ -72,7 +72,7 @@ pub const MARKDOWNLINT: &str = include_str!("../rules/markdownlint.jsonc");
 /// The pipeline's default for yamllint, as `run yaml` hands it over.
 pub const YAMLLINT: &str = include_str!("../rules/yamllint.yaml");
 
-/// The pipeline's default for Stylelint, as `check-css` reads it.
+/// The pipeline's default for Stylelint, as `run css` hands it over.
 pub const STYLELINT: &str = include_str!("../rules/stylelint.yaml");
 
 /// The pipeline's default for html-validate, as `check-html` reads it.

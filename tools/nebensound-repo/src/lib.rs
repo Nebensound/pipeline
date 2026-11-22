@@ -219,7 +219,7 @@ pub enum Command {
     },
     /// Run one check over the files it covers in one unit, less what
     /// `[[exclude]]` takes out, with the programs `setup` finds or installs:
-    /// what its building block runs. For the checks dockerfile, json,
+    /// what its building block runs. For the checks css, dockerfile, json,
     /// markdown, toml and yaml.
     // It starts the programs `setup` finds, so it is part of the feature
     // `program` as well.
@@ -300,8 +300,8 @@ pub enum Failure {
     /// The check that was named is not one `run` carries out.
     #[cfg(feature = "program")]
     #[error(
-        "`run` carries out the checks dockerfile, json, markdown, toml and yaml; {check:?} is not \
-         one of them, and its building block runs it"
+        "`run` carries out the checks css, dockerfile, json, markdown, toml and yaml; {check:?} is \
+         not one of them, and its building block runs it"
     )]
     NotRun {
         /// What was named.

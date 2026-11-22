@@ -1,9 +1,10 @@
 # The pipeline's default for Stylelint: stylelint-config-standard, and for SCSS
 # its counterpart stylelint-config-standard-scss, read with postcss-scss.
-# `check-css` lays a repository's own configuration over it rule by rule, so the
-# repository names only the rules it wants different, and a rule it does not
-# name keeps the value set here, also after this file changes. The tool
-# compiles it in to say which rules a repository sets differently.
+# `nebensound-repo run css` lays a repository's own configuration over it rule
+# by rule, so the repository names only the rules it wants different, and a rule
+# it does not name keeps the value set here, also after this file changes. The
+# tool compiles it in, to hand it to Stylelint and to say which rules a
+# repository sets differently.
 extends:
   - stylelint-config-standard
 
