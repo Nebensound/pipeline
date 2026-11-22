@@ -28,16 +28,17 @@ finding only once the tool at the pin knows it. When a step needs something that
 has not arrived, say which issue brings it and stop that step. Never imitate a
 missing command by hand.
 
-| What                                                                                                                                                                  | State                                                  |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `nebensound-repo check` with `--name`, `--default-branch` and `--visibility`                                                                                          | exists                                                 |
-| The fields of `.nebensound/repo.toml`, among them `audience`, `minimum-version` and `feat-types`, and the findings of phase 0, all in `docs/declaration.md`           | exist                                                  |
-| The conformance warnings `nonconforming-name`, `nonconforming-default-branch` and `missing-minimum-file`, and the errors `missing-audience` and `mismatched-audience` | exist                                                  |
-| The versions, from the history alone; every merge into `main` a full release                                                                                          | exist                                                  |
-| Pre-releases                                                                                                                                                          | not yet: no version the history gives is a pre-release |
-| `nebensound-repo init`, its `TODO(init)` markers, the finding `check` gives for a remaining marker, and the list of what needs judgement that `init` ends with        | #26, not yet                                           |
-| A documented way to get the tool, and a tool that warns when it is older than the pin                                                                                 | #94, not yet; until then step 2                        |
-| A release of the pipeline to pin                                                                                                                                      | none yet: pin a full commit SHA of `main`              |
+| What                                                                                                                                                                  | State                                                                                                        |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `nebensound-repo check` with `--name`, `--default-branch` and `--visibility`                                                                                          | exists                                                                                                       |
+| The fields of `.nebensound/repo.toml`, among them `audience`, `minimum-version` and `feat-types`, and the findings of phase 0, all in `docs/declaration.md`           | exist                                                                                                        |
+| The conformance warnings `nonconforming-name`, `nonconforming-default-branch` and `missing-minimum-file`, and the errors `missing-audience` and `mismatched-audience` | exist                                                                                                        |
+| The versions, from the history alone                                                                                                                                  | exist                                                                                                        |
+| Tags, GitHub releases and publishing for a full release                                                                                                               | not yet: a full release is the version the history gives a merge into `main`; nothing is tagged or published |
+| Pre-releases                                                                                                                                                          | not yet: no version the history gives is a pre-release                                                       |
+| `nebensound-repo init`, its `TODO(init)` markers, the finding `check` gives for a remaining marker, and the list of what needs judgement that `init` ends with        | #26, not yet                                                                                                 |
+| A documented way to get the tool, and a tool that warns when it is older than the pin                                                                                 | #94, not yet; until then step 2                                                                              |
+| A release of the pipeline to pin                                                                                                                                      | none yet: pin a full commit SHA of `main`                                                                    |
 
 When one of these lands, the reference at the pin describes it: read
 `README.md`, `docs/declaration.md`, `docs/calling.md`,
@@ -223,8 +224,11 @@ Repeat until `check` reports no error and no remaining `TODO(init)`.
   visibility is wrong. A wrong value you correct; a wrong visibility is a
   repository setting: stop, and tell the user that changing it is an owner
   step. For `conflicting-tag`, an old tag at or above the unit's version, the
-  finding names the `minimum-version` that passes it: offer that value when
-  you ask again.
+  finding names the way past it. When you ask about `minimum-version` again,
+  offer past a pre-release tag the value it names (`to 1.5.0 or higher` gives
+  `1.5.0`), and past a full-release tag, where it names only a bound
+  (`above 1.4.3`), the next patch above the tag (`1.4.4`), as in the table of
+  step 6.
 - **A warning about a statement of the declaration** (`pointless-exclusion`,
   `pointless-inclusion`, `pointless-suppression`, `pointless-watch`,
   `unwatched-manifest`, `childless-generator`,
@@ -303,7 +307,8 @@ them for one repository. Never run that call.
 Finish by telling the user the link of the pull request, the result of
 `nebensound / Declare`, the decisions asked, the owner steps and the follow-up
 issues. The pull request is theirs to review and merge. Its merge into `main`
-is a full release of every unit that carries a version, at the version
-`nebensound / Version` shows for the pull request without `-pr.<number>`, as
-long as its title and description stay as they are; nothing is tagged or
-published yet.
+is a full release of every unit the column `This pull request` of
+`nebensound / Version` gives a version, at that version without
+`-pr.<number>`, as long as `main`, the title and the description do not change
+before the merge and the settings of step 8 are as expected. Nothing is tagged
+or published yet.
