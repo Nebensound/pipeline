@@ -128,10 +128,11 @@ commit carries the title of its pull request only when the repository sets
 `merge_commit_title` to `PR_TITLE`; that and the other merge settings every
 repository carries are in
 [the repository settings](../repository-settings.md#every-repository-of-the-organization).
-Counting a merge commit on the line of the default branch is
-[#160](https://github.com/Nebensound/pipeline/issues/160). Rebase stays
-excluded: it would put the individual commits of a pull request on the default
-branch, and those are not required to be Conventional Commits.
+A merge commit on the line of the default branch counts like a squash commit
+with the same changes and message (see
+[How a version is resolved](../declaration.md#how-a-version-is-resolved)).
+Rebase stays excluded: it would put the individual commits of a pull request on
+the default branch, and those are not required to be Conventional Commits.
 
 It protects against a direct push, a force push and a rebase merge into the
 default branch, for everyone below Admin. It does not hold for an
@@ -288,8 +289,9 @@ bypass them.
   the API, read back identical to its file as in
   [Applying and reading back](#applying-and-reading-back), and removed again.
 - **Not measured.** That the push is refused with `do_not_enforce_on_create`
-  set to `false` was not repeated on the empty repository; and a creator who is
-  not an administrator was not measured.
+  set to `false` was not repeated on the empty repository; a creator who is
+  not an administrator was not measured; and a pull request landed by merge
+  commit, with the version table of its push run, was not measured (#165).
 
 ## Applying and reading back
 

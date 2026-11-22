@@ -30,8 +30,9 @@
 //!   before the first.
 //! - A commit **touches** a unit when it changes a file below the unit's path
 //!   as that commit declares it, or the declaration itself. The repository is
-//!   touched by every commit. Only the line counts, and a merge commit touches
-//!   nothing.
+//!   touched by every commit. Only the line counts. A merge commit of the
+//!   line touches what it changes against its first parent, like any other
+//!   commit, and the commits only its other parents reach are not on the line.
 //! - The **change** of a commit follows from its message as a Conventional
 //!   Commit, read with the commit types that count like `feat` in the
 //!   declaration that commit holds (`feat-types`).
@@ -94,21 +95,18 @@ pub struct Commit {
 }
 
 impl Commit {
-    /// Whether it merges more than one parent.
-    #[must_use]
-    pub fn is_merge(&self) -> bool {
-        self.parents.len() > 1
-    }
-
     /// Whether it touches a unit at this path.
+    ///
+    /// A merge commit is no exception: its paths are those it changes against
+    /// its first parent, so it touches what the branch it merges brings into
+    /// the line, exactly as a squash commit of the same changes would.
     #[must_use]
     pub fn touches(&self, unit: &RelativePath) -> bool {
-        !self.is_merge()
-            && (unit.is_root()
-                || self
-                    .paths
-                    .iter()
-                    .any(|path| path == DECLARATION || below(unit, path)))
+        unit.is_root()
+            || self
+                .paths
+                .iter()
+                .any(|path| path == DECLARATION || below(unit, path))
     }
 }
 

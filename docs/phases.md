@@ -85,14 +85,16 @@ row per unit that carries a version:
 value is resolved. The repository always carries a version, so the table always
 has a row.
 
-On a pull request the checkout is the merge commit GitHub builds for it, and a
-merge commit touches no unit. The tool therefore reads it as the commit the
-squash merge would put on the base branch: one parent, the changes of the pull
-request, and its title and description as the message, as they stand when the
-run starts. The column is called `This pull request` there, and each version in
-it is the one that merge would get with `-pr.<number>` behind it, such as
-`0.4.2-pr.17`; so is the current version of a unit the pull request touches. It
-names artifacts and is never published.
+On a pull request the checkout is the merge commit GitHub builds for it, which
+carries a message of GitHub's and contains the commits of the branch. The tool
+therefore reads it as the commit the squash merge would put on the base
+branch: one parent, the changes of the pull request, and its title and
+description as the message, as they stand when the run starts. A merge commit
+that lands the pull request with the same title and description comes to the
+same versions. The column is called `This pull request` there, and each
+version in it is the one that merge would get with `-pr.<number>` behind it,
+such as `0.4.2-pr.17`; so is the current version of a unit the pull request
+touches. It names artifacts and is never published.
 
 The job runs whatever Declare's result. When phase 0 finds an error, such as a
 shallow clone, there is no table: the log and the summary list every finding

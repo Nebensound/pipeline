@@ -1,6 +1,6 @@
 //! `nebensound-repo version`: the versions as a table, in the terminal and in
 //! the summary of a run, and read for a pull request as its squash merge would
-//! put it on `main`.
+//! put it on `main`, which is also what its merge commit puts there.
 //!
 //! The fixtures are real Git repositories, built commit by commit, so that
 //! what is checked is the history a repository really has.
@@ -177,19 +177,26 @@ fn a_pull_request_shows_the_version_its_squash_merge_would_get() {
     ]);
     let message = "feat(lib)!: a breaking change\n\nThe description.";
 
-    // Read as it is, the merge touches nothing, and the tag on the branch is
-    // a record of a version the history gives no commit.
+    // Read as it is, the merge carries the message GitHub gives it, which is
+    // no Conventional Commit, and the tag on the branch is a record of a
+    // version the history gives no commit.
     let as_it_is = Repository::at(git.path())
         .analyse(&central())
         .expect("the fixture reads");
-    assert_eq!(of(&as_it_is, "lib-v"), None);
-    assert!(
-        as_it_is.findings().iter().any(|finding| finding
-            .to_string()
-            .starts_with("error[conflicting-tag] component lib: the tag \"lib-v9.9.9\"")),
-        "{:?}",
-        as_it_is.findings()
-    );
+    assert_eq!(of(&as_it_is, "lib-v").as_deref(), Some("0.0.3"));
+    for start in [
+        "warning[unconventional-commit]",
+        "error[conflicting-tag] component lib: the tag \"lib-v9.9.9\"",
+    ] {
+        assert!(
+            as_it_is
+                .findings()
+                .iter()
+                .any(|finding| finding.to_string().starts_with(start)),
+            "{start}: {:?}",
+            as_it_is.findings()
+        );
+    }
 
     // Read as the pull request, it is the squash merge: the tag lies on no
     // commit the merge contains, and the message is the one given.
@@ -220,13 +227,32 @@ fn a_pull_request_shows_the_version_its_squash_merge_would_get() {
         "{markdown}"
     );
 
-    // What the squash merge then puts on main comes to exactly that version.
-    git.run(&["checkout", "--quiet", "main"]);
-    git.run(&["merge", "--quiet", "--squash", "topic"]);
-    git.commit(message);
-    let squashed = analysed(&Repository::at(git.path()));
-    for prefix in ["v", "app-v", "lib-v"] {
-        assert_eq!(of(&squashed, prefix), of(&merged, prefix), "{prefix}");
+    // What the pull request then puts on main comes to exactly that version,
+    // whether it lands by merge commit or by squash commit with the same
+    // message. A merge commit contains the commit of the branch, and with it
+    // the tag set on it by hand, which would conflict there; it goes first.
+    git.run(&["tag", "--delete", "lib-v9.9.9"]);
+    for squash in [false, true] {
+        git.run(&["checkout", "--quiet", "-B", "landed", "main"]);
+        if squash {
+            git.run(&["merge", "--quiet", "--squash", "topic"]);
+            git.commit(message);
+        } else {
+            git.run(&["merge", "--quiet", "--no-ff", "--message", message, "topic"]);
+        }
+        let landed = analysed(&Repository::at(git.path()));
+        assert!(landed.findings().is_empty(), "{:?}", landed.findings());
+        for prefix in ["v", "app-v", "lib-v"] {
+            assert_eq!(of(&landed, prefix), of(&merged, prefix), "{prefix}");
+        }
+        assert_eq!(
+            text_rows(&version(&git, &[]).0)[1..],
+            rows[1..]
+                .iter()
+                .map(|row| row.iter().map(|cell| cell.replace("-pr.17", "")).collect())
+                .collect::<Vec<Vec<String>>>()[..],
+            "squash: {squash}"
+        );
     }
 }
 

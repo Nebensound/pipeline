@@ -191,8 +191,9 @@ the summary of the run. The repository always carries a version, so the table
 is never empty.
 
 `--pull-request <number> --message <message>` reads `HEAD` as the merge commit
-GitHub builds for a pull request, which touches no unit itself. It stands for
-the commit the squash merge would put on the base branch instead: one parent,
+GitHub builds for a pull request, which carries a message of GitHub's and
+contains the commits of the branch. It stands for the commit the squash merge
+would put on the base branch instead: one parent,
 the first parent of `HEAD`, the changes of `HEAD` against it, and the message
 given, which the job takes from the title and the description of the pull
 request. Every version is then the one that merge would get, with

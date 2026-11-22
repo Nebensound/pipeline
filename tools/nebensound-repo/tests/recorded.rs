@@ -100,6 +100,13 @@ impl Recorder {
         self.note(message);
     }
 
+    /// Commits everything without a run: a commit of a branch, which is off
+    /// the line of `main` and has no run of its own there.
+    fn commit_aside(&self, message: &str) -> &Self {
+        self.git.commit(message);
+        self
+    }
+
     /// Merges a branch into `main` with a merge commit and notes what the run
     /// of the merge shows.
     fn merge(&mut self, branch: &str, message: &str) {
@@ -221,7 +228,9 @@ fn a_history_of_releases() {
     history.write(&[(".nebensound/repo.toml", &lifted)]);
     history.commit("chore: drop the app's floor");
 
-    // A merge commit touches nothing; only the first-parent line counts.
+    // A merge commit touches what it changes against its first parent. Its
+    // title is no Conventional Commit, so it counts as a patch with a warning;
+    // the commit on the side branch is off the line and counts for nothing.
     history.git(&["checkout", "--quiet", "-b", "side"]);
     history.write(&[("app/a.md", "# App\n\nOn the side.\n")]);
     history.git(&["add", "--all"]).git(&[
@@ -301,19 +310,101 @@ const RECORDED_RELEASES: &str = concat!(
     "feat(app): a feature                      | repo 0.2.3, app 1.1.0\n",
     "fix(app)!: a breaking correction          | repo 0.3.0, app 2.0.0\n",
     "chore: drop the app's floor               | repo 0.3.1, app 2.0.1\n",
-    "Merge the side branch                     | repo (0.3.1), app (2.0.1)\n",
-    "refactor(app): move the app to apps       | repo 0.3.2, app 2.0.2\n",
-    "fix(app): after the move                  | repo 0.3.3, app 2.0.3\n",
-    "feat: declare the tool without a version  | repo 0.3.4, app 2.1.0\n",
-    "feat: give the tool a version             | repo 0.3.5, app 2.2.0, tool 0.0.1\n",
-    "fix(tool): a correction                   | repo 0.3.6, app (2.2.0), tool 0.0.2\n",
-    "refactor: the tool is no unit any more    | repo 0.3.7, app 2.2.1\n",
-    "fix: the tool as plain files              | repo 0.3.8, app (2.2.1)\n",
-    "feat: the tool is a unit again            | repo 0.3.9, app 2.3.0, tool 0.0.3\n",
+    "Merge the side branch                     | repo 0.3.2, app 2.0.2, [unconventional-commit]\n",
+    "refactor(app): move the app to apps       | repo 0.3.3, app 2.0.3\n",
+    "fix(app): after the move                  | repo 0.3.4, app 2.0.4\n",
+    "feat: declare the tool without a version  | repo 0.3.5, app 2.1.0\n",
+    "feat: give the tool a version             | repo 0.3.6, app 2.2.0, tool 0.0.1\n",
+    "fix(tool): a correction                   | repo 0.3.7, app (2.2.0), tool 0.0.2\n",
+    "refactor: the tool is no unit any more    | repo 0.3.8, app 2.2.1\n",
+    "fix: the tool as plain files              | repo 0.3.9, app (2.2.1)\n",
+    "feat: the tool is a unit again            | repo 0.3.10, app 2.3.0, tool 0.0.3\n",
     "chore: a declaration that does not read   | does not read\n",
-    "fix: the declaration reads again          | repo 0.3.11, app 2.3.2, tool 0.0.5\n",
+    "fix: the declaration reads again          | repo 0.3.12, app 2.3.2, tool 0.0.5\n",
     "chore: aim the app at a pre-release       | does not read\n",
-    "chore: take the app to 3.0.0              | repo 0.3.13, app 3.0.0, tool 0.0.7\n",
+    "chore: take the app to 3.0.0              | repo 0.3.14, app 3.0.0, tool 0.0.7\n",
+);
+
+/// The repository, a component `app` at `1.0.0` and a component `lib`.
+const MERGES: &str = "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.app]\npath     = \"app\"\npipeline = \"none\"\nminimum-version = \"1.0.0\"\n\n[component.lib]\npath     = \"lib\"\npipeline = \"none\"\n";
+
+#[test]
+fn a_history_of_merges() {
+    let mut history = Recorder::new();
+    history.write(&[
+        (".nebensound/repo.toml", MERGES),
+        ("README.md", "# Merges\n"),
+        ("app/a.md", "# App\n"),
+        ("lib/b.md", "# Lib\n"),
+    ]);
+    history.commit("chore: start");
+
+    // A branch lands by merge commit while `main` has moved on. The merge
+    // touches what it changes against its first parent, the app and not the
+    // library, and its title decides the change: the commits of the branch
+    // are off the line, so neither the breaking marker nor the message that
+    // is no Conventional Commit counts.
+    history.git(&["checkout", "--quiet", "-b", "topic"]);
+    history
+        .write(&[("app/a.md", "# App\n\nStarted.\n")])
+        .commit_aside("wip");
+    history
+        .write(&[("app/a.md", "# App\n\nBroken.\n")])
+        .commit_aside("feat(app)!: break on the branch");
+    history.git(&["checkout", "--quiet", "main"]);
+    history.write(&[("lib/b.md", "# Lib\n\nMeanwhile.\n")]);
+    history.commit("fix(lib): on main meanwhile");
+    history.merge("topic", "feat(app): land a branch");
+
+    // A merge whose title is no Conventional Commit counts as a patch, with
+    // a warning.
+    history.git(&["checkout", "--quiet", "-b", "fixes"]);
+    history
+        .write(&[("lib/b.md", "# Lib\n\nFixed.\n")])
+        .commit_aside("fix(lib): one");
+    history.git(&["checkout", "--quiet", "main"]);
+    history.merge("fixes", "Merge branch 'fixes'");
+
+    // A merge that changes nothing against its first parent touches only
+    // the repository, whatever its title names.
+    history.git(&["checkout", "--quiet", "-b", "tried"]);
+    history
+        .write(&[("app/a.md", "# App\n\nTried.\n")])
+        .commit_aside("feat(app): tried");
+    history.git(&["revert", "--no-edit", "HEAD"]);
+    history.git(&["checkout", "--quiet", "main"]);
+    history.merge("tried", "feat(app): an empty merge");
+
+    // A merge that changes the declaration touches every unit, and the unit
+    // it declares counts from it.
+    history.git(&["checkout", "--quiet", "-b", "tool"]);
+    history
+        .write(&[
+            (
+                ".nebensound/repo.toml",
+                &format!("{MERGES}\n[component.tool]\npath     = \"tool\"\npipeline = \"none\"\n"),
+            ),
+            ("tool/t.md", "# Tool\n"),
+        ])
+        .commit_aside("feat: add the tool");
+    history.git(&["checkout", "--quiet", "main"]);
+    history.merge("tool", "feat: declare the tool by merge");
+
+    history.write(&[("app/a.md", "# App\n\nAfter the merges.\n")]);
+    history.commit("fix(app): after the merges");
+
+    holds(&history.finish(), RECORDED_MERGES);
+}
+
+/// What every run of [`a_history_of_merges`] showed.
+const RECORDED_MERGES: &str = concat!(
+    "chore: start                    | repo 0.0.1, app 1.0.0, lib 0.0.1\n",
+    "fix(lib): on main meanwhile     | repo 0.0.2, app (1.0.0), lib 0.0.2\n",
+    "feat(app): land a branch        | repo 0.0.3, app 1.1.0, lib (0.0.2)\n",
+    "Merge branch 'fixes'            | repo 0.0.4, app (1.1.0), lib 0.0.3, [unconventional-commit]\n",
+    "feat(app): an empty merge       | repo 0.0.5, app (1.1.0), lib (0.0.3)\n",
+    "feat: declare the tool by merge | repo 0.0.6, app 1.2.0, lib 0.0.4, tool 0.0.1\n",
+    "fix(app): after the merges      | repo 0.0.7, app 1.2.1, lib (0.0.4), tool (0.0.1)\n",
 );
 
 /// The repository and a component `lib`.
