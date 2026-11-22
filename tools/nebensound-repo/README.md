@@ -11,7 +11,7 @@ question.
 tools/nebensound-repo/  the tool — Cargo.toml, src/, tests/
   register.toml         the register, compiled in
   defaults.toml         what every repository declares without writing it down
-  rules/                the pipeline's defaults for Markdownlint and yamllint
+  rules/                the pipeline's defaults for the linters
 ```
 
 The tool is one package, a library and the program: one name, one version. The
@@ -26,15 +26,14 @@ programs `run` starts, and the JSON Schema of `schema`. Building and installing
 the tool take no flag. What builds on the library alone switches the default
 features off and compiles none of it.
 
-`rules/` holds the defaults that the Markdown and YAML checks, `check-python`,
-`check-css` and `check-html` lay a repository's own linter configuration over.
-The tool compiles the ones of Markdownlint and yamllint in, both to hand them to
-the linters in `run` and to show how a repository's rules stand to them
-([The rules](#the-rules)), so both speak of the same files, and a change to one
-of them is a change to the tool, which builds it again. The shell blocks
-`check-python`, `check-css` and `check-html` read theirs from there, and the
-tool compiles the defaults of Stylelint, html-validate and Ruff in to show them
-the same way. What else `run` hands the programs is compiled in as well:
+`rules/` holds the defaults that the CSS, Markdown and YAML checks,
+`check-python` and `check-html` lay a repository's own linter configuration
+over. The tool compiles the ones of Stylelint, Markdownlint and yamllint in,
+both to hand them to the linters in `run` and to show how a repository's rules
+stand to them ([The rules](#the-rules)), so both speak of the same files, and a
+change to one of them is a change to the tool, which builds it again. The shell
+blocks `check-python` and `check-html` read theirs from there, and the tool
+compiles the defaults of html-validate and Ruff in to show them the same way. What else `run` hands the programs is compiled in as well:
 `run/biome.json`, the configuration that makes Biome a parser of JSONC and
 nothing else, and `schemas/`, the JSON Schemas the TOML check assigns
 ([their README](schemas/README.md)).
@@ -57,7 +56,7 @@ nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branc
 | `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read. With `--pull-request <number> --message <message>`, for a pull request, as `version` reads it. See [The plan](#the-plan).                                                                                                                                                                                                                                             |
 | `version`           | The version of every unit that carries one, as a table: release mode, current version, the version of the commit at hand and, in two stages, the commits waiting for the next promotion. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                                                                                                                                                                                |
 | `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                                                                                                                                                                                                                          |
-| `run`               | Runs one check over the files `files` names for it in one unit, with the programs `setup` finds or installs, the way its building block runs it: for the checks `json`, `markdown`, `toml` and `yaml`. Every finding names its file, and its line and column where the program gives them; in a workflow run it is an annotation. See [Running a check](#running-a-check).                                                                                                                        |
+| `run`               | Runs one check over the files `files` names for it in one unit, with the programs `setup` finds or installs, the way its building block runs it: for the checks `css`, `dockerfile`, `json`, `markdown`, `toml` and `yaml`. Every finding names its file, and its line and column where the program gives them; in a workflow run it is an annotation. See [Running a check](#running-a-check).                                                                                                   |
 | `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                                                                                                                                                                                                                        |
 | `write-versions`    | Writes the version of every unit with the version writer `cargo` into its `Cargo.toml`, the path dependencies on it and `Cargo.lock`, in the working tree; never committed. With `--plan <file>`, takes the versions from a printed plan instead of the history; with `--workspace <path>`, starts from the units of the workspace at that path.                                                                                                                                                  |
 | `setup`             | Finds or installs the programs that the checks the plan starts call, or those of the checks named, as the register pins them: by default it uses those on the computer and installs the pinned version of what is missing; `--pinned` installs every one into its own folder; `--check` changes nothing. See [Setting up the programs](#setting-up-the-programs).                                                                                                                                 |
@@ -445,8 +444,9 @@ runtime on the computer that is too old for the program is not given.
 
 ## Running a check
 
-`run` carries out the checks for Dockerfiles, JSON, Markdown, TOML and YAML the
-way their building blocks run them, on any computer the programs run on:
+`run` carries out the checks for CSS, Dockerfiles, JSON, Markdown, TOML and
+YAML the way their building blocks run them, on any computer the programs run
+on:
 
 ```bash
 nebensound-repo setup --pinned --with-runtimes   # once, or after a change of the register
@@ -460,12 +460,16 @@ found as [for the other calls](#for-the-other-calls), with the flags that set
 their own ignore mechanisms aside, at the repository root, where the
 repository keeps their configuration. It installs nothing: a program that is
 neither pinned nor on the computer fails the check and names `setup`, and the
-parts of the check whose programs are there still run. Two
+parts of the check whose programs are there still run. Three
 programs are run through their internals, so that the repository's rules are
 laid over the pipeline's default ([The rules](#the-rules)): markdownlint-cli2
-on Node.js and yamllint on the Python of its own environment. Of those two
-only the pinned copy is taken, since only its internals are known, and the
-check fails with a pointer to `setup --pinned` otherwise. actionlint uses the
+and Stylelint on Node.js and yamllint on the Python of its own environment. Of
+those three only the pinned copy is taken, since only its internals are known,
+and the check fails with a pointer to `setup --pinned` otherwise. Stylelint
+gets, for each stylesheet, the configuration nearest to it as the last of what
+its configuration extends, after the default, with `ignoreFiles` set aside and
+an empty ignore file in place of `.stylelintignore`, and finds only the pinned
+packages beside it. actionlint uses the
 ShellCheck and pyflakes on the `PATH`, where there are any, and the output says
 whether it found them. Hadolint gets the repository's `.hadolint.yaml` or
 `.hadolint.yml` at the root, or an empty configuration, and none of the
@@ -478,9 +482,9 @@ every finding. What the programs print stands in the output. A finding names
 its file, and its line and column where the program gives them: in a workflow
 run (`GITHUB_ACTIONS=true` without a terminal) as an annotation, elsewhere as a
 line such as `README.md:3: error: MD001/heading-increment …`. A finding that
-fails nothing, such as a Hadolint finding below the failure threshold or
-dockerfmt's warning about a setting of `.editorconfig` it cannot use, is a
-warning: `::warning` in a workflow run, `Dockerfile:3:1: warning: …` elsewhere.
+fails nothing, such as a Stylelint warning, a Hadolint finding below the
+failure threshold or dockerfmt's warning about a setting of `.editorconfig` it
+cannot use, is a warning: `::warning` in a workflow run, `Dockerfile:3:1: warning: …` elsewhere.
 In an annotation the file name and the message are escaped the way the runner reads
 them, so a name holding `,` or `:` points at its file. Prettier names
 no position for a file it finds unformatted, and check-jsonschema a JSON path

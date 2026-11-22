@@ -106,8 +106,8 @@ fills ([`.github/actions/tool`](.github/actions/tool)); it builds the tool
 only when the cache misses. The list does not travel through a job output,
 which is limited in size.
 
-The checks for Dockerfiles, JSON, Markdown, TOML and YAML run from the tool.
-Their blocks do two things:
+The checks for CSS, Dockerfiles, JSON, Markdown, TOML and YAML run from the
+tool. Their blocks do two things:
 `nebensound-repo setup --pinned --with-runtimes <check>` puts the pinned
 version of every program the check calls into the tool's folder in the cache
 directory, with a runtime one of them needs where the runner has none that is
@@ -125,28 +125,31 @@ once `nebensound-repo setup` has put the programs in place. `run` installs
 nothing: it takes the pinned copy of a program first and the computer's
 otherwise, and fails with a pointer to `setup` where there is neither, while
 the parts of the check whose programs are there still run.
-markdownlint-cli2 and yamllint are run through their internals, so that the
-repository's rules are laid over the pipeline's default, and of those two `run`
-takes only the pinned copy. What `run` hands the programs, its configuration for
-Biome, the schemas for Taplo and the pipeline's linter defaults, is compiled
-into the tool.
+markdownlint-cli2, Stylelint and yamllint are run through their internals, so
+that the repository's rules are laid over the pipeline's default, and of those
+three `run` takes only the pinned copy. What `run` hands the programs, its
+configuration for Biome, the schemas for Taplo and the pipeline's linter
+defaults, is compiled into the tool.
 
 ### `check-css`
 
 [`.github/actions/check-css`](.github/actions/check-css) checks every `.css`
-and `.scss` file of the unit:
+and `.scss` file of the unit through `nebensound-repo run css`:
 
 - Formatted the way Prettier writes it, run as in `check-json`.
 - No Stylelint finding, with the repository's configuration laid over the
   pipeline's default, `stylelint-config-standard`, and for `.scss`
   `stylelint-config-standard-scss` read with `postcss-scss` (see
   [Linter rules](#linter-rules)). Its `ignoreFiles` and `.stylelintignore`
-  take nothing out.
+  take nothing out. Every finding is an annotation at its line and column: an
+  error fails the check, a warning fails nothing.
 
 Stylelint and the packages the default extends are pinned in the register,
-Stylelint's companions beside it, and nothing else is installed: a
-configuration that extends or loads another package fails, naming it. Every
-step runs even when one before it failed, so one run shows every finding.
+Stylelint's companions beside it, and `setup` installs nothing else: a
+configuration that extends or loads another package fails, naming it. `run`
+takes only the pinned Stylelint, since it calls Stylelint's internals, and
+starts it on its runtime, Node.js. Both parts run even when the other failed,
+so one run shows every finding.
 
 ### `check-dockerfile`
 
@@ -577,8 +580,9 @@ pipeline:
 (`stylelint-config-standard`, for `.scss` `stylelint-config-standard-scss`) and
 [`tools/nebensound-repo/rules/html-validate.json`](tools/nebensound-repo/rules/html-validate.json)
 (the presets `recommended` and `a11y`, less what contradicts Prettier through
-html-validate's own preset `prettier`). The
-block reads it from the pipeline version that runs. A repository's own
+html-validate's own preset `prettier`). `run` hands the linter the default
+compiled into the tool of the pipeline version that runs, and `check-html` reads
+its own from there. A repository's own
 configuration is laid over that default rule by rule: its file names only the
 rules it wants different, every rule it does not name keeps the default's value,
 and a later change of the default reaches it without a change of its own.
@@ -631,7 +635,7 @@ Stylelint reads, for each stylesheet, the configuration nearest to it: the
 first of the names it looks for (`package.json` with a `stylelint` key,
 `.stylelintrc`, `.stylelintrc.json`, `.stylelintrc.yaml`,
 `stylelint.config.mjs` and the others) in the file's folder or the nearest
-folder above it. `check-css` hands it that configuration as the last of what
+folder above it. `run css` hands it that configuration as the last of what
 its configuration extends, after the default, so Stylelint itself lays the one
 over the other rule by rule, and what the repository's `extends` names comes
 along over the default as well. An `overrides` entry matches its `files` from
@@ -639,7 +643,7 @@ the repository root. html-validate reads the `.htmlvalidate.json` (`.mjs`,
 `.cjs`, `.js`) of a page's folder and of every folder above it, up to one that
 says `root: true`; `check-html` lays them over the default, the nearer over
 the farther. The page rules lie over everything and cannot be switched off.
-Both blocks install only the pinned packages, so a configuration that names
+Both checks find only the pinned packages, so a configuration that names
 another one, such as a plugin, fails with the package named.
 
 Ruff runs with a default of the pipeline as well:
@@ -895,11 +899,12 @@ called and tested, so a `publish-` block is reported until the xtask learns
 that kind. The first one teaches it, together with its cases.
 
 Then it runs every block against its cases, each copied into a fresh Git
-repository. The blocks whose check runs from the tool (`check-dockerfile`,
-`check-json`, `check-markdown`, `check-toml`, `check-yaml`) hold nothing of
-their check in their steps, so their cases run through the tool itself: the
-xtask builds the tool of this commit with Cargo, runs phase 0 on the case with
-`nebensound-repo check` and `plan`, as `Declare` does, and calls
+repository. The blocks whose check runs from the tool (`check-css`,
+`check-dockerfile`, `check-json`, `check-markdown`, `check-toml`, `check-yaml`)
+hold nothing of their check in their steps, so their cases run through the
+tool itself: the xtask builds the tool of this commit with Cargo, runs phase 0
+on the case with `nebensound-repo check` and `plan`, as `Declare` does, and
+calls
 `nebensound-repo run` once for every unit the plan starts the check for, in the
 environment of a workflow run, so that the findings are annotations. Before
 the cases of each such block it sets up the programs of its check with
