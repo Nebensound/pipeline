@@ -49,6 +49,7 @@ fn findings_for(
     publication_is_reachable(resolution, central, &mut findings);
     version_writers_have_a_version(resolution, &mut findings);
     builds_have_their_version_writers(resolution, central, &mut findings);
+    builds_have_their_files(resolution, central, tree, &mut findings);
     findings
 }
 
@@ -357,6 +358,58 @@ fn builds_have_their_version_writers(
     }
 }
 
+/// A build reads files below the unit's path and fails without them; the
+/// register names them per build. Phase 0 holds each unit the plan builds
+/// against them, so that the gap shows on the pull request before a build job
+/// starts and fails on it.
+///
+/// Only the units the plan builds are held to it: a unit that carries a version
+/// of its own and generates no children. A generated unit is one of them, and
+/// needs the files below its own path; the unit that generated it leaves the
+/// building to its children and needs none.
+fn builds_have_their_files(
+    resolution: &Resolution,
+    central: &Central,
+    tree: &Tree,
+    findings: &mut Vec<Finding>,
+) {
+    for unit in &resolution.units {
+        if !unit.carries_version || unit.versioning.generates_children() {
+            continue;
+        }
+        // An unknown build is reported when the pipeline is resolved.
+        let Some((build, definition)) = unit
+            .pipeline
+            .build
+            .as_ref()
+            .and_then(|build| central.register().build.get_key_value(build))
+        else {
+            continue;
+        };
+        for required in &definition.requires_file {
+            let file = required
+                .segments()
+                .iter()
+                .fold(unit.path.clone(), |path, segment| path.join(segment));
+            if tree.files().any(|held| *held == file) {
+                continue;
+            }
+            findings.push(
+                Finding::error(
+                    Rule::BuildWithoutFile,
+                    format!(
+                        "this unit builds {build}, which reads {required} below the unit's path, \
+                         and the unit holds no such file; its build job would fail before it \
+                         builds"
+                    ),
+                )
+                .about(unit.name.clone())
+                .at(file),
+            );
+        }
+    }
+}
+
 fn publication_is_reachable(
     resolution: &Resolution,
     central: &Central,
@@ -454,8 +507,7 @@ pub struct Analysis {
     pub audience: Option<Audience>,
     /// For whom the declaration of the commit before the commit at hand on
     /// the line says the repository is meant: on a pull request into `main`
-    /// the tip of `main`, on one from `main` into `release` the commit of
-    /// `main` it merges. [`None`] until a history is added with
+    /// the tip of `main`. [`None`] until a history is added with
     /// [`Analysis::with_history`], and when that declaration names none.
     pub previous_audience: Option<Audience>,
     /// The commit types that count like `feat` in the declaration at hand,
@@ -469,7 +521,7 @@ impl Analysis {
     /// path: it is about a unit or the repository, never about one file.
     ///
     /// The register resolves the declaration each commit of the history held,
-    /// since a unit's path and release mode at that commit count.
+    /// since a unit's path and floor at that commit count.
     #[must_use]
     pub fn with_history(mut self, history: &History, central: &Central) -> Self {
         let resolved =

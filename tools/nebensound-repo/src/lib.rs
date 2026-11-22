@@ -34,6 +34,7 @@ pub mod files;
 pub mod finding;
 pub mod history;
 pub mod ignored;
+pub mod lockfiles;
 pub mod model;
 pub mod names;
 pub mod output;
@@ -44,9 +45,11 @@ pub mod plan;
 pub mod programs;
 pub mod reference;
 pub mod register;
+pub mod release_fields;
 pub mod report;
 pub mod repository;
 pub mod resolve;
+pub(crate) mod ruff_config;
 pub mod rules;
 #[cfg(feature = "program")]
 pub mod schema;
@@ -60,6 +63,7 @@ pub mod ui;
 pub mod validate;
 pub mod version;
 pub mod versions;
+pub mod workspace;
 pub mod writer;
 
 pub use annotate::{Annotated, Coverage, Kind, Node, annotate};
@@ -67,7 +71,7 @@ pub use central::{Central, Ruling};
 pub use edit::DeclarationFile;
 pub use finding::{Finding, Rule, Severity, UnitName};
 pub use history::{History, UnitVersion, Versions};
-pub use model::{Audience, Declaration, Edition, Pipeline, Publish, Release, Versioning};
+pub use model::{Audience, Declaration, Edition, Pipeline, Publish, Versioning};
 pub use register::Register;
 pub use resolve::{Resolution, Unit, resolve};
 pub use tree::Tree;
@@ -168,9 +172,8 @@ pub enum Command {
         #[arg(long, value_name = "PATH")]
         workspace: Option<String>,
     },
-    /// Print the version of every unit that carries one: how it is released,
-    /// its current version, the version of the commit at hand and, in two
-    /// stages, how many commits wait for the next promotion.
+    /// Print the version of every unit that carries one: its current version
+    /// and the version of the commit at hand.
     Version {
         /// Print the table as Markdown, for the summary of a run.
         #[arg(long)]

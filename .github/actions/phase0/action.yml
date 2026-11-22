@@ -95,10 +95,8 @@ runs:
     # of the run, as a notice: the value decides which rules hold for the
     # repository, so a reviewer should not have to find it in the diff. The
     # plan carries both, the one before being that of the base branch on a
-    # pull request into `main`. On one from `main` into `release` it is that
-    # of the commit of `main` it merges, so a promotion names no change: the
-    # change was named on its pull request into `main`. Both are one of a few
-    # fixed words, so nothing needs escaping.
+    # pull request into `main`. Both are one of a few fixed words, so nothing
+    # needs escaping.
     #
     # The step runs before the excluded packages are named: GitHub keeps only
     # the first annotations of a job, and a long list of them would hide this

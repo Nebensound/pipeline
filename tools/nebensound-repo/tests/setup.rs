@@ -1055,7 +1055,14 @@ printf '%s\n' '#!/bin/sh' 'echo "$*" > "${0%/*}/arguments"' > "$3/bin/python"
     let wheel = fixture.path("tool.whl");
     let dir = fixture.path("dir");
 
-    install::package(Installer::Pip, &runtime, &wheel, &dir, &fixture.env()).expect("installed");
+    install::package(
+        Installer::Pip,
+        &runtime,
+        std::slice::from_ref(&wheel),
+        &dir,
+        &fixture.env(),
+    )
+    .expect("installed");
 
     assert_eq!(
         fs::read_to_string(dir.join("bin/arguments")).expect("written"),
@@ -1488,6 +1495,88 @@ fn an_installer_that_fails_or_leaves_nothing_is_reported() {
     );
 }
 
+/// An npm that installs the first package file it is handed as a command,
+/// and writes down the package files it was handed, in order.
+const NPM_WRITES_DOWN: &str = r#"#!/bin/sh
+prefix=""
+files=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --prefix) prefix="$2"; shift 2 ;;
+    install|--*) shift ;;
+    *) files="$files ${1##*/}"; shift ;;
+  esac
+done
+set -- $files
+name="${1%.tgz}"
+/bin/mkdir -p "$prefix/node_modules/.bin"
+printf '#!/bin/sh\necho "%s 7.8.9"\n' "$name" > "$prefix/node_modules/.bin/$name"
+/bin/chmod +x "$prefix/node_modules/.bin/$name"
+echo "$files" > "$prefix/handed"
+"#;
+
+#[test]
+fn a_package_is_installed_together_with_its_companions() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    let archive = npm_runtime(NPM_WRITES_DOWN);
+    let companion = |name: &str, bytes: &[u8], digest: &str| {
+        format!(
+            "[[program.pkg.companion]]\nname = \"{name}\"\nversion = \"1.0.0\"\n\
+             url = \"{}\"\ndigest = \"{digest}\"\n",
+            fixture.serve(&format!("{name}.tgz"), bytes)
+        )
+    };
+    let entries = |second: String| {
+        [
+            check(&["pkg"]),
+            packaged(
+                "pkg",
+                "rt",
+                &fixture.serve("pkg.tgz", b"a package"),
+                &sha256(b"a package"),
+            ),
+            companion("config", b"a config", &sha256(b"a config")),
+            second,
+            runtime(
+                "rt",
+                "npm",
+                &fixture.serve("rt.tar.gz", &archive),
+                &sha256(&archive),
+                "rt/bin/rt",
+            ),
+        ]
+        .concat()
+    };
+
+    let complete = register(&entries(companion(
+        "syntax",
+        b"a syntax",
+        &sha512(b"a syntax"),
+    )));
+    let (text, code) = run(&complete, Mode::Missing, true, &mut fixture.env());
+    assert_eq!(code, 0, "{text}");
+    assert_eq!(
+        fs::read_to_string(fixture.path("cache/programs/pkg/7.8.9/handed")).expect("written"),
+        " pkg.tgz config.tgz syntax.tgz\n"
+    );
+
+    // A companion with another digest stops the installation of its program.
+    let other = Fixture::new();
+    let refused = register(&entries(companion(
+        "syntax",
+        b"a syntax",
+        &sha256(b"other"),
+    )));
+    let (text, code) = run(&refused, Mode::Missing, true, &mut other.env());
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains("pkg 7.8.9 was not installed: the download from "),
+        "{text}"
+    );
+    assert!(!other.path("cache/programs/pkg/7.8.9").exists(), "{text}");
+}
+
 #[test]
 fn a_package_needs_its_runtime_and_its_digest() {
     let _alone = alone();
@@ -1771,6 +1860,7 @@ fn windows_keeps_its_programs_elsewhere() {
         runtime: Some(RuntimeName::new("absent").expect("a name")),
         runtime_minimum: Some("1.0.0".to_owned()),
         download: std::collections::BTreeMap::new(),
+        companions: Vec::new(),
     };
     assert_eq!(
         find::program_executable(&register, &program, dir, &env),
@@ -1793,7 +1883,7 @@ fn installers_find_their_runtime_first_on_the_path() {
     install::package(
         Installer::Npm,
         &runtime,
-        &out,
+        std::slice::from_ref(&out),
         &fixture.path("dir"),
         &fixture.env(),
     )
@@ -1809,6 +1899,7 @@ fn installers_find_their_runtime_first_on_the_path() {
 
     let mut env = fixture.env();
     env.windows = true;
+    let out = [out];
     let failure = install::package(Installer::Npm, &runtime, &out, &fixture.path("dir"), &env)
         .expect_err("there is no npm.cmd");
     assert!(failure.starts_with("npm cannot be started: "), "{failure}");

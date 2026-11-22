@@ -26,11 +26,13 @@ the JSON Schema of `schema`. Building and installing the tool take no flag. What
 builds on the library alone switches the default features off and compiles
 neither.
 
-`rules/` holds the defaults that `check-markdown` and `check-yaml` lay a
-repository's own linter configuration over. The blocks read them from there,
-and the tool compiles them in to show how a repository's rules stand to them
+`rules/` holds the defaults that `check-markdown`, `check-yaml` and
+`check-python` lay a repository's own linter configuration over. The blocks
+read them from there, and the tool compiles the ones of Markdownlint and
+yamllint in to show how a repository's rules stand to them
 ([The rules](#the-rules)), so both speak of the same files, and a change to
-one of them is a change to the tool, which builds it again.
+one of them is a change to the tool, which builds it again. The same holds for
+the defaults of Stylelint, html-validate and Ruff.
 
 The tool itself is not to be published: whoever needs it is to get it through
 the composite action under `.github/actions/phase0`. A second distribution
@@ -46,9 +48,9 @@ nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branc
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `check`             | Runs phase 0 and prints all of it: the resolved configuration, the linter rules laid over the defaults, the tree, the findings (annotations in a workflow run) and the counts. Warns where the name or default branch (`--name`, `--default-branch`, else Git) or a minimum file departs from the conventions. With `--visibility`, how GitHub shows the repository, it holds the declared audience against it, as `phase0` does; without it nothing is compared. The default; `phase0` calls it. |
 | `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `explain <path>`    | What holds for one path and why: for whom the repository is meant, which units contain it, how each of them is released, which commit types count like `feat`, which checks are in force, how its coverage stands.                                                                                                                                                                                                                                                                                |
+| `explain <path>`    | What holds for one path and why: for whom the repository is meant, which units contain it, the minimum version of each of them, which commit types count like `feat`, which checks are in force, how its coverage stands.                                                                                                                                                                                                                                                                         |
 | `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read. With `--pull-request <number> --message <message>`, for a pull request, as `version` reads it. See [The plan](#the-plan).                                                                                                                                                                                                                                             |
-| `version`           | The version of every unit that carries one, as a table: release mode, current version, the version of the commit at hand and, in two stages, the commits waiting for the next promotion. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                                                                                                                                                                                |
+| `version`           | The version of every unit that carries one, as a table: current version and the version of the commit at hand. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                                                                                                                                                                                                                                                          |
 | `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                                                                                                                                                                                                                          |
 | `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                                                                                                                                                                                                                        |
 | `write-versions`    | Writes the version of every unit with the version writer `cargo` into its `Cargo.toml`, the path dependencies on it and `Cargo.lock`, in the working tree; never committed. With `--plan <file>`, takes the versions from a printed plan instead of the history; with `--workspace <path>`, starts from the units of the workspace at that path.                                                                                                                                                  |
@@ -101,18 +103,16 @@ a run has to start, and where.
       "name": null,
       "path": ".",
       "prefix": "v",
-      "release": "single-stage",
       "targets": [],
       "version": "0.3.2",
       "writers": []
     },
     {
-      "current": "1.5.0-pre.2",
+      "current": "1.5.2",
       "kind": "component",
       "name": "tool",
       "path": "tool",
       "prefix": "tool-v",
-      "release": "two-stage",
       "targets": ["crates.io"],
       "version": null,
       "writers": ["cargo"]
@@ -131,16 +131,16 @@ the prefix `v`.
 
 `versions` is one entry per unit that carries a version, in the order of
 `units`: `prefix` is what the names of its records, its tags and releases,
-start with, `release` how it is released, `current` its current version, the
-highest one the history gives a commit of the line up to the commit at hand, a
-pre-release included (`null` before the first commit that touches the unit),
+start with, `current` its current version, the highest one the history gives a
+commit of the line up to the commit at hand (`null` before the first commit
+that touches the unit),
 `version` the version of the commit at hand, `null` when the commit does not
 touch the unit, `writers` the version writers the unit selects, and `targets`
 the publish targets its artifact goes to, `[]` for `publish = false`. `current`
 is what the version writer `cargo` requires of a path dependency whose unit
 the commit does not touch, where a package that gets a version needs it. The
-release stage on `main` releases each unit whose `version` is not `null`, as
-its `prefix` and `release` say, and `Check` fails for every entry of `targets`
+release stage on `main` releases each unit whose `version` is not `null` in
+full under its `prefix`, and `Check` fails for every entry of `targets`
 that has no building block. How they are resolved from the history is
 described in [the reference of the declaration](../../docs/declaration.md#versions).
 
@@ -149,14 +149,12 @@ says (see [the reference](../../docs/declaration.md#audience)), and
 `previous_audience` what the declaration of the commit before it on the line
 says, `null` when that commit names none or there is none. On a pull request
 into `main` that is the tip of `main`, so Declare names a change of the value in
-the summary of the run from the two. On a pull request from `main` into
-`release` it is the commit of `main` the merge brings in, so a promotion names
-no change: the change was named on its pull request into `main`.
+the summary of the run from the two.
 
 `--pull-request <number> --message <message>` builds the plan for a pull
 request, reading `HEAD` the way [`version`](#the-versions) does: every `version`
 is then the one the squash merge would get, with `-pr.<number>` behind it, such
-as `1.5.0-pre.3-pr.17`, and so is the `current` of a unit the pull request
+as `1.5.3-pr.17`, and so is the `current` of a unit the pull request
 touches, which is that version. The `current` of a unit it does not touch
 carries no suffix. Declare builds the plan this way on a pull request, so that
 the version writers write what a merge would publish.
@@ -184,33 +182,29 @@ read off a broken declaration would start the wrong things.
 ```text
 Versions
 
-  Unit            Path  Release       Current      This commit  Waiting
-  the repository  .     single-stage  0.3.2        0.3.2
-  component tool  tool  two-stage     1.5.0-pre.2  none         2
+  Unit            Path  Current  This commit
+  the repository  .     0.3.2    0.3.2
+  component tool  tool  1.5.2    none
 ```
 
 `Current` is the highest version the history gives a commit of the line up to
-the commit at hand, a pre-release included, after a promotion the full version,
-`none` before the first commit that touches the unit; `This commit` the version
-of the commit at hand, `none` when the commit does not touch the unit;
-`Waiting`, for a unit released in two stages, the commits since its last
-full release that touch it, the commit at hand included, which is what its next
-full release takes in. In one stage every commit that touches the unit is a
-release of its own, and the cell stays empty. `--markdown` prints the same rows
+the commit at hand, `none` before the first commit that touches the unit;
+`This commit` the version of the commit at hand, `none` when the commit does
+not touch the unit. `--markdown` prints the same rows
 as a Markdown table with a short legend, which the job `Version` writes into
 the summary of the run. The repository always carries a version, so the table
 is never empty.
 
 `--pull-request <number> --message <message>` reads `HEAD` as the merge commit
-GitHub builds for a pull request, which touches no unit itself. It stands for
-the commit the squash merge would put on the base branch instead: one parent,
+GitHub builds for a pull request, which carries a message of GitHub's and
+contains the commits of the branch. It stands for the commit the squash merge
+would put on the base branch instead: one parent,
 the first parent of `HEAD`, the changes of `HEAD` against it, and the message
 given, which the job takes from the title and the description of the pull
 request. Every version is then the one that merge would get, with
 `-pr.<number>` behind it, and so is the current version of a unit the pull
-request touches; the column is called `This pull request`. A merge into
-`release` is read as it is, since such a pull request is merged with a merge
-commit. Both options go together.
+request touches; the column is called `This pull request`. Both options go
+together.
 
 A repository with errors gets no table: the sentence that there are no versions,
 every finding, and exit code `1`, as with the plan.
@@ -307,11 +301,16 @@ and so is a repository with errors, for the same reason it gets no plan.
 Phase 0 also holds the tools' own ways of leaving a file out against the
 declaration — `.prettierignore`, `include` and `exclude` in `taplo.toml`,
 `ignores` of markdownlint-cli2, `ignore` of yamllint, `exclude_path` of lychee,
-`ignore` of rustfmt — and fails on every file one of them takes out that no
-`[[exclude]]` entry does (`unexcused-ignore`). The building blocks read none of
-them except lychee's `exclude_path`, which phase 0 matches against the path
-from the root, the string `check-markdown` hands lychee, and rustfmt's
-`ignore`, which takes effect on a nightly toolchain; run by hand, the tools
+`ignore` of rustfmt, `include`, `ignore` and `exclude` of Pyright, `omit` of
+coverage.py, `exclude`, `extend-exclude`, `include`, `lint.exclude` and
+`format.exclude` of Ruff, through its `extend` as well, a Python file's
+`# ruff: noqa`, `.stylelintignore` and `ignoreFiles` of Stylelint,
+`.htmlvalidateignore` of html-validate — and fails on every file one of them
+takes out that no `[[exclude]]` entry does (`unexcused-ignore`). The building
+blocks read none of them except lychee's `exclude_path`, which phase 0 matches
+against the path from the root, the string `check-markdown` and `check-html`
+hand lychee, and rustfmt's `ignore`, which takes effect on a nightly toolchain,
+and Ruff's `# ruff: noqa`, which the file holds itself; run by hand, the tools
 read them all.
 
 ## Setting up the programs
@@ -334,7 +333,7 @@ It sets up the programs of the checks the plan starts, so it reads the
 repository like `plan` does, and a repository with errors gets nothing set up,
 for the same reason it gets no plan. It does not read the history, though, like
 `files` and `excluded-packages`: which checks the plan starts never depends on a
-version, so a shallow clone or an error about a release does not keep anyone
+version, so a shallow clone or an error about a version does not keep anyone
 from setting up the programs.
 
 - **By default** it uses a program that is on the computer already, found on
@@ -351,7 +350,10 @@ A download is refused unless it has the digest the register pins, and nothing
 of it is used then. Downloads go through `curl`, which macOS, Linux and Windows
 bring; a program on a runtime is installed by that runtime's installer: npm
 with `--ignore-scripts`, or pip into a virtual environment of its own, taking
-only wheels, so that no build code of a dependency runs.
+only wheels, so that no build code of a dependency runs. The installer gets the
+program's companions with it, the packages the register pins beside it that
+are no command (Stylelint's: the configurations the pipeline's default extends
+and the syntax it reads SCSS with), each held against its digest as well.
 
 A **runtime** (Node.js, Python) is needed only for the programs the run
 installs on it or starts through it: a program that is to be installed, since
@@ -455,8 +457,9 @@ sentence and exit code `1`, for the same reason it gets no plan.
 
 ## The rules
 
-Markdownlint and yamllint run with a default of the pipeline, which their
-blocks lay a repository's own configuration over rule by rule (see
+Markdownlint, yamllint, Stylelint, html-validate and Ruff run with a default of
+the pipeline, which their blocks lay a repository's own configuration over rule
+by rule (see
 [Linter rules](../../README.md#linter-rules)). `check` shows, per check, every
 file that is laid over the default and every rule it sets, with how the rule
 stands to the default:
@@ -484,7 +487,11 @@ rules are matched by any of their names and tags, in any case, so
 `line-length` stands over the default's `MD013`; a tag over rules the default
 does not give one value says so. For yamllint, a rule's options are laid over
 the default's options of that rule, as yamllint does, so writing one option of
-a rule the default sets is a difference only where that option differs.
+a rule the default sets is a difference only where that option differs. The
+defaults of Stylelint and html-validate name no rule of their own, only what
+they extend (`stylelint-config-standard`; html-validate's presets
+`recommended`, `a11y` and `prettier`), so every rule a repository sets for them
+is shown as one the pipeline's file does not name.
 
 Read are, in every folder, the options file and the file of rules only that
 markdownlint-cli2 reads there, and yamllint's configuration at the root.
@@ -500,6 +507,52 @@ is how markdownlint-cli2 reads it; the `config` of a `.markdownlint-cli2.*`
 beside it in the same folder is shown as not read, since markdownlint-cli2
 takes the file of rules only instead.
 
+Stylelint and html-validate are shown only where their check covers a file.
+For Stylelint, the configuration nearest to each stylesheet is read: the first
+of the names Stylelint looks for in its folder or the nearest folder above it,
+`package.json` only where it holds a `stylelint` key. Below the root it is
+shown `in place of any configuration above it`, as the block lays only the
+nearest one over the default. For html-validate, every `.htmlvalidate.*` of a
+folder that holds a page or holds one below it is read, each laid over the
+default and what lies above it, up to a folder whose `.htmlvalidate.json` says
+`root: true`: that folder's files are shown `in place of any configuration
+above it`, and one above it is shown only where a page outside that folder
+reaches it.
+A `root` in a JavaScript file is not read.
+
+Ruff is shown only where the python check covers a file, too. Read is, for
+each unit the check runs at, the configuration `check-python` lays over the
+default: the first of `.ruff.toml`, `ruff.toml` and a `pyproject.toml` with a
+`[tool.ruff]` table in the unit's folder or the nearest folder above it, and
+every file its `extend` names, each shown beneath the one that names it:
+
+```text
+  python                                                Ruff: the default, with these laid over it
+      pyproject.toml                                    laid over the default rule by rule
+          D100                                          off by `lint.ignore` (the default's `ignore` does not name it; its `select` is ["ALL"])
+          CPY001                                        on by `lint.extend-select` (over the default, whose `ignore` names it)
+          T201                                          off in "scripts/*" by `lint.per-file-ignores` (the default names no such pattern)
+```
+
+Ruff's rules are no map from rule to value: `select`, `extend-select`,
+`ignore`, `extend-ignore`, `per-file-ignores` and `extend-per-file-ignores`
+name rules and prefixes of them (`D`, `PLR2`, `ALL`), which Ruff weighs by how
+specific each one is. The report does not resolve a prefix into the rules it
+stands for: each entry is shown as the file writes it, and compared with the
+same entry of the default, so `D` is `on` or `off` as written, with whether the
+default's `select` or `ignore` names `D` itself. An `extend-select` entry
+switches back on what the default's `ignore` names under it, so the report
+names those entries too: `ALL` names every entry of that `ignore`, and `E`
+names `E111`, `E114` and `E117`. An entry names the codes it begins only where
+Ruff's linter prefix ends, so `E` does not name `ERA001` and `PT` does not
+name `PTH123`; `PL` names pylint's `PLC`, `PLE`, `PLR` and `PLW`. A `select`
+is shown as one list, since it starts over: the `select` and `ignore` beneath it, the
+default's `select = ["ALL"]` included, no longer hold. A `per-file-ignores`
+starts over as well, and the report names the default's patterns that no
+longer hold. The settings are read in the `lint` table, or at the top where
+`lint` does not name one. An `extend` that leaves the repository or that Ruff
+would expand (`~`, `$`) is named, not read.
+
 ## Where the file list comes from
 
 From `git ls-files`, not from a directory walk. What a repository holds is
@@ -510,17 +563,12 @@ judge things the repository does not have.
 `git add` is enough; a commit is not needed, because `ls-files` reads the index.
 
 The versions come from Git as well: the line of `main` (the first-parent line
-of `HEAD`, or at a merge into `release` that of the commit of `main` it
-merges), the declaration and the files each commit of that line held, and the
-branches `origin/release` and `origin/main`. The tags are read only to be held
-against that history: no version comes from them. Where a unit lived and how
-it was released is read at each commit from its own declaration, so a unit
-that moves or switches between one stage and two keeps its earlier releases,
-and a declaration written for an edition this tool does not know stops the
-call, wherever it stands on the line.
-At a merge into `release`, `origin/main` also tells whether it brings in the tip
-of `main`: only the tip is promoted, and any other merge is the error
-`stale-promotion`. A repository without a commit has no version yet; a shallow clone is an error,
+of `HEAD`) and the declaration and the files each commit of that line held.
+The tags are read only to be held against that history: no version comes from
+them. Where a unit lived is read at each commit from its own declaration, so a
+unit that moves keeps its earlier releases, and a declaration written for an
+edition this tool does not know stops the call, wherever it stands on the line.
+A repository without a commit has no version yet; a shallow clone is an error,
 because the history it lacks could hold the last release. Every option the person's Git configuration could change, such as
 rename detection, is given on the command line, so the answer does not depend
 on who runs it.

@@ -2,7 +2,7 @@ name: check-json
 description: >-
   The JSON check over one unit: every `.json`, `.jsonc` and `.geojson` file
   the unit holds parses and is formatted the way Prettier writes it; every
-  `composer.lock` and `flake.lock` parses.
+  `composer.lock`, `flake.lock` and `Pipfile.lock` parses.
 
 # One input, and it is not a setting: where the unit is. It comes from the plan
 # of phase 0. The files are the ones `nebensound-repo files` names for the check
@@ -157,9 +157,12 @@ runs:
     # all of them aside, since the command line wins over the configuration.
     # What is not to be checked is not in the list.
     #
-    # A lockfile (`composer.lock`, `flake.lock`) has to parse, above, and is not
-    # formatted: the tool that writes it decides its layout, and Composer's
-    # four-space indentation is not Prettier's.
+    # A lockfile (`composer.lock`, `flake.lock`, `Pipfile.lock`) has to parse,
+    # above, and is not formatted: the tool that writes it decides its layout,
+    # and the four-space indentation of Composer and pipenv is not Prettier's.
+    # Every listed file whose name ends in `.lock` is one, since the register
+    # gives `json` lockfiles by name and nothing else with that extension; a
+    # lockfile the register names later is passed over here without a change.
     - name: Every JSON file is formatted
       if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
       shell: bash
@@ -172,7 +175,7 @@ runs:
         : > "$formatted"
         while IFS= read -r -d '' file; do
           case "${file##*/}" in
-            composer.lock | flake.lock) ;;
+            *.lock) ;;
             *) printf '%s\0' "$file" >> "$formatted" ;;
           esac
         done < "$LIST"

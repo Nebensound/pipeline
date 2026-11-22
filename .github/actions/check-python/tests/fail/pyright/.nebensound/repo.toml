@@ -1,0 +1,6 @@
+# A function declared to return an `int` that returns a string. Python runs
+# it, the tests pass and Ruff has nothing to say; Pyright reports the return
+# type.
+[repo]
+audience = "public"
+pipeline = { check = ["python"], dependabot = ["uv"] }

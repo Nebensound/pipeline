@@ -1,0 +1,5 @@
+# A stylesheet and an SCSS file that keep stylelint-config-standard and its
+# SCSS counterpart.
+[repo]
+audience = "public"
+pipeline = { check = ["css"] }

@@ -443,13 +443,11 @@ fn calls(kind: &Kind<'_>, plan: &str, dir: &Path) -> Result<Result<Vec<Call>, St
         inputs,
     };
     // A check or build block gets the plan beside the unit's path when it
-    // takes one, as its step in nebensound.yml hands it over.
+    // takes one, as its step in nebensound.yml hands it over; the layout check
+    // holds the step to exactly that.
     let planned = match kind {
         Kind::Version(_) => false,
-        Kind::Check(_) | Kind::Build(_) => Action::load(dir)?
-            .inputs
-            .iter()
-            .any(|input| input.name.eq_ignore_ascii_case("plan")),
+        Kind::Check(_) | Kind::Build(_) => Action::load(dir)?.takes("plan"),
     };
     let unit = |path: String| {
         let mut inputs = BTreeMap::from([("working-directory".to_owned(), path)]);

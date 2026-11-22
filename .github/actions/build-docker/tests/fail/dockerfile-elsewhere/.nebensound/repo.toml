@@ -1,5 +1,0 @@
-# A Dockerfile at the root of the unit instead of deploy/Dockerfile. The build
-# takes deploy/Dockerfile and nothing else, so it fails before it builds.
-[repo]
-audience = "public"
-pipeline = { check = ["dockerfile"], build = "docker", dependabot = ["docker"] }

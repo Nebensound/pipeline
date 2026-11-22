@@ -76,8 +76,7 @@ pub struct Plan {
     /// For whom the repository is meant, as the declaration at hand says.
     pub audience: Option<Audience>,
     /// For whom the declaration of the commit before says it is meant: on a
-    /// pull request into `main` the tip of `main`, on one from `main` into
-    /// `release` the commit of `main` it merges.
+    /// pull request into `main` the tip of `main`.
     pub previous_audience: Option<Audience>,
 }
 
@@ -171,13 +170,13 @@ impl Plan {
     /// cannot unfold a list inside one.
     ///
     /// `versions` is one entry per unit that carries a version: what the
-    /// names of its records start with as `prefix`, how it is released, its
-    /// `current` version (the highest version the history gives any commit of
-    /// the line up to the commit at hand, null before the first commit that
-    /// touches the unit), the `version` of the commit at hand, null when the
-    /// commit does not touch the unit, the `writers` that copy it into the
-    /// unit's files, and the `targets` its artifact is published to, empty
-    /// for `publish = false`. For a pull request `version` carries `-pr.<number>`
+    /// names of its records start with as `prefix`, its `current` version
+    /// (the highest version the history gives any commit of the line up to
+    /// the commit at hand, null before the first commit that touches the
+    /// unit), the `version` of the commit at hand, null when the commit does
+    /// not touch the unit, the `writers` that copy it into the unit's files,
+    /// and the `targets` its artifact is published to, empty for
+    /// `publish = false`. For a pull request `version` carries `-pr.<number>`
     /// behind it, being the one its squash merge would get, and so does
     /// `current` where the pull request touches the unit: it is that version
     /// then.
@@ -185,9 +184,7 @@ impl Plan {
     /// `audience` is for whom the repository is meant, as the declaration at
     /// hand says, and `previous_audience` what the declaration of the commit
     /// before says, null when it names none: on a pull request into `main` the
-    /// tip of `main`, so that a change of the value can be shown. On one from
-    /// `main` into `release` it is the commit of `main` it merges, so a
-    /// promotion shows no change.
+    /// tip of `main`, so that a change of the value can be shown.
     ///
     /// One line, so that it can be handed on as a step output as it is. Keys
     /// stand in alphabetical order; nothing that reads JSON depends on it.
@@ -225,7 +222,6 @@ impl Plan {
                 } = versioned;
                 let mut entry = identity(&unit.name, &unit.path);
                 entry["prefix"] = json!(unit.prefix);
-                entry["release"] = json!(unit.release.as_str());
                 let written = |version: &TagVersion| {
                     self.pull_request.map_or_else(
                         || version.to_string(),

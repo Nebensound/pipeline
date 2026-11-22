@@ -1,0 +1,13 @@
+$accent: #0a7;
+
+@mixin underline {
+  text-decoration: underline;
+}
+
+a {
+  color: $accent;
+
+  &:hover {
+    @include underline;
+  }
+}

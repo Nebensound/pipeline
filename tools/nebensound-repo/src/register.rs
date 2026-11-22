@@ -10,11 +10,12 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::model::{Publish, Release};
+use crate::model::Publish;
 use crate::names::{
     ArtifactKind, BuildName, CheckName, EcosystemName, Extension, PresetName, ProgramName,
     RuntimeName, TargetName, VersionWriterName,
 };
+use crate::path::RelativePath;
 use crate::programs::{Program, Runtime, at_least, download_problem, is_version};
 
 /// The vocabulary as it stands in `register.toml`.
@@ -49,6 +50,46 @@ pub struct Ecosystem {
     pub package_ecosystem: String,
     /// The files it is recognized by in the tree.
     pub manifests: Vec<String>,
+    /// The lockfile that belongs to a manifest of the ecosystem, when the
+    /// ecosystem knows one.
+    #[serde(default)]
+    pub lockfile: Option<Lockfile>,
+}
+
+/// The lockfile that belongs to a manifest, and where it stands.
+///
+/// Its name is one of the lockfiles the register names (see
+/// [`Register::is_lockfile`]), so that a lockfile is told in one place: a
+/// register that names another is refused.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Lockfile {
+    /// The file name of the manifest it belongs to.
+    pub manifest: String,
+    /// Its own file name.
+    pub name: String,
+    /// Where it stands, seen from the manifest.
+    pub stands: Stands,
+}
+
+/// Where a lockfile stands, seen from its manifest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Stands {
+    /// In the folder of the manifest.
+    Manifest,
+    /// In the root of the Cargo workspace the manifest's package belongs to,
+    /// found the way Cargo finds it ([`crate::workspace`]).
+    CargoWorkspaceRoot,
+}
+
+impl std::fmt::Display for Stands {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Manifest => "beside the manifest",
+            Self::CargoWorkspaceRoot => "in the root of the Cargo workspace",
+        })
+    }
 }
 
 /// A format-aware writer of the derived copy of a unit's version.
@@ -88,6 +129,10 @@ pub struct Build {
     /// sources hold.
     #[serde(default)]
     pub requires_version: Vec<VersionWriterName>,
+    /// The files a unit it builds must hold, each relative to the unit's
+    /// path: what the build reads and fails without.
+    #[serde(default)]
+    pub requires_file: Vec<RelativePath>,
     /// The programs it calls, each pinned under `[program.*]`.
     #[serde(default)]
     pub programs: Vec<ProgramName>,
@@ -102,10 +147,6 @@ pub struct Target {
     /// A check the unit must run before it may publish here.
     #[serde(default)]
     pub requires_check: Option<CheckName>,
-    /// How a unit that publishes here is released when its declaration does
-    /// not say. Required: a target that left it open would leave the default
-    /// of every unit publishing there open as well.
-    pub release: Release,
 }
 
 /// A named pipeline, looked up instead of written out.
@@ -202,6 +243,28 @@ fn minimum(
     })
 }
 
+/// Refuses a companion of a program on no runtime, whose installer would put
+/// it in place, and one whose version is not three numbers.
+fn companions(
+    name: &ProgramName,
+    program: &Program,
+    on_runtime: bool,
+) -> Result<(), RegisterError> {
+    if !on_runtime && !program.companions.is_empty() {
+        return Err(RegisterError::Download {
+            holder: name.to_string(),
+            problem: "names a companion, and only a program on a runtime has one",
+        });
+    }
+    for companion in &program.companions {
+        pinned(
+            &format!("the companion {} of {name}", companion.name),
+            &companion.version,
+        )?;
+    }
+    Ok(())
+}
+
 /// Refuses a pinned version that is not three numbers.
 fn pinned(holder: &dyn std::fmt::Display, version: &str) -> Result<(), RegisterError> {
     if is_version(version) {
@@ -288,6 +351,7 @@ impl Register {
                 });
             }
             minimum(name, runtime, program.runtime_minimum.as_deref())?;
+            companions(name, program, runtime.is_some())?;
         }
         for (name, build) in &self.build {
             for writer in &build.requires_version {
@@ -306,6 +370,13 @@ impl Register {
                 && !self.check.contains_key(check)
             {
                 return Err(dangling(name, "check", check));
+            }
+        }
+        for (name, ecosystem) in &self.ecosystem {
+            if let Some(lockfile) = &ecosystem.lockfile
+                && !self.is_lockfile(&lockfile.name)
+            {
+                return Err(dangling(name, "lockfile", &lockfile.name));
             }
         }
         for (name, preset) in &self.preset {
@@ -367,6 +438,23 @@ impl Register {
             .iter()
             .find(|(_, definition)| definition.manifests.iter().any(|known| known == name))
             .map(|(ecosystem, _)| ecosystem)
+    }
+
+    /// Whether this file is a lockfile the register names: a whole file name
+    /// that a check covers and that ends in `.lock`. A check covers a lockfile
+    /// by its name, never by the extension `.lock`, which formats that have
+    /// nothing in common share; its building block parses it and leaves its
+    /// formatting alone.
+    #[must_use]
+    pub fn is_lockfile(&self, path: &str) -> bool {
+        let name = path.rsplit('/').next().unwrap_or(path);
+        // Matched as exactly as the names are, so `.LOCK` is no lockfile.
+        name.rsplit_once('.')
+            .is_some_and(|(_, ending)| ending == "lock")
+            && self
+                .check
+                .values()
+                .any(|definition| definition.filenames.iter().any(|known| known == name))
     }
 
     /// The check that covers a file, if any check does.

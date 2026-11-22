@@ -306,12 +306,20 @@ const UNCHECKED_TABLE: &[(&str, &str)] = &[
     ("**/Makefile", COMMANDS),
     ("**/.gitkeep", MARKER),
     ("**/.keep", MARKER),
+    (
+        "**/py.typed",
+        "an empty marker of a typed package (PEP 561)",
+    ),
+    (
+        "**/.python-version",
+        "a version number read by uv; no tool has an opinion about its format",
+    ),
 ];
 
 const MARKER: &str = "an empty marker that keeps a folder";
 
 /// The entries of the table that hold only while the file is empty.
-const ONLY_IF_EMPTY: &[&str] = &["**/.gitkeep", "**/.keep"];
+const ONLY_IF_EMPTY: &[&str] = &["**/.gitkeep", "**/.keep", "**/py.typed"];
 
 #[test]
 fn what_nobody_checks_is_exactly_the_unchecked_table() {

@@ -99,7 +99,7 @@ fn the_page_names_what_the_register_says() {
         &[
             "`json`",
             "`.json`, `.jsonc`, `.geojson`",
-            "`composer.lock`, `flake.lock`",
+            "`composer.lock`, `flake.lock`, `Pipfile.lock`",
             "`biome`, `jq`, `prettier`",
         ],
         &[
@@ -122,15 +122,27 @@ fn the_page_names_what_the_register_says() {
             "`linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, \
              `windows-aarch64`",
         ],
-        &["`docker`", "`container`", "none", "`trivy`"],
-        &["`cargo-package`", "`crate`", "`cargo`", "none"],
-        &["`crates.io`", "`crate`", "`rust`", "`two-stage`"],
-        &["`ghcr`", "`container`", "none", "`single-stage`"],
+        &[
+            "`docker`",
+            "`container`",
+            "none",
+            "`deploy/Dockerfile`",
+            "`trivy`",
+        ],
+        &["`cargo-package`", "`crate`", "`cargo`", "none", "none"],
+        &["`crates.io`", "`crate`", "`rust`"],
+        &["`ghcr`", "`container`", "none"],
         &[
             "`cargo`",
             "the package version in the unit's Cargo.toml, written through Cargo",
         ],
-        &["`github-actions`", "`github-actions`", "none"],
+        &["`github-actions`", "`github-actions`", "none", "none"],
+        &[
+            "`cargo`",
+            "`cargo`",
+            "`Cargo.lock`",
+            "`Cargo.lock` of a `Cargo.toml`, in the root of the Cargo workspace",
+        ],
         &["`**/LICENSE`", "legal text, taken over unchanged"],
     ] {
         assert!(

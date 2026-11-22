@@ -12,7 +12,7 @@ use nebensound_repo::names::{
     BuildName, CheckName, EcosystemName, PresetName, TargetName, VersionWriterName,
 };
 use nebensound_repo::path::RelativePath;
-use nebensound_repo::register::{Register, RegisterError};
+use nebensound_repo::register::{BUILTIN_REGISTER, Register, RegisterError, Stands};
 use nebensound_repo::{Central, Ruling, Tree};
 
 fn refuses(source: &str) -> String {
@@ -281,7 +281,7 @@ const COVERAGE_TABLE: &[Coverage] = &[
     (
         "json",
         &[".json", ".jsonc", ".geojson"],
-        &["composer.lock", "flake.lock"],
+        &["composer.lock", "flake.lock", "Pipfile.lock"],
     ),
     ("markdown", &[".md", ".markdown"], &[]),
     ("php", &[".php"], &[]),
@@ -291,7 +291,17 @@ const COVERAGE_TABLE: &[Coverage] = &[
     ("rust", &[".rs"], &[]),
     ("shell", &[".sh", ".bash"], &[]),
     ("sql", &[".sql"], &[]),
-    ("toml", &[".toml"], &["Cargo.lock", "uv.lock"]),
+    (
+        "toml",
+        &[".toml"],
+        &[
+            "Cargo.lock",
+            "uv.lock",
+            "poetry.lock",
+            "pdm.lock",
+            "Pipfile",
+        ],
+    ),
     ("typst", &[".typ"], &[]),
     ("yaml", &[".yml", ".yaml"], &[]),
 ];
@@ -377,6 +387,12 @@ fn a_check_is_found_by_extension_or_by_whole_name() {
     assert_eq!(register.check_for("api/uv.lock"), Some(&named("toml")));
     assert_eq!(register.check_for("composer.lock"), Some(&named("json")));
     assert_eq!(register.check_for("sub/flake.lock"), Some(&named("json")));
+    assert_eq!(register.check_for("poetry.lock"), Some(&named("toml")));
+    assert_eq!(register.check_for("api/pdm.lock"), Some(&named("toml")));
+    assert_eq!(register.check_for("Pipfile.lock"), Some(&named("json")));
+    // TOML without an extension, named whole like a lockfile.
+    assert_eq!(register.check_for("Pipfile"), Some(&named("toml")));
+    assert_eq!(register.check_for("api/Pipfile"), Some(&named("toml")));
     // A lockfile is assigned by its name, never by the extension `.lock`.
     assert_eq!(register.check_for("yarn.lock"), None);
     assert_eq!(register.check_for("Gemfile.lock"), None);
@@ -388,6 +404,44 @@ fn a_check_is_found_by_extension_or_by_whole_name() {
     assert_eq!(register.check_for("Scripts/Start.R"), Some(&named("r")));
     assert_eq!(register.check_for("notes.unknown"), None);
     assert_eq!(register.check_for("LICENSE"), None);
+}
+
+#[test]
+fn a_lockfile_is_a_whole_name_a_check_covers_that_ends_in_lock() {
+    let register = builtin();
+
+    assert!(register.is_lockfile("Cargo.lock"));
+    assert!(register.is_lockfile("api/uv.lock"));
+    assert!(register.is_lockfile("sub/flake.lock"));
+    assert!(register.is_lockfile("poetry.lock"));
+    assert!(register.is_lockfile("api/pdm.lock"));
+    assert!(register.is_lockfile("Pipfile.lock"));
+    // Named by a check, but not a lockfile.
+    assert!(!register.is_lockfile("deploy/Dockerfile"));
+    assert!(!register.is_lockfile("api/Pipfile"));
+    // A lockfile, but no check covers it.
+    assert!(!register.is_lockfile("yarn.lock"));
+    assert!(!register.is_lockfile("other.lock"));
+    assert!(!register.is_lockfile("Cargo.toml"));
+}
+
+#[test]
+fn the_lockfile_of_a_manifest_is_one_a_check_names() {
+    let register = builtin();
+    let cargo = &register.ecosystem[&EcosystemName::new("cargo").expect("a name")];
+    let lockfile = cargo.lockfile.as_ref().expect("Cargo knows a lockfile");
+    assert_eq!(lockfile.manifest, "Cargo.toml");
+    assert!(register.is_lockfile(&lockfile.name));
+    assert_eq!(lockfile.stands, Stands::CargoWorkspaceRoot);
+
+    // A name no check covers would be a second list of lockfiles.
+    let written = "name = \"Cargo.lock\"";
+    assert!(BUILTIN_REGISTER.contains(written));
+    let message = refuses(&BUILTIN_REGISTER.replace(written, "name = \"yarn.lock\""));
+    assert_eq!(
+        message,
+        "cargo refers to the lockfile \"yarn.lock\", which the register does not define"
+    );
 }
 
 #[test]
@@ -438,7 +492,6 @@ extensions = [".md"]
 produces = "thing"
 [target.t]
 accepts = ["thing"]
-release = "single-stage"
 [ecosystem.e]
 package-ecosystem = "e"
 manifests = ["E.toml"]
@@ -635,6 +688,42 @@ fn a_build_names_the_programs_it_calls() {
     // The image is scanned before it is handed on.
     assert_eq!(calls("docker"), ["trivy"]);
     assert!(calls("cargo-package").is_empty());
+}
+
+#[test]
+fn a_build_names_the_files_it_reads_in_the_unit() {
+    let register = builtin();
+    let reads = |name: &str| {
+        register
+            .build
+            .get(&BuildName::new(name).expect("a name"))
+            .unwrap_or_else(|| panic!("the {name} build"))
+            .requires_file
+            .clone()
+    };
+
+    // The image is built from deploy/Dockerfile below the unit, and nothing
+    // else.
+    assert_eq!(
+        reads("docker"),
+        [RelativePath::new("deploy/Dockerfile").expect("a path")]
+    );
+    assert!(reads("cargo-package").is_empty());
+}
+
+#[test]
+fn a_file_a_build_needs_is_a_path_inside_the_unit() {
+    let builtin = BUILTIN_REGISTER;
+    let docker = "requires-file = [\"deploy/Dockerfile\"]";
+    assert!(
+        builtin.contains(docker),
+        "the docker build reads its Dockerfile"
+    );
+    for outside in ["/deploy/Dockerfile", "../Dockerfile"] {
+        let message =
+            refuses(&builtin.replace(docker, &format!("requires-file = [\"{outside}\"]")));
+        assert!(message.contains("not readable"), "{outside}: {message}");
+    }
 }
 
 #[test]
