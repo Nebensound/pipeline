@@ -110,8 +110,8 @@ fn the_default_branch_is_what_origin_head_names() {
         Some("main")
     );
     assert_eq!(
-        branch_from_head("refs/remotes/origin/release/2026").as_deref(),
-        Some("release/2026")
+        branch_from_head("refs/remotes/origin/develop/2026").as_deref(),
+        Some("develop/2026")
     );
     assert_eq!(branch_from_head("refs/remotes/upstream/main"), None);
     assert_eq!(branch_from_head("refs/remotes/origin/"), None);

@@ -16,7 +16,7 @@ use crate::names::{
 };
 use crate::path::RelativePath;
 use crate::pattern::Pattern;
-use crate::version::{FeatTypes, TagVersion};
+use crate::version::{FeatTypes, Version};
 
 /// The contents of `.nebensound/repo.toml`.
 #[cfg_attr(feature = "program", derive(schemars::JsonSchema))]
@@ -124,14 +124,9 @@ pub struct Repo {
     /// Which units around it carry a version.
     #[serde(default)]
     pub versioning: Option<Versioning>,
-    /// Whether it is released in one stage or in two. Left out, its publish
-    /// targets decide.
+    /// The version it gets is never lower than this, as `X.Y.Z`.
     #[serde(default)]
-    pub release: Option<Release>,
-    /// The version it gets is never lower than this: `X.Y.Z`, or
-    /// `X.Y.Z-pre.N` for a pre-release of a unit released in two stages.
-    #[serde(default)]
-    pub minimum_version: Option<TagVersion>,
+    pub minimum_version: Option<Version>,
     /// Checks that may find nothing without failing, each with its reason.
     #[serde(default)]
     pub allow_unused: BTreeMap<CheckName, Reason>,
@@ -168,14 +163,9 @@ pub struct Component {
     /// Which units around it carry a version.
     #[serde(default)]
     pub versioning: Option<Versioning>,
-    /// Whether it is released in one stage or in two. Left out, its publish
-    /// targets decide.
+    /// The version it gets is never lower than this, as `X.Y.Z`.
     #[serde(default)]
-    pub release: Option<Release>,
-    /// The version it gets is never lower than this: `X.Y.Z`, or
-    /// `X.Y.Z-pre.N` for a pre-release of a unit released in two stages.
-    #[serde(default)]
-    pub minimum_version: Option<TagVersion>,
+    pub minimum_version: Option<Version>,
     /// Checks that may find nothing without failing, each with its reason.
     #[serde(default)]
     pub allow_unused: BTreeMap<CheckName, Reason>,
@@ -213,40 +203,6 @@ impl Audience {
 }
 
 impl fmt::Display for Audience {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// How a unit's version reaches a full release.
-///
-/// Written down rather than read off the repository: whether a branch
-/// `release` exists says nothing, since a deleted branch must not turn the next
-/// merge into a full release.
-#[cfg_attr(feature = "program", derive(schemars::JsonSchema))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-pub enum Release {
-    /// A merge to `main` is a full release.
-    #[serde(rename = "single-stage")]
-    SingleStage,
-    /// A merge to `main` is a pre-release, and a pull request from `main` into
-    /// `release` makes the full release.
-    #[serde(rename = "two-stage")]
-    TwoStage,
-}
-
-impl Release {
-    /// The value as written in the file.
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::SingleStage => "single-stage",
-            Self::TwoStage => "two-stage",
-        }
-    }
-}
-
-impl fmt::Display for Release {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
