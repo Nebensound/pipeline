@@ -88,13 +88,17 @@ runs:
       run: echo demo
 ";
 
-/// The tool as far as the xtask calls it: phase 0, the plan and `run`, each
-/// on the repository in the working directory, as the files of a case
-/// decide.
+/// The tool as far as the xtask calls it: `setup` on the repository of the
+/// blocks, phase 0, the plan and `run` on the repository of a case, each on
+/// the repository in the working directory, as the files there decide.
 const NEBENSOUND_REPO: &str = r#"#!/bin/sh
 [ "$1" = "-C" ] && [ "$(cd "$2" && pwd -P)" = "$(pwd -P)" ] || { echo "not on the case: $*"; exit 2; }
 shift 2
 case "$1" in
+  setup)
+    echo "setup $2 $3 GITHUB_ACTIONS=$GITHUB_ACTIONS"
+    [ -f setup-fails ] && { echo "cannot download"; exit 1; }
+    exit 0 ;;
   check)
     echo "check $2 $3 $4 GITHUB_ACTIONS=$GITHUB_ACTIONS"
     [ -f phase0-fails ] && { echo "error[x]: wrong"; exit 1; }
@@ -203,6 +207,9 @@ fn the_cases_of_a_block_from_the_tool_run_through_the_tool() {
     for line in [
         "::group::The tool, built with Cargo\n",
         "    | warning: from cargo\n",
+        "::group::check-json, the programs of its check\n",
+        "  > nebensound-repo setup --pinned json\n",
+        "    | setup --pinned json GITHUB_ACTIONS=true\n",
         "check-json, passing case `good`: as expected\n",
         "check-json, failing case `bad`: as expected\n",
         "  > nebensound-repo check --name=case --default-branch=main --visibility=public\n",
@@ -240,6 +247,26 @@ fn the_cases_of_a_block_from_the_tool_run_through_the_tool() {
         "::error::check-json, passing case `nowhere`: no unit of the case starts the check \
          `json`, so the block never runs\n",
         "3 problem(s), each named above.\n",
+    ] {
+        assert!(out.contains(line), "{line}\n{out}");
+    }
+    // The programs of the check are set up before its first case.
+    let set_up = out
+        .find("  > nebensound-repo setup --pinned json\n")
+        .unwrap();
+    let first = out.find("::group::check-json, passing case").unwrap();
+    assert!(set_up < first, "{out}");
+
+    // A setup that fails is a problem of its own, and the cases still run.
+    write(&root, &[("setup-fails", "")]);
+    let (code, out) = call(&["check", "--all"], &setup);
+    assert_eq!(code, 1, "{out}");
+    for line in [
+        "    | cannot download\n",
+        "::error::check-json: `nebensound-repo setup --pinned json` failed, so its cases run \
+         with the programs that are there\n",
+        "check-json, failing case `bad`: as expected\n",
+        "4 problem(s), each named above.\n",
     ] {
         assert!(out.contains(line), "{line}\n{out}");
     }
@@ -327,6 +354,12 @@ fn without_a_tool_no_case_of_a_block_from_the_tool_runs() {
     assert_eq!(code, 1, "{out}");
     assert!(
         out.contains("::error::check-json, passing case `good`: cannot be run: cannot start "),
+        "{out}"
+    );
+    assert!(
+        out.contains(
+            "::error::check-json: the programs of its check cannot be set up: cannot start "
+        ),
         "{out}"
     );
 }

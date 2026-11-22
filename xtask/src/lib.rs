@@ -5,13 +5,15 @@
 //! - `check` holds the building blocks, the register and `nebensound.yml` to
 //!   each other ([`layout`]), and runs every building block against its test
 //!   cases ([`cases`]). A block whose check the tool carries out runs through
-//!   the tool of this commit, on every system; every other block by running
-//!   its own steps, read from its `action.yml` ([`runner`]), on Linux only.
+//!   the tool of this commit, on every system, after `nebensound-repo setup
+//!   --pinned <check>` has set up the programs of its check; every other block
+//!   by running its own steps, read from its `action.yml` ([`runner`]), on
+//!   Linux only.
 //!   The central workflow runs `cargo xtask check --all` as the last step of
 //!   `Check repository`.
 //! - `setup` calls `nebensound-repo setup` for this repository, with the tool
-//!   of this commit, to find or install the programs its checks call, which
-//!   the cases of the blocks that run from the tool need as well. Then, on
+//!   of this commit, to find or install the programs its checks call, and with
+//!   `--with-runtimes` a runtime one of them needs. Then, on
 //!   Linux, it checks what only the cases of the other blocks need
 //!   ([`MACHINE`]): a program an action of a block's step would put on the
 //!   `PATH`, in the version the step asks for, Docker with Buildx, jq, npm
@@ -74,9 +76,11 @@ Usage: cargo xtask check --all
 check --all   Holds the building blocks, the register and nebensound.yml to
               each other, and runs every building block against its test cases
               in tests/pass/ and tests/fail/. The blocks whose check the tool
-              carries out (json, markdown, toml, yaml) run through the tool of
-              this commit, with the programs `setup` puts in place, on every
-              system. The cases of the other blocks run the blocks' own steps,
+              carries out (dockerfile, json, markdown, toml, yaml) run through
+              the tool of this commit, on every system, after
+              `nebensound-repo setup --pinned <check>` has set up the programs
+              of their check; a runtime one of them needs is taken from the
+              computer. The cases of the other blocks run the blocks' own steps,
               which are written for the Linux runners of GitHub Actions, so
               for now they run on Linux only.
 setup         Calls `nebensound-repo setup` for this repository, built from
@@ -461,9 +465,18 @@ fn cases(
             git: &"git".into(),
             scratch: scratch.path(),
         };
-        failures += each(direct, setup, out, |block, case, out| {
-            cases::direct(bench, block, case, out)
-        })?;
+        for block in direct {
+            if let Some(problem) = cases::set_up(bench, &setup.root, block, out) {
+                say(out, &format!("::error::{block}: {problem}\n"));
+                failures += 1;
+            }
+            failures += each(
+                std::slice::from_ref(block),
+                setup,
+                out,
+                |block, case, out| cases::direct(bench, block, case, out),
+            )?;
+        }
     }
     if !stepwise.is_empty() {
         failures += stepwise_cases(stepwise, setup, scratch.path(), out)?;

@@ -6,9 +6,11 @@
 //! Git repository.
 //!
 //! A block whose check the tool carries out ([`FROM_THE_TOOL`]) is run
-//! through the tool itself ([`direct`]), on every system: phase 0 with
-//! `nebensound-repo check` and `plan`, then `nebensound-repo run` once for
-//! every unit the plan starts the check for, as a workflow run calls it.
+//! through the tool itself ([`direct`]), on every system: before its cases
+//! the programs of its check are set up ([`set_up`]), and for each case phase
+//! 0 runs with `nebensound-repo check` and `plan`, then `nebensound-repo run`
+//! once for every unit the plan starts the check for, as a workflow run calls
+//! it.
 //!
 //! Every other block runs its own steps ([`run`]): the xtask runs phase 0 on
 //! the case the way `Declare` does. A check block
@@ -39,7 +41,13 @@ use crate::{Error, say};
 /// The blocks whose check `nebensound-repo run` carries out. Their steps set
 /// up the programs and call `run`, so nothing of the check is left in them:
 /// their cases run through the tool itself, on every system ([`direct`]).
-pub const FROM_THE_TOOL: &[&str] = &["check-json", "check-markdown", "check-toml", "check-yaml"];
+pub const FROM_THE_TOOL: &[&str] = &[
+    "check-dockerfile",
+    "check-json",
+    "check-markdown",
+    "check-toml",
+    "check-yaml",
+];
 
 /// What a case is told when phase 0 fails on it.
 const PHASE0_FAILS: &str =
@@ -519,6 +527,34 @@ pub struct Direct<'a> {
     pub git: &'a OsString,
     /// Where each case gets a directory of its own.
     pub scratch: &'a Path,
+}
+
+/// Sets up the programs of the check of the block `block`, whose check the
+/// tool carries out, before its cases run: `nebensound-repo setup --pinned
+/// <check>` on the repository at `root`, the first of the two calls the block
+/// makes, without `--with-runtimes`. It installs the pinned version of every
+/// program the check calls where it is missing, and no runtime, which stays
+/// the computer's unless someone agrees. So the cases do not depend on which
+/// blocks ran before them. Nothing when it went well, else what went wrong.
+/// What the tool prints is folded into a group.
+pub fn set_up(bench: Direct<'_>, root: &Path, block: &str, out: &mut dyn Write) -> Option<String> {
+    let check = block.strip_prefix("check-").unwrap_or(block);
+    say(
+        out,
+        &format!("::group::{block}, the programs of its check\n"),
+    );
+    let done = tool(bench, root, &["setup", "--pinned", check], out);
+    say(out, "::endgroup::\n");
+    match done {
+        Ok((true, _)) => None,
+        Ok((false, _)) => Some(format!(
+            "`nebensound-repo setup --pinned {check}` failed, so its cases run with the programs \
+             that are there"
+        )),
+        Err(error) => Some(format!(
+            "the programs of its check cannot be set up: {error}"
+        )),
+    }
 }
 
 /// Runs the case of the block `block`, whose check the tool carries out,
