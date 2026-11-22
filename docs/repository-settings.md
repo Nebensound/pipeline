@@ -60,6 +60,8 @@ gh api repos/Nebensound/pipeline/private-vulnerability-reporting
   takes the pull request's title and description as well; those settings are
   carried by every repository and listed under
   [Every repository of the organization](#every-repository-of-the-organization).
+  Until the owner has applied them, the read-back below fails on
+  `merge_commit_title` and `merge_commit_message`.
   The ruleset of the default branch allows squash and merge commit once the
   owner has applied it (see
   [`Grundschutz Standard-Branch`](organization/README.md#grundschutz-standard-branch)).
@@ -71,10 +73,12 @@ gh api repos/Nebensound/pipeline/private-vulnerability-reporting
 gh api repos/Nebensound/pipeline \
   --jq '{allow_squash_merge, allow_merge_commit, allow_rebase_merge,
          squash_merge_commit_title, squash_merge_commit_message,
+         merge_commit_title, merge_commit_message,
          delete_branch_on_merge}'
 # expected: allow_squash_merge true, allow_merge_commit true,
 #           allow_rebase_merge false, squash_merge_commit_title "PR_TITLE",
-#           squash_merge_commit_message "PR_BODY", delete_branch_on_merge true
+#           squash_merge_commit_message "PR_BODY", merge_commit_title "PR_TITLE",
+#           merge_commit_message "PR_BODY", delete_branch_on_merge true
 ```
 
 ## Workflow runs from forks
