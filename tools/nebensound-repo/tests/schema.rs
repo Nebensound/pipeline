@@ -1,14 +1,10 @@
-//! The JSON Schema of `.nebensound/repo.toml` that `check-toml` assigns is the
-//! one the types of the declaration describe.
+//! The JSON Schema of `.nebensound/repo.toml` that the TOML check assigns is
+//! the one the types of the declaration describe.
 //!
-//! The file lies beside `check-toml`, which reads it from its own commit. It is
+//! The file lies in `schemas/`, from where `run toml` compiles it in. It is
 //! compared as JSON, not as text: it is committed the way Prettier writes it,
-//! so that `check-json` passes it, and the tool prints it the way `serde_json`
-//! does. The README beside the file says how to write it again.
-//!
-//! It reads a file outside the package: in the crate `cargo package` builds,
-//! the action is not there to be read, so the package leaves this file out (see
-//! its `Cargo.toml`).
+//! so that the JSON check passes it, and the tool prints it the way
+//! `serde_json` does. The README beside the file says how to write it again.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
@@ -19,7 +15,7 @@ use std::path::Path;
 
 use support::call;
 
-const COMMITTED: &str = "../../.github/actions/check-toml/schemas/nebensound-declaration.json";
+const COMMITTED: &str = "schemas/nebensound-declaration.json";
 
 fn committed() -> serde_json::Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(COMMITTED);

@@ -3,7 +3,15 @@
 //! A block's cases lie beside its `action.yml`: `tests/pass/<case>/` and
 //! `tests/fail/<case>/`. Each case is a small repository of its own, with its
 //! own `.nebensound/repo.toml`. To run one, the xtask copies it into a fresh
-//! Git repository and runs phase 0 on it the way `Declare` does. A check block
+//! Git repository.
+//!
+//! A block whose check the tool carries out ([`FROM_THE_TOOL`]) is run
+//! through the tool itself ([`direct`]), on every system: phase 0 with
+//! `nebensound-repo check` and `plan`, then `nebensound-repo run` once for
+//! every unit the plan starts the check for, as a workflow run calls it.
+//!
+//! Every other block runs its own steps ([`run`]): the xtask runs phase 0 on
+//! the case the way `Declare` does. A check block
 //! then runs once for every unit the plan starts the block's check for, the
 //! way a unit job does, and gets the plan as well when it takes one. A version
 //! writer's block runs once with the plan, provided a unit of the plan selects
@@ -20,10 +28,22 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use tempfile::TempDir;
 
 use crate::action::Action;
-use crate::runner::{Host, Job, Place};
+use crate::runner::{self, Host, Job, Place};
 use crate::{Error, say};
+
+/// The blocks whose check `nebensound-repo run` carries out. Their steps set
+/// up the programs and call `run`, so nothing of the check is left in them:
+/// their cases run through the tool itself, on every system ([`direct`]).
+pub const FROM_THE_TOOL: &[&str] = &["check-json", "check-markdown", "check-toml", "check-yaml"];
+
+/// What a case is told when phase 0 fails on it.
+const PHASE0_FAILS: &str =
+    "phase 0 fails on the case, so the block never runs; a case has to pass phase 0";
 
 /// The file in a failing case that names the findings the block must report.
 /// It is not copied into the case's repository.
@@ -372,15 +392,8 @@ fn attempt(
              those only"
         )));
     };
-    let temp = tempfile::tempdir_in(bench.scratch).map_err(|error| {
-        Error::new(format!(
-            "cannot make a directory for the case in {}: {error}",
-            bench.scratch.display()
-        ))
-    })?;
-    let workspace = temp.path().join("workspace");
+    let (temp, workspace) = fresh(bench.scratch, &bench.host.git, case)?;
     let runner = temp.path().join("runner");
-    prepare(bench.host, &case.dir, &workspace, &runner)?;
     let place = Place {
         workspace: &workspace,
         temp: &runner,
@@ -396,10 +409,7 @@ fn attempt(
         out,
     )?;
     if !phase0.success {
-        return Ok(Some(
-            "phase 0 fails on the case, so the block never runs; a case has to pass phase 0"
-                .to_owned(),
-        ));
+        return Ok(Some(PHASE0_FAILS.to_owned()));
     }
     let plan = phase0.outputs.get("plan").cloned().unwrap_or_default();
     let dir = bench.root.join(ACTIONS).join(block);
@@ -497,14 +507,125 @@ fn calls(kind: &Kind<'_>, plan: &str, dir: &Path) -> Result<Result<Vec<Call>, St
     }))
 }
 
+/// Where the cases of a block that runs from the tool run.
+#[derive(Clone, Copy, Debug)]
+pub struct Direct<'a> {
+    /// The tool of this commit.
+    pub tool: &'a Path,
+    /// The environment every call of the tool starts from (see
+    /// [`runner::environment`]).
+    pub env: &'a [(OsString, OsString)],
+    /// The git that makes the repository of a case.
+    pub git: &'a OsString,
+    /// Where each case gets a directory of its own.
+    pub scratch: &'a Path,
+}
+
+/// Runs the case of the block `block`, whose check the tool carries out,
+/// through the tool: nothing when it went as expected, else what went wrong.
+/// Everything the run prints is folded into a group.
+///
+/// Phase 0 runs as `Declare` runs it on GitHub, with the name, default branch
+/// and visibility a case declares for: `check`, and `plan` for the units.
+/// Then `run` checks every unit the plan starts the check for, as a workflow
+/// run calls it, so that the findings are annotations. What the tool prints
+/// is shown with `    | ` in front, as a step's output is.
+///
+/// # Errors
+///
+/// When the case cannot be run at all.
+pub fn direct(
+    bench: Direct<'_>,
+    block: &str,
+    case: &Case,
+    out: &mut dyn Write,
+) -> Result<Option<String>, Error> {
+    say(out, &format!("::group::{block}, {}\n", case.label()));
+    let verdict = through_the_tool(bench, block, case, out);
+    say(out, "::endgroup::\n");
+    verdict
+}
+
+fn through_the_tool(
+    bench: Direct<'_>,
+    block: &str,
+    case: &Case,
+    out: &mut dyn Write,
+) -> Result<Option<String>, Error> {
+    let check = block.strip_prefix("check-").unwrap_or(block);
+    let (_temp, workspace) = fresh(bench.scratch, bench.git, case)?;
+    let phase0 = [
+        "check",
+        "--name=case",
+        "--default-branch=main",
+        "--visibility=public",
+    ];
+    if !tool(bench, &workspace, &phase0, out)?.0 {
+        return Ok(Some(PHASE0_FAILS.to_owned()));
+    }
+    let plan = tool(bench, &workspace, &["plan"], out)?.1.join("\n");
+    let units = units(&plan, check)?;
+    if units.is_empty() {
+        return Ok(Some(format!(
+            "no unit of the case starts the check `{check}`, so the block never runs"
+        )));
+    }
+    let mut success = true;
+    let mut log = Vec::new();
+    for unit in &units {
+        let (passed, lines) = tool(bench, &workspace, &["run", check, "--", unit], out)?;
+        success &= passed;
+        log.extend(lines);
+    }
+    Ok(judge(&case.expect, success, &log))
+}
+
+/// One call of the tool on the case's repository, in the environment of a
+/// workflow run: whether it succeeded, and every line it printed.
+fn tool(
+    bench: Direct<'_>,
+    workspace: &Path,
+    args: &[&str],
+    out: &mut dyn Write,
+) -> Result<(bool, Vec<String>), Error> {
+    say(out, &format!("  > nebensound-repo {}\n", args.join(" ")));
+    let mut command = Command::new(bench.tool);
+    command
+        .arg("-C")
+        .arg(workspace)
+        .args(args)
+        .env_clear()
+        .envs(bench.env.iter().map(|(name, value)| (name, value)))
+        .env("CI", "true")
+        .env("GITHUB_ACTIONS", "true")
+        .current_dir(workspace);
+    runner::stream(command, out)
+}
+
+/// A directory of its own for a case, in `scratch`, and in it the case as a
+/// fresh Git repository, with everything but its [`FINDING`] committed, and
+/// the directory its steps write to. The directory goes when what is returned
+/// is dropped.
+fn fresh(scratch: &Path, git: &OsString, case: &Case) -> Result<(TempDir, PathBuf), Error> {
+    let temp = tempfile::tempdir_in(scratch).map_err(|error| {
+        Error::new(format!(
+            "cannot make a directory for the case in {}: {error}",
+            scratch.display()
+        ))
+    })?;
+    let workspace = temp.path().join("workspace");
+    prepare(git, &case.dir, &workspace, &temp.path().join("runner"))?;
+    Ok((temp, workspace))
+}
+
 /// Copies a case into a fresh Git repository, with everything but its
 /// [`FINDING`] committed, and makes the directory its steps write to.
-fn prepare(host: &Host, case: &Path, workspace: &Path, runner: &Path) -> Result<(), Error> {
+fn prepare(git: &OsString, case: &Path, workspace: &Path, runner: &Path) -> Result<(), Error> {
     let os = |text: &str| OsString::from(text);
     let git = |args: &[&str]| {
         let mut all = vec![os("-C"), workspace.into()];
         all.extend(args.iter().map(|arg| os(arg)));
-        (host.git.clone(), all)
+        (git.clone(), all)
     };
     let steps = [
         (os("mkdir"), vec![os("-p"), workspace.into(), runner.into()]),

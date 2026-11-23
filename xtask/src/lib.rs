@@ -4,17 +4,21 @@
 //!
 //! - `check` holds the building blocks, the register and `nebensound.yml` to
 //!   each other ([`layout`]), and runs every building block against its test
-//!   cases ([`cases`]) by running the block's own steps, read from its
-//!   `action.yml` ([`runner`]). The central workflow runs
-//!   `cargo xtask check --all` as the last step of `Check repository`.
+//!   cases ([`cases`]). A block whose check the tool carries out runs through
+//!   the tool of this commit, on every system; every other block by running
+//!   its own steps, read from its `action.yml` ([`runner`]), on Linux only.
+//!   The central workflow runs `cargo xtask check --all` as the last step of
+//!   `Check repository`.
 //! - `setup` calls `nebensound-repo setup` for this repository, with the tool
-//!   of this commit, to find or install the programs its checks call, and
-//!   then, on Linux, checks what only the test cases need ([`MACHINE`]):
-//!   Node.js and Go on the `PATH` in the versions the blocks' steps ask for,
-//!   Docker with Buildx, jq, npm, Python's pip and rustup. It installs none of
-//!   them: the blocks fetch their own programs when the cases run them, and
-//!   these stay the machine's, so it names each one that is missing. Elsewhere
-//!   the cases do not run, so it leaves them out and says why.
+//!   of this commit, to find or install the programs its checks call, which
+//!   the cases of the blocks that run from the tool need as well. Then, on
+//!   Linux, it checks what only the cases of the other blocks need
+//!   ([`MACHINE`]): a program an action of a block's step would put on the
+//!   `PATH`, in the version the step asks for, Docker with Buildx, jq, npm
+//!   and rustup. It installs none of them: the blocks fetch their own programs
+//!   when the cases run them, and these stay the machine's, so it names each
+//!   one that is missing. Elsewhere those cases do not run, so it leaves them
+//!   out and says why.
 //!
 //! The binary is a few lines. Everything else lives here, so that it can be
 //! checked without starting the process.
@@ -42,22 +46,20 @@ const FOUND: u8 = 1;
 /// The call was wrong.
 const MISUSE: u8 = 2;
 
-/// What the steps of the blocks call on the machine beside the programs
-/// [`runner::needs`] finds, each with its name and the command that shows it
-/// is there. Phase 0, `check-json`, `check-rust` and `check-toml` run jq;
-/// `nebensound-repo setup` can install a jq of its own, but into its cache and
-/// not onto the `PATH` the steps search. `build-docker` builds with Docker's
-/// Buildx and starts what it built with Docker. `check-json`,
-/// `check-markdown` and `check-yaml` install their programs with npm, which
+/// What the steps of the blocks the xtask runs step by step call on the
+/// machine beside the programs [`runner::needs`] finds, each with its name and
+/// the command that shows it is there. Phase 0, `check-python` and
+/// `check-rust` run jq; `nebensound-repo setup` can install a jq of its own,
+/// but into its cache and not onto the `PATH` the steps search. `build-docker`
+/// builds with Docker's Buildx and starts what it built with Docker.
+/// `check-css` and `check-html` install their programs with npm, which
 /// `actions/setup-node` puts beside Node.js on GitHub, and which some systems
-/// ship apart from Node.js. `check-yaml` runs Python's pip, which some systems
-/// ship apart from Python. The tool and `check-rust` install toolchains with
+/// ship apart from Node.js. The tool and `check-rust` install toolchains with
 /// rustup.
 pub const MACHINE: &[(&str, &str, &[&str])] = &[
     ("docker", "docker", &["buildx", "version"]),
     ("jq", "jq", &["--version"]),
     ("npm", "npm", &["--version"]),
-    ("pip", "python3", &["-m", "pip", "--version"]),
     ("rustup", "rustup", &["--version"]),
 ];
 
@@ -71,16 +73,20 @@ Usage: cargo xtask check --all
 
 check --all   Holds the building blocks, the register and nebensound.yml to
               each other, and runs every building block against its test cases
-              in tests/pass/ and tests/fail/. The cases run the blocks' own
-              steps, which are written for the Linux runners of GitHub Actions,
-              so for now they run on Linux only.
+              in tests/pass/ and tests/fail/. The blocks whose check the tool
+              carries out (json, markdown, toml, yaml) run through the tool of
+              this commit, with the programs `setup` puts in place, on every
+              system. The cases of the other blocks run the blocks' own steps,
+              which are written for the Linux runners of GitHub Actions, so
+              for now they run on Linux only.
 setup         Calls `nebensound-repo setup` for this repository, built from
               this commit, to find or install the programs its checks call.
               Every option goes to it unchanged: --pinned, --with-runtimes,
-              --check.
+              --check, the names of checks.
               Then, on Linux, it checks, and installs nothing, what only the
-              test cases need: Node.js and Go in the versions the blocks ask
-              for, Docker with Buildx, jq, npm, Python's pip and rustup.
+              cases of the other blocks need: a program an action of their
+              steps would put on the PATH, in the version they ask for, Docker
+              with Buildx, jq, npm and rustup.
 ";
 
 /// Why something could not be done, as one sentence.
@@ -243,25 +249,33 @@ fn check(setup: &Setup, out: &mut dyn Write) -> u8 {
     if layout.problems.is_empty() {
         say(out, "They agree.\n");
     }
-    if setup.os != "linux" {
-        say(
-            out,
-            &format!(
-                "::error::For now the test cases run only on Linux, since they run the steps of \
-                 the building blocks, which are written for the Linux runners of GitHub Actions, \
-                 and this machine runs {}.\n",
-                setup.os
-            ),
-        );
-        return FOUND;
-    }
-    let failures = match cases(&layout.blocks, setup, out) {
+    let (direct, stepwise): (Vec<String>, Vec<String>) = layout
+        .blocks
+        .iter()
+        .cloned()
+        .partition(|block| cases::FROM_THE_TOOL.contains(&block.as_str()));
+    let linux = setup.os == "linux";
+    let here: &[String] = if linux { &stepwise } else { &[] };
+    let mut failures = match cases(&direct, here, setup, out) {
         Ok(failures) => failures,
         Err(error) => {
             say(out, &format!("::error::{error}\n"));
             1
         }
     } + layout.problems.len();
+    if !linux && !stepwise.is_empty() {
+        say(
+            out,
+            &format!(
+                "::error::For now the test cases of {} run only on Linux, since they run the \
+                 steps of the building blocks, which are written for the Linux runners of GitHub \
+                 Actions, and this machine runs {}.\n",
+                stepwise.join(", "),
+                setup.os
+            ),
+        );
+        failures += 1;
+    }
     if failures == 0 {
         say(out, "Every building block holds to its test cases.\n");
         OK
@@ -321,8 +335,8 @@ fn programs(options: &[String], setup: &Setup, out: &mut dyn Write) -> u8 {
         say(
             out,
             &format!(
-                "For now the test cases run only on Linux, and this machine runs {}, so what only \
-                 they need is not checked here.\n",
+                "For now the cases of the blocks the xtask runs step by step run only on Linux, \
+                 and this machine runs {}, so what only they need is not checked here.\n",
                 setup.os
             ),
         );
@@ -420,58 +434,56 @@ fn block_needs(root: &Path) -> Result<Vec<runner::Need>, Error> {
     Ok(needs.into_iter().collect())
 }
 
-/// Runs the cases of `blocks` and returns how many did not go as expected.
-fn cases(blocks: &[String], setup: &Setup, out: &mut dyn Write) -> Result<usize, Error> {
+/// Runs the cases of `direct` through the tool and those of `stepwise` by
+/// their blocks' steps, and returns how many did not go as expected.
+fn cases(
+    direct: &[String],
+    stepwise: &[String],
+    setup: &Setup,
+    out: &mut dyn Write,
+) -> Result<usize, Error> {
     let scratch = tempfile::tempdir_in(&setup.scratch).map_err(|error| {
         Error::new(format!(
             "cannot make a directory for the run in {}: {error}",
             setup.scratch.display()
         ))
     })?;
-    let host = Host {
-        env: runner::environment(setup.env.clone()),
-        origin: setup.origin.clone(),
-        store: scratch.path().join("actions"),
-        installs: scratch.path().join("installs"),
-        os: "Linux".to_owned(),
-        arch: runner_arch(&setup.arch),
-        bash: "bash".into(),
-        git: "git".into(),
-    };
-    let mut job = Job::default();
-
-    // The tool, the way every unit job gets it, so that each case runs the
-    // `nebensound-repo` of this commit.
-    say(out, "::group::The tool\n");
-    let tool = host.run(
-        &mut job,
-        &setup.root.join(ACTIONS).join("tool"),
-        &BTreeMap::new(),
-        Place {
-            workspace: &setup.root,
-            temp: scratch.path(),
-        },
-        &[],
-        out,
-    );
-    say(out, "::endgroup::\n");
-    if !tool?.success {
-        return Err(Error::new(
-            "the action `tool` failed, so no case can run".to_owned(),
-        ));
+    let mut failures = 0;
+    if !direct.is_empty() {
+        say(out, "::group::The tool, built with Cargo\n");
+        let tool = build(setup, out);
+        say(out, "::endgroup::\n");
+        let tool = tool?;
+        let env = runner::environment(setup.env.clone());
+        let bench = cases::Direct {
+            tool: &tool,
+            env: &env,
+            git: &"git".into(),
+            scratch: scratch.path(),
+        };
+        failures += each(direct, setup, out, |block, case, out| {
+            cases::direct(bench, block, case, out)
+        })?;
     }
+    if !stepwise.is_empty() {
+        failures += stepwise_cases(stepwise, setup, scratch.path(), out)?;
+    }
+    Ok(failures)
+}
 
-    let bench = Bench {
-        host: &host,
-        job: &job,
-        root: &setup.root,
-        scratch: scratch.path(),
-    };
+/// Runs every case of every block in `blocks` with `run`, names each with how
+/// it went, and returns how many did not go as expected.
+fn each(
+    blocks: &[String],
+    setup: &Setup,
+    out: &mut dyn Write,
+    mut run: impl FnMut(&str, &cases::Case, &mut dyn Write) -> Result<Option<String>, Error>,
+) -> Result<usize, Error> {
     let mut failures = 0;
     for block in blocks {
         for case in cases::discover(&setup.root.join(ACTIONS).join(block))? {
             let label = case.label();
-            match cases::run(bench, block, &case, out) {
+            match run(block, &case, out) {
                 Ok(None) => say(out, &format!("{block}, {label}: as expected\n")),
                 Ok(Some(problem)) => {
                     say(out, &format!("::error::{block}, {label}: {problem}\n"));
@@ -488,4 +500,114 @@ fn cases(blocks: &[String], setup: &Setup, out: &mut dyn Write) -> Result<usize,
         }
     }
     Ok(failures)
+}
+
+/// Builds the tool of this commit with Cargo, with the toolchain the tool
+/// pins and in the release profile the action `tool` builds it in, and
+/// returns where Cargo put it.
+///
+/// Cargo runs in the tool's directory, for its `rust-toolchain.toml`, with
+/// the developer's environment less what would steer Cargo, and names what it
+/// built in its messages, wherever its target directory is.
+fn build(setup: &Setup, out: &mut dyn Write) -> Result<PathBuf, Error> {
+    let tool = setup.root.join("tools/nebensound-repo");
+    say(
+        out,
+        &format!("  > cargo build --release --locked in {}\n", tool.display()),
+    );
+    let output = Command::new(&setup.cargo)
+        .args([
+            "build",
+            "--release",
+            "--locked",
+            "--quiet",
+            "--message-format=json",
+            "--manifest-path",
+        ])
+        .arg(tool.join("Cargo.toml"))
+        .current_dir(&tool)
+        .env_clear()
+        .envs(runner::outside_cargo(setup.env.clone()))
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| {
+            Error::new(format!(
+                "cannot start `{}` in {} to build the tool: {error}",
+                setup.cargo.to_string_lossy(),
+                tool.display()
+            ))
+        })?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for line in stderr.lines() {
+        say(out, &format!("    | {line}\n"));
+    }
+    let built = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|message| {
+            message["reason"] == "compiler-artifact"
+                && message["target"]["name"] == "nebensound-repo"
+        })
+        .filter_map(|message| message["executable"].as_str().map(PathBuf::from))
+        .next_back();
+    match built {
+        Some(executable) if output.status.success() => Ok(executable),
+        _ => Err(Error::new(
+            "Cargo built no tool `nebensound-repo`, so no case of a block that runs from the tool \
+             can run"
+                .to_owned(),
+        )),
+    }
+}
+
+/// Runs the cases of `blocks` by their blocks' steps, after the action
+/// `tool`, and returns how many did not go as expected.
+fn stepwise_cases(
+    blocks: &[String],
+    setup: &Setup,
+    scratch: &Path,
+    out: &mut dyn Write,
+) -> Result<usize, Error> {
+    let host = Host {
+        env: runner::environment(setup.env.clone()),
+        origin: setup.origin.clone(),
+        store: scratch.join("actions"),
+        installs: scratch.join("installs"),
+        os: "Linux".to_owned(),
+        arch: runner_arch(&setup.arch),
+        bash: "bash".into(),
+        git: "git".into(),
+    };
+    let mut job = Job::default();
+
+    // The tool, the way every unit job gets it, so that each case runs the
+    // `nebensound-repo` of this commit.
+    say(out, "::group::The tool\n");
+    let tool = host.run(
+        &mut job,
+        &setup.root.join(ACTIONS).join("tool"),
+        &BTreeMap::new(),
+        Place {
+            workspace: &setup.root,
+            temp: scratch,
+        },
+        &[],
+        out,
+    );
+    say(out, "::endgroup::\n");
+    if !tool?.success {
+        return Err(Error::new(
+            "the action `tool` failed, so no case can run".to_owned(),
+        ));
+    }
+
+    let bench = Bench {
+        host: &host,
+        job: &job,
+        root: &setup.root,
+        scratch,
+    };
+    each(blocks, setup, out, |block, case, out| {
+        cases::run(bench, block, case, out)
+    })
 }
