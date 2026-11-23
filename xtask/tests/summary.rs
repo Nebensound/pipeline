@@ -37,6 +37,7 @@ fn build(declare: &str, check: &str, builds: &str, planned: &str) -> (bool, Stri
         .env("CHECK", check)
         .env("BUILDS", builds)
         .env("PLANNED", planned)
+        .env_remove("NEBENSOUND_PRE_BRANCH")
         .output()
         .unwrap();
     (

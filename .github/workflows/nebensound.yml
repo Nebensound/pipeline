@@ -5,19 +5,46 @@ name: nebensound
 #
 # Phase 0 (Declare), the versions (Version), the checks (Check), the builds
 # (Build) and, after a push to main, the release stage on main (Publish).
+#
+# The caller starts it on a pull request (opened, synchronize, reopened and
+# edited) and on a push to main, pre or pre-*. A run of `edited` is a run like
+# any other: every job runs, since a ruleset counts a skipped required check as
+# passed.
+#
+# The caller's job grants contents: write, pull-requests: read,
+# id-token: write, packages: write, attestations: write and
+# deployments: write; the caller itself keeps contents: read. Every job here
+# asks only for what it needs, and a permission no built job needs is asked
+# for by none. The list is wider than today's jobs because a called workflow
+# never gets more than its caller grants, and a job that asks for more keeps
+# every run of that caller from starting: a permission added later would mean
+# a change in every repository, while one granted too much can be taken out
+# later without breaking a caller.
 
 on:
   workflow_call:
 
+# A push to a pre-branch, `pre` or `pre-*`. Versions and pre-releases of
+# pre-branches are not built yet, so such a run checks the commit as a run on
+# main does, resolves no version, builds nothing and publishes nothing, and
+# says so. The tool knows no branch: it reads the first-parent line of HEAD as
+# the line of main. The workflow therefore leaves out what would read the
+# versions of that line as main's: the table of Version and the builds.
+env:
+  NEBENSOUND_PRE_BRANCH: >-
+    ${{ github.event_name == 'push'
+    && (github.ref == 'refs/heads/pre' || startsWith(github.ref, 'refs/heads/pre-')) }}
+
 # Here and not at the caller, so that it reads the same in every repository.
 #
 # The event decides. A run of a pull request has the group of its pull request,
-# and a newer push to it cancels the run in progress: only its newest commit
-# counts. Every other run, a run after a push, which is a run after a merge,
-# joins the one group of the repository: nothing in it is cancelled, and every
-# waiting run keeps its place (`queue: max`) instead of being replaced by the
-# next one, so that the releases of two merges are published in the order of
-# their pushes and no release stops halfway. GitHub refuses `queue: max`
+# and a newer run of it, after a push or an edit of its title or description,
+# cancels the run in progress: only its newest state counts. Every other run, a
+# run after a push to main or to a pre-branch, joins the one group of the
+# repository: nothing in it is cancelled, and every waiting run keeps its place
+# (`queue: max`) instead of being replaced by the next one, so that the
+# releases of two merges are published in the order of their pushes and no
+# release stops halfway. GitHub refuses `queue: max`
 # together with `cancel-in-progress: true`, so the queue follows the event as
 # well.
 concurrency:
@@ -84,13 +111,19 @@ jobs:
       # under `versions` as well, and it builds only when the plan gives it a
       # version of this run. A unit the commit does not touch has no new
       # artifact to hand on, also where the writer gives it its current
-      # version for a package that depends on it.
+      # version for a package that depends on it. After a push to a
+      # pre-branch no unit builds: the run resolves no version of its own.
       - name: Name the units that build
         id: builds
         env:
           PLAN: ${{ steps.phase0.outputs.plan }}
         run: |
           set -euo pipefail
+          if [ "${NEBENSOUND_PRE_BRANCH:-false}" = "true" ]; then
+            echo "A push to a pre-branch resolves no version, so no unit builds."
+            echo "builds=[]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           builds="$(jq --compact-output '
             .versions as $versions
             | [ .units[] | select(.build != null) | . as $unit
@@ -102,11 +135,12 @@ jobs:
           echo "builds=$builds" >> "$GITHUB_OUTPUT"
 
   # The version of every unit that carries one, as a table in the summary of
-  # the run. It writes nothing and tags nothing: it reports. It runs whatever
-  # Declare's result, so that an error in the history fails it with the
-  # finding instead of leaving it skipped; it only waits for Declare to take
-  # the tool from the cache Declare filled. A cancelled run, for instance one of
-  # a pull request that a newer push to it replaced, skips it.
+  # the run, and after a push to a pre-branch the sentence why there is none.
+  # It writes nothing and tags nothing: it reports. It runs whatever Declare's
+  # result, so that an error in the history fails it with the finding instead
+  # of leaving it skipped; it only waits for Declare to take the tool from the
+  # cache Declare filled. A cancelled run, for instance one of a pull request
+  # that a newer push to it replaced, skips it.
   version:
     name: Version
     needs: declare
@@ -130,13 +164,27 @@ jobs:
       # branch, with the title and description as its message. The version
       # shown is the one that merge would get, with -pr.<number> behind it.
       # The text goes in through the environment, never into the script.
+      #
+      # After a push to a pre-branch no version is resolved: the tool would
+      # read the branch's own commits as commits of main and give them full
+      # versions that main never gives. The step says so instead, as a notice
+      # and as a line in the summary of the run.
       - name: Report the versions
         env:
           NUMBER: ${{ github.event.pull_request.number }}
           TITLE: ${{ github.event.pull_request.title }}
           BODY: ${{ github.event.pull_request.body }}
+          BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          if [ "${NEBENSOUND_PRE_BRANCH:-false}" = "true" ]; then
+            line="This run follows a push to the pre-branch \`$BRANCH\`. Versions and pre-releases of pre-branches are not built yet, so no version is resolved, nothing is built and nothing is published."
+            # A branch name holds no line break, but it may hold `%`, which a
+            # workflow command reads as the start of an escape.
+            echo "::notice title=Pre-branch::${line//%/%25}"
+            echo "$line" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           call=(nebensound-repo -C "$GITHUB_WORKSPACE" version)
           if [ -n "$NUMBER" ]; then
             message="$TITLE"
@@ -505,9 +553,9 @@ jobs:
           plan: ${{ needs.declare.outputs.plan }}
 
   # The one name a ruleset can require for the builds, gathered like Check. When
-  # nothing builds in this run it is green and says so, whatever Check found.
-  # Otherwise it passes only when Check passed: a build that never started
-  # because a check failed is no success.
+  # nothing builds in this run, as after a push to a pre-branch, it is green and
+  # says so, whatever Check found. Otherwise it passes only when Check passed: a
+  # build that never started because a check failed is no success.
   build:
     name: Build
     needs:
@@ -532,7 +580,11 @@ jobs:
             exit 1
           fi
           if [ "$PLANNED" = "[]" ]; then
-            echo "Nothing builds in this run: no unit that builds has a version of this run."
+            if [ "${NEBENSOUND_PRE_BRANCH:-false}" = "true" ]; then
+              echo "Nothing builds in this run: a push to a pre-branch resolves no version."
+            else
+              echo "Nothing builds in this run: no unit that builds has a version of this run."
+            fi
             exit 0
           fi
           if [ "$CHECK" != "success" ]; then
@@ -553,12 +605,13 @@ jobs:
               ;;
           esac
 
-  # The release stage on main: after a push to main, and only there, every unit
-  # the plan gives a version of this run gets its records, a tag on the pushed
-  # commit and a GitHub Release, a full one: every merge into main is a full
-  # release. A unit the commit does not touch has no version of the run and
-  # gets nothing: a tag on this commit with its current version would not stand
-  # on the commit the history gives that version.
+  # The release stage on main: after a push to main, and only there, never
+  # after a push to a pre-branch, every unit the plan gives a version of this
+  # run gets its records, a tag on the pushed commit and a GitHub Release, a
+  # full one: every merge into main is a full release. A unit the commit does
+  # not touch has no version of the run and gets nothing: a tag on this commit
+  # with its current version would not stand on the commit the history gives
+  # that version.
   #
   # It starts only when Declare, Check and Build passed. Check is named on its
   # own: Build is green when nothing builds, whatever Check found, and nothing
