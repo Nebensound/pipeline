@@ -3,14 +3,28 @@ description: >-
   Puts the tool `nebensound-repo` on the PATH of the calling job: restored from
   the cache when this exact tool was built before, built from source otherwise.
 
-# No inputs. The tool comes from the same commit as this file. GitHub fetches
-# the whole repository when it resolves an action, so the source lies three
-# levels up and needs no credentials.
+# The tool comes from the same commit as this file. GitHub fetches the whole
+# repository when it resolves an action, so the source lies three levels up and
+# needs no credentials.
 #
 # Phase 0 fills the cache, so a later job of the same run finds it there and
 # builds nothing: `Declare` runs phase 0 with it, and every unit job asks it
 # which files a check covers. A job builds the tool itself only when the cache
 # misses.
+#
+# A job that holds a token that can write builds it itself, always, and leaves
+# the cache alone: every job of a branch may write the cache, a job that runs
+# code of the repository among them, and nothing such a job could have left
+# there is to run with that token.
+
+inputs:
+  cache:
+    description: >-
+      Whether the tool may come from the cache and its build go into it.
+      "false" for a job that holds a token that can write: it then builds the
+      tool from source, and the cache is neither read nor written.
+    required: false
+    default: "true"
 
 outputs:
   path:
@@ -44,6 +58,7 @@ runs:
 
     - name: Look for a build of exactly this tool
       id: cache
+      if: inputs.cache != 'false'
       uses: actions/cache/restore@v6
       with:
         path: ${{ steps.tool.outputs.home }}
@@ -69,7 +84,7 @@ runs:
     # Several unit jobs can miss at once; the first to finish keeps its build,
     # and the others are told the key is taken, which fails nothing.
     - name: Keep the build for the next job
-      if: steps.cache.outputs.cache-hit != 'true'
+      if: inputs.cache != 'false' && steps.cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v6
       with:
         path: ${{ steps.tool.outputs.home }}

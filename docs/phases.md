@@ -31,7 +31,8 @@ it and hands the result on:
 1. The tool is built from the same commit of this repository as the workflow,
    and kept in the cache under a fingerprint of its sources, so two runs of the
    same tool share one build, and every unit job of the run takes it from there
-   ([`.github/actions/tool`](../.github/actions/tool)).
+   ([`.github/actions/tool`](../.github/actions/tool)). Publish alone builds
+   its own (see [Publish](#publish)).
 2. `nebensound-repo check` reads `.nebensound/repo.toml`, resolves it against
    the register and checks it against what Git tracks, and resolves the version
    of every unit from the history, holding the tags against it. It also holds
@@ -241,8 +242,8 @@ own, since Build is green when nothing builds, whatever Check found: nothing
 is released from a tree whose checks failed. It is the only job that asks for
 `contents: write`.
 
-Every unit the plan gives a version of this run, that is, every unit the
-pushed commit touches, gets its records: a tag on the pushed commit, named as
+Every unit the history gives a version of the pushed commit, as the plan
+names it, that is, every unit the pushed commit touches, gets its records: a tag on the pushed commit, named as
 [the declaration](declaration.md#tag-names) names a unit's records, and a
 GitHub Release of it.
 
@@ -259,15 +260,18 @@ writes its current version for a package that depends on it: a tag on the
 pushed commit with that version would not stand on the commit the history
 gives it, and phase 0 would report it as `conflicting-tag` in the next run.
 
-The job checks the repository out with its whole history and every tag, and
-its steps are:
+The job checks the repository out with its whole history and every tag, builds
+the tool, and calls `nebensound-repo release`, which does the rest
+([the tool's README](../tools/nebensound-repo/README.md#the-release-stage)). It
+holds no other logic. The tool works in this order:
 
-1. **Decide what to release.** Nothing is written yet. When the tag of a unit
-   already stands on another commit, the job fails here and names it, before
-   anything is written: a version belongs to exactly one commit. When a newer
-   record of the unit already holds the pushed commit, as after a re-run of an
-   older run, the unit is left out with a sentence that says so, and the job
-   stays green. For each unit to release it finds the previous record: the
+1. **Decide what to release.** Nothing is written yet. The tool reads the
+   version of every unit from the history, as phase 0 does. When the tag of a
+   unit already stands on another commit, the job fails here and names it,
+   before anything is written: a version belongs to exactly one commit. When a
+   newer record of the unit already holds the pushed commit, as after a re-run
+   of an older run, the unit is left out with a sentence that says so, and the
+   job stays green. For each unit to release it finds the previous record: the
    tag of the unit with the highest version below the one released, on a
    commit the pushed commit contains.
 2. **Create the tags and the drafts.** For each unit, the tag on the pushed
@@ -277,7 +281,7 @@ its steps are:
    release carries one fixed sentence instead.
 3. **The publish targets**, while the releases are drafts: an immutable release
    takes no file once it is published. No target has a building block yet, so
-   this step does not exist yet.
+   nothing happens here yet.
 4. **Publish the releases.** Each draft is published as a full release, and
    marked as the latest release or not in the same call: GitHub honours that
    mark only there. When the published release shows that it is not
@@ -286,16 +290,30 @@ its steps are:
 
 A re-run completes what an earlier attempt left undone and changes nothing
 else: a tag that stands on the pushed commit is kept, a draft the attempt left
-is taken up, and a release published already is left as it is. Every step
+is taken up, and a release published already is left as it is. The tool
 writes what it did into the log, and the summary of the run lists every unit
 with its release, or the sentence why there is none.
 
 Tags and releases are records. Publish reads them for what records answer, the
 notes since the previous record and whether a newer one holds the commit, and
-never for a version: the versions are the plan's, resolved from the history.
+never for a version: the versions are resolved from the history, as for the
+plan.
 
 A release published with the workflow's token starts no workflow, so a caller
 that listens to tags or releases is not started by Publish.
+
+Nothing another job wrote reaches Publish, only whether that job passed: it
+takes no job output and no artifact, reads the versions from the history
+itself, and builds the tool itself, from the source of the pipeline at the
+commit the caller pins, without the cache
+([`.github/actions/tool`](../.github/actions/tool) with `cache: "false"`). Every
+job of a branch may write the cache, a job that runs code of the repository
+among them, so nothing in it is to run with a token that can write. What does
+run with that token is the tool, the Rust crates it is built from, as its
+`Cargo.lock` pins them, and the toolchain its `rust-toolchain.toml` names. It
+is built with its default features alone, which leave out the terminal
+interface (`ui`). The token goes to the one step that calls the tool, and the
+tool hands it to curl on curl's standard input, never on a command line.
 
 ## Check names
 
