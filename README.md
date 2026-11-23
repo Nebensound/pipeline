@@ -34,7 +34,8 @@ the open issues and milestones show what comes next.
   from the register compiled into the tool.
 - [The phases](docs/phases.md): what runs, under which name, on a pull request
   and on a push.
-- [Calling the workflow](docs/calling.md): how to pin before `v0.1.0`, why the
+- [Calling the workflow](docs/calling.md): how to pin before `v0.1.0`, when
+  the caller starts the workflow, which permissions it grants and why, why the
   schema line can run ahead of the pin, and how to change one linter rule in
   one place.
 
@@ -48,9 +49,16 @@ name: gate
 
 on:
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
   push:
     branches:
       - main
+      - pre
+      - pre-*
 
 permissions:
   contents: read
@@ -60,6 +68,11 @@ jobs:
     uses: Nebensound/pipeline/.github/workflows/nebensound.yml@<full commit SHA>
     permissions:
       contents: write
+      pull-requests: read
+      id-token: write
+      packages: write
+      attestations: write
+      deployments: write
 ```
 
 One job, no inputs: what the repository is stands in its declaration, and the
@@ -69,9 +82,22 @@ change to the pipeline never reaches a repository as a silent switch. Until
 40-character SHA of a commit on `main` and raised by hand; from then on to a
 release tag, which Dependabot raises as a pull request.
 
-The job grants `contents: write` because the release stage on `main` writes
-tags and releases. Only its job `Publish` asks for that permission; every other
-job, and every job of a pull request, keeps a read token.
+The file already holds what the parts planned after `v0.1.0` need, pre-branches
+among them, so that they need no change to it. It starts the workflow on every
+pull request, also when its title or description is edited, since the version
+shown is read from them, and on every push to `main`, `pre` and `pre-*`. A
+push to a pre-branch is checked as one to `main` is, but versions and
+pre-releases of pre-branches are not built yet: such a run shows no version,
+builds nothing and publishes nothing, and says so (see
+[the phases](docs/phases.md#pull-request-and-push)).
+
+The job grants `contents: write`, `pull-requests: read`, `id-token: write`,
+`packages: write`, `attestations: write` and `deployments: write`: what the
+planned parts of the pipeline need, not only what today's jobs ask for. Today
+only the job `Publish` asks for more than a read token, `contents: write` to
+write tags and releases after a push to `main`; every other job, and every job
+of a pull request, keeps a read token. Why the caller grants more is in
+[Calling the workflow](docs/calling.md#permissions).
 
 A run reports as `nebensound / Declare` (phase 0: the declaration read and
 checked against the tree), `nebensound / Version` (the version of every unit,
