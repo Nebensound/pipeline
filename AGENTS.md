@@ -12,7 +12,7 @@ Every change is held against these six rules.
 [The principles](docs/principles.md) give the reason for each, the trust model,
 and what does not hold yet. Where a rule below or a page of the reference
 describes something else, it describes the state of today, and that page names
-the issue that changes it.
+the issue that changes it, or says that none exists yet.
 
 1. **A simple flow.** A preparing job reads the declaration and hands finished
    data to the jobs after it. The checks run as a matrix of the same call: one

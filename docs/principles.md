@@ -9,7 +9,7 @@ rules in short.
 
 The rules describe where the pipeline goes. Parts of it are older than the
 rules; [What does not hold yet](#what-does-not-hold-yet) names each of them and
-the issue that changes it. Where another page of the reference describes such
+the issue that changes it, or says that none exists yet. Where another page of the reference describes such
 a part, it describes the state of today.
 
 ## 1. A simple flow
@@ -58,8 +58,9 @@ that: it is proven only by runs, and every caller runs it.
 
 **Today.** The checks for CSS, Dockerfiles, HTML, JSON, Markdown, TOML and YAML
 are thin blocks that call the tool. The checks for Rust and Python, the builds,
-the release stage and several steps of `nebensound.yml` are still shell, partly
-with `jq`; `check-python` also embeds Python scripts.
+the release stage, several steps of `nebensound.yml` and the actions `tool` and
+`phase0`, which every job runs, are still shell, partly with `jq`;
+`check-python` also embeds Python scripts.
 
 ## 4. External programs are the exception and are started from the tool
 
@@ -123,6 +124,11 @@ its jobs `contents: read`, and one job asks for more:
 | `Build`                               | read                                           | No. It gathers results.                                                                                                             |
 | `Publish`                             | `contents: write`, after a push to `main` only | No. It runs Git, the GitHub CLI and `jq` on the checkout and starts nothing of the repository.                                      |
 
+The table holds for a caller, which pins the workflow. In this repository the
+gate calls the workflow at its own commit, so on a pull request every job runs
+code of the pull request: the tool is built from its source and every step is
+its own. Each of those jobs holds only the read token.
+
 So on `main` today, no job that runs code of the repository holds a token that
 can write, and the one job that can write runs only after a push to `main`, when
 the change has been merged and every check has passed. Every checkout of the workflow
@@ -166,6 +172,10 @@ yet, it says so.
   in shell and `jq`, such as the lists of units and builds in `Declare`, the
   `Not written yet` steps and the gathering in `Check` and `Build` (rule 3). No
   issue exists yet.
+- **The actions `tool` and `phase0`** hold logic in shell and `jq`: the
+  fingerprint and the build of the tool from source, the lookup of the
+  visibility, and the notices of phase 0 (rule 3). The build from source in a
+  caller: #24. The rest: no issue exists yet.
 - **The release stage** in `Publish` is shell (rules 3 and 6): #174.
 - **Text from the repository in logs** is escaped place by place, and the file
   lists of the blocks not at all (rule 5): #143.
