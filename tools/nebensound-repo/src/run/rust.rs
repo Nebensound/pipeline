@@ -18,10 +18,12 @@
 //! repeat its error. Every program runs in the workspace's folder, without
 //! the variables of this process that steer Cargo, rustc and rustup
 //! ([`steers`]), so that no setting that comes as a variable changes what the
-//! check finds. Settings that come as files still apply: a directory override
-//! rustup keeps in its settings file, which ranks above `rust-toolchain.toml`,
-//! and Cargo's configuration files in the folders above the workspace and in
-//! `CARGO_HOME`. A hosted runner has neither.
+//! check finds. Settings that come as files still apply, and the check does
+//! not hunt them down: a directory override rustup keeps in its settings file,
+//! which ranks above `rust-toolchain.toml`, and Cargo's configuration files in
+//! the folders above the workspace and in `CARGO_HOME`. A hosted runner has
+//! neither, so they are ways a run on a developer's computer can differ from
+//! the gate's, whose result is the one that counts.
 //!
 //! The files are the ones `files` names for the check and the unit. Rust code
 //! is excluded by the package, never by the file; phase 0 fails on an

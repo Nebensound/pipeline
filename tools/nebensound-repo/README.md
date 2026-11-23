@@ -463,6 +463,12 @@ nebensound-repo setup --pinned --with-runtimes   # once, or after a change of th
 nebensound-repo run markdown .                   # the Markdown check of the repository
 ```
 
+The gate decides: what counts is the result of the run on GitHub Actions. A
+run anywhere else comes as close to it as is sensible but can differ, and its
+first line says so: `Not running in GitHub Actions, so the result can differ
+from the gate's, which is the one that counts.` A workflow run's log does not
+get that line.
+
 It takes exactly the files `files` names for the check and the unit, and a
 pair the plan does not start is refused, as there. A repository with errors
 gets nothing checked. It starts the programs the register names for the check,
@@ -554,10 +560,11 @@ runs in the workspace's folder, without the variables of the computer whose
 names start with `CARGO` or `RUST`, other than `CARGO_HOME` and `RUSTUP_HOME`,
 which only say where Cargo and the toolchains are: so no setting that comes as
 a variable changes what the check finds. Settings that come as files still
-apply: a directory override rustup keeps in its settings file (`rustup override
-set`), which ranks above `rust-toolchain.toml`, and Cargo's configuration files
-in the folders above the workspace and in `CARGO_HOME`. A hosted runner has
-neither. What the programs print
+apply, and `run` does not hunt them down: a directory override rustup keeps in
+its settings file (`rustup override set`), which ranks above
+`rust-toolchain.toml`, and Cargo's configuration files in the folders above the
+workspace and in `CARGO_HOME`. A hosted runner has neither, so they are ways a
+local result can differ from the gate's. What the programs print
 stands in the output as it comes; the one finding with a file is the
 formatting's.
 

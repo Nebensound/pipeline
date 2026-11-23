@@ -32,7 +32,8 @@ the issue that changes it, or says that none exists yet.
    can sensibly be done in Rust inside the tool is done there. An external
    program is a standard tool: very widely used and maintained. Every external
    program, action and package stands in one list, with its exact version and
-   a digest, in a form an automatic updater reads.
+   a digest, in a form an automatic updater reads. For the language's own
+   toolchain the installer's verification counts as the digest.
 5. **One rule per kind of problem.** A case that was not thought of is answered
    by a rule that removes its kind, not by a special case on top. A pull
    request that adds a second exception to the same rule stops and asks for
