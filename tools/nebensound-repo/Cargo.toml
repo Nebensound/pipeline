@@ -114,6 +114,10 @@ name              = "setup"
 required-features = ["program"]
 
 [[test]]
+name              = "release"
+required-features = ["program"]
+
+[[test]]
 name              = "ui"
 required-features = ["ui"]
 

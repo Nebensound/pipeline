@@ -45,6 +45,8 @@ pub mod plan;
 pub mod programs;
 pub mod reference;
 pub mod register;
+#[cfg(feature = "program")]
+pub mod release;
 pub mod release_fields;
 pub mod report;
 pub mod repository;
@@ -236,6 +238,14 @@ pub enum Command {
         /// The path of the unit, as the plan names it.
         unit: String,
     },
+    /// Write the records of this commit's versions, as the release stage on
+    /// `main` does after a push: for every unit the commit touches, a tag on
+    /// it and a full GitHub Release. Takes the repository, the token and the
+    /// summary of the run from the variables of a workflow run.
+    // It calls GitHub through curl, as `setup` downloads, so it is part of
+    // the feature `program`.
+    #[cfg(feature = "program")]
+    Release,
     /// Open the interface. Only in a build with the `ui` feature.
     #[cfg(feature = "ui")]
     Ui,
@@ -481,6 +491,9 @@ enum Job {
         unit: RelativePath,
         plan: Option<PathBuf>,
     },
+    /// Write the records of this commit's versions.
+    #[cfg(feature = "program")]
+    Release,
     /// Open the interface.
     #[cfg(feature = "ui")]
     Ui,
@@ -536,6 +549,8 @@ fn call(cli: &Cli) -> Result<Call, Failure> {
             unit: path_of(unit)?,
             plan: plan.clone(),
         },
+        #[cfg(feature = "program")]
+        Some(Command::Release) => Job::Release,
         #[cfg(feature = "ui")]
         Some(Command::Ui) => Job::Ui,
         Some(Command::Explain { path }) => Job::Explain(path_of(path)?),
@@ -738,6 +753,15 @@ fn execute(
             };
             return Ok(run_check(cli, &checked, *check, unit, output, out));
         }
+        // The same reason as for the versions: a version read off a
+        // declaration with errors could be one the history does not give.
+        #[cfg(feature = "program")]
+        Job::Release if analysis.failed() => say(
+            out,
+            "nothing is released: phase 0 found errors, and `check` says which\n",
+        ),
+        #[cfg(feature = "program")]
+        Job::Release => return release_stage(&repository, &analysis, output, out),
         #[cfg(feature = "ui")]
         Job::Ui => {
             terminal::open(&analysis, output).map_err(|source| Failure::Terminal { source })?;
@@ -834,6 +858,35 @@ fn run_check(
         },
     };
     run::run(&context, check, unit, &list, out)
+}
+
+/// `release`: the release stage on the commit at hand, with the settings the
+/// variables of the workflow run give. Without them the call is wrong.
+#[cfg(feature = "program")]
+fn release_stage(
+    repository: &Repository,
+    analysis: &Analysis,
+    output: Output,
+    out: &mut dyn Write,
+) -> Result<u8, Failure> {
+    let settings = match release::Settings::read(
+        &|name| std::env::var(name).ok(),
+        std::env::var_os("PATH").unwrap_or_default(),
+    ) {
+        Ok(settings) => settings,
+        Err(message) => {
+            say(out, &format!("{message}\n"));
+            return Ok(MISUSE);
+        }
+    };
+    let records = repository.records()?;
+    Ok(release::run(
+        &analysis.versions,
+        &records,
+        &settings,
+        output == Output::Workflow,
+        out,
+    ))
 }
 
 /// The whole report of phase 0, ended by a line break, with what departs from

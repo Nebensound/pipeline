@@ -14,8 +14,10 @@ and what does not hold yet. Where a rule below or a page of the reference
 describes something else, it describes the state of today, and that page names
 the issue that changes it, or says that none exists yet.
 
-1. **A simple flow.** A preparing job reads the declaration and hands finished
-   data to the jobs after it. The checks run as a matrix of the same call: one
+1. **A simple flow.** A preparing job reads the declaration, decides which jobs
+   start and hands on the matrix for that. Every job runs the tool itself and
+   works out what it needs from the repository at the commit of the run; no plan
+   is handed from job to job. The checks run as a matrix of the same call: one
    job for all checks that only read the repository's files, and one job for
    each check that runs code of the repository. What can be put together is
    put together. Adding a check does not add a special path to the workflow.

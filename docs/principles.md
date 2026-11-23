@@ -14,8 +14,10 @@ the reference describes such a part, it describes the state of today.
 
 ## 1. A simple flow
 
-A preparing job reads the declaration and hands finished data to the jobs after
-it. The checks run as a matrix of the same call: one job for all checks that
+A preparing job reads the declaration, decides which jobs start and hands on the
+matrix for that. Every job runs the tool itself and works out what it needs from
+the repository at the commit of the run; no plan is handed from job to job. The
+checks run as a matrix of the same call: one job for all checks that
 only read the repository's files, and one job for each check that runs code of
 the repository. What can be put together is put together. Adding a check does
 not add a special path to the workflow.
@@ -25,9 +27,10 @@ is one more case to think through in each later change, and one more place
 where a change can go wrong in every repository at once.
 
 **Today.** `Declare` is the preparing job: it runs phase 0 and hands the plan to
-the jobs after it. The checks are cut differently: one job per unit, with one
-step per check, so reading checks and checks that run code share a job. Every
-check adds a step of its own to `nebensound.yml` and its name to a list there.
+the jobs after it, except `Publish`, which works out the versions itself. The
+checks are cut differently: one job per unit, with one step per check, so
+reading checks and checks that run code share a job. Every check adds a step of
+its own to `nebensound.yml` and its name to a list there.
 
 ## 2. Reading and executing are kept apart
 
@@ -61,9 +64,10 @@ settings that come as files, such as a rustup override on the checkout or
 Cargo's configuration files, which the tool does not neutralise.
 
 **Today.** The checks for CSS, Dockerfiles, HTML, JSON, Markdown, Rust, TOML and
-YAML are thin blocks that call the tool. The check for Python, the builds, the
-release stage, several steps of `nebensound.yml` and the actions `tool` and
-`phase0`, which every job runs, are still shell, partly with `jq`;
+YAML are thin blocks that call the tool, and the release stage in `Publish` is
+one call of the tool. The check for Python, the builds, several steps of
+`nebensound.yml` and the actions `tool` and `phase0`, which every job runs, are
+still shell, partly with `jq`;
 `check-python` also embeds Python scripts.
 
 ## 4. External programs are the exception and are started from the tool
@@ -130,7 +134,7 @@ its jobs `contents: read`, and one job asks for more:
 | `Check`                               | read                                           | No. It gathers results and reads the plan.                                                                                          |
 | `Build repository`, `Build component` | read                                           | Yes: the builds compile the code and build images.                                                                                  |
 | `Build`                               | read                                           | No. It gathers results.                                                                                                             |
-| `Publish`                             | `contents: write`, after a push to `main` only | No. It runs Git, the GitHub CLI and `jq` on the checkout and starts nothing of the repository.                                      |
+| `Publish`                             | `contents: write`, after a push to `main` only | No. It builds the tool from the pipeline's source and runs it, with Git and curl; it starts nothing of the repository.              |
 
 The table holds for a caller, which pins the workflow. In this repository the
 gate calls the workflow at its own commit, so on a pull request every job runs
@@ -149,8 +153,6 @@ What is a goal and not yet true:
 
 - Reading and executing checks share a job (rule 2), so a result of a reading
   check in a unit with Rust or Python code is only as good as that code allows.
-- The logic of `Publish`, the one job that can write, is shell, proven only by
-  runs (rule 3).
 
 ## What does not hold yet
 
@@ -162,6 +164,10 @@ yet, it says so.
   `nebensound.yml` and its name to the list in `Not written yet`. The
   [phases](phases.md#one-job-per-unit) and the README describe this cut. No
   issue exists yet.
+- **Every job works out what it starts from** (rule 1). Only `Publish` does so
+  today; the other jobs follow with the cut of the jobs, and until the tool is a
+  release binary (#24) the jobs other than `Publish` still take the tool from
+  the cache.
 - **The rule on building blocks** in `AGENTS.md` and the README: a block
   performs one step and is named after its register entry with the category in
   front. It describes the cut above, one named block per step. No issue exists
@@ -183,7 +189,6 @@ yet, it says so.
   fingerprint and the build of the tool from source, the lookup of the
   visibility, and the notices of phase 0 (rule 3). The build from source in a
   caller: #24. The rest: no issue exists yet.
-- **The release stage** in `Publish` is shell (rules 3 and 6): #174.
 - **Text from the repository in logs** is escaped place by place, and the file
   lists of the blocks not at all (rule 5): #143.
 - **The source of actionlint**, whose upstream stands still, and the growing
