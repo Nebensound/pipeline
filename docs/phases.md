@@ -13,12 +13,13 @@ and what runs on a pull request and on a push.
 | Version | `nebensound / Version`                                                                          |
 | Check   | `nebensound / Check repository`, `nebensound / Check component <name>` and `nebensound / Check` |
 | Build   | `nebensound / Build repository`, `nebensound / Build component <name>` and `nebensound / Build` |
+| Publish | `nebensound / Publish`, after a push to `main` only                                             |
 
-The workflow does not publish or deploy anything yet, and it reports versions
-without tagging or releasing them: tags and releases are records the release
-stage will write, and no version is read from them. Those phases arrive one at
-a time, each when it does something: a job that only existed to be green would
-report success for work nobody did. Until a phase is built, no job stands in for it,
+Publish is the release stage on `main`: it writes the records of the versions
+of a run, tags and releases, and no version is read from them. It publishes to
+no target yet, and nothing is deployed. Those phases arrive one at a time, each
+when it does something: a job that only existed to be green would report
+success for work nobody did. Until a phase is built, no job stands in for it,
 and this page does not describe it.
 
 ## Declare
@@ -155,6 +156,15 @@ writer belongs to a unit that carries a version, which need not run a check,
 so it is named here. The writers written today are listed in
 [the README](../README.md#version-cargo).
 
+Its third step, **Publish targets not written yet**, does the same for every
+publish target a unit of the plan names that has no building block
+`publish-<target>` yet, the dots of the target turned into hyphens
+(`crates.io` is `publish-crates-io`), whether the commit touches the unit or
+not. It fails on the pull request, before anything is merged, rather than in
+Publish afterwards. No publish target has a building block yet, so a unit that
+publishes anywhere fails `nebensound / Check` today, and Publish only ever
+releases units with `publish = false`.
+
 ## Build
 
 ### One job per unit that builds in this run
@@ -197,6 +207,71 @@ Otherwise it fails when Check did not pass, since then nothing was built, and
 when any build job did not pass, and it passes when every build the plan
 started passed.
 
+## Publish
+
+The job `nebensound / Publish` is the release stage on `main`. It runs after a
+push to `main`, and on no other event or branch, once Declare,
+`nebensound / Check` and `nebensound / Build` passed. Check is named on its
+own, since Build is green when nothing builds, whatever Check found: nothing
+is released from a tree whose checks failed. It is the only job that asks for
+`contents: write`.
+
+Every unit the plan gives a version of this run, that is, every unit the
+pushed commit touches, gets its records: a tag on the pushed commit, named as
+[the declaration](declaration.md#tag-names) names a unit's records, and a
+GitHub Release of it.
+
+| Unit           | Version on `main` | The release                     |
+| -------------- | ----------------- | ------------------------------- |
+| The repository | `X.Y.Z`           | A full release, and the latest. |
+| A component    | `X.Y.Z`           | A full release, not the latest. |
+
+Every merge into `main` is a full release: a version on `main` is never a
+pre-release.
+
+A unit the commit does not touch gets nothing, also where a version writer
+writes its current version for a package that depends on it: a tag on the
+pushed commit with that version would not stand on the commit the history
+gives it, and phase 0 would report it as `conflicting-tag` in the next run.
+
+The job checks the repository out with its whole history and every tag, and
+its steps are:
+
+1. **Decide what to release.** Nothing is written yet. When the tag of a unit
+   already stands on another commit, the job fails here and names it, before
+   anything is written: a version belongs to exactly one commit. When a newer
+   record of the unit already holds the pushed commit, as after a re-run of an
+   older run, the unit is left out with a sentence that says so, and the job
+   stays green. For each unit to release it finds the previous record: the
+   tag of the unit with the highest version below the one released, on a
+   commit the pushed commit contains.
+2. **Create the tags and the drafts.** For each unit, the tag on the pushed
+   commit, a lightweight one, and the release as a draft, titled
+   `<unit> <version>` (the repository by its name, such as `pipeline 0.4.2`),
+   with notes GitHub generates against the previous record. A unit's first
+   release carries one fixed sentence instead.
+3. **The publish targets**, while the releases are drafts: an immutable release
+   takes no file once it is published. No target has a building block yet, so
+   this step does not exist yet.
+4. **Publish the releases.** Each draft is published as a full release, and
+   marked as the latest release or not in the same call: GitHub honours that
+   mark only there. When the published release shows that it is not
+   immutable, because the repository has immutable releases switched off, the
+   job writes a warning and a line in the summary of the run, and goes on.
+
+A re-run completes what an earlier attempt left undone and changes nothing
+else: a tag that stands on the pushed commit is kept, a draft the attempt left
+is taken up, and a release published already is left as it is. Every step
+writes what it did into the log, and the summary of the run lists every unit
+with its release, or the sentence why there is none.
+
+Tags and releases are records. Publish reads them for what records answer, the
+notes since the previous record and whether a newer one holds the commit, and
+never for a version: the versions are the plan's, resolved from the history.
+
+A release published with the workflow's token starts no workflow, so a caller
+that listens to tags or releases is not started by Publish.
+
 ## Check names
 
 Every job reports under a name in two parts, `nebensound / Check`: GitHub names
@@ -214,8 +289,10 @@ and only those: the unit jobs change with the repository, so a ruleset that
 required one would block a pull request when the unit goes away or is renamed,
 and Declare is part of what `Check` and `Build` sum up. Of the reported jobs,
 only `Check` is meant for a ruleset to require for the checks, and only `Build`
-for the builds. Further required names arrive with the phases that are not
-built yet.
+for the builds. `nebensound / Publish` runs after the merge, on `main`; on a
+pull request it is skipped, and a ruleset counts a skipped check as passed, so
+requiring it would add no signal. Further required names arrive with the phases
+that are not built yet.
 
 ## Pull request and push
 
@@ -230,13 +307,30 @@ on:
       - main
 ```
 
-Today both run the same jobs, Declare, Version, Check and Build, with the same
-steps. Only the versions depend on the event: on a pull request `Version` shows
-the version the merge would get with `-pr.<number>` behind it, and the plan
-carries the same versions, which the package test of `check-rust` and the build
-jobs write and build with. A newer run for the same branch or pull request cancels the one still
-running. The permissions are read-only: the workflow reads the repository and
-writes nothing back.
+Both run the same jobs, Declare, Version, Check and Build, with the same steps,
+and a push to `main` runs Publish after them. The versions depend on the event:
+on a pull request `Version` shows the version the merge would get with
+`-pr.<number>` behind it, and the plan carries the same versions, which the
+package test of `check-rust` and the build jobs write and build with.
+
+A newer push to a pull request cancels its run that is still going: only the
+newest commit of a pull request counts. A run after a push to `main` is never
+cancelled. It waits in the one queue of the repository
+until the run before it has finished, so the runs after two merges publish in
+the order of their pushes and with two different versions, and a run that
+waits is never replaced by a newer one. The workflow sets this itself, in its
+`concurrency`: a pull request's group cancels and keeps one run waiting, the
+repository's group keeps up to 100 runs waiting and cancels none, and a run
+beyond that is cancelled. GitHub gives the waiting runs their turn in the order
+in which they began to wait, and since a run may begin to wait a moment after
+it was started, it does not guarantee that order. Should two runs swap places,
+the versions stay what the history gives each commit; the older run then finds
+its commit held by the newer release and releases nothing (see
+[Publish](#publish)).
+
+The caller grants `contents: write`, and only Publish asks for it: every other
+job reads the repository and writes nothing back, and so does every job of a
+pull request.
 
 This repository calls the workflow the same way, with one difference: its own
 caller runs the workflow at the commit under test rather than at a pinned

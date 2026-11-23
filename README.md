@@ -34,9 +34,9 @@ the open issues and milestones show what comes next.
   from the register compiled into the tool.
 - [The phases](docs/phases.md): what runs, under which name, on a pull request
   and on a push.
-- [Calling the workflow](docs/calling.md): how to pin while no release exists,
-  why the schema line can run ahead of the pin, and how to change one linter
-  rule in one place.
+- [Calling the workflow](docs/calling.md): how to pin before `v0.1.0`, why the
+  schema line can run ahead of the pin, and how to change one linter rule in
+  one place.
 
 ## Calling the pipeline
 
@@ -59,15 +59,19 @@ jobs:
   nebensound:
     uses: Nebensound/pipeline/.github/workflows/nebensound.yml@<full commit SHA>
     permissions:
-      contents: read
+      contents: write
 ```
 
 One job, no inputs: what the repository is stands in its declaration, and the
 workflow reads it there. The reference is pinned to an exact version, so that a
-change to the pipeline never reaches a repository as a silent switch. Until the
-first release there is no version, so it is pinned to the full 40-character SHA
-of a commit on `main` and raised by hand; from then on to a release tag such as
-`v0.0.1`, which Dependabot raises as a pull request.
+change to the pipeline never reaches a repository as a silent switch. Until
+`v0.1.0`, the first version meant for callers, it is pinned to the full
+40-character SHA of a commit on `main` and raised by hand; from then on to a
+release tag, which Dependabot raises as a pull request.
+
+The job grants `contents: write` because the release stage on `main` writes
+tags and releases. Only its job `Publish` asks for that permission; every other
+job, and every job of a pull request, keeps a read token.
 
 A run reports as `nebensound / Declare` (phase 0: the declaration read and
 checked against the tree), `nebensound / Version` (the version of every unit,
@@ -76,19 +80,24 @@ as a table in the summary of the run), one job per unit that runs a check
 `nebensound / Check`, which sums the units up, one job per unit that builds
 and has a version of the run, that is, one the commit touches
 (`nebensound / Build repository`, `nebensound / Build component <name>`), and
-`nebensound / Build`, which sums the builds up. A ruleset requires
+`nebensound / Build`, which sums the builds up. After a push to `main`,
+`nebensound / Publish` tags and releases every unit with a version of the run
+(see [the phases](docs/phases.md#publish)). A ruleset requires
 `nebensound / Version`, `nebensound / Check` and `nebensound / Build`. A check
 or a build the register knows but that has no building block yet fails by name
-in the step `Not written yet` of its unit's job, and a version writer without
-one in the step `Version writers not written yet` of `nebensound / Check`.
+in the step `Not written yet` of its unit's job, and a version writer or a
+publish target without one in the step `Version writers not written yet` or
+`Publish targets not written yet` of `nebensound / Check`.
 
 This repository calls the workflow the same way, with one difference: its own
 [`gate.yml`](.github/workflows/gate.yml) calls the workflow at the commit that
 is running, so a change to the pipeline is checked by the pipeline it changes.
 Its declaration gives the tool `nebensound-repo` neither a version nor a build,
 so the repository's own tags `vX.Y.Z` are the only ones, and its Build phase has
-nothing to build. The version writer `cargo` and the build `cargo-package` are
-held to their test cases instead.
+nothing to build. Every merge to `main` touches the repository and is released
+in full, as `vX.Y.Z`, the latest release, with nothing attached. The
+version writer `cargo` and the build `cargo-package` are held to their test
+cases instead.
 
 ## Building blocks
 
@@ -437,7 +446,10 @@ first key or table of `.nebensound/repo.toml`:
   they are on the search path, as ShellCheck is on GitHub's Linux runners; the
   output says whether each was found. actionlint 1.7.12 does not know `$/`
   yet and reports every such call as invalid; `run` drops exactly these two
-  messages, and only for a `uses:` that begins with `$/`.
+  messages, and only for a `uses:` that begins with `$/`. Nor does it know
+  the key `queue` of a `concurrency` section, which GitHub documents; `run`
+  drops the message about that one key, and every other unknown key of the
+  section is still a finding.
 - `.github/dependabot.yml` matches the Dependabot schema (`check-jsonschema`,
   pinned, with the schema it brings along). An unknown key fails the check
   with the file and the key named, instead of surfacing only after the merge.
@@ -487,9 +499,10 @@ counts too: Cargo drops one without a version from the package, and the
 packaged tests that use it would not compile. A path dependency on a package
 that carries no version at all (a unit with `versioning = "none"`, or one that
 does not select the writer `cargo`) is left to Cargo: the package test fails
-with Cargo's message. That a release must not publish a package that requires
-a version whose release was never published belongs to the release stage, not
-to the writer.
+with Cargo's message. That a published package must not require a version
+that its registry does not have belongs to the publish block of that registry,
+which checks the registry itself before publishing, not to the writer: the
+release stage tags and releases only the units the commit touches.
 Only `Cargo.toml` and `Cargo.lock` files change. `check-rust` writes the
 versions the same way for its package test, starting from the units of its
 workspace (`--workspace`). The Build phase calls the block in the job of every
@@ -897,8 +910,10 @@ not part of the case's repository.
   version;
 - the step `Not written yet` of the check job counts exactly the checks that
   have a block as written (`WRITTEN_CHECKS`), the step `Not written yet` of
-  the build job exactly the builds (`WRITTEN_BUILDS`), and the step
-  `Version writers not written yet` exactly the version writers;
+  the build job exactly the builds (`WRITTEN_BUILDS`), the step
+  `Version writers not written yet` exactly the version writers, and the step
+  `Publish targets not written yet` exactly the publish targets, each under
+  the name of its block, the dots of a target turned into hyphens;
 - every block has a passing and a failing case. A `.DS_Store` beside the cases
   is passed over: Git ignores it, so the gate never sees it.
 

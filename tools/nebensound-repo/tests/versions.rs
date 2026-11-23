@@ -880,14 +880,14 @@ fn a_generated_unit_carries_its_parents_name_in_its_prefix() {
         plan["versions"],
         serde_json::json!([
             {"kind": "repository", "name": null, "path": ".", "prefix": "v",
-             "current": "0.0.2", "version": "0.0.2", "writers": []},
+             "current": "0.0.2", "version": "0.0.2", "writers": [], "targets": []},
             {"kind": "component", "name": "guide", "path": "docs/guide.md",
              "prefix": "docs-guide-v", "current": "0.0.2", "version": "0.0.2",
-             "writers": []},
+             "writers": [], "targets": []},
             // Not touched: its current version is what the first commit gave it.
             {"kind": "component", "name": "handbook", "path": "docs/handbook.md",
              "prefix": "docs-handbook-v", "current": "0.0.1", "version": null,
-             "writers": []}
+             "writers": [], "targets": []}
         ])
     );
 }

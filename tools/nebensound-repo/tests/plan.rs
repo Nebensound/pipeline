@@ -6,7 +6,7 @@
 mod support;
 
 use nebensound_repo::plan::{self, Plan};
-use support::{QUIET, analysis, call, central, repository};
+use support::{Git, QUIET, analysis, call, central, repository};
 
 fn planned(source: &str, paths: &[&str]) -> Plan {
     plan::plan(&analysis(source, paths), &central())
@@ -204,6 +204,50 @@ fn the_json_carries_the_units_and_a_flat_list_for_a_matrix() {
             // Read off a history, which an analysis without a disk has none of.
             "versions": []
         })
+    );
+}
+
+#[test]
+fn every_version_names_the_targets_its_unit_publishes_to() {
+    let git = Git::new();
+    git.write(&[
+        (
+            ".nebensound/repo.toml",
+            "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.handbook]\npath = \
+             \"doc\"\npipeline = \"typst-document\"\n\n[component.notes]\npath = \"notes\"\npipeline = { \
+             check = [\"typst\"], build = \"typst\", publish = [\"release-assets\"] \
+             }\nversioning = \"child-files\"\n",
+        ),
+        ("README.md", "# Targets\n"),
+        ("doc/handbook.typ", "= Handbook\n"),
+        ("notes/first.typ", "= First\n"),
+    ]);
+    git.commit("chore: start");
+
+    let (text, code) = call(&["nebensound-repo", "-C", git.root(), "plan"]);
+    assert_eq!(code, 0, "{text}");
+    let plan: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
+    let targets: Vec<(serde_json::Value, serde_json::Value)> = plan["versions"]
+        .as_array()
+        .expect("a list of versions")
+        .iter()
+        .map(|version| (version["name"].clone(), version["targets"].clone()))
+        .collect();
+    // `publish = false`, said out loud by the preset `none`, is an empty
+    // list; a generated unit publishes where the unit that generated it says.
+    assert_eq!(
+        targets,
+        [
+            (serde_json::Value::Null, serde_json::json!([])),
+            (
+                serde_json::json!("handbook"),
+                serde_json::json!(["release-assets"])
+            ),
+            (
+                serde_json::json!("first"),
+                serde_json::json!(["release-assets"])
+            ),
+        ]
     );
 }
 

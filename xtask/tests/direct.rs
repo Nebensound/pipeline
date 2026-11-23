@@ -42,6 +42,9 @@ jobs:
       - name: Version writers not written yet
         env:
           WRITTEN: '[]'
+      - name: Publish targets not written yet
+        env:
+          WRITTEN: '[]'
   builds:
     strategy:
       matrix:

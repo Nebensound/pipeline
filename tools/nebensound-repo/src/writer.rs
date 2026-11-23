@@ -113,7 +113,7 @@ impl Order {
     pub fn of(plan: &Plan) -> Vec<Self> {
         plan.versions
             .iter()
-            .map(|Versioned { unit, writers }| {
+            .map(|Versioned { unit, writers, .. }| {
                 let written = |version: TagVersion| {
                     plan.pull_request.map_or_else(
                         || version.to_string(),

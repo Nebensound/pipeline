@@ -112,16 +112,25 @@ sys.exit(1 if worst == linter.PROBLEM_LEVELS["error"] else 0)
 /// order.
 const OWN: &[&str] = &[".yamllint", ".yamllint.yaml", ".yamllint.yml"];
 
-/// Two messages of actionlint 1.7.12 that are left out, and only for a
-/// `uses:` that begins with `$/`: that version does not know the form yet
-/// and reports it as an invalid reference. `$/` is how a repository reaches
-/// its own building blocks at the commit that is running, so the finding
-/// would be wrong in every workflow that uses it. Every other finding on the
-/// same line and every other malformed `uses:` is still reported. The
-/// patterns go once actionlint knows the form.
+/// Messages of actionlint 1.7.12 that are left out.
+///
+/// The first two only for a `uses:` that begins with `$/`: that version does
+/// not know the form yet and reports it as an invalid reference. `$/` is how
+/// a repository reaches its own building blocks at the commit that is
+/// running, so the finding would be wrong in every workflow that uses it.
+/// Every other finding on the same line and every other malformed `uses:` is
+/// still reported.
+///
+/// The third for exactly one key: that version does not know `queue` in a
+/// `concurrency` section yet, which GitHub documents and the central workflow
+/// uses, so that a waiting run is never replaced. Every other unknown key of
+/// the section is still reported, and so is every other finding about it.
+///
+/// The patterns go once actionlint knows the form and the key.
 const ACTIONLINT_IGNORED: &[&str] = &[
     r#"^specifying action "\$/[^"]+" in invalid format because ref is missing"#,
     r#"^reusable workflow call "\$/[^"]+" at "uses" is not following the format"#,
+    r#"^unexpected key "queue" for "concurrency" section\. "#,
 ];
 
 /// How actionlint writes its findings: as one JSON list per call, which

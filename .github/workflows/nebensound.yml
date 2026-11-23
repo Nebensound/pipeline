@@ -3,17 +3,30 @@ name: nebensound
 # The one workflow a repository calls. No inputs: what the repository is stands
 # in its .nebensound/repo.toml.
 #
-# Phase 0 (Declare), the versions (Version), the checks (Check) and the builds
-# (Build) so far. Publish arrives when it does something: a job that only exists
-# to be green reports success for work nobody did.
+# Phase 0 (Declare), the versions (Version), the checks (Check), the builds
+# (Build) and, after a push to main, the release stage on main (Publish).
 
 on:
   workflow_call:
 
 # Here and not at the caller, so that it reads the same in every repository.
+#
+# The event decides. A run of a pull request has the group of its pull request,
+# and a newer push to it cancels the run in progress: only its newest commit
+# counts. Every other run, a run after a push, which is a run after a merge,
+# joins the one group of the repository: nothing in it is cancelled, and every
+# waiting run keeps its place (`queue: max`) instead of being replaced by the
+# next one, so that the releases of two merges are published in the order of
+# their pushes and no release stops halfway. GitHub refuses `queue: max`
+# together with `cancel-in-progress: true`, so the queue follows the event as
+# well.
 concurrency:
-  group: nebensound-${{ github.repository }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: >-
+    ${{ github.event_name == 'pull_request'
+    && format('nebensound-{0}-{1}', github.repository, github.ref)
+    || format('nebensound-{0}', github.repository) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  queue: ${{ github.event_name == 'pull_request' && 'single' || 'max' }}
 
 permissions:
   contents: read
@@ -92,8 +105,8 @@ jobs:
   # the run. It writes nothing and tags nothing: it reports. It runs whatever
   # Declare's result, so that an error in the history fails it with the
   # finding instead of leaving it skipped; it only waits for Declare to take
-  # the tool from the cache Declare filled. A cancelled run, for instance one
-  # a newer push replaced, skips it.
+  # the tool from the cache Declare filled. A cancelled run, for instance one of
+  # a pull request that a newer push to it replaced, skips it.
   version:
     name: Version
     needs: declare
@@ -364,6 +377,36 @@ jobs:
           done <<< "$missing"
           exit 1
 
+      # A publish target the register knows and nobody has written yet fails by
+      # name, as a version writer without a building block does: here, on the
+      # pull request, and not only in Publish once the merge has happened. A
+      # target belongs to a unit that carries a version, and every unit that
+      # names one fails here, whether the commit touches it or not. Each
+      # building block `publish-<target>` adds its target to the list.
+      - name: Publish targets not written yet
+        if: ${{ !cancelled() }}
+        env:
+          PLAN: ${{ needs.declare.outputs.plan }}
+          WRITTEN: "[]"
+        run: |
+          set -euo pipefail
+          if [ -z "$PLAN" ]; then
+            echo "There is no plan, so there is no publish target to look at."
+            exit 0
+          fi
+          missing="$(jq --raw-output --argjson written "$WRITTEN" '
+            .versions[] | . as $unit | (.targets - $written)[]
+            | "\(.)\t\(if $unit.kind == "repository" then "the repository"
+                else "component \($unit.name)" end)"' <<< "$PLAN")"
+          if [ -z "$missing" ]; then
+            echo "Every publish target the plan names has a building block."
+            exit 0
+          fi
+          while IFS=$'\t' read -r target unit; do
+            echo "::error::The publish target '$target' has no building block yet, so $unit is not published there. It is to be written under .github/actions/publish-${target//./-}."
+          done <<< "$missing"
+          exit 1
+
   # One job per unit that builds in this run, as Declare names them. Each starts
   # only when Check passed: nothing is built from a tree that failed. The
   # condition names the results itself, since the implicit success() would
@@ -509,3 +552,261 @@ jobs:
               exit 1
               ;;
           esac
+
+  # The release stage on main: after a push to main, and only there, every unit
+  # the plan gives a version of this run gets its records, a tag on the pushed
+  # commit and a GitHub Release, a full one: every merge into main is a full
+  # release. A unit the commit does not touch has no version of the run and
+  # gets nothing: a tag on this commit with its current version would not stand
+  # on the commit the history gives that version.
+  #
+  # It starts only when Declare, Check and Build passed. Check is named on its
+  # own: Build is green when nothing builds, whatever Check found, and nothing
+  # is released from a tree whose checks failed. It is the only job that may
+  # write to the repository; every other job, and every job of a pull request,
+  # keeps a read token. The run it belongs to waits for its turn in the one
+  # group of the repository (see `concurrency`), so its checkout holds every
+  # record the runs before it wrote.
+  #
+  # For each unit the order is: the tag, the release as a draft, the publish
+  # targets, the release published. An immutable release takes no file once it
+  # is published, and `make_latest` counts only in the call that publishes.
+  publish:
+    name: Publish
+    needs:
+      - declare
+      - check
+      - build
+    if: >-
+      ${{ !cancelled()
+      && github.event_name == 'push' && github.ref == 'refs/heads/main'
+      && needs.declare.result == 'success'
+      && needs.check.result == 'success'
+      && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      # The whole history and every tag: the records of a unit decide what its
+      # release notes list and whether a newer release holds this commit.
+      - name: Check out the calling repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Nothing is written here. Every tag is held first, so that a tag that
+      # stands on another commit stops the run before anything is written: a
+      # version belongs to exactly one commit. Tags and releases are records,
+      # and they are read here only for what records answer: the unit's
+      # previous record, which its notes are generated against, and whether a
+      # newer record already holds the pushed commit, as after a re-run of an
+      # older run.
+      - name: Decide what to release
+        id: releases
+        env:
+          PLAN: ${{ needs.declare.outputs.plan }}
+          REPOSITORY: ${{ github.event.repository.name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # The record of the unit nearest to its version on one side, among
+          # the tags `git tag` lists. A tag is the unit's record when what
+          # follows its prefix reads as a version as strictly as phase 0 reads
+          # it, a pre-release among them, since a tag of that form is still a
+          # record. The key sorts the way versions do, exactly and however long
+          # the numbers are: each number by its length and then by its digits,
+          # and a full release above every pre-release of its three numbers.
+          nearest() {
+            jq --null-input --raw-input --raw-output \
+              --arg prefix "$1" --arg version "$2" --arg side "$3" '
+              def key:
+                first(capture("^(?<x>0|[1-9][0-9]*)\\.(?<y>0|[1-9][0-9]*)\\.(?<z>0|[1-9][0-9]*)(-pre\\.(?<n>[1-9][0-9]*))?$")
+                  | [(.x | length), .x, (.y | length), .y, (.z | length), .z,
+                     (if .n == null then 1 else 0 end), ((.n // "") | length), (.n // "")])
+                // null;
+              ($version | key) as $own
+              | [inputs | select(startswith($prefix))
+                  | {tag: ., key: (.[($prefix | length):] | key)}
+                  | select(.key != null)
+                  | select(if $side == "above" then .key > $own else .key < $own end)]
+              | max_by(.key) | .tag // empty'
+          }
+          # Every sentence goes into the log and into the summary of the run.
+          say() {
+            echo "$1"
+            echo "- $1" >> "$GITHUB_STEP_SUMMARY"
+          }
+          printf '### The release stage on main\n\n' >> "$GITHUB_STEP_SUMMARY"
+          entries="$RUNNER_TEMP/nebensound-releases"
+          : > "$entries"
+          conflicts=0
+          while IFS= read -r unit; do
+            kind="$(jq --raw-output .kind <<< "$unit")"
+            name="$(jq --raw-output .name <<< "$unit")"
+            prefix="$(jq --raw-output .prefix <<< "$unit")"
+            version="$(jq --raw-output .version <<< "$unit")"
+            if [ "$kind" = "repository" ]; then
+              label="the repository"
+              display="$REPOSITORY"
+            else
+              label="component $name"
+              display="$name"
+            fi
+            tag="$prefix$version"
+            if tagged="$(git rev-parse --quiet --verify "refs/tags/$tag^{commit}")" \
+              && [ "$tagged" != "$SHA" ]; then
+              echo "::error::The tag $tag stands on the commit $tagged, and the history gives $version of $label to $SHA, the commit pushed. A version belongs to exactly one commit, so nothing is released in this run. Delete the tag if nobody published it, or raise minimum-version past it, as for the finding conflicting-tag."
+              conflicts=$((conflicts + 1))
+              continue
+            fi
+            newer="$(git tag --list "$prefix*" --contains "$SHA" | nearest "$prefix" "$version" above)"
+            if [ -n "$newer" ]; then
+              say "$label: the newer release $newer already holds $SHA, so $tag is not released."
+              continue
+            fi
+            previous="$(git tag --list "$prefix*" --merged "$SHA" | nearest "$prefix" "$version" below)"
+            latest=false
+            if [ "$kind" = "repository" ]; then
+              latest=true
+            fi
+            jq --compact-output \
+              --arg label "$label" --arg display "$display" --arg tag "$tag" \
+              --arg previous "$previous" --argjson latest "$latest" '
+              { kind, name, path, version, targets, label: $label, display: $display,
+                title: "\($display) \(.version)", tag: $tag,
+                previous: (if $previous == "" then null else $previous end),
+                latest: $latest }' \
+              <<< "$unit" >> "$entries"
+            if [ "$latest" = "true" ]; then
+              what="a full release, the latest"
+            else
+              what="a full release, not the latest"
+            fi
+            if [ -n "$previous" ]; then
+              notes="with notes since $previous"
+            else
+              notes="its first release"
+            fi
+            say "$label: $tag on $SHA, $what, $notes."
+          done < <(jq --compact-output '.versions[] | select(.version != null)' <<< "$PLAN")
+          if [ "$conflicts" -gt 0 ]; then
+            exit 1
+          fi
+          releases="$(jq --slurp --compact-output . "$entries")"
+          if [ "$releases" = "[]" ]; then
+            say "Nothing is released in this run."
+          fi
+          echo "releases=$releases" >> "$GITHUB_OUTPUT"
+
+      # A release published already is left as it is, and so is a tag: a
+      # re-run completes what an earlier attempt left undone and changes
+      # nothing else. A draft that attempt left is taken up. The notes are
+      # generated against the unit's previous record; a unit's first release
+      # carries one fixed sentence instead.
+      - name: Create the tags and the drafts
+        id: drafts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASES: ${{ steps.releases.outputs.releases }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          existing="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | {id, tag_name, draft}' | jq --slurp --compact-output .)"
+          drafts="$RUNNER_TEMP/nebensound-drafts"
+          : > "$drafts"
+          while IFS= read -r entry; do
+            label="$(jq --raw-output .label <<< "$entry")"
+            tag="$(jq --raw-output .tag <<< "$entry")"
+            published="$(jq --raw-output --arg tag "$tag" \
+              'first(.[] | select(.tag_name == $tag and (.draft | not)) | .id) // empty' <<< "$existing")"
+            if [ -n "$published" ]; then
+              echo "$label: the release $tag is published already; nothing is changed."
+              continue
+            fi
+            if git rev-parse --quiet --verify "refs/tags/$tag^{commit}" > /dev/null; then
+              echo "$label: the tag $tag stands on $SHA already."
+            else
+              jq --null-input --arg ref "refs/tags/$tag" --arg sha "$SHA" '{ref: $ref, sha: $sha}' \
+                | gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" --input - > /dev/null
+              echo "$label: tagged $SHA as $tag."
+            fi
+            id="$(jq --raw-output --arg tag "$tag" \
+              'first(.[] | select(.tag_name == $tag and .draft) | .id) // empty' <<< "$existing")"
+            if [ -n "$id" ]; then
+              echo "$label: the draft of $tag that an earlier attempt left is taken up."
+            else
+              previous="$(jq --raw-output '.previous // empty' <<< "$entry")"
+              if [ -n "$previous" ]; then
+                notes="$(jq --null-input --arg tag "$tag" --arg previous "$previous" \
+                  '{tag_name: $tag, previous_tag_name: $previous}' \
+                  | gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+                    --input - --jq .body)"
+              else
+                notes="$(jq --raw-output '"The first release of \(.display), so there is no earlier release to list the changes against."' <<< "$entry")"
+              fi
+              id="$(jq --arg sha "$SHA" --arg notes "$notes" \
+                '{tag_name: .tag, target_commitish: $sha, name: .title, body: $notes,
+                  draft: true, prerelease: false}' <<< "$entry" \
+                | gh api --method POST "repos/$GITHUB_REPOSITORY/releases" --input - --jq .id)"
+              echo "$label: drafted the release $tag."
+            fi
+            jq --compact-output --argjson id "$id" '. + {id: $id}' <<< "$entry" >> "$drafts"
+          done < <(jq --compact-output '.[]' <<< "$RELEASES")
+          echo "drafts=$(jq --slurp --compact-output . "$drafts")" >> "$GITHUB_OUTPUT"
+
+      # Here the publish blocks come, one step per target, each switched on the
+      # target it implements, while the releases of the run are drafts that
+      # still take files. Every target without a block fails Check before
+      # anything is built, so no unit that reaches this job names one yet; the
+      # first block sets how it is called.
+
+      # Every release is a full one, also a draft an earlier attempt left. Only
+      # the release of the repository is the latest, never one of a component.
+      # A repository that has immutable releases switched off still gets its
+      # release, with a warning that says so.
+      - name: Publish the releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRAFTS: ${{ steps.drafts.outputs.drafts }}
+        run: |
+          set -euo pipefail
+          if [ "$DRAFTS" = "[]" ]; then
+            echo "No release is left to publish."
+            exit 0
+          fi
+          {
+            echo "### Published"
+            echo
+            echo "| Unit | Release | Kind |"
+            echo "| ---- | ------- | ---- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          warnings="$RUNNER_TEMP/nebensound-warnings"
+          : > "$warnings"
+          while IFS= read -r entry; do
+            label="$(jq --raw-output .label <<< "$entry")"
+            tag="$(jq --raw-output .tag <<< "$entry")"
+            id="$(jq --raw-output .id <<< "$entry")"
+            jq '{draft: false, prerelease: false,
+                 make_latest: (if .latest then "true" else "false" end)}' <<< "$entry" \
+              | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$id" --input - > /dev/null
+            release="$(gh api "repos/$GITHUB_REPOSITORY/releases/$id")"
+            url="$(jq --raw-output .html_url <<< "$release")"
+            kind="$(jq --raw-output 'if .latest then "full release, latest" else "full release" end' <<< "$entry")"
+            echo "$label: published $tag, $kind: $url"
+            echo "| $label | [$tag]($url) | $kind |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$(jq --raw-output .immutable <<< "$release")" != "true" ]; then
+              message="The release $tag is published and is not immutable: immutable releases are switched off in $GITHUB_REPOSITORY, so its tag can still be moved or deleted and its assets changed. Switch them on in the settings of the repository."
+              echo "::warning::$message"
+              echo "$message" >> "$warnings"
+            fi
+          done < <(jq --compact-output '.[]' <<< "$DRAFTS")
+          if [ -s "$warnings" ]; then
+            {
+              echo
+              sed 's/^/**Warning:** /' "$warnings"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
