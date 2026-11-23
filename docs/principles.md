@@ -78,8 +78,8 @@ and maintained. Every external program, action and package stands in one list,
 with its exact version and a digest, in a form an automatic updater reads. So it
 is always clear what is used and what needs an update or a replacement. For the
 language's own toolchain the verification of its installer counts as the
-digest: a Rust toolchain is pinned by its exact name, and rustup checks what it
-downloads.
+digest: the register pins the coverage toolchain of the Rust check by its exact
+name, and rustup checks what it downloads.
 
 **Why.** Each external program is code the pipeline trusts with every
 repository. One list makes that trust visible, lets an updater raise it, and
