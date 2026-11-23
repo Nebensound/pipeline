@@ -20,7 +20,9 @@
 //! them. In a workflow run it is an annotation of the run; elsewhere it is a
 //! line that starts with `file:line:col:`. A finding that fails nothing, such
 //! as a Hadolint finding below the failure threshold, is a warning. What the
-//! programs print stands in the output as well.
+//! programs print stands in the output as well, with every name of a file that
+//! holds a control character, such as a line break, written the way [`shown`]
+//! writes it: see [`flattened`].
 
 pub mod css;
 pub mod dockerfile;
@@ -144,9 +146,11 @@ pub fn run(
     files: &[&RelativePath],
     out: &mut dyn Write,
 ) -> u8 {
+    let names: Vec<String> = files.iter().map(ToString::to_string).collect();
     let mut log = Log {
         out,
         workflow: context.workflow,
+        names: fragments(&names),
     };
     let noun = check.noun();
     if files.is_empty() {
@@ -162,7 +166,7 @@ pub fn run(
     }
     let mut session = Session {
         context,
-        files: files.iter().map(ToString::to_string).collect(),
+        files: names,
         temp: None,
         log,
     };
@@ -182,6 +186,10 @@ pub fn run(
 struct Log<'o> {
     out: &'o mut dyn Write,
     workflow: bool,
+    /// The names of the check's files that a program could print with a
+    /// control character in them, each beside how it is shown: see
+    /// [`fragments`].
+    names: Vec<(String, String)>,
 }
 
 impl Log<'_> {
@@ -199,9 +207,11 @@ impl Log<'_> {
         }
     }
 
-    /// Writes every line of what a program printed.
+    /// Writes every line of what a program printed, with the names of the
+    /// check's files in it written the way [`shown`] writes them: see
+    /// [`flattened`].
     fn lines(&mut self, text: &str) {
-        for line in text.lines() {
+        for line in flattened(text, &self.names).lines() {
             self.line(line);
         }
     }
@@ -348,6 +358,47 @@ fn unescape(text: &str) -> String {
         .replace("%3A", ":")
         .replace("%2C", ",")
         .replace("%25", "%")
+}
+
+/// The names of these files a program could print with a control character in
+/// them, the longest first, each beside how [`shown`] writes it: the path of
+/// every file that holds one, and every part of that path after a `/` that
+/// still holds one, for a program that names a file from a folder below the
+/// root.
+#[must_use]
+pub fn fragments(files: &[String]) -> Vec<(String, String)> {
+    let mut names = Vec::new();
+    for file in files {
+        let mut rest = file.as_str();
+        while rest.chars().any(char::is_control) {
+            names.push((rest.to_owned(), shown(rest)));
+            let Some((_, after)) = rest.split_once('/') else {
+                break;
+            };
+            rest = after;
+        }
+    }
+    names.sort_by_key(|(name, _)| std::cmp::Reverse(name.len()));
+    names
+}
+
+/// What a program printed, with every one of these names in it replaced by
+/// how it is shown, the longest first (see [`fragments`]).
+///
+/// A program names the files it is handed as they are, and Git allows a line
+/// break in a file name. A line of a step's log that starts with `::` is read
+/// by the runner as a workflow command, so a name that holds a line break
+/// followed by `::warning::x`, printed as it stands, would add an annotation
+/// of its own, or stop the workflow commands of the step with
+/// `::stop-commands::`. Written the way [`shown`] writes it, it stays on the
+/// line it belongs to.
+#[must_use]
+pub fn flattened(text: &str, names: &[(String, String)]) -> String {
+    let mut text = text.to_owned();
+    for (name, shown) in names {
+        text = text.replace(name.as_str(), shown);
+    }
+    text
 }
 
 /// The path from the folder `from` to `to`, both absolute and without links,
@@ -603,8 +654,10 @@ impl Session<'_, '_> {
     }
 
     /// Runs a program to its end: whether it succeeded, and what it printed
-    /// on both outputs in the order it printed it. A program that cannot be
-    /// started is written as a finding and counts as failed.
+    /// on both outputs in the order it printed it, with the names of the
+    /// check's files in it written the way [`shown`] writes them (see
+    /// [`flattened`]). A program that cannot be started is written as a
+    /// finding and counts as failed.
     fn capture(&mut self, mut command: Command, what: &str) -> Ran {
         let started = std::io::pipe().and_then(|(reader, writer)| {
             writer.try_clone().and_then(|copy| {
@@ -622,7 +675,7 @@ impl Session<'_, '_> {
                 let success = child.wait().is_ok_and(|status| status.success());
                 Ran {
                     success,
-                    text: String::from_utf8_lossy(&bytes).into_owned(),
+                    text: flattened(&String::from_utf8_lossy(&bytes), &self.log.names),
                 }
             }
             Err(error) => {

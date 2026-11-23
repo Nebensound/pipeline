@@ -63,6 +63,7 @@ use toml_edit::{ArrayOfTables, DocumentMut, Item, RawString, Table, TableLike, V
 
 use crate::ignored::folder;
 use crate::plan::{Plan, Versioned};
+use crate::report::shown;
 use crate::repository::Repository;
 use crate::versions::of_pull_request;
 use crate::workspace::{self, Manifests, resolve};
@@ -206,11 +207,14 @@ impl TryFrom<String> for Written {
 }
 
 /// Why the versions could not be written.
+///
+/// A path in the message is written the way [`shown`] writes it: a folder
+/// name can hold a line break, and the message goes into a step's log.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum WriteError {
     /// A file that has to be read could not be.
-    #[error("{path} is not readable: {message}")]
+    #[error("{} is not readable: {message}", shown(.path))]
     Unreadable {
         /// The file, inside the repository.
         path: String,
@@ -218,7 +222,7 @@ pub enum WriteError {
         message: String,
     },
     /// A file that has to be changed is not TOML.
-    #[error("{path} is not TOML: {message}")]
+    #[error("{} is not TOML: {message}", shown(.path))]
     Malformed {
         /// The file, inside the repository.
         path: String,
@@ -227,8 +231,9 @@ pub enum WriteError {
     },
     /// The unit's manifest describes no package.
     #[error(
-        "{unit} selects the version writer cargo, and {path} has no [package] with a name: there \
-         is no package to give the version to"
+        "{unit} selects the version writer cargo, and {} has no [package] with a name: there is \
+         no package to give the version to",
+        shown(.path)
     )]
     NoPackage {
         /// Which unit this is.
@@ -237,7 +242,7 @@ pub enum WriteError {
         path: String,
     },
     /// A changed file could not be written back.
-    #[error("{path} could not be written: {message}")]
+    #[error("{} could not be written: {message}", shown(.path))]
     Unwritable {
         /// The file, inside the repository.
         path: String,

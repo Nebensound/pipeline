@@ -855,6 +855,10 @@ fn write_versions(
 }
 
 /// Why a declaration could not be read.
+///
+/// A pattern or path from the declaration is written the way
+/// [`report::shown`] writes it: a TOML string can hold a line break, and the
+/// message goes into a step's log.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum ReadError {
@@ -863,8 +867,9 @@ pub enum ReadError {
     Unreadable(#[from] toml::de::Error),
     /// The same pattern stands twice under `[[exclude]]`.
     #[error(
-        "{pattern} stands twice under [[exclude]]. A list can say the same thing twice, a \
-         statement cannot: of two reasons for the same file, one is untrue"
+        "{} stands twice under [[exclude]]. A list can say the same thing twice, a statement \
+         cannot: of two reasons for the same file, one is untrue",
+        report::shown(.pattern)
     )]
     DuplicateExclusion {
         /// The duplicated pattern.
@@ -872,8 +877,9 @@ pub enum ReadError {
     },
     /// A repository excluded a pattern rather than a path.
     #[error(
-        "{pattern} takes a whole type or name out of the check. Here a pattern may only add \
-         work, never excuse any — write the path, or pull it back in with `include`"
+        "{} takes a whole type or name out of the check. Here a pattern may only add work, \
+         never excuse any — write the path, or pull it back in with `include`",
+        report::shown(.pattern)
     )]
     WildcardExclusion {
         /// The rejected pattern.
@@ -881,8 +887,9 @@ pub enum ReadError {
     },
     /// A repository made an exclusion depend on the file being empty.
     #[error(
-        "{path} sets only-if-empty, which only the central list of what nobody checks may set. \
-         Here an exclusion takes its path out as it stands — leave the field out"
+        "{} sets only-if-empty, which only the central list of what nobody checks may set. \
+         Here an exclusion takes its path out as it stands — leave the field out",
+        report::shown(.path)
     )]
     ConditionalExclusion {
         /// The path of the rejected entry.

@@ -409,3 +409,30 @@ fn an_ada_specification_is_not_excused_as_a_drawing() {
         Ruling::Excluded { .. }
     ));
 }
+
+#[test]
+fn a_line_break_in_a_refused_exclusion_is_written_as_an_escape() {
+    // The message goes into a step's log, where a line that starts with `::`
+    // would be read as a workflow command.
+    for (exclusion, expected) in [
+        (
+            "[[exclude]]\npath = \"a\\n::warning::x\"\nreason = \"one\"\n\n\
+             [[exclude]]\npath = \"a\\n::warning::x\"\nreason = \"two\"\n",
+            "a\\n::warning::x stands twice under [[exclude]]",
+        ),
+        (
+            "[[exclude]]\npath = \"**/a\\n::warning::x\"\nreason = \"one\"\n",
+            "**/a\\n::warning::x takes a whole type or name out of the check",
+        ),
+        (
+            "[[exclude]]\npath = \"a\\n::warning::x\"\nreason = \"one\"\nonly-if-empty = true\n",
+            "a\\n::warning::x sets only-if-empty",
+        ),
+    ] {
+        let message = Declaration::parse(&format!("[repo]\n\n{exclusion}"))
+            .expect_err("refused")
+            .to_string();
+        assert!(message.starts_with(expected), "{message}");
+        assert!(!message.contains('\n'), "{message}");
+    }
+}

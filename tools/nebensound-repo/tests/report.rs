@@ -98,6 +98,26 @@ pipeline.repo = true
 }
 
 #[test]
+fn a_line_break_in_the_path_of_a_unit_is_written_as_an_escape() {
+    let analysis = analysis(
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.a]\n\
+         path = \"a\\n::warning::x\"\npipeline = \"none\"\n",
+        &["README.md", "a\n::warning::x/notes.md"],
+    );
+    let text = report::configuration(&analysis, &central());
+
+    assert!(
+        text.lines()
+            .any(|line| line.starts_with("  component a") && line.ends_with("a\\n::warning::x")),
+        "{text}"
+    );
+    assert!(
+        !text.lines().any(|line| line.starts_with("::warning::")),
+        "{text}"
+    );
+}
+
+#[test]
 fn the_tree_shows_what_holds_for_every_file() {
     let text = report::tree(&analysis(MIXED, MIXED_FILES));
 

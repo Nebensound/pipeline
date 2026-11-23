@@ -2254,6 +2254,32 @@ fn a_manifest_that_is_no_toml_says_so() {
 }
 
 #[test]
+fn a_line_break_in_the_path_of_a_manifest_is_written_as_an_escape() {
+    let git = Git::new();
+    git.write(&[
+        (
+            ".nebensound/repo.toml",
+            "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.thing]\npath = \
+             \"a\\n::warning::x\"\npipeline = { version = [\"cargo\"] }\n",
+        ),
+        ("a\n::warning::x/Cargo.toml", "this is [not TOML\n"),
+    ]);
+    git.commit("feat: start");
+
+    let (text, code) = call(&["nebensound-repo", "-C", git.root(), "write-versions"]);
+
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.starts_with("a\\n::warning::x/Cargo.toml is not TOML: "),
+        "{text}"
+    );
+    assert!(
+        !text.lines().any(|line| line.starts_with("::warning::")),
+        "{text}"
+    );
+}
+
+#[test]
 fn a_manifest_without_a_package_says_so() {
     for manifest in [
         "[workspace]\nmembers = []\n",

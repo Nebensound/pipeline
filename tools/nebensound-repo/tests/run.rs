@@ -1470,6 +1470,94 @@ fn actionlint_json_is_read_list_by_list() {
     assert_eq!(yaml::actionlint_findings(r#"[{"message":"m"}]"#), None);
 }
 
+/// Whether no line of a step's log is the warning the file names below try
+/// to start: the runner reads a workflow command from the first character of
+/// a line that is not white space.
+fn starts_no_warning(text: &str) {
+    let forged: Vec<&str> = text
+        .lines()
+        .filter(|line| line.trim_start().starts_with("::warning::"))
+        .collect();
+    assert!(forged.is_empty(), "{forged:?} in\n{text}");
+}
+
+#[test]
+fn a_file_name_with_a_line_break_starts_no_workflow_command() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.everything();
+    // dockerfmt names an unformatted file on its own output and Hadolint
+    // names every file on standard error, each as it stands.
+    let dockerfile = "a\n::warning::x-unformatted.dockerfile";
+    fixture.file(dockerfile, "FROM scratch\n");
+    let (code, text) = fixture.run(Check::Dockerfile, &[dockerfile], true);
+    assert_eq!(code, 1, "{text}");
+    for line in [
+        "a\\n::warning::x-unformatted.dockerfile",
+        "dockerfmt --check -- a\\n::warning::x-unformatted.dockerfile",
+        "a\\n::warning::x-unformatted.dockerfile is not formatted",
+        "hadolint about a\\n::warning::x-unformatted.dockerfile",
+        // The finding is an annotation on the file itself, escaped.
+        "::error file=a%0A%3A%3Awarning%3A%3Ax-unformatted.dockerfile::dockerfmt failed on it \
+         with exit status 1; its output stands in the log",
+    ] {
+        has(&text, line);
+    }
+    starts_no_warning(&text);
+
+    // Biome names a file it cannot parse by its absolute path, in an
+    // annotation of its own; Prettier is shown its arguments. A line break
+    // in a folder and in the name are both written as escapes.
+    let jsonc = "b\n::warning::y/c\n::warning::z-quoted.jsonc";
+    fixture.file(jsonc, "{}\n");
+    let (code, text) = fixture.run(Check::Json, &[jsonc], true);
+    assert_eq!(code, 1, "{text}");
+    has(&text, "b\\n::warning::y/c\\n::warning::z-quoted.jsonc");
+    assert!(
+        text.lines().any(|line| line.starts_with("prettier ")
+            && line.ends_with(" -- b\\n::warning::y/c\\n::warning::z-quoted.jsonc")),
+        "{text}"
+    );
+    assert!(
+        text.lines().any(|line| line
+            .starts_with("::error title=parse,file=b\\n::warning::y/c\\n::warning::z-quoted")),
+        "{text}"
+    );
+    starts_no_warning(&text);
+}
+
+#[test]
+fn program_output_names_every_file_with_a_control_character_as_shown() {
+    let files = [
+        "plain.md".to_owned(),
+        "a\nb/plain.md".to_owned(),
+        "d\nx/e\ty.md".to_owned(),
+        "e\ty.md".to_owned(),
+    ];
+    let names = run::fragments(&files);
+    assert_eq!(
+        names,
+        [
+            ("a\nb/plain.md".to_owned(), "a\\nb/plain.md".to_owned()),
+            ("d\nx/e\ty.md".to_owned(), "d\\nx/e\\ty.md".to_owned()),
+            ("e\ty.md".to_owned(), "e\\ty.md".to_owned()),
+            ("e\ty.md".to_owned(), "e\\ty.md".to_owned()),
+        ]
+    );
+    // The longest first, so that a name inside a longer one does not leave
+    // the line break of the longer one behind; and a name from a folder
+    // below the root is caught as well.
+    assert_eq!(
+        run::flattened(
+            "/repo/d\nx/e\ty.md:1 found\nsub/e\ty.md:2 found\nplain.md\n",
+            &names
+        ),
+        "/repo/d\\nx/e\\ty.md:1 found\nsub/e\\ty.md:2 found\nplain.md\n"
+    );
+    assert_eq!(run::flattened("untouched\n", &[]), "untouched\n");
+    assert!(run::fragments(&["plain.md".to_owned()]).is_empty());
+}
+
 #[test]
 fn dockerfiles_are_formatted_and_pass_hadolint() {
     let _alone = alone();

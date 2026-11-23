@@ -35,7 +35,8 @@ use crate::rules;
 ///
 /// Every finding is a plain line and an annotation on its line: a warning
 /// fails nothing, an error fails the check. A plain line carries text from
-/// the checked file, so a line break in it is flattened, or it would start a
+/// the repository, so a control character in it is written as its escape, as
+/// [`shown`](crate::report::shown) writes it, or a line break would start a
 /// workflow command of its own.
 ///
 /// It reads where the pinned package lies (`TOOLS`), the list of files, each
@@ -94,9 +95,18 @@ class Resolved extends ConfigLoader {
 const escape = (value) =>
   value.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
 const property = (value) => escape(value).replaceAll(":", "%3A").replaceAll(",", "%2C");
-// A plain log line carries text from the checked file too; a line
-// break in it would start a workflow command of its own.
-const flat = (value) => value.replace(/[\r\n]+/g, " ");
+// A plain log line carries text from the repository too, a file name
+// or a finding in a checked file: a control character in it is
+// written as its escape, the way the tool writes it (`shown`), or a
+// line break would start a workflow command of its own.
+const escapes = { "\t": "\\t", "\n": "\\n", "\r": "\\r", "\\": "\\\\", "'": "\\'", '"': '\\"' };
+const control = /\p{Cc}/u;
+const flat = (value) =>
+  control.test(value)
+    ? Array.from(value, (char) =>
+        escapes[char] ?? (control.test(char) ? `\\u{${char.codePointAt(0).toString(16)}}` : char),
+      ).join("")
+    : value;
 
 for (const name of [
   "html-validate.config.mjs", "html-validate.config.cjs", "html-validate.config.js",
