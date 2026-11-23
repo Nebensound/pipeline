@@ -20,8 +20,10 @@ use std::process::Command;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use nebensound_repo::Register;
+use nebensound_repo::output::Output;
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::programs::Platform;
+use nebensound_repo::register::{BUILTIN_DEFAULTS, BUILTIN_REGISTER};
 use nebensound_repo::repository::Repository;
 use nebensound_repo::run::{
     self, Check, Context, Level, Packages, css, dockerfile, html, markdown, toml, yaml,
@@ -599,25 +601,41 @@ fn nothing_to_check_is_said_and_passes() {
 }
 
 #[test]
-fn outside_a_workflow_run_the_first_line_says_the_gate_decides() {
+fn outside_a_workflow_run_every_call_of_run_opens_with_the_gate() {
     let _alone = alone();
-    let fixture = Fixture::new();
     let outside = "Not running in GitHub Actions, so the result can differ from the gate's, \
                    which is the one that counts.";
     assert_eq!(run::OUTSIDE, outside);
-    // Every check, whether or not it has files: the line is written before
-    // anything else.
-    let (code, text) = fixture.run(Check::Yaml, &[], false);
-    assert_eq!(code, 0, "{text}");
-    assert_eq!(
-        text,
-        format!("{outside}\nNo YAML file below '.'; there is nothing to check.\n")
-    );
     // Read as a plain line, it is no finding.
     assert_eq!(run::plain(outside).as_deref(), Some(outside));
+
+    let fine = support::repository(&[(".nebensound/repo.toml", QUIET)]);
+    let root = fine.path().to_str().unwrap();
+    let call_with = |output: Output| {
+        let mut out = Vec::new();
+        let code = nebensound_repo::run_against(
+            ["nebensound-repo", "-C", root, "run", "json", "."],
+            BUILTIN_REGISTER,
+            BUILTIN_DEFAULTS,
+            output,
+            &mut out,
+        );
+        (String::from_utf8(out).unwrap(), code)
+    };
+    let nothing = "No JSON file below '.'; there is nothing to check.\n";
+    // Elsewhere and in a terminal the line comes first.
+    for output in [Output::Elsewhere, Output::Terminal] {
+        let (text, code) = call_with(output);
+        assert_eq!(code, 0, "{text}");
+        assert_eq!(text, format!("{outside}\n{nothing}"));
+    }
     // A workflow run does not get it: the gate's log stays as it was.
-    let (_, text) = fixture.run(Check::Json, &[], true);
-    assert!(!text.contains("GitHub Actions"), "{text}");
+    let (text, code) = call_with(Output::Workflow);
+    assert_eq!(code, 0, "{text}");
+    assert_eq!(text, nothing);
+    // Another command does not get it either.
+    let (text, _) = call(&["nebensound-repo", "-C", root, "files", "json", "."]);
+    assert!(!text.contains(outside), "{text}");
 }
 
 #[test]
@@ -1300,8 +1318,14 @@ fn workflows_and_schema_findings_are_recognized() {
 #[test]
 fn the_call_refuses_what_it_does_not_run() {
     let _alone = alone();
+    // Every call opens with the line that the gate decides, also one that
+    // ends in a refusal.
+    let opens = |text: &str| {
+        assert_eq!(text.lines().next(), Some(run::OUTSIDE), "{text}");
+    };
     let (text, code) = call(&["nebensound-repo", "run", "python", "."]);
     assert_eq!(code, 2, "{text}");
+    opens(&text);
     assert!(
         text.contains(
             "`run` carries out the checks css, dockerfile, html, json, markdown, rust, toml and \
@@ -1311,6 +1335,7 @@ fn the_call_refuses_what_it_does_not_run() {
     );
     let (text, code) = call(&["nebensound-repo", "run", "json", "/abs"]);
     assert_eq!(code, 2, "{text}");
+    opens(&text);
 
     let broken = support::repository(&[
         (".nebensound/repo.toml", QUIET),
@@ -1321,13 +1346,17 @@ fn the_call_refuses_what_it_does_not_run() {
     assert_eq!(code, 1, "{text}");
     assert_eq!(
         text,
-        "nothing is checked: phase 0 found errors, and `check` says which\n"
+        format!(
+            "{}\nnothing is checked: phase 0 found errors, and `check` says which\n",
+            run::OUTSIDE
+        )
     );
 
     let fine = support::repository(&[(".nebensound/repo.toml", QUIET)]);
     let root = fine.path().to_str().unwrap();
     let (text, code) = call(&["nebensound-repo", "-C", root, "run", "json", "docs"]);
     assert_eq!(code, 1, "{text}");
+    opens(&text);
     assert!(
         text.contains("the plan does not start the json check at docs"),
         "{text}"

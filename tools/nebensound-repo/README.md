@@ -516,10 +516,11 @@ nebensound-repo run markdown .                   # the Markdown check of the rep
 ```
 
 The gate decides: what counts is the result of the run on GitHub Actions. A
-run anywhere else comes as close to it as is sensible but can differ, and its
-first line says so: `Not running in GitHub Actions, so the result can differ
-from the gate's, which is the one that counts.` A workflow run's log does not
-get that line.
+run anywhere else comes as close to it as is sensible but can differ, so every
+call of `run` outside a workflow run opens with a line that says so, also one
+that ends in a refusal or an error before the check starts: `Not running in
+GitHub Actions, so the result can differ from the gate's, which is the one that
+counts.` A workflow run's log does not get that line.
 
 It takes exactly the files `files` names for the check and the unit, and a
 pair the plan does not start is refused, as there. A repository with errors

@@ -28,8 +28,10 @@
 //!
 //! The gate decides: what counts is the result of the run on GitHub Actions.
 //! A run anywhere else comes as close to it as is sensible, and is never the
-//! same in every case, so for every check its first line says so
-//! ([`OUTSIDE`]). In a workflow run that line is not written.
+//! same in every case, so every call of the command `run` outside a workflow
+//! run opens with a line that says so ([`OUTSIDE`]), also one that ends in a
+//! refusal or an error before a check starts. In a workflow run that line is
+//! not written.
 
 pub mod css;
 pub mod dockerfile;
@@ -67,7 +69,9 @@ use crate::writer::Order;
 /// over in several calls, as `xargs` would.
 pub const ARGUMENTS: usize = 30_000;
 
-/// The first line of a check run outside a workflow run. It is neither a
+/// The first line of every call of the command `run` outside a workflow run,
+/// written where the call is dispatched, before anything can refuse it. It
+/// is neither a
 /// finding nor a workflow command, so nothing that reads findings off the
 /// output takes it for one.
 pub const OUTSIDE: &str = "Not running in GitHub Actions, so the result can differ from the \
@@ -187,7 +191,7 @@ pub struct Packages<'a> {
 
 /// Runs the check over these files of the unit, prints what the programs
 /// print and every finding, and returns the exit code: 0 when nothing was
-/// found, 1 otherwise. Outside a workflow run, [`OUTSIDE`] comes first.
+/// found, 1 otherwise.
 pub fn run(
     context: &Context<'_>,
     check: Check,
@@ -199,9 +203,6 @@ pub fn run(
         out,
         workflow: context.workflow,
     };
-    if !context.workflow {
-        log.line(OUTSIDE);
-    }
     let noun = check.noun();
     if files.is_empty() {
         log.line(&format!(

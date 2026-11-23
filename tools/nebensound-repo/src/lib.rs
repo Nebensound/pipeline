@@ -387,6 +387,12 @@ where
 /// runs the same copy of it, and a call that only one of them makes still
 /// counts as run.
 fn dispatch(cli: &Cli, register: &str, defaults: &str, output: Output, out: &mut dyn Write) -> u8 {
+    // Every call of `run` outside a workflow run opens with the line that
+    // the gate decides, also one that ends in a refusal or an error.
+    #[cfg(feature = "program")]
+    if matches!(cli.command, Some(Command::Run { .. })) && output != Output::Workflow {
+        say(out, &format!("{}\n", run::OUTSIDE));
+    }
     // Whether a call makes sense does not depend on what it would have been
     // called on, so the path is checked before the repository is read at all.
     let job = match call(cli) {

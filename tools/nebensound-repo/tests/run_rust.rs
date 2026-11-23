@@ -793,7 +793,8 @@ fn outside_a_workflow_run_a_finding_is_a_line() {
     );
     has(&text, "Formatting");
     assert!(!text.contains("::"), "{text}");
-    assert_eq!(text.lines().next(), Some(run::OUTSIDE), "{text}");
+    // The line that the gate decides belongs to the command, not to the check.
+    assert!(!text.contains(run::OUTSIDE), "{text}");
 }
 
 #[test]
@@ -1213,14 +1214,22 @@ fn the_call_hands_the_check_its_plan_or_resolves_one() {
         ".",
     ]);
     assert_eq!(code, 1, "{text}");
+    // Outside a workflow run the call opens with the line that the gate
+    // decides, also when it ends before the check starts.
     assert!(
-        text.starts_with(&format!("the plan {} does not read: ", missing.display())),
+        text.starts_with(&format!(
+            "{}\nthe plan {} does not read: ",
+            run::OUTSIDE,
+            missing.display()
+        )),
         "{text}"
     );
     // Without one, the versions are resolved from the history, which a
     // repository without a commit does not have.
     let (text, code) = call(&["nebensound-repo", "-C", root, "run", "rust", "."]);
     assert_eq!(code, 1, "{text}");
+    assert_eq!(text.lines().next(), Some(run::OUTSIDE), "{text}");
+    assert_eq!(text.lines().count(), 2, "{text}");
     let plan = fine.path().join("plan.json");
     fs::write(&plan, "{\"versions\":[]}").unwrap();
     let (text, code) = call(&[
@@ -1234,6 +1243,7 @@ fn the_call_hands_the_check_its_plan_or_resolves_one() {
         ".",
     ]);
     assert_eq!(code, 1, "{text}");
+    assert_eq!(text.lines().next(), Some(run::OUTSIDE), "{text}");
     assert!(
         text.contains("the plan does not start the rust check at ."),
         "{text}"
