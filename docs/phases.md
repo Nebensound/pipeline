@@ -242,10 +242,10 @@ own, since Build is green when nothing builds, whatever Check found: nothing
 is released from a tree whose checks failed. It is the only job that asks for
 `contents: write`.
 
-Every unit the history gives a version of the pushed commit, as the plan
-names it, that is, every unit the pushed commit touches, gets its records: a tag on the pushed commit, named as
-[the declaration](declaration.md#tag-names) names a unit's records, and a
-GitHub Release of it.
+Every unit the history gives a version of the pushed commit, that is, every
+unit the pushed commit touches, gets its records: a tag on the pushed commit,
+named as [the declaration](declaration.md#tag-names) names a unit's records,
+and a GitHub Release of it.
 
 | Unit           | Version on `main` | The release                     |
 | -------------- | ----------------- | ------------------------------- |
