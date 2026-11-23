@@ -39,6 +39,15 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Temporary, for the evidence of #143 only: the next commit takes it out.
+      # The first line holds the older form in the middle, as a file name
+      # would; the second holds it the way `shown` writes it.
+      - name: Probe the older form of a workflow command
+        shell: bash
+        run: |
+          echo 'probe: a file named a##[warning]older form read in the middle of a line'
+          echo 'probe: a file named a##\u{5b}warning]written the way shown writes it'
+
       # `$/` is this repository at the commit that is running. The caller pins
       # this workflow to an exact version; everything below it comes from that
       # same commit, and no second version stands in here to fall behind.
