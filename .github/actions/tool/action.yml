@@ -22,7 +22,8 @@ inputs:
     description: >-
       Whether the tool may come from the cache and its build go into it.
       "false" for a job that holds a token that can write: it then builds the
-      tool from source, and the cache is neither read nor written.
+      tool from source, and the cache is neither read nor written. Only "true"
+      lets the cache in, so any other value builds from source as well.
     required: false
     default: "true"
 
@@ -58,7 +59,7 @@ runs:
 
     - name: Look for a build of exactly this tool
       id: cache
-      if: inputs.cache != 'false'
+      if: inputs.cache == 'true'
       uses: actions/cache/restore@v6
       with:
         path: ${{ steps.tool.outputs.home }}
@@ -84,7 +85,7 @@ runs:
     # Several unit jobs can miss at once; the first to finish keeps its build,
     # and the others are told the key is taken, which fails nothing.
     - name: Keep the build for the next job
-      if: inputs.cache != 'false' && steps.cache.outputs.cache-hit != 'true'
+      if: inputs.cache == 'true' && steps.cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v6
       with:
         path: ${{ steps.tool.outputs.home }}
