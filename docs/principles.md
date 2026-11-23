@@ -9,8 +9,8 @@ rules in short.
 
 The rules describe where the pipeline goes. Parts of it are older than the
 rules; [What does not hold yet](#what-does-not-hold-yet) names each of them and
-the issue that changes it, or says that none exists yet. Where another page of the reference describes such
-a part, it describes the state of today.
+the issue that changes it, or says that none exists yet. Where another page of
+the reference describes such a part, it describes the state of today.
 
 ## 1. A simple flow
 
@@ -36,10 +36,10 @@ with configuration that is data. An executing check runs code of the repository:
 build scripts, tests, an image build. The two never share a job. Only "passed"
 or "failed" crosses from one job to another.
 
-**Why.** Code of the repository can do anything inside the job it runs in: change
-files, replace a program on the `PATH`, write into the log. A reading check in
-the same job can therefore no longer vouch for its own result. Kept apart, the
-reading checks hold whatever the code of the repository does.
+**Why.** Code of the repository can do anything inside the job it runs in:
+change files, replace a program on the `PATH`, write into the log. A reading
+check in the same job can therefore no longer vouch for its own result. Kept
+apart, the reading checks hold whatever the code of the repository does.
 
 **Today.** The unit job runs `check-rust` and `check-python`, which build and
 test the repository's code, in the same job as the reading checks of that
@@ -77,9 +77,10 @@ shows at once what to replace when an upstream stops.
 **Today.** The programs of the checks stand in the register, each with its
 version and the digest of every download, and the tool refuses a download
 without that digest. Dependabot does not read the register. Actions are pinned
-to a major version, and the Dependabot file of the repository is set up for
-actions. Git, curl, Cargo, rustup, `jq`,
-the GitHub CLI and Docker come from the runner image, unpinned.
+to a major version. The Dependabot file of the repository covers the actions of
+the workflows, not those used inside the actions under `.github/actions/`. Git,
+curl, Cargo, rustup, `jq`, the GitHub CLI and Docker come from the runner image,
+unpinned.
 
 ## 5. One rule per kind of problem
 
@@ -131,11 +132,11 @@ its own. Each of those jobs holds only the read token.
 
 So on `main` today, no job that runs code of the repository holds a token that
 can write, and the one job that can write runs only after a push to `main`, when
-the change has been merged and every check has passed. Every checkout of the workflow
-leaves no credentials behind (`persist-credentials: false`). The caller grants more
-permissions than any job asks for, so that later parts need no change in every
-repository (see [Calling the workflow](calling.md#permissions)); no job uses
-them today.
+the change has been merged and every check has passed. Every checkout of the
+workflow leaves no credentials behind (`persist-credentials: false`). The caller
+grants more permissions than any job asks for, so that later parts need no
+change in every repository (see [Calling the workflow](calling.md#permissions));
+no job uses them today.
 
 What is a goal and not yet true:
 
@@ -187,4 +188,6 @@ yet, it says so.
   version or digest (rule 4). No issue exists yet.
 - **One list in a form an updater reads** (rule 4). The register pins programs
   with digests, but Dependabot does not read it, and `AGENTS.md` allows actions
-  pinned to a major version, without a digest. No issue exists yet.
+  pinned to a major version, without a digest. The Dependabot file does not
+  cover the actions used inside the actions under `.github/actions/`. No issue
+  exists yet.
