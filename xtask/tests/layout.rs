@@ -53,6 +53,7 @@ fn case(expect: Expect) -> Case {
         name: "a".to_owned(),
         dir: "a".into(),
         expect,
+        forbidden: Vec::new(),
     }
 }
 

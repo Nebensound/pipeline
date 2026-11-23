@@ -23,7 +23,8 @@
 //! only when they passed; it gets the plan as well when it takes one. A
 //! passing case passes when the block succeeds everywhere. A failing case
 //! passes when the block fails and every line of its [`FINDING`] file matches
-//! a line the block printed.
+//! a line the block printed. Either kind fails when the block printed a line
+//! its [`FORBIDDEN`] file names.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -62,6 +63,16 @@ const PHASE0_FAILS: &str =
 /// line the block printed, where `*` stands for any text.
 pub const FINDING: &str = "expected-finding";
 
+/// The file in a case, passing or failing, that names lines the block must not
+/// print, such as a workflow command that text from the case's repository
+/// would start. It is not copied into the case's repository either.
+///
+/// Each line that is not empty and does not start with `#` is a pattern, as in
+/// [`FINDING`], that no line the block printed may match. A line is read the
+/// way the runner of GitHub Actions reads a workflow command: from its first
+/// character that is not white space.
+pub const FORBIDDEN: &str = "forbidden-line";
+
 /// Where the building blocks lie, from the repository root.
 pub const ACTIONS: &str = ".github/actions";
 
@@ -98,6 +109,9 @@ pub struct Case {
     pub dir: PathBuf,
     /// What it expects.
     pub expect: Expect,
+    /// The patterns of the lines the block must not print (see
+    /// [`FORBIDDEN`]); empty when it names none.
+    pub forbidden: Vec<String>,
 }
 
 impl Case {
@@ -118,7 +132,8 @@ impl Case {
 /// # Errors
 ///
 /// When an entry under `tests/pass/` or `tests/fail/` is no case: not a
-/// directory, a failing case without its findings, a passing case with some.
+/// directory, a failing case without its findings, a passing case with some,
+/// or a case whose [`FORBIDDEN`] file names no line.
 pub fn discover(block: &Path) -> Result<Vec<Case>, Error> {
     let mut cases = Vec::new();
     for (kind, failing) in [("pass", false), ("fail", true)] {
@@ -167,13 +182,7 @@ fn case(dir: PathBuf, failing: bool) -> Result<Case, Error> {
             )));
         }
         (true, finding) => {
-            let patterns: Vec<String> = finding
-                .unwrap_or_default()
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty() && !line.starts_with('#'))
-                .map(str::to_owned)
-                .collect();
+            let patterns = patterns(&finding.unwrap_or_default());
             if patterns.is_empty() {
                 return Err(Error::new(format!(
                     "the failing case {} names no finding: its {FINDING} has to name at least \
@@ -184,7 +193,35 @@ fn case(dir: PathBuf, failing: bool) -> Result<Case, Error> {
             Expect::Fail(patterns)
         }
     };
-    Ok(Case { name, dir, expect })
+    let forbidden = match fs::read_to_string(dir.join(FORBIDDEN)) {
+        Ok(text) => {
+            let forbidden = patterns(&text);
+            if forbidden.is_empty() {
+                return Err(Error::new(format!(
+                    "the case {} holds {FORBIDDEN}, and it names no line",
+                    dir.display()
+                )));
+            }
+            forbidden
+        }
+        Err(_) => Vec::new(),
+    };
+    Ok(Case {
+        name,
+        dir,
+        expect,
+        forbidden,
+    })
+}
+
+/// The patterns of a [`FINDING`] or [`FORBIDDEN`] file: every line that is not
+/// empty and does not start with `#`, without white space at either end.
+fn patterns(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Whether a line matches a pattern of a [`FINDING`] file: the whole line,
@@ -209,10 +246,31 @@ pub fn matches(pattern: &str, line: &str) -> bool {
     rest.ends_with(last)
 }
 
-/// Judges a run against what the case expects: nothing when it went as
-/// expected, else what went wrong.
+/// Judges a run against what the case expects and the lines it forbids (see
+/// [`FORBIDDEN`]): nothing when it went as expected, else what went wrong.
 #[must_use]
-pub fn judge(expect: &Expect, success: bool, log: &[String]) -> Option<String> {
+pub fn judge(
+    expect: &Expect,
+    forbidden: &[String],
+    success: bool,
+    log: &[String],
+) -> Option<String> {
+    let printed: Vec<String> = log
+        .iter()
+        .filter_map(|line| {
+            let read = line.trim_start();
+            forbidden
+                .iter()
+                .find(|pattern| matches(pattern, read))
+                .map(|pattern| format!("`{read}` (`{pattern}`)"))
+        })
+        .collect();
+    if !printed.is_empty() {
+        return Some(format!(
+            "the block prints a line the case forbids: {}",
+            printed.join(", ")
+        ));
+    }
     match expect {
         Expect::Pass if success => None,
         Expect::Pass => Some("the block fails on a case that is meant to pass".to_owned()),
@@ -452,7 +510,7 @@ fn attempt(
         }
         success &= written && runs(&dir, &call.inputs, &skip)?;
     }
-    Ok(judge(&case.expect, success, &log))
+    Ok(judge(&case.expect, &case.forbidden, success, &log))
 }
 
 /// The runs of a block of `kind` in `dir` the plan of phase 0 asks for, or
@@ -615,7 +673,7 @@ fn through_the_tool(
         success &= passed;
         log.extend(lines);
     }
-    Ok(judge(&case.expect, success, &log))
+    Ok(judge(&case.expect, &case.forbidden, success, &log))
 }
 
 /// One call of the tool on the case's repository, in the environment of a
@@ -641,7 +699,8 @@ fn tool(
 }
 
 /// A directory of its own for a case, in `scratch`, and in it the case as a
-/// fresh Git repository, with everything but its [`FINDING`] committed, and
+/// fresh Git repository, with everything but its [`FINDING`] and
+/// [`FORBIDDEN`] committed, and
 /// the directory its steps write to. The directory goes when what is returned
 /// is dropped.
 fn fresh(scratch: &Path, git: &OsString, case: &Case) -> Result<(TempDir, PathBuf), Error> {
@@ -657,7 +716,8 @@ fn fresh(scratch: &Path, git: &OsString, case: &Case) -> Result<(TempDir, PathBu
 }
 
 /// Copies a case into a fresh Git repository, with everything but its
-/// [`FINDING`] committed, and makes the directory its steps write to.
+/// [`FINDING`] and [`FORBIDDEN`] committed, and makes the directory its steps
+/// write to.
 fn prepare(git: &OsString, case: &Path, workspace: &Path, runner: &Path) -> Result<(), Error> {
     let os = |text: &str| OsString::from(text);
     let git = |args: &[&str]| {
@@ -672,7 +732,14 @@ fn prepare(git: &OsString, case: &Path, workspace: &Path, runner: &Path) -> Resu
             vec![os("-R"), case.join(".").into(), workspace.into()],
         ),
         git(&["-c", "init.defaultBranch=main", "init", "--quiet"]),
-        git(&["add", "--all", "--", ".", &format!(":(exclude){FINDING}")]),
+        git(&[
+            "add",
+            "--all",
+            "--",
+            ".",
+            &format!(":(exclude){FINDING}"),
+            &format!(":(exclude){FORBIDDEN}"),
+        ]),
         git(&[
             "-c",
             "user.name=xtask",

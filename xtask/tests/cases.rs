@@ -8,7 +8,7 @@ use std::fs;
 use std::path::Path;
 
 use support::{Scene, write};
-use xtask::cases::{self, Bench, Case, Expect, FINDING};
+use xtask::cases::{self, Bench, Case, Expect, FINDING, FORBIDDEN};
 use xtask::runner::Job;
 
 #[test]
@@ -20,6 +20,10 @@ fn cases_are_found_passing_first_each_kind_by_name() {
         &[
             ("tests/pass/b/file", ""),
             ("tests/pass/a/file", ""),
+            (
+                "tests/pass/a/forbidden-line",
+                "# A comment.\n\n  ::warning::*\n",
+            ),
             ("tests/pass/.DS_Store", ""),
             ("tests/fail/.DS_Store", ""),
             (
@@ -38,6 +42,8 @@ fn cases_are_found_passing_first_each_kind_by_name() {
         names,
         [("a", &Expect::Pass), ("b", &Expect::Pass), ("z", &fail)]
     );
+    assert_eq!(found[0].forbidden, ["::warning::*"]);
+    assert!(found[1].forbidden.is_empty());
     assert_eq!(found[0].label(), "passing case `a`");
     assert_eq!(found[2].label(), "failing case `z`");
     assert!(
@@ -62,6 +68,10 @@ fn what_is_no_case_is_refused() {
         (
             &[("tests/pass/a/expected-finding", "x")],
             "only a failing case names a finding",
+        ),
+        (
+            &[("tests/pass/a/forbidden-line", "# only a comment\n")],
+            "holds forbidden-line, and it names no line",
         ),
         (&[("tests/pass", "")], "cannot list"),
     ] {
@@ -103,9 +113,9 @@ fn a_pattern_matches_a_whole_line() {
 #[test]
 fn a_run_is_judged_against_what_the_case_expects() {
     let log = ["one line".to_owned(), "::error file=a::wrong".to_owned()];
-    assert_eq!(cases::judge(&Expect::Pass, true, &log), None);
+    assert_eq!(cases::judge(&Expect::Pass, &[], true, &log), None);
     assert!(
-        cases::judge(&Expect::Pass, false, &log)
+        cases::judge(&Expect::Pass, &[], false, &log)
             .unwrap()
             .contains("meant to pass")
     );
@@ -115,18 +125,41 @@ fn a_run_is_judged_against_what_the_case_expects() {
         "other".to_owned(),
     ]);
     assert!(
-        cases::judge(&fail, true, &log)
+        cases::judge(&fail, &[], true, &log)
             .unwrap()
             .contains("lets the mistake through")
     );
     assert_eq!(
-        cases::judge(&fail, false, &log).unwrap(),
+        cases::judge(&fail, &[], false, &log).unwrap(),
         "the block fails, but without the finding the case names: no line matches `missing*`, `other`"
     );
     assert_eq!(
-        cases::judge(&Expect::Fail(vec!["one *".to_owned()]), false, &log),
+        cases::judge(&Expect::Fail(vec!["one *".to_owned()]), &[], false, &log),
         None
     );
+}
+
+#[test]
+fn a_line_the_case_forbids_fails_it_whatever_the_block_did() {
+    // Read as the runner reads a workflow command: from the first character
+    // that is not white space.
+    let log = [
+        "a\\n::warning::x".to_owned(),
+        "  ::warning::x".to_owned(),
+        "::error file=a::wrong".to_owned(),
+    ];
+    let forbidden = ["::warning::*".to_owned(), "never".to_owned()];
+    let expected = "the block prints a line the case forbids: `::warning::x` (`::warning::*`)";
+    assert_eq!(
+        cases::judge(&Expect::Pass, &forbidden, true, &log).as_deref(),
+        Some(expected)
+    );
+    let fail = Expect::Fail(vec!["::error file=a::*".to_owned()]);
+    assert_eq!(
+        cases::judge(&fail, &forbidden, false, &log).as_deref(),
+        Some(expected)
+    );
+    assert_eq!(cases::judge(&fail, &forbidden[1..], false, &log), None);
 }
 
 #[test]
@@ -270,6 +303,7 @@ runs:
         UNIT: ${{ inputs.working-directory }}
       run: |
         if git ls-files | grep -q expected-finding; then echo "the finding is committed"; exit 1; fi
+        if git ls-files | grep -q forbidden-line; then echo "the forbidden lines are committed"; exit 1; fi
         if [ -f "$UNIT/bad" ]; then echo "::error file=$UNIT/bad::wrong"; exit 1; fi
         echo "$UNIT is fine"
 "#;
@@ -277,7 +311,8 @@ runs:
 /// A root with phase 0, the block `check-demo` and its copy `check-rust`,
 /// `check-planned` that takes the plan, the version writer `version-demo`,
 /// the build `build-demo`, and the cases `good`, `bad`, `unbuildable`,
-/// `ghost-writer`, `phase0-fails`, `no-units`, `untouched` and `no-plan`.
+/// `ghost-writer`, `phase0-fails`, `no-units`, `untouched`, `no-plan`, and
+/// `forbidden` and `allowed`, which name a line the block must not print.
 fn root(scene: &Scene) -> std::path::PathBuf {
     let root = scene.path().join("root");
     write(
@@ -306,6 +341,10 @@ fn root(scene: &Scene) -> std::path::PathBuf {
             ("cases/good/file", ""),
             ("cases/bad/sub/bad", ""),
             ("cases/bad/expected-finding", "::error file=sub/bad::wrong\n"),
+            ("cases/forbidden/file", ""),
+            ("cases/forbidden/forbidden-line", "sub is *"),
+            ("cases/allowed/file", ""),
+            ("cases/allowed/forbidden-line", "never"),
             ("cases/phase0-fails/phase0-fails", ""),
             ("cases/no-units/no-units", ""),
             ("cases/untouched/untouched", ""),
@@ -347,6 +386,9 @@ fn run_in(
         name: case.to_owned(),
         dir: root.join("cases").join(case),
         expect,
+        forbidden: fs::read_to_string(root.join("cases").join(case).join(FORBIDDEN))
+            .map(|text| text.lines().map(str::to_owned).collect())
+            .unwrap_or_default(),
     };
     let mut out = Vec::new();
     let verdict = cases::run(
@@ -616,6 +658,20 @@ fn a_case_that_cannot_run_is_an_error() {
             .to_string()
             .contains("no such step any more")
     );
+}
+
+#[test]
+fn a_case_fails_on_a_line_it_forbids_and_its_file_is_not_part_of_it() {
+    let scene = Scene::new();
+    root(&scene);
+    let (verdict, out) = run(&scene, "check-demo", "forbidden", Expect::Pass);
+    assert_eq!(
+        verdict.unwrap().as_deref(),
+        Some("the block prints a line the case forbids: `sub is fine` (`sub is *`)"),
+        "{out}"
+    );
+    let (verdict, out) = run(&scene, "check-demo", "allowed", Expect::Pass);
+    assert_eq!(verdict.unwrap(), None, "{out}");
 }
 
 #[test]

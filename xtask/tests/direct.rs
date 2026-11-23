@@ -379,6 +379,7 @@ fn a_case_that_breaks_off_cannot_be_run() {
             name: marker.to_owned(),
             dir,
             expect: Expect::Pass,
+            forbidden: Vec::new(),
         };
         let bench = Direct {
             tool: &tool,
