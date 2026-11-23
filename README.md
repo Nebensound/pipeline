@@ -142,8 +142,8 @@ unit (see [`build-cargo-package`](#build-cargo-package) and
 The unit job gets the tool the same way `Declare` does, from the cache phase 0
 fills ([`.github/actions/tool`](.github/actions/tool)); it builds the tool
 only when the cache misses. So do the build jobs and the closing jobs `Check`
-and `Build`, whose steps are calls of the tool as well. The list does not travel through a job output,
-which is limited in size.
+and `Build`, whose steps are calls of the tool as well. The list does not
+travel through a job output, which is limited in size.
 
 The checks for CSS, Dockerfiles, HTML, JSON, Markdown, TOML and YAML run from
 the tool. Their blocks do two things:

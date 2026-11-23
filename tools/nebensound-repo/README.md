@@ -392,21 +392,23 @@ findings as annotations in a workflow run and as lines elsewhere.
   Markdown into the summary, for the pull request of the run, and fails with
   phase 0 errors. After a push to a pre-branch it reads no repository and says
   why no version is resolved, as a notice and in the summary.
-- **`unwritten checks --unit <path> --planned <json> --written <json>`** and
-  **`unwritten build --unit <path> --planned <build> --written <json>`** fail
+- **`unwritten checks --unit=<path> --planned <json> --written <json>`** and
+  **`unwritten build --unit=<path> --planned <build> --written <json>`** fail
   for every check, or for the build, of a unit's matrix entry that the list of
-  written blocks does not name; **`unwritten writers`** and **`unwritten
-targets`**, with `--plan <file> --written <json>`, for every version writer
-  or publish target the plan names. An empty plan, as after phase 0 failed,
-  has nothing to look at. The list of written blocks stays in the step, where
-  `cargo xtask check` holds it to the blocks that exist.
-- **`gather checks --declare <result> --checks <result>`** and **`gather
-builds --declare <result> --check <result> --builds <result> --planned
-<json>`** turn the results GitHub gives the jobs (`success`, `failure`,
-  `cancelled`, `skipped`) into the one result a ruleset can require: the
-  checks pass when phase 0 passed and every started check passed or none
-  started; the builds pass when nothing builds in this run, and otherwise only
-  when the checks and every planned build passed.
+  written blocks does not name; **`unwritten writers`** and
+  **`unwritten targets`**, with `--plan <file> --written <json>`, for every
+  version writer or publish target the plan names. The steps hand the unit in
+  with `=`, so a path that starts with `-` is not read as an option. An empty
+  plan, as after phase 0 failed, has nothing to look at. The list of written
+  blocks stays in the step, where `cargo xtask check` holds it to the blocks
+  that exist.
+- **`gather checks --declare <result> --checks <result>`** and
+  **`gather builds --declare <result> --check <result> --builds <result> --planned <json>`**
+  turn the results GitHub gives the jobs (`success`, `failure`, `cancelled`,
+  `skipped`) into the one result a ruleset can require: the checks pass when
+  phase 0 passed and every started check passed or none started; the builds
+  pass when nothing builds in this run, and otherwise only when the checks and
+  every planned build passed.
 - **`xtask`** runs `cargo xtask check --all` at the repository root with the
   toolchain the xtask pins: the `rust-toolchain.toml` (or `rust-toolchain`) in
   `xtask/`, else the one at the root, installed through rustup. An xtask that

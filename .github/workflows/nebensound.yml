@@ -191,7 +191,7 @@ jobs:
           CHECKS: ${{ toJSON(matrix.checks) }}
           WRITTEN_CHECKS: '["css", "dockerfile", "html", "json", "markdown", "python", "rust", "toml", "yaml"]'
           UNIT_PATH: ${{ matrix.path }}
-        run: nebensound-repo unwritten checks --unit "$UNIT_PATH" --planned "$CHECKS" --written "$WRITTEN_CHECKS"
+        run: nebensound-repo unwritten checks --unit="$UNIT_PATH" --planned "$CHECKS" --written "$WRITTEN_CHECKS"
 
       - name: css
         if: ${{ !cancelled() && contains(matrix.checks, 'css') }}
@@ -381,7 +381,7 @@ jobs:
           BUILD: ${{ matrix.build }}
           WRITTEN_BUILDS: '["cargo-package", "docker"]'
           UNIT_PATH: ${{ matrix.path }}
-        run: nebensound-repo unwritten build --unit "$UNIT_PATH" --planned "$BUILD" --written "$WRITTEN_BUILDS"
+        run: nebensound-repo unwritten build --unit="$UNIT_PATH" --planned "$BUILD" --written "$WRITTEN_BUILDS"
 
       - name: cargo
         if: ${{ contains(matrix.writers, 'cargo') }}

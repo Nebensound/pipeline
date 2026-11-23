@@ -143,27 +143,31 @@ fn the_steps_call_the_tool_with_what_they_hold() {
         all.extend(args);
         support::call_with(&all, &[], Output::Workflow)
     };
+    // The steps hand the unit in as `--unit=<path>`, so a path that starts
+    // with `-` is read as the unit, not as a flag.
     let (text, code) = call(&[
         "checks",
-        "--unit",
-        ".",
+        "--unit=-lib",
         "--planned",
         r#"["json","new"]"#,
         "--written",
         r#"["json"]"#,
     ]);
     assert_eq!(code, 1, "{text}");
-    assert!(text.contains("The check 'new'"), "{text}");
+    assert!(
+        text.contains("The check 'new' has no building block yet, so '-lib' is not checked"),
+        "{text}"
+    );
     let (text, code) = call(&[
         "build",
-        "--unit",
-        ".",
+        "--unit=-lib",
         "--planned",
         "docker",
         "--written",
         r#"["docker"]"#,
     ]);
     assert_eq!(code, 0, "{text}");
+    assert!(text.contains("of '-lib' has a building block"), "{text}");
 
     let dir = tempfile::tempdir().unwrap();
     let plan = dir.path().join("plan.json");
