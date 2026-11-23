@@ -133,17 +133,26 @@ produces = "site"
 [build.typst]
 produces = "document"
 
+# A target is a registry when the packages published there require each other
+# by version (`dependencies-by-version`): the registry resolves a requirement
+# from the versions it holds. What a package published there requires by path,
+# and a pull request does not touch, must have a release already, or the pull
+# request fails with `unreleased-requirement`. The tool knows this from here,
+# never from a target's name.
+#
 # The organization's private crate registry. The register names no host: which
 # registry that is reaches the pipeline through organization-level settings,
 # not through this repository or a calling repository.
 [target.private-registry]
-accepts = ["crate"]
+accepts                 = ["crate"]
+dependencies-by-version = true
 
 # Publishing here cannot be taken back, so it is the one target that also
 # demands the language match.
 [target."crates.io"]
-accepts        = ["crate"]
-requires-check = "rust"
+accepts                 = ["crate"]
+requires-check          = "rust"
+dependencies-by-version = true
 
 [target.release-assets]
 accepts = ["executable", "firmware", "document"]

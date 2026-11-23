@@ -157,15 +157,19 @@ what the build calls (see [Programs](#programs)).
 ## Publish targets
 
 A target accepts some kinds of artifact, and it can demand that a check is in
-force for the unit that publishes there.
+force for the unit that publishes there. On a target with dependencies by
+version, a registry, packages require each other by version: what a package
+published there requires by path, and a pull request does not touch, must
+have a release already, or the pull request fails (see
+[`unreleased-requirement`](declaration.md#unreleased-requirement)).
 
-| Target             | Accepts                              | Requires check |
-| ------------------ | ------------------------------------ | -------------- |
-| `crates.io`        | `crate`                              | `rust`         |
-| `ghcr`             | `container`                          | none           |
-| `pages`            | `site`                               | none           |
-| `private-registry` | `crate`                              | none           |
-| `release-assets`   | `executable`, `firmware`, `document` | none           |
+| Target             | Accepts                              | Requires check | Dependencies by version |
+| ------------------ | ------------------------------------ | -------------- | ----------------------- |
+| `crates.io`        | `crate`                              | `rust`         | yes                     |
+| `ghcr`             | `container`                          | none           | no                      |
+| `pages`            | `site`                               | none           | no                      |
+| `private-registry` | `crate`                              | none           | yes                     |
+| `release-assets`   | `executable`, `firmware`, `document` | none           | no                      |
 
 ## Version writers
 

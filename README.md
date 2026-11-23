@@ -499,10 +499,16 @@ counts too: Cargo drops one without a version from the package, and the
 packaged tests that use it would not compile. A path dependency on a package
 that carries no version at all (a unit with `versioning = "none"`, or one that
 does not select the writer `cargo`) is left to Cargo: the package test fails
-with Cargo's message. That a published package must not require a version
-that its registry does not have belongs to the publish block of that registry,
-which checks the registry itself before publishing, not to the writer: the
-release stage tags and releases only the units the commit touches.
+with Cargo's message. The release stage tags and releases only the units the
+commit touches, and what a release needs has a release already, or the pull
+request fails: a package the pull request would publish to a registry (a
+target with `dependencies-by-version` in the register) may require by path,
+followed through, only units it touches or whose current version has a tag.
+Otherwise the job `nebensound / Version` fails with
+[`unreleased-requirement`](docs/declaration.md#unreleased-requirement), which
+names the way out: touch the required unit in the same pull request. Whether
+the registry itself holds the version is for the publish block of that
+registry to check before it publishes.
 Only `Cargo.toml` and `Cargo.lock` files change. `check-rust` writes the
 versions the same way for its package test, starting from the units of its
 workspace (`--workspace`). The Build phase calls the block in the job of every

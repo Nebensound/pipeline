@@ -200,6 +200,11 @@ pub struct UnitVersion {
     /// The version of the commit at hand; [`None`] when the commit does not
     /// touch the unit, or when a finding stands in the way.
     pub version: Option<TagVersion>,
+    /// Whether a tag records [`UnitVersion::current`]: one named with the
+    /// prefix and that version. It decides no version; it tells whether what
+    /// a package published to a registry requires of a unit the commit at
+    /// hand does not touch was released ([`crate::requirements`]).
+    pub recorded: bool,
 }
 
 /// The versions of a repository, and what is wrong with them.
@@ -671,6 +676,7 @@ fn resolve_unit<'h>(
         prefix: unit.tag_prefix(),
         current: None,
         version: None,
+        recorded: false,
     };
     let places = context.places(unit);
     let mut cycle = Cycle {
@@ -699,6 +705,10 @@ fn resolve_unit<'h>(
         given.insert(version, head.id.as_str());
     }
     entry.current = given.keys().next_back().copied();
+    entry.recorded = entry.current.is_some_and(|current| {
+        let record = format!("{}{current}", entry.prefix);
+        context.history.tags.iter().any(|tag| tag.name == record)
+    });
     Resolved { entry, given }
 }
 

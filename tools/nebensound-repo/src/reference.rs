@@ -237,14 +237,29 @@ fn targets(register: &Register) -> String {
                 code(name),
                 codes(&target.accepts),
                 target.requires_check.as_ref().map_or_else(none, code),
+                if target.dependencies_by_version {
+                    "yes"
+                } else {
+                    "no"
+                }
+                .to_owned(),
             ]
         })
         .collect();
     section(
         "Publish targets",
         "A target accepts some kinds of artifact, and it can demand that a check is in\n\
-         force for the unit that publishes there.",
-        &["Target", "Accepts", "Requires check"],
+         force for the unit that publishes there. On a target with dependencies by\n\
+         version, a registry, packages require each other by version: what a package\n\
+         published there requires by path, and a pull request does not touch, must\n\
+         have a release already, or the pull request fails (see\n\
+         [`unreleased-requirement`](declaration.md#unreleased-requirement)).",
+        &[
+            "Target",
+            "Accepts",
+            "Requires check",
+            "Dependencies by version",
+        ],
         &rows,
     )
 }

@@ -108,6 +108,10 @@ pub enum Rule {
     /// commit the history gives its version, and is not below the unit's
     /// current version.
     ConflictingTag,
+    /// A package a pull request would publish to a registry requires by path
+    /// a unit the pull request does not touch, and no tag records that unit's
+    /// current version.
+    UnreleasedRequirement,
     /// A file a tool's own setting takes out, and no exclusion does.
     UnexcusedIgnore,
     /// A tool's setting that takes files out, and that phase 0 cannot read.
@@ -161,6 +165,7 @@ impl Rule {
             Self::ShallowClone => "shallow-clone",
             Self::ExhaustedVersion => "exhausted-version",
             Self::ConflictingTag => "conflicting-tag",
+            Self::UnreleasedRequirement => "unreleased-requirement",
             Self::UnexcusedIgnore => "unexcused-ignore",
             Self::UnreadableIgnoreFile => "unreadable-ignore-file",
             Self::PartialPackageExclusion => "partial-package-exclusion",
