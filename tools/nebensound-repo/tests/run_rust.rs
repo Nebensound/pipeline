@@ -29,6 +29,7 @@ use nebensound_repo::repository::Repository;
 use nebensound_repo::run::rust::{self, Local, Metadata};
 use nebensound_repo::run::{self, Check, Context, Packages};
 use nebensound_repo::setup::{Environment, find};
+use nebensound_repo::toolchain;
 use nebensound_repo::writer::Order;
 use serde_json::{Value, json};
 use support::{QUIET, call};
@@ -1084,7 +1085,7 @@ fn only_what_steers_the_toolchain_is_taken_out() {
         "CARGO_INCREMENTAL",
         "CARGO_LLVM_COV_TARGET_DIR",
     ] {
-        assert!(rust::steers(OsStr::new(name)), "{name}");
+        assert!(toolchain::steers(OsStr::new(name)), "{name}");
     }
     for name in [
         "CARGO_HOME",
@@ -1094,7 +1095,7 @@ fn only_what_steers_the_toolchain_is_taken_out() {
         "TMPDIR",
         "XCARGO",
     ] {
-        assert!(!rust::steers(OsStr::new(name)), "{name}");
+        assert!(!toolchain::steers(OsStr::new(name)), "{name}");
     }
 }
 

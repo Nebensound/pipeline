@@ -68,6 +68,8 @@ pub mod schema;
 pub mod setup;
 #[cfg(feature = "ui")]
 pub mod terminal;
+#[cfg(feature = "program")]
+pub mod toolchain;
 pub mod tree;
 #[cfg(feature = "ui")]
 pub mod ui;

@@ -453,6 +453,18 @@ metadata --locked --all-features`, each patched in from its folder for
 Then it names the artifact and the file as the outputs `artifact` and `crate`
 of the step, for `actions/upload-artifact`.
 
+Every program runs without the variables of the computer whose names start
+with `CARGO` or `RUST`, other than `CARGO_HOME` and `RUSTUP_HOME`, which only
+say where Cargo and the toolchains are: so no setting that comes as a variable
+changes what the build hands on. It is the rule of
+[the Rust check](#the-rust-check), and one place in the tool states it for
+both. Settings that come as files still apply, and `build` does not hunt them
+down: a directory override rustup keeps in its settings file
+(`rustup override set`), which ranks above `rust-toolchain.toml`, and Cargo's
+configuration files in the folders above the workspace and in `CARGO_HOME`. A
+hosted runner has neither, so they are ways a local result can differ from the
+gate's.
+
 ## The files of a check
 
 `files <check> <unit>` names the files a building block checks: below the
@@ -715,9 +727,10 @@ apply, and `run` does not hunt them down: a directory override rustup keeps in
 its settings file (`rustup override set`), which ranks above
 `rust-toolchain.toml`, and Cargo's configuration files in the folders above the
 workspace and in `CARGO_HOME`. A hosted runner has neither, so they are ways a
-local result can differ from the gate's. What the programs print
-stands in the output as it comes; the one finding with a file is the
-formatting's.
+local result can differ from the gate's. `build cargo-package` starts its
+programs under the same rule (see [Running a build](#running-a-build)). What
+the programs print stands in the output as it comes; the one finding with a
+file is the formatting's.
 
 ### What it hands the programs, and its exit code
 

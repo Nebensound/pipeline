@@ -10,7 +10,10 @@
 //! of the step (`GITHUB_OUTPUT`), for the action that uploads the artifact.
 //!
 //! The gate decides, as for `run`: a call outside a workflow run opens with the
-//! line that says so ([`crate::run::OUTSIDE`]).
+//! line that says so ([`crate::run::OUTSIDE`]). A build starts Cargo and the
+//! Rust toolchain under the rule the Rust check starts them under
+//! ([`crate::toolchain`]): without the variables that steer them, and without
+//! hunting down the settings that come as files.
 //!
 //! `cargo-package` is the first build ([`cargo_package`]).
 

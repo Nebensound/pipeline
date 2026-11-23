@@ -52,6 +52,13 @@ failing() {
 }
 "#;
 
+/// What every program says first: whether a variable that steers the toolchain
+/// reached it. The test process has `CARGO_MANIFEST_DIR`, since Cargo sets it
+/// for every test it runs, and the build takes it out with every other
+/// variable whose name starts with `CARGO` or `RUST`.
+const SEES: &str = r#"echo "$(basename "$0") sees CARGO_MANIFEST_DIR=${CARGO_MANIFEST_DIR-unset}" >&2
+"#;
+
 const CARGO: &str = r#"
 echo "cargo $* in $(basename "$(pwd -P)")" >&2
 failing "cargo $*" && { echo "error: it failed" >&2; exit 101; }
@@ -122,7 +129,10 @@ impl Fixture {
         let base = tempfile::tempdir().unwrap();
         let bin = base.path().join("bin");
         for (name, script) in [("cargo", CARGO), ("rustup", RUSTUP), ("rustc", RUSTC)] {
-            executable(&bin.join(name), &format!("#!/bin/sh\n{FAILING}{script}"));
+            executable(
+                &bin.join(name),
+                &format!("#!/bin/sh\n{FAILING}{SEES}{script}"),
+            );
         }
         let utilities = base.path().join("utilities");
         fs::create_dir_all(&utilities).unwrap();
@@ -354,6 +364,38 @@ fn every_step_runs_in_its_order_and_names_the_artifact() {
     );
     // The crate is unpacked into a folder of its own, which goes again.
     assert_eq!(fs::read_dir(fixture.base().join("tmp")).unwrap().count(), 0);
+}
+
+#[test]
+fn every_program_starts_without_the_variables_that_steer_the_toolchain() {
+    let _alone = alone();
+    assert!(
+        std::env::var_os("CARGO_MANIFEST_DIR").is_some(),
+        "the test needs a variable the build takes out; Cargo sets this one for its tests"
+    );
+    let fixture = Fixture::new();
+    let (code, text) = fixture.build("app");
+    assert_eq!(code, 0, "{text}");
+    let seen: Vec<&str> = text
+        .lines()
+        .filter(|line| line.contains(" sees "))
+        .collect();
+    assert_eq!(
+        seen,
+        [
+            // rustup toolchain install, rustc --version
+            "rustup sees CARGO_MANIFEST_DIR=unset",
+            "rustc sees CARGO_MANIFEST_DIR=unset",
+            // cargo metadata twice, cargo package
+            "cargo sees CARGO_MANIFEST_DIR=unset",
+            "cargo sees CARGO_MANIFEST_DIR=unset",
+            "cargo sees CARGO_MANIFEST_DIR=unset",
+            // rustup show active-toolchain, cargo test on the unpacked crate
+            "rustup sees CARGO_MANIFEST_DIR=unset",
+            "cargo sees CARGO_MANIFEST_DIR=unset",
+        ],
+        "{text}"
+    );
 }
 
 #[test]

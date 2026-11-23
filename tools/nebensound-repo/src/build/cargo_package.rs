@@ -43,12 +43,24 @@
 //! `<package>-<version>.crate`. The step's outputs `artifact` and `crate` give
 //! the name and the file.
 //!
+//! Every program runs in the unit's folder, or in the unpacked crate's for the
+//! last step, without the variables of this process that steer Cargo, rustc
+//! and rustup ([`steers`](crate::toolchain::steers)), so that no setting that
+//! comes as a variable changes what the build hands on. Settings that come as
+//! files still apply, and the build does not hunt them down: a directory
+//! override rustup keeps in its settings file, which ranks above
+//! `rust-toolchain.toml`, and Cargo's configuration files in the folders above
+//! the workspace and in `CARGO_HOME`. A hosted runner has neither, so they are
+//! ways a run on a developer's computer can differ from the gate's, whose
+//! result is the one that counts. The Rust check starts its programs under the
+//! same rule, which [`crate::toolchain`] states once for both.
+//!
 //! No cache: what is built here is the artifact a release hands on.
 
 use std::fmt::Write as _;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use flate2::read::GzDecoder;
 use sha2::{Digest as _, Sha256};
@@ -128,14 +140,10 @@ fn steps(context: &Context<'_>, unit: &RelativePath, dir: &Path, log: &mut Log<'
     }
 }
 
-/// A command that starts `program` in `dir` with the search path of the run.
+/// A command that starts `program` in `dir` with the search path of the run,
+/// under the rule of [`crate::toolchain`].
 fn command(context: &Context<'_>, program: &str, dir: &Path) -> Command {
-    let mut command = Command::new(program);
-    command
-        .current_dir(dir)
-        .env("PATH", context.search_path)
-        .stdin(Stdio::null());
-    command
+    crate::toolchain::command(program, dir, context.search_path)
 }
 
 /// Runs `program` with these arguments in `dir`, its output in the log:
