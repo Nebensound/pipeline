@@ -6,6 +6,44 @@ declaration. Every repository that calls it runs its code, so a change here
 changes what every caller runs. These rules apply to every change, whoever or
 whatever writes it.
 
+## Principles
+
+Every change is held against these six rules.
+[The principles](docs/principles.md) give the reason for each, the trust model,
+and what does not hold yet. Where a rule below or a page of the reference
+describes something else, it describes the state of today, and that page names
+the issue that changes it.
+
+1. **A simple flow.** A preparing job reads the declaration and hands finished
+   data to the jobs after it. The checks run as a matrix of the same call: one
+   job for all checks that only read the repository's files, and one job for
+   each check that runs code of the repository. What can be put together is
+   put together. Adding a check does not add a special path to the workflow.
+2. **Reading and executing are kept apart.** A reading check runs only programs
+   of the pipeline on the repository's files, with configuration that is data.
+   An executing check runs code of the repository: build scripts, tests, an
+   image build. The two never share a job. Only "passed" or "failed" crosses
+   from one job to another.
+3. **All logic is Rust, in the tool, and tested.** A step of a workflow or of an
+   action is one call of the tool. No logic in shell, in YAML expressions or in
+   embedded scripts, beyond what a program that is a library needs to be
+   called. Python only where nothing else is possible.
+4. **External programs are the exception and are started from the tool.** What
+   can sensibly be done in Rust inside the tool is done there. An external
+   program is a standard tool: very widely used and maintained. Every external
+   program, action and package stands in one list, with its exact version and
+   a digest, in a form an automatic updater reads.
+5. **One rule per kind of problem.** A case that was not thought of is answered
+   by a rule that removes its kind, not by a special case on top. A pull
+   request that adds a second exception to the same rule stops and asks for
+   the rule.
+6. **Secrets and write permissions reach only what has been merged.** No job
+   that runs code of the repository gets a secret or a token that can write,
+   and no step that holds a secret or such a token compiles or starts code of
+   the repository. A check cannot protect its result against the code it
+   checks; the review of the change does that. Annotations are a reading aid,
+   not proof.
+
 ## Building blocks
 
 - A building block performs **one step** and is named after its register entry
