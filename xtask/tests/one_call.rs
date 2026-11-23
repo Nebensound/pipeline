@@ -3,9 +3,8 @@
 //!
 //! The exceptions are named, each with what keeps it: the action `tool`, which
 //! gets the tool and cannot call it before it has it, until the tool is a
-//! release binary; `build-docker`, the image build, which moves into the tool
-//! on its own; and `check-python`, whose check moves into the tool on its own
-//! as well.
+//! release binary; and `check-python`, whose check moves into the tool on its
+//! own.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
@@ -15,7 +14,7 @@ use std::path::Path;
 use yaml_rust2::{Yaml, YamlLoader};
 
 /// The actions whose steps still hold more than a call.
-const EXCEPTIONS: &[&str] = &["build-docker", "check-python", "tool"];
+const EXCEPTIONS: &[&str] = &["check-python", "tool"];
 
 fn parsed(path: &Path) -> Yaml {
     YamlLoader::load_from_str(&fs::read_to_string(path).unwrap()).unwrap()[0].clone()

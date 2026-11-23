@@ -5,11 +5,11 @@
 //! - `check` holds the building blocks, the register and `nebensound.yml` to
 //!   each other ([`layout`]), and runs every building block against its test
 //!   cases ([`cases`]). A block whose work the tool carries out runs through
-//!   the tool of this commit, on every system, a check after
-//!   `nebensound-repo setup --pinned <check>` has set up the programs of its
-//!   check, in a run on GitHub Actions with `--with-runtimes` as well; every
-//!   other block by running its own steps, read from its `action.yml`
-//!   ([`runner`]), on Linux only.
+//!   the tool of this commit, on every system, a check or a build after
+//!   `nebensound-repo setup --pinned <name>` has set up the programs the
+//!   register names for it, in a run on GitHub Actions with
+//!   `--with-runtimes` as well; every other block by running its own steps,
+//!   read from its `action.yml` ([`runner`]), on Linux only.
 //!   The central workflow runs `cargo xtask check --all` as the last step of
 //!   `Check repository`.
 //! - `setup` calls `nebensound-repo setup` for this repository, with the tool
@@ -17,8 +17,8 @@
 //!   `--with-runtimes` a runtime one of them needs. Then, on
 //!   Linux, it checks what only the cases of the other blocks need
 //!   ([`MACHINE`]): a program an action of a block's step would put on the
-//!   `PATH`, in the version the step asks for, Docker with Buildx, jq and
-//!   rustup. It installs none of them: the blocks fetch their own programs
+//!   `PATH`, in the version the step asks for, jq and rustup. It installs
+//!   none of them: the blocks fetch their own programs
 //!   when the cases run them, and these stay the machine's, so it names each
 //!   one that is missing. Elsewhere those cases do not run, so it leaves them
 //!   out and says why.
@@ -51,13 +51,11 @@ const MISUSE: u8 = 2;
 
 /// What the steps of the blocks the xtask runs step by step call on the
 /// machine beside the programs [`runner::needs`] finds, each with its name and
-/// the command that shows it is there. `check-python` and `build-docker` run
-/// jq; `nebensound-repo setup` can install a jq of its own, but into its cache
-/// and not onto the `PATH` the steps search. `build-docker` builds with
-/// Docker's Buildx and starts what it built with Docker. The action `tool`
-/// installs the tool's toolchain with rustup.
+/// the command that shows it is there. `check-python` runs jq;
+/// `nebensound-repo setup` can install a jq of its own, but into its cache and
+/// not onto the `PATH` the steps search. The action `tool` installs the tool's
+/// toolchain with rustup.
 pub const MACHINE: &[(&str, &str, &[&str])] = &[
-    ("docker", "docker", &["buildx", "version"]),
     ("jq", "jq", &["--version"]),
     ("rustup", "rustup", &["--version"]),
 ];
@@ -74,11 +72,12 @@ check --all   Holds the building blocks, the register and nebensound.yml to
               each other, and runs every building block against its test cases
               in tests/pass/ and tests/fail/. The blocks whose work the tool
               carries out (the checks css, dockerfile, html, json, markdown,
-              rust, toml, yaml, the build cargo-package and the version writer
-              cargo) run through the tool of this commit, on every system; for
-              a check, `nebensound-repo setup --pinned <check>` first sets up
-              the programs of the check, and a runtime one of them needs is
-              taken from the computer. In a run on GitHub Actions the setup
+              rust, toml, yaml, the builds cargo-package and docker and the
+              version writer cargo) run through the tool of this commit, on
+              every system; for a check or a build, `nebensound-repo setup
+              --pinned <name>` first sets up the programs the register names
+              for it, and a runtime one of them needs is taken from the
+              computer. In a run on GitHub Actions the setup
               also gets --with-runtimes, so that a runtime that is missing
               there or too old is installed in the pinned version. The cases of
               the other blocks run the blocks' own steps, which are written for
@@ -87,11 +86,11 @@ check --all   Holds the building blocks, the register and nebensound.yml to
 setup         Calls `nebensound-repo setup` for this repository, built from
               this commit, to find or install the programs its checks call.
               Every option goes to it unchanged: --pinned, --with-runtimes,
-              --check, the names of checks.
+              --check, the names of checks and builds.
               Then, on Linux, it checks, and installs nothing, what only the
               cases of the other blocks need: a program an action of their
-              steps would put on the PATH, in the version they ask for, Docker
-              with Buildx, jq and rustup.
+              steps would put on the PATH, in the version they ask for, jq and
+              rustup.
 ";
 
 /// Why something could not be done, as one sentence.

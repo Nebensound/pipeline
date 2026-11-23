@@ -23,7 +23,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use nebensound_repo::Register;
-use nebensound_repo::names::{CheckName, ProgramName, RuntimeName};
+use nebensound_repo::names::{BuildName, CheckName, ProgramName, RuntimeName};
 use nebensound_repo::programs::{Algorithm, Installer, Platform};
 use nebensound_repo::setup::{self, Environment, Mode, Options, fetch, find, install, unpack};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
@@ -701,6 +701,70 @@ fn checks_that_call_no_program_need_nothing() {
         String::from_utf8(out)
             .expect("UTF-8")
             .starts_with("Checks: none\n")
+    );
+}
+
+#[test]
+fn a_build_gets_the_programs_it_calls() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.install("alpha", &prints("alpha 1.2.3"));
+    let register = register(&format!(
+        "{}{}[build.scan]\nproduces = \"container\"\nprograms = [\"alpha\"]\n\
+         [build.pack]\nproduces = \"crate\"\n",
+        check(&["alpha"]),
+        native("alpha", "1.2.3", "file:///nowhere", &sha256(b"x"), "alpha"),
+    ));
+    let names =
+        |names: &[&str]| -> Vec<String> { names.iter().map(|name| (*name).to_owned()).collect() };
+    let (builds, rest) = setup::builds_named(&register, &names(&["scan", "json", "pack", "scan"]));
+    let shown: Vec<String> = builds.iter().map(ToString::to_string).collect();
+    assert_eq!(shown, ["pack", "scan"]);
+    assert_eq!(rest, ["json"]);
+
+    let set_up = |checks: &[&str], builds: &[&str], mode| {
+        let checks: Vec<CheckName> = checks
+            .iter()
+            .map(|name| CheckName::new(name).expect("a name"))
+            .collect();
+        let builds: Vec<BuildName> = builds
+            .iter()
+            .map(|name| BuildName::new(name).expect("a name"))
+            .collect();
+        let mut out = Vec::new();
+        let code = setup::run_for(
+            &register,
+            &checks,
+            &builds,
+            Options {
+                mode,
+                with_runtimes: false,
+            },
+            &mut fixture.env(),
+            &mut out,
+        );
+        (String::from_utf8(out).expect("UTF-8"), code)
+    };
+    let (text, code) = set_up(&[], &["scan"], Mode::Check);
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.starts_with("Checks: none\nBuilds: scan\nFolder: "),
+        "{text}"
+    );
+    assert!(text.contains("\n  alpha 1.2.3 (scan): "), "{text}");
+    let (text, _) = set_up(&["json"], &["scan"], Mode::Check);
+    assert!(text.contains("\n  alpha 1.2.3 (json, scan): "), "{text}");
+
+    let (text, code) = set_up(&[], &["pack"], Mode::Pinned);
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.ends_with("\nThese builds call no program the register pins.\n"),
+        "{text}"
+    );
+    let (text, _) = set_up(&["yaml"], &["pack"], Mode::Pinned);
+    assert!(
+        text.ends_with("\nThese checks and builds call no program the register pins.\n"),
+        "{text}"
     );
 }
 

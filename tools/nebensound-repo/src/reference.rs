@@ -54,6 +54,7 @@ pub fn register(central: &Central) -> String {
         checks(register),
         programs(register),
         runtimes(register),
+        images(register),
         builds(register),
         targets(register),
         version_writers(register),
@@ -161,8 +162,9 @@ fn programs(register: &Register) -> String {
     section(
         "Programs",
         "Every program a check or a build calls, pinned to one version.\n\
-         `nebensound-repo setup` finds or installs the ones a repository's checks call\n\
-         (see [the tool](../tools/nebensound-repo/README.md#setting-up-the-programs)).\n\
+         `nebensound-repo setup` finds or installs the ones a repository's checks call,\n\
+         or those of the checks and builds it is named (see\n\
+         [the tool](../tools/nebensound-repo/README.md#setting-up-the-programs)).\n\
          A program on a runtime is one package, which the runtime's installer puts in\n\
          place together with its companions, the packages pinned beside it that are\n\
          no command, and needs at least the version of the runtime its package states;\n\
@@ -202,6 +204,29 @@ fn runtimes(register: &Register) -> String {
     )
 }
 
+fn images(register: &Register) -> String {
+    let rows: Vec<Vec<String>> = register
+        .image
+        .iter()
+        .map(|(name, image)| {
+            vec![
+                code(name),
+                code(&image.repository),
+                code(&image.tag),
+                code(&image.digest),
+            ]
+        })
+        .collect();
+    section(
+        "Images",
+        "Every container image a build starts, pinned to the digest the registry states\n\
+         for its tag. It is pulled by that digest, so the tag only says which version it\n\
+         is.",
+        &["Image", "Repository", "Tag", "Digest"],
+        &rows,
+    )
+}
+
 fn builds(register: &Register) -> String {
     let rows: Vec<Vec<String>> = register
         .build
@@ -213,6 +238,7 @@ fn builds(register: &Register) -> String {
                 codes(&build.requires_version),
                 codes(&build.requires_file),
                 codes(&build.programs),
+                codes(&build.images),
             ]
         })
         .collect();
@@ -225,13 +251,15 @@ fn builds(register: &Register) -> String {
          A build that needs files reads them below the unit's path: a unit it builds\n\
          holds them, or phase 0 fails (see\n\
          [`build-without-file`](declaration.md#build-without-file)). The programs are\n\
-         what the build calls (see [Programs](#programs)).",
+         what the build calls (see [Programs](#programs)), the images what it starts\n\
+         (see [Images](#images)).",
         &[
             "Build",
             "Produces",
             "Needs version writers",
             "Needs files",
             "Programs",
+            "Images",
         ],
         &rows,
     )

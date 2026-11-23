@@ -47,7 +47,7 @@ channel would be a second version that can fall behind.
 ## Calls
 
 ```text
-nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branch>] [--visibility <public|private|internal>] | tree | explain <path> | plan [--pull-request <number> --message <message>] | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | run [--plan <file>] <check> <unit> | build <build> <unit> | excluded-packages | write-versions [--plan <file>] [--workspace <path>] | setup [--pinned] [--with-runtimes] [--check] [<check> ...] | declare | report-versions | unwritten <checks|build|writers|targets> … | gather <checks|builds> … | xtask | release | schema | register | ui]
+nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branch>] [--visibility <public|private|internal>] | tree | explain <path> | plan [--pull-request <number> --message <message>] | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | run [--plan <file>] <check> <unit> | build [--plan <file>] <build> <unit> | excluded-packages | write-versions [--plan <file>] [--workspace <path>] | setup [--pinned] [--with-runtimes] [--check] [<check or build> ...] | declare | report-versions | unwritten <checks|build|writers|targets> … | gather <checks|builds> … | xtask | release | schema | register | ui]
 ```
 
 | Call                | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -59,10 +59,10 @@ nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branc
 | `version`           | The version of every unit that carries one, as a table: current version and the version of the commit at hand. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                                                                                                                                                                                                                                                                                                               |
 | `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                                                                                                                                                                                                                                                                               |
 | `run`               | Runs one check over the files `files` names for it in one unit, with the programs `setup` finds or installs, the way its building block runs it: for the checks `css`, `dockerfile`, `html`, `json`, `markdown`, `rust`, `toml` and `yaml`. The rust check writes the versions of `--plan <file>` before its package test, or, without it, the versions resolved from the history. Every finding names its file, and its line and column where the program gives them; in a workflow run it is an annotation. See [Running a check](#running-a-check). |
-| `build`             | Runs one build of one unit the way its building block runs it, for the build `cargo-package`, and names the artifact it leaves as outputs of the step. A unit the plan starts no such build for is refused. See [Running a build](#running-a-build).                                                                                                                                                                                                                                                                                                   |
+| `build`             | Runs one build of one unit the way its building block runs it, for the builds `cargo-package` and `docker`, and names the artifact it leaves as outputs of the step. The build `docker` labels the image with the unit's version of `--plan <file>`, or, without it, the version resolved from the history. A unit the plan starts no such build for is refused. See [Running a build](#running-a-build).                                                                                                                                              |
 | `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what `declare` names in the summary of the run.                                                                                                                                                                                                                                                                                                                                                       |
 | `write-versions`    | Writes the version of every unit with the version writer `cargo` into its `Cargo.toml`, the path dependencies on it and `Cargo.lock`, in the working tree; never committed. With `--plan <file>`, takes the versions from a printed plan instead of the history; with `--workspace <path>`, starts from the units of the workspace at that path.                                                                                                                                                                                                       |
-| `setup`             | Finds or installs the programs that the checks the plan starts call, or those of the checks named, as the register pins them: by default it uses those on the computer and installs the pinned version of what is missing; `--pinned` installs every one into its own folder; `--check` changes nothing. See [Setting up the programs](#setting-up-the-programs).                                                                                                                                                                                      |
+| `setup`             | Finds or installs the programs that the checks the plan starts call, or those of the checks and builds named, as the register pins them: by default it uses those on the computer and installs the pinned version of what is missing; `--pinned` installs every one into its own folder; `--check` changes nothing. See [Setting up the programs](#setting-up-the-programs).                                                                                                                                                                           |
 | `declare`           | Phase 0 as the job `Declare` runs it, and the plan and the matrices it hands on as outputs of the step. See [The calls of a workflow run](#the-calls-of-a-workflow-run).                                                                                                                                                                                                                                                                                                                                                                               |
 | `report-versions`   | The versions as the job `Version` reports them: the table into the log and as Markdown into the summary of the run; after a push to a pre-branch the sentence why there are none. See [The calls of a workflow run](#the-calls-of-a-workflow-run).                                                                                                                                                                                                                                                                                                     |
 | `unwritten`         | Fails by name for every check, build, version writer or publish target the run asks for that has no building block yet, as the steps `Not written yet` do. See [The calls of a workflow run](#the-calls-of-a-workflow-run).                                                                                                                                                                                                                                                                                                                            |
@@ -424,10 +424,11 @@ repository itself follows with the cut of the jobs.
 
 `build <build> <unit>` carries out one build of one unit the way its building
 block runs it, in the unit's job of the Build phase, after the version writers
-the unit selects: so far the build `cargo-package`. The unit has to be one the
-plan starts that build for; a repository with errors builds nothing. As for
-`run`, the gate decides, and every call of `build` outside a workflow run opens
-with the same line.
+the unit selects: the builds `cargo-package` and `docker`. The unit has to be
+one the plan starts that build for; a repository with errors builds nothing. As
+for `run`, the gate decides, and every call of `build` outside a workflow run
+opens with the same line. A temporary folder a build makes lies in the folder
+`RUNNER_TEMP` names, else in the system's temporary directory.
 
 `build cargo-package` builds the one Cargo package whose `Cargo.toml` stands at
 the unit's path, with the programs on the `PATH` and in the unit's folder, in
@@ -457,6 +458,69 @@ of the step, for `actions/upload-artifact`.
 rustup, rustc and Cargo start under
 [the rule for the Rust toolchain](#starting-the-rust-toolchain).
 
+`build docker` builds the image of the unit's `deploy/Dockerfile`, with the
+build context at the repository root, and runs only on an `x86_64` Linux
+machine with Docker and its Buildx on the `PATH` and a daemon it reaches: it
+builds and starts images for `linux/amd64` on the machine itself and reads
+the user of the container from the host's `/proc`. Its version is the unit's
+version of the run, taken from `--plan <file>`, as the block hands in the plan
+Declare printed, or, without it, resolved from the history as `plan` resolves
+it; the title is the unit's name, for the repository itself the name
+`GITHUB_REPOSITORY` gives, else that of its folder. Its steps, each in a group
+of the log, up to the first that fails:
+
+1. The image of the unit: `deploy/Dockerfile` below the unit's path, which has
+   to be there, the version, which the plan has to give, and the commit
+   `HEAD`. The artifact is named `container-<path>@<version>@<sha>`, the path
+   percent-encoded as for a crate. A machine other than an `x86_64` Linux one
+   is refused here by name.
+2. A builder of its own: `docker version`, `docker buildx version`, and
+   `docker buildx create --driver docker-container` with the BuildKit the
+   register pins as the image `buildkit`, by its digest.
+3. `docker buildx build` for `linux/amd64` with `--no-cache`,
+   `--provenance=false` and `--sbom=false`, the labels
+   `org.opencontainers.image.version`, `.revision`, `.source` (in a workflow
+   run, from `GITHUB_SERVER_URL` and `GITHUB_REPOSITORY`) and `.title`, into an
+   OCI layout, `image.tar` in a folder of the build.
+4. The layout unpacked beside the tar and held to its digests: one image
+   manifest in `index.json`, and the manifest, every layer and the
+   configuration the files their SHA-256 names. The configuration has to be for
+   `linux/amd64` and carry the version as its label. The manifest digest goes
+   into the log and into the summary of the run.
+5. A `HEALTHCHECK` in the configuration, else the image is not started.
+6. `docker load` of the tar, and `docker image inspect` of what it loaded: its
+   ID has to be the digest of the configuration or of the manifest.
+7. A fresh volume (`docker volume create`) at every path the configuration
+   declares with `VOLUME`, then `docker create` and `docker start` without
+   anything else.
+8. `docker inspect` of the container's state, once a second, until it is
+   healthy, unhealthy or stopped, for at most five minutes; when it is not
+   healthy, its log (`docker logs`) and what its last health check printed.
+9. The real, effective and saved user ID of its first process, from
+   `/proc/<pid>/status`, taken back into its user namespace through
+   `/proc/<pid>/uid_map`; 0 fails.
+10. Trivy, the pinned copy in the tool's folder or the one on the computer,
+    `trivy image --input <layout>` with `--config ""`, `--ignorefile ""`, a
+    cache folder of the build, `--scanners vuln`, `--severity HIGH,CRITICAL`,
+    `--ignore-unfixed` and a JSON report; every vulnerability in the report is
+    a finding on the Dockerfile.
+
+Then it names the artifact and the file as the outputs `artifact` and `image`
+of the step, for `actions/upload-artifact`. Whatever happened, a last group
+removes what the build started: the container, its volumes, the loaded image,
+the builder, and every file of the build's folder but `image.tar`, which goes
+as well when the build failed. Docker, its Buildx and Trivy start under
+[the rule for Docker and Trivy](#starting-docker-and-trivy).
+
+Trivy's database of vulnerabilities is not part of the tool or the register.
+Trivy fetches it in every run into the build's cache folder, from where it
+fetches it by default: the OCI artifact `trivy-db` from `mirror.gcr.io`, else
+from `ghcr.io`, under the tag of the database schema it reads. It is checked
+only as an OCI artifact is pulled, against the digests of the manifest the
+registry serves for that tag at that moment; nothing pins it, and no signature
+of it is checked. An image that holds Java archives makes Trivy fetch its Java
+database, `trivy-java-db`, the same way.
+
 ## Starting the Rust toolchain
 
 Wherever the tool starts the Rust toolchain (rustup, Cargo, rustc, rustfmt,
@@ -474,6 +538,22 @@ down: a directory override rustup keeps in its settings file
 (`rustup override set`), which ranks above `rust-toolchain.toml`, and Cargo's
 configuration files in the folders above the workspace and in `CARGO_HOME`. A
 hosted runner has neither, so they are ways a local result can differ from the
+gate's, which is the one that counts.
+
+## Starting Docker and Trivy
+
+The image build starts Docker, its Buildx and Trivy under one rule, the same
+kind as the one for the Rust toolchain: every such program runs without the
+variables of the computer whose names start with `DOCKER_`, `BUILDX_`,
+`BUILDKIT_` or `TRIVY_`, and without `SOURCE_DATE_EPOCH`, which Buildx hands
+the build. Kept are `DOCKER_HOST`, `DOCKER_CONTEXT`, `DOCKER_CONFIG`,
+`DOCKER_CERT_PATH` and `DOCKER_TLS_VERIFY`, which only say where the daemon and
+Docker's own files are. So no setting that comes as a variable, such as
+`DOCKER_DEFAULT_PLATFORM`, `BUILDX_GIT_LABELS` or `TRIVY_SKIP_DIRS`, changes
+what the build hands on or what the scan finds. Settings that come as files
+still apply, and the tool does not hunt them down: Docker's `config.json`,
+which can hand a build proxies, and the daemon's own configuration. A hosted
+runner has neither, so they are ways a local result can differ from the
 gate's, which is the one that counts.
 
 ## The files of a check
@@ -506,12 +586,12 @@ read them all.
 
 ## Setting up the programs
 
-The checks call external programs: formatters, linters, a link checker. The
-register pins each of them to one version, with a download per operating system
-and architecture and its digest, and names the runtime a program written in
-JavaScript or Python needs, with the lowest version of it the program runs on
-([Programs](../../docs/register.md#programs)).
-`setup` gets a computer ready to run the checks of a repository:
+The checks call external programs: formatters, linters, a link checker; the
+image build calls a scanner. The register pins each of them to one version, with
+a download per operating system and architecture and its digest, and names the
+runtime a program written in JavaScript or Python needs, with the lowest version
+of it the program runs on ([Programs](../../docs/register.md#programs)). `setup`
+gets a computer ready to run the checks of a repository:
 
 ```bash
 nebensound-repo setup                  # use what the computer has, install what it lacks
@@ -519,11 +599,13 @@ nebensound-repo setup --pinned         # install the pinned version of every pro
 nebensound-repo setup --with-runtimes  # the same, and a missing runtime without asking
 nebensound-repo setup --check          # change nothing; say what is missing or differs
 nebensound-repo setup --pinned toml    # only the programs of the check toml
+nebensound-repo setup --pinned docker  # only the programs of the build docker
 ```
 
-It sets up the programs of the checks the plan starts, or of the checks it is
-named, as the register names them; a building block names its own check, so
-that it installs only what that check calls. It reads the repository like
+It sets up the programs of the checks the plan starts, or of the checks and
+builds it is named, as the register names them; a building block names its own
+check or build, so that it installs only what that calls: `build-docker` calls
+`setup --pinned docker` for Trivy. It reads the repository like
 `plan` does, and a repository with errors gets nothing set up,
 for the same reason it gets no plan. It does not read the history, though, like
 `files` and `excluded-packages`: which checks the plan starts never depends on a

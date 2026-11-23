@@ -122,6 +122,10 @@ name              = "build"
 required-features = ["program"]
 
 [[test]]
+name              = "build_docker"
+required-features = ["program"]
+
+[[test]]
 name              = "declare"
 required-features = ["program"]
 

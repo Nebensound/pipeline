@@ -118,11 +118,13 @@ produces = "executable"
 # The image is scanned for vulnerabilities before it is handed on, and the
 # scanner is pinned like any program a check calls. A build names the files it
 # reads below the unit's path and fails without: the image is built from
-# deploy/Dockerfile and from nothing else.
+# deploy/Dockerfile and from nothing else. It is built by a BuildKit of its own,
+# started from the image pinned under [image.buildkit].
 [build.docker]
 produces      = "container"
 requires-file = ["deploy/Dockerfile"]
 programs      = ["trivy"]
+images        = ["buildkit"]
 
 [build.platformio]
 produces = "firmware"
@@ -320,6 +322,16 @@ manifests         = ["Dockerfile", "Containerfile"]
 [ecosystem.github-actions]
 package-ecosystem = "github-actions"
 manifests         = []
+
+# The container images a build starts, each pinned by the digest the registry
+# states for its tag; it is pulled by that digest, so the tag only says which
+# version it is.
+
+# The digest Docker Hub states for moby/buildkit:v0.34.2.
+[image.buildkit]
+repository = "moby/buildkit"
+tag        = "v0.34.2"
+digest     = "sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe"
 
 # The programs the checks and builds call, each pinned to the version its
 # building block installs, and where that version comes from on each platform:

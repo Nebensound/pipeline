@@ -64,12 +64,12 @@ settings that come as files, such as a rustup override on the checkout or
 Cargo's configuration files, which the tool does not neutralise.
 
 **Today.** The checks for CSS, Dockerfiles, HTML, JSON, Markdown, Rust, TOML and
-YAML, the build `cargo-package` and the version writer `cargo` are thin blocks
-that call the tool. Phase 0, the release stage in `Publish` and every other step
-of `nebensound.yml` are one call of the tool each; a test of the xtask holds
-every step to that. The check for Python, the image build and the action
-`tool`, which every job runs, are still shell, partly with `jq`; `check-python`
-also embeds Python scripts.
+YAML, the builds `cargo-package` and `docker` and the version writer `cargo`
+are thin blocks that call the tool. Phase 0, the release stage in `Publish` and
+every other step of `nebensound.yml` are one call of the tool each; a test of
+the xtask holds every step to that. The check for Python and the action `tool`,
+which every job runs, are still shell, `check-python` partly with `jq` and
+with embedded Python scripts.
 
 ## 4. External programs are the exception and are started from the tool
 
@@ -91,7 +91,9 @@ version and the digest of every download, and the tool refuses a download
 without that digest. Dependabot does not read the register. Actions are pinned
 to a major version. The Dependabot file of the repository covers the actions of
 the workflows, not those used inside the actions under `.github/actions/`. Git,
-curl, Cargo, rustup, `jq` and Docker come from the runner image, unpinned.
+curl, Cargo, rustup, `jq` and Docker come from the runner image, unpinned. The
+image build's BuildKit and Trivy stand in the register and nowhere else; the
+database Trivy scans with is fetched in every run and pinned nowhere.
 
 ## 5. One rule per kind of problem
 
@@ -177,12 +179,11 @@ yet, it says so.
 - **The test cases of the building blocks** in `AGENTS.md` and
   [the README](../README.md#test-cases-of-the-building-blocks): the cases of a
   block that is a call of the tool run through the tool; the xtask runs the
-  `action.yml` of `check-python` and `build-docker`, shell included, the way
+  `action.yml` of `check-python`, shell included, the way
   the runner does, as the proof for the shell that exists. What becomes of the
   cases once every block is one call of the tool is decided by no issue yet.
 - **The check for Python** is shell with embedded Python scripts (rule 3):
   #113.
-- **The image build** `build-docker` is shell, with `jq` (rule 3): #179.
 - **The action `tool`** holds logic in shell: the fingerprint and the build of
   the tool from source (rule 3). The build from source in a caller: #24. The
   fingerprint: no issue exists yet.
@@ -191,9 +192,10 @@ yet, it says so.
 - **The source of actionlint**, whose upstream stands still, and the growing
   list of its messages the YAML check drops (rules 4 and 5): #169.
 - **The programs the tool may start.** `AGENTS.md` and the README allow those of
-  the register, Git, curl, Cargo and the Rust toolchain that rustup provides.
-  Git, curl, Cargo and rustup, and further programs the workflow and the blocks
-  call, come from the runner image without a pinned version or digest (rule 4).
+  the register, Git, curl, Cargo and the Rust toolchain that rustup provides,
+  and Docker with its Buildx for the image build. Git, curl, Cargo, rustup and
+  Docker, and further programs the workflow and the blocks call, come from the
+  runner image without a pinned version or digest (rule 4).
   No issue exists yet.
 - **One list in a form an updater reads** (rule 4). The register pins programs
   with digests, but Dependabot does not read it, and `AGENTS.md` allows actions

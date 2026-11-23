@@ -69,7 +69,7 @@ The commands of `nebensound-repo` are limited to the tasks of a repository. The
 tool has no external subcommands and never starts a program because a
 subcommand's name matched it: the programs it starts are those of the register,
 Git, curl, Cargo and the Rust toolchain that rustup provides (rustup, rustc,
-rustfmt).
+rustfmt), and, for the image build only, Docker with its Buildx.
 
 ## Workflows and actions
 

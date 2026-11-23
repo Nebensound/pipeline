@@ -2,8 +2,9 @@
 //! repository.
 //!
 //! The checks call external programs, which the register pins, each with the
-//! runtime it needs, if any. For the checks the repository's declaration
-//! starts, or the checks it is named, `setup` finds every program:
+//! runtime it needs, if any, and so do some builds. For the checks the
+//! repository's declaration starts, or the checks and builds it is named,
+//! `setup` finds every program:
 //!
 //! - By default it uses a program that is on the computer already and says
 //!   where its version differs from the pinned one; it installs the pinned
@@ -47,7 +48,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::Register;
-use crate::names::{CheckName, ProgramName, RuntimeName};
+use crate::names::{BuildName, CheckName, ProgramName, RuntimeName};
 use crate::programs::{Download, Installer, Platform, Program, Runtime, at_least};
 
 use self::find::{Found, MARK};
@@ -155,6 +156,23 @@ pub fn named(register: &Register, names: &[String]) -> Result<Vec<CheckName>, St
     Ok(checks)
 }
 
+/// The builds of the register these names name, each once, in name order,
+/// and the names that name none, in the order they came.
+#[must_use]
+pub fn builds_named(register: &Register, names: &[String]) -> (Vec<BuildName>, Vec<String>) {
+    let mut builds = Vec::new();
+    let mut rest = Vec::new();
+    for name in names {
+        match register.build.keys().find(|known| known.as_str() == name) {
+            Some(build) => builds.push(build.clone()),
+            None => rest.push(name.clone()),
+        }
+    }
+    builds.sort();
+    builds.dedup();
+    (builds, rest)
+}
+
 /// Finds or installs the programs of these checks, prints what it did and
 /// found, and returns the exit code: 0 when every program is there
 /// afterwards, 1 otherwise.
@@ -165,9 +183,23 @@ pub fn run(
     env: &mut Environment,
     out: &mut dyn Write,
 ) -> u8 {
+    run_for(register, checks, &[], options, env, out)
+}
+
+/// Finds or installs the programs of these checks and builds, as [`run`]
+/// does for checks alone.
+pub fn run_for(
+    register: &Register,
+    checks: &[CheckName],
+    builds: &[BuildName],
+    options: Options,
+    env: &mut Environment,
+    out: &mut dyn Write,
+) -> u8 {
     let mut setup = Setup {
         register,
         checks,
+        builds,
         env,
         out,
     };
@@ -181,7 +213,7 @@ pub fn run(
     }
 }
 
-/// One program the checks call, and what there is of it.
+/// One program the checks or builds call, and what there is of it.
 struct Wanted<'a> {
     name: &'a ProgramName,
     program: &'a Program,
@@ -189,7 +221,8 @@ struct Wanted<'a> {
     runtime: Option<(&'a RuntimeName, &'a Runtime)>,
     /// Whether this run needs that runtime for it: see [`needs`].
     needs_runtime: bool,
-    checks: Vec<&'a CheckName>,
+    /// The checks and builds that call it.
+    callers: Vec<String>,
     found: Found,
 }
 
@@ -212,6 +245,7 @@ struct Survey<'a> {
 struct Setup<'a, 'e> {
     register: &'a Register,
     checks: &'a [CheckName],
+    builds: &'a [BuildName],
     env: &'e mut Environment,
     out: &'e mut dyn Write,
 }
@@ -231,14 +265,25 @@ impl<'a> Setup<'a, '_> {
                 .to_owned()
         })?;
         let checks: Vec<String> = self.checks.iter().map(ToString::to_string).collect();
+        let builds: Vec<String> = self.builds.iter().map(ToString::to_string).collect();
+        let named = if builds.is_empty() {
+            String::new()
+        } else {
+            format!("Builds: {}\n", list(&builds))
+        };
         self.say(&format!(
-            "Checks: {}\nFolder: {}\n",
+            "Checks: {}\n{named}Folder: {}\n",
             list(&checks),
             folder.display()
         ));
         let survey = self.survey(options.mode, &[]);
         if survey.programs.is_empty() {
-            self.say("\nThese checks call no program the register pins.\n");
+            let callers = match (checks.is_empty(), builds.is_empty()) {
+                (_, true) => "These checks",
+                (true, false) => "These builds",
+                (false, false) => "These checks and builds",
+            };
+            self.say(&format!("\n{callers} call no program the register pins.\n"));
             return Ok(true);
         }
         if options.mode == Mode::Check {
@@ -297,8 +342,22 @@ impl<'a> Setup<'a, '_> {
     /// for it now.
     fn survey(&self, mode: Mode, needed: &[&ProgramName]) -> Survey<'a> {
         let register = self.register;
-        let programs: Vec<Wanted<'a>> = register
-            .programs_of(self.checks)
+        let mut wanted = register.programs_of(self.checks);
+        for build in self.builds {
+            let programs = register
+                .build
+                .get(build)
+                .map(|definition| definition.programs.as_slice())
+                .unwrap_or_default();
+            wanted.extend(
+                programs
+                    .iter()
+                    .filter_map(|name| register.program.get_key_value(name)),
+            );
+        }
+        wanted.sort_by_key(|(name, _)| *name);
+        wanted.dedup_by_key(|(name, _)| *name);
+        let programs: Vec<Wanted<'a>> = wanted
             .into_iter()
             .map(|(name, program)| {
                 let checks = self
@@ -310,7 +369,18 @@ impl<'a> Setup<'a, '_> {
                             .get(*check)
                             .is_some_and(|definition| definition.programs.contains(name))
                     })
-                    .collect();
+                    .map(ToString::to_string);
+                let builds = self
+                    .builds
+                    .iter()
+                    .filter(|build| {
+                        register
+                            .build
+                            .get(*build)
+                            .is_some_and(|definition| definition.programs.contains(name))
+                    })
+                    .map(ToString::to_string);
+                let callers = checks.chain(builds).collect();
                 let runtime = program
                     .runtime
                     .as_ref()
@@ -323,7 +393,7 @@ impl<'a> Setup<'a, '_> {
                     needs_runtime: runtime.is_some_and(|(_, runtime)| {
                         needed.contains(&name) || needs(runtime, &found, mode)
                     }),
-                    checks,
+                    callers,
                     found,
                 }
             })
@@ -558,7 +628,6 @@ impl<'a> Setup<'a, '_> {
         text.push_str("\nPrograms\n");
         for wanted in &survey.programs {
             let head = format!("{} {}", wanted.name, wanted.program.version);
-            let checks: Vec<String> = wanted.checks.iter().map(ToString::to_string).collect();
             note(
                 &head,
                 &wanted.found,
@@ -569,7 +638,7 @@ impl<'a> Setup<'a, '_> {
             let _ = writeln!(
                 text,
                 "  {head} ({}): {}",
-                checks.join(", "),
+                wanted.callers.join(", "),
                 state(&wanted.found, &wanted.program.version)
             );
         }

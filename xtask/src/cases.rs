@@ -7,7 +7,8 @@
 //!
 //! A block whose work the tool carries out ([`FROM_THE_TOOL`]) is run
 //! through the tool itself ([`direct`]), on every system: before the cases of
-//! a check the programs of the check are set up ([`set_up`]), and for each
+//! a check or a build the programs the register names for it are set up
+//! ([`set_up`]), and for each
 //! case phase 0 runs with `nebensound-repo check` and `plan`. Then a check
 //! runs `nebensound-repo run` once for every unit the plan starts the check
 //! for, as a workflow run calls it, with the plan when the block takes one. A
@@ -50,6 +51,7 @@ use crate::{Error, say};
 /// cases run through the tool itself, on every system ([`direct`]).
 pub const FROM_THE_TOOL: &[&str] = &[
     "build-cargo-package",
+    "build-docker",
     "check-css",
     "check-dockerfile",
     "check-html",
@@ -557,12 +559,13 @@ pub fn on_github(env: &[(OsString, OsString)]) -> bool {
         .any(|(name, value)| name == "GITHUB_ACTIONS" && value == "true")
 }
 
-/// Sets up the programs of the check of the block `block`, whose check the
-/// tool carries out, before its cases run: `nebensound-repo setup --pinned
-/// <check>` on the repository at `root`, the first of the two calls the block
-/// makes. It installs the pinned version of every program the check calls
-/// where it is missing. So the cases do not depend on which blocks ran before
-/// them.
+/// Sets up the programs of the check or build of the block `block`, whose
+/// work the tool carries out, before its cases run: `nebensound-repo setup
+/// --pinned <name>` on the repository at `root`, the call a block that needs
+/// programs makes first. It installs the pinned version of every program the
+/// register names for the check or build where it is missing; for a build
+/// that calls none, such as `cargo-package`, it installs nothing. So the cases
+/// do not depend on which blocks ran before them.
 ///
 /// A runtime one of those programs needs is the computer's when it is new
 /// enough. On a developer's computer the call goes without `--with-runtimes`,
@@ -573,19 +576,18 @@ pub fn on_github(env: &[(OsString, OsString)]) -> bool {
 /// depend on the image. Nothing when it went well, else what went wrong. What
 /// the tool prints is folded into a group.
 pub fn set_up(bench: Direct<'_>, root: &Path, block: &str, out: &mut dyn Write) -> Option<String> {
-    // A version writer or a build calls no program of the register: what it
-    // runs is Cargo and the Rust toolchain, which rustup provides.
-    let check = block.strip_prefix("check-")?;
-    say(
-        out,
-        &format!("::group::{block}, the programs of its check\n"),
-    );
+    // A version writer calls no program of the register: what it runs is the
+    // tool alone.
+    let name = block
+        .strip_prefix("check-")
+        .or_else(|| block.strip_prefix("build-"))?;
+    say(out, &format!("::group::{block}, the programs it calls\n"));
     let args: &[&str] = if bench.with_runtimes {
-        &["setup", "--pinned", "--with-runtimes", check]
+        &["setup", "--pinned", "--with-runtimes", name]
     } else {
-        &["setup", "--pinned", check]
+        &["setup", "--pinned", name]
     };
-    let done = tool(bench, root, args, out);
+    let done = tool(bench, (root, bench.scratch), args, out);
     say(out, "::endgroup::\n");
     match done {
         Ok((true, _)) => None,
@@ -593,9 +595,7 @@ pub fn set_up(bench: Direct<'_>, root: &Path, block: &str, out: &mut dyn Write) 
             "`nebensound-repo {}` failed, so its cases run with the programs that are there",
             args.join(" ")
         )),
-        Err(error) => Some(format!(
-            "the programs of its check cannot be set up: {error}"
-        )),
+        Err(error) => Some(format!("the programs it calls cannot be set up: {error}")),
     }
 }
 
@@ -639,16 +639,19 @@ fn through_the_tool(
     let kind = kind(block)?;
     let planned = Action::load(&bench.root.join(ACTIONS).join(block))?.takes("plan");
     let (temp, workspace) = fresh(bench.scratch, bench.git, case)?;
+    let runner = temp.path().join("runner");
     let phase0 = [
         "check",
         "--name=case",
         "--default-branch=main",
         "--visibility=public",
     ];
-    if !tool(bench, &workspace, &phase0, out)?.0 {
+    if !tool(bench, (&workspace, &runner), &phase0, out)?.0 {
         return Ok(Some(PHASE0_FAILS.to_owned()));
     }
-    let plan = tool(bench, &workspace, &["plan"], out)?.1.join("\n");
+    let plan = tool(bench, (&workspace, &runner), &["plan"], out)?
+        .1
+        .join("\n");
     let file = temp.path().join("plan.json");
     fs::write(&file, &plan).map_err(|error| {
         Error::new(format!(
@@ -671,7 +674,7 @@ fn through_the_tool(
         for writer in &writers {
             let mut args: Vec<&str> = writer_call(writer)?.to_vec();
             args.extend(with_plan.iter().map(String::as_str));
-            let (passed, lines) = tool(bench, &workspace, &args, out)?;
+            let (passed, lines) = tool(bench, (&workspace, &runner), &args, out)?;
             written &= passed;
             log.extend(lines);
         }
@@ -680,7 +683,7 @@ fn through_the_tool(
             continue;
         }
         let args: Vec<&str> = call.iter().map(String::as_str).collect();
-        let (passed, lines) = tool(bench, &workspace, &args, out)?;
+        let (passed, lines) = tool(bench, (&workspace, &runner), &args, out)?;
         success &= passed;
         log.extend(lines);
     }
@@ -761,11 +764,13 @@ fn tool_runs(
     }))
 }
 
-/// One call of the tool on the case's repository, in the environment of a
-/// workflow run: whether it succeeded, and every line it printed.
+/// One call of the tool on the repository `workspace`, in the environment of
+/// a workflow run whose temporary folder (`RUNNER_TEMP`) is `temp`, the
+/// case's own, so that what a build leaves there for the step after it goes
+/// with the case: whether it succeeded, and every line it printed.
 fn tool(
     bench: Direct<'_>,
-    workspace: &Path,
+    (workspace, temp): (&Path, &Path),
     args: &[&str],
     out: &mut dyn Write,
 ) -> Result<(bool, Vec<String>), Error> {
@@ -779,6 +784,7 @@ fn tool(
         .envs(bench.env.iter().map(|(name, value)| (name, value)))
         .env("CI", "true")
         .env("GITHUB_ACTIONS", "true")
+        .env("RUNNER_TEMP", temp)
         .current_dir(workspace);
     runner::stream(command, out)
 }

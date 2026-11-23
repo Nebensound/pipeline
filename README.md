@@ -18,7 +18,7 @@ The commands of `nebensound-repo` are limited to the tasks of a repository. The
 tool has no external subcommands and never starts a program because a
 subcommand's name matched it: the programs it starts are those of the register,
 Git, curl, Cargo and the Rust toolchain that rustup provides (rustup, rustc,
-rustfmt).
+rustfmt), and, for the image build only, Docker with its Buildx.
 
 ## Status
 
@@ -597,7 +597,15 @@ nothing a pull request left in a cache reaches it.
 [`.github/actions/build-docker`](.github/actions/build-docker) is the build
 `docker`. It builds the image of one unit and runs in the unit's job of the
 Build phase, after the version writers the unit selects; it gets the plan to
-read the unit's version of the run from it.
+read the unit's version of the run from it. The block sets up the programs the
+register pins for the build (`nebensound-repo setup --pinned docker`), and the
+build is one call of the tool, `nebensound-repo build --plan <file> docker
+<unit>`, which runs each of the steps below in a group of the log, up to the
+first that fails, names the artifact and the file as outputs of its step and
+removes what it started; the block's last step hands the file on with
+`actions/upload-artifact` (see
+[the tool](tools/nebensound-repo/README.md#running-a-build)). The tool refuses
+a unit the plan starts no `docker` build for.
 
 - The Dockerfile is `deploy/Dockerfile` below the unit's path, and the build
   context is the repository root. Each unit has its own, so several services of
@@ -607,13 +615,14 @@ read the unit's version of the run from it.
   block's first step keeps a check of its own only as a safeguard: it fails by
   name where the checkout cannot read a file phase 0 saw, such as a tracked
   symlink whose target is missing.
-- The image is built once, for `linux/amd64` only, on an `x86_64` runner, by a
-  BuildKit of its own pinned by digest, without a cache, without provenance and
-  without an SBOM, into an OCI layout. It carries the labels
-  `org.opencontainers.image.version` (the unit's version of the run, on a pull
-  request with `-pr.<number>` behind it), `.revision` (the commit), `.source`
-  (the repository's address) and `.title` (the unit's name, the repository's
-  for the repository itself).
+- The image is built once, for `linux/amd64` only, on an `x86_64` Linux machine,
+  by a BuildKit of its own, the image [the register](docs/register.md#images)
+  pins by digest, without a cache, without provenance and without an SBOM, into
+  an OCI layout. It carries the labels `org.opencontainers.image.version` (the
+  unit's version of the run, on a pull request with `-pr.<number>` behind it),
+  `.revision` (the commit), `.source` (the repository's address, in a workflow
+  run) and `.title` (the unit's name, the repository's for the repository
+  itself).
 - Its identity is the digest of its manifest, printed in the log and in the
   summary of the run.
 - An image without `HEALTHCHECK` fails before it is started.
@@ -628,15 +637,20 @@ read the unit's version of the run from it.
 - Trivy, pinned in [the register](docs/register.md#programs), scans the layout
   and fails the build on every vulnerability of severity HIGH or CRITICAL that
   has a fixed version, each named on the Dockerfile. No ignore file and no
-  configuration file of Trivy is read, and there is no exception.
+  configuration file of Trivy is read, and there is no exception. Its database
+  of vulnerabilities is fetched in every run, into a folder of the build, from
+  where Trivy fetches it by default; it is pinned nowhere.
 - The layout is uploaded as an artifact of the run named
   `container-<path>@<version>@<sha>`, the path percent-encoded as for a crate.
   It holds exactly the file `image.tar`. Nothing is pushed. A second attempt of
   the same job replaces it.
 
-Nothing is cached, for the same reason as for a crate. What the block started
+Nothing is cached, for the same reason as for a crate. What the build started
 (the container, its volumes, the loaded image and the builder) is removed at
-the end, whatever happened.
+the end, whatever happened, and so is everything it made but the layout it
+hands on. Docker, its Buildx and Trivy start without the variables that steer
+them (see
+[the tool](tools/nebensound-repo/README.md#starting-docker-and-trivy)).
 
 ### Linter rules
 
@@ -972,55 +986,58 @@ that kind. The first one teaches it, together with its cases.
 Then it runs every block against its cases, each copied into a fresh Git
 repository. The blocks whose work runs from the tool (`check-css`,
 `check-dockerfile`, `check-html`, `check-json`, `check-markdown`, `check-rust`,
-`check-toml`, `check-yaml`, `version-cargo`, `build-cargo-package`) hold nothing
-of their work in their steps, so their cases run through the tool itself: the
-xtask builds the tool of this commit with Cargo, runs phase 0 on the case with
-`nebensound-repo check` and `plan`, as `Declare` does, and calls the tool as the
-block's step does, in the environment of a workflow run, so that the findings
-are annotations. A check calls `nebensound-repo run` once for every unit the
-plan starts the check for. The version writer calls `nebensound-repo
-write-versions` once, provided a unit of the plan selects it. A build calls
-`nebensound-repo build` once for every unit the plan starts the build for and
-gives a version of the run, after the version writers the unit selects, each
-through the tool, and only when they passed. A version writer gets the plan,
-and a check or a build that takes it, as `check-rust` does, gets it as its step
-in `nebensound.yml` hands it: the xtask hands it to the tool with `--plan`, in a
-file beside the case. The cases of `check-rust` and `build-cargo-package`
-install the toolchains a case needs through rustup, as the check and the build
-do in a run. Before the cases of each check it sets up the programs of the
-check with
-`nebensound-repo setup --pinned <check>`, the first of the two calls the block
-makes: it installs the pinned version of every program the check calls where it
-is missing, so that the cases do not depend on which blocks ran before the
-xtask. A runtime one of those programs needs, such as the Node.js of Stylelint,
-html-validate, Prettier and markdownlint-cli2, is the one `nebensound-repo`
-finds: a pinned one in the tool's folder first, else the computer's, when it is
-new enough for the programs. On a developer's computer the setup goes without
-`--with-runtimes` and installs no runtime, so a missing or too old one is
-installed only by `cargo xtask setup --with-runtimes` or with a yes at the
-prompt. In a run on GitHub Actions, which is how the gate runs the xtask, the
-setup goes with `--with-runtimes`, as the block's own call does: a Node.js the
-runner image lacks or carries too old is installed in the version the register
-pins, into the tool's folder, where `nebensound-repo run` finds it and puts it
-in front of the `PATH` of the programs that need it. So the cases pass whatever
-Node.js the image carries; one that is new enough is used as it is. A setup
-that fails is a problem of its own, and the block's cases still run with the
-programs that are there.
+`check-toml`, `check-yaml`, `version-cargo`, `build-cargo-package`,
+`build-docker`) hold nothing of their work in their steps, so their cases run
+through the tool itself: the xtask builds the tool of this commit with Cargo,
+runs phase 0 on the case with `nebensound-repo check` and `plan`, as `Declare`
+does, and calls the tool as the block's step does, in the environment of a
+workflow run, so that the findings are annotations; its temporary folder
+(`RUNNER_TEMP`) is the case's own, so that what a build leaves there goes with
+the case. A check calls `nebensound-repo run` once for every unit the plan
+starts the check for. The version writer calls `nebensound-repo write-versions`
+once, provided a unit of the plan selects it. A build calls `nebensound-repo
+build` once for every unit the plan starts the build for and gives a version of
+the run, after the version writers the unit selects, each through the tool, and
+only when they passed. A version writer gets the plan, and a check or a build
+that takes it, as `check-rust` does, gets it as its step in `nebensound.yml`
+hands it: the xtask hands it to the tool with `--plan`, in a file beside the
+case. The cases of `check-rust` and `build-cargo-package` install the toolchains
+a case needs through rustup, as the check and the build do in a run. The cases
+of `build-docker` build, start and scan their images with the machine's Docker
+and its Buildx, as the build does in a run: they need an `x86_64` Linux machine
+with a running Docker daemon, as the gate's runner is; elsewhere the tool
+refuses the build by name and the cases fail. Before the cases of each check and
+build it sets up the programs the register names for it with `nebensound-repo
+setup --pinned <name>`, the first call of a block that needs programs: it
+installs the pinned version of every program the check or build calls where it
+is missing (for `cargo-package`, none), so that the cases do not depend on which
+blocks ran before the xtask. A runtime one of those programs needs, such as the
+Node.js of Stylelint, html-validate, Prettier and markdownlint-cli2, is the one
+`nebensound-repo` finds: a pinned one in the tool's folder first, else the
+computer's, when it is new enough for the programs. On a developer's computer
+the setup goes without `--with-runtimes` and installs no runtime, so a missing
+or too old one is installed only by `cargo xtask setup --with-runtimes` or with
+a yes at the prompt. In a run on GitHub Actions, which is how the gate runs the
+xtask, the setup goes with `--with-runtimes`, as the block's own call does: a
+Node.js the runner image lacks or carries too old is installed in the version
+the register pins, into the tool's folder, where `nebensound-repo run` finds it
+and puts it in front of the `PATH` of the programs that need it. So the cases
+pass whatever Node.js the image carries; one that is new enough is used as it
+is. A setup that fails is a problem of its own, and the block's cases still run
+with the programs that are there.
 
-Every other block (today `check-python` and `build-docker`) runs its own
-steps. The xtask builds the tool through
-[`.github/actions/tool`](.github/actions/tool), runs
-[`.github/actions/phase0`](.github/actions/phase0) on the case, and runs a
-check block once for every unit the plan starts the block's check for, just as
-a unit job does, with the plan when the block takes one. A version
-writer's block runs once with the plan, provided a unit of the plan selects the
-writer. A build block runs once for every unit the plan starts the build for
-and gives a version of the run, just as a build job does: first the block of
-every version writer the unit selects, with the plan, and the build block only
-when they passed, with the plan when it takes one. A passing case needs the
-block to succeed everywhere. A failing case needs it to fail and to print every
-finding the case names, so a block that fails for another reason does not
-count.
+Every other block (today `check-python`) runs its own steps. The xtask builds
+the tool through [`.github/actions/tool`](.github/actions/tool), runs
+[`.github/actions/phase0`](.github/actions/phase0) on the case, and runs a check
+block once for every unit the plan starts the block's check for, just as a unit
+job does, with the plan when the block takes one. A version writer's block runs
+once with the plan, provided a unit of the plan selects the writer. A build
+block runs once for every unit the plan starts the build for and gives a version
+of the run, just as a build job does: first the block of every version writer
+the unit selects, with the plan, and the build block only when they passed, with
+the plan when it takes one. A passing case needs the block to succeed
+everywhere. A failing case needs it to fail and to print every finding the case
+names, so a block that fails for another reason does not count.
 
 The xtask keeps no copy of what such a block does. It reads every step from the
 block's `action.yml` and runs it the way the runner of GitHub Actions does: it
@@ -1031,11 +1048,10 @@ names, a branch, a tag or a full commit SHA, and run the same way. An action
 that runs on Node.js cannot run like that; for the ones it knows, the xtask
 stands in:
 
-| Action                                                               | What stands in                                                                                                 |
-| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `actions/setup-node`, `actions/setup-go`                             | The tool already on the PATH, in the version the step asks for; anything else fails the step.                  |
-| `Swatinem/rust-cache`, `actions/cache/restore`, `actions/cache/save` | Nothing: a cache changes how fast a step runs, not what it finds.                                              |
-| `actions/upload-artifact`                                            | Nothing leaves the machine, but every path the step names has to exist, as `if-no-files-found: error` demands. |
+| Action                                                               | What stands in                                                                                |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `actions/setup-node`, `actions/setup-go`                             | The tool already on the PATH, in the version the step asks for; anything else fails the step. |
+| `Swatinem/rust-cache`, `actions/cache/restore`, `actions/cache/save` | Nothing: a cache changes how fast a step runs, not what it finds.                             |
 
 Any other such action fails the xtask until it has a stand-in. No block calls
 `actions/setup-node` or `actions/setup-go` today, so no case depends on the
@@ -1069,7 +1085,8 @@ that the findings of a failing case do not become annotations of the gate. What
 the xtask itself finds is an annotation.
 
 The cases of the blocks that run from the tool run wherever the tool does, on
-Linux and macOS alike. The steps of the other blocks are written for the Linux
+Linux and macOS alike, except those of `build-docker`, which need an `x86_64`
+Linux machine with Docker (see above). The steps of the other blocks are written for the Linux
 runners of GitHub Actions, and so for now their cases run on Linux only, in the
 gate on every pull request and locally on Linux. Elsewhere the xtask holds the
 blocks, the register and `nebensound.yml` to each other, runs the cases of the
@@ -1079,21 +1096,19 @@ with `1`, since their cases did not run.
 `cargo xtask setup` calls `nebensound-repo setup` for this repository with the
 tool of this commit, built from `tools/nebensound-repo/` with the toolchain the
 tool pins, and hands it every option unchanged (`--pinned`, `--with-runtimes`,
-`--check`, the names of checks). The cases of the blocks that run from the tool
-take the pinned programs `cargo xtask check --all` sets up itself, and a
-runtime from the computer or from `--with-runtimes`, which `cargo xtask check
---all` passes itself only in a run on GitHub Actions. Then, on Linux, it checks
-what only the cases of the other blocks need: a program an action of their
-steps would put on the `PATH`, in the version the step asks for (read from
-their `action.yml`), Docker with Buildx, jq and rustup (`check-python` and
-`build-docker` run jq, the action `tool` installs the tool's toolchain). It
-installs none of these, since they stay the machine's, but names each one that
-is missing or of another version and exits with `1` then, so that a machine it
-passes can run the cases. `nebensound-repo setup` may have put a jq into its
-cache, but the steps look for jq on the `PATH`. That the Docker
-daemon runs is not checked; the cases of `build-docker` fail without it. On
-another system those cases do not run, so `setup` leaves out what only they
-need and says so, and its exit code is the tool's.
+`--check`, the names of checks and builds). The cases of the blocks that run
+from the tool take the pinned programs `cargo xtask check --all` sets up itself,
+and a runtime from the computer or from `--with-runtimes`, which `cargo xtask
+check --all` passes itself only in a run on GitHub Actions. Then, on Linux, it
+checks what only the cases of the other blocks need: a program an action of
+their steps would put on the `PATH`, in the version the step asks for (read from
+their `action.yml`), jq and rustup (`check-python` runs jq, the action `tool`
+installs the tool's toolchain). It installs none of these, since they stay the
+machine's, but names each one that is missing or of another version and exits
+with `1` then, so that a machine it passes can run the cases. `nebensound-repo
+setup` may have put a jq into its cache, but the steps look for jq on the
+`PATH`. On another system those cases do not run, so `setup` leaves out what
+only they need and says so, and its exit code is the tool's.
 
 The cases are
 taken out of this repository's own checks with `[[exclude]]` and a reason in

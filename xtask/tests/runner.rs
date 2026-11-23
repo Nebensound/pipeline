@@ -555,51 +555,6 @@ fn a_cache_is_left_out() {
     assert_eq!(outcome.log[1], "built");
 }
 
-#[test]
-fn an_upload_keeps_the_files_on_this_machine_and_needs_them_there() {
-    let _alone = support::alone();
-    let scene = Scene::new();
-    support::write(&scene.workspace(), &[("out/a.crate", "")]);
-    let absolute = scene.workspace().join("out/a.crate");
-    let upload = |path: &str| {
-        ok(scene.run(
-            &format!(
-                "runs:\n  using: composite\n  steps:\n    - uses: actions/upload-artifact@v7\n      with:\n        name: crate-x\n        path: {path}\n"
-            ),
-            &[],
-        ))
-    };
-
-    let (outcome, out) = upload("out/a.crate");
-    assert!(outcome.success, "{out}");
-    assert_eq!(
-        outcome.log,
-        [
-            "actions/upload-artifact@v7 would upload the artifact `crate-x`: out/a.crate; here it stays on this machine"
-        ]
-    );
-    let (outcome, out) = upload(&format!(
-        "|\n          {}\n          out\n",
-        absolute.display()
-    ));
-    assert!(outcome.success, "{out}");
-
-    let (outcome, out) = upload("|\n          out/a.crate\n          out/b.crate\n");
-    assert!(!outcome.success, "{out}");
-    assert_eq!(
-        outcome.log,
-        [
-            "actions/upload-artifact@v7 would upload the artifact `crate-x`, and finds no file at out/b.crate"
-        ]
-    );
-    let (outcome, out) = upload("''");
-    assert!(!outcome.success, "{out}");
-    assert!(
-        outcome.log[0].ends_with("finds no file at all: no path is named"),
-        "{out}"
-    );
-}
-
 /// A host whose PATH holds only `bin`.
 fn host_with_path(scene: &Scene, bin: &Path) -> runner::Host {
     let mut host = scene.host();

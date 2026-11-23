@@ -146,6 +146,7 @@ case "$1" in
     shift
     if [ "$1" = "--plan" ]; then echo "plan given"; shift 2; fi
     echo "build $*"
+    [ -d "$RUNNER_TEMP" ] && [ "$(basename "$RUNNER_TEMP")" = runner ] && echo "in the case's temp"
     [ -f build-fails ] && { echo "::error::it fails"; exit 1; }
     exit 0 ;;
 esac
@@ -246,7 +247,7 @@ fn the_cases_of_a_block_from_the_tool_run_through_the_tool() {
     for line in [
         "::group::The tool, built with Cargo\n",
         "    | warning: from cargo\n",
-        "::group::check-json, the programs of its check\n",
+        "::group::check-json, the programs it calls\n",
         "  > nebensound-repo setup --pinned json\n",
         "    | setup --pinned json GITHUB_ACTIONS=true\n",
         "check-json, passing case `good`: as expected\n",
@@ -440,9 +441,7 @@ fn without_a_tool_no_case_of_a_block_from_the_tool_runs() {
         "{out}"
     );
     assert!(
-        out.contains(
-            "::error::check-json: the programs of its check cannot be set up: cannot start "
-        ),
+        out.contains("::error::check-json: the programs it calls cannot be set up: cannot start "),
         "{out}"
     );
 }
@@ -662,6 +661,8 @@ fn a_build_from_the_tool_runs_after_the_writers_of_its_unit() {
         "{out}"
     );
     assert!(!out.contains("plan given"), "{out}");
+    // What a build leaves for the step after it lies in the case's folder.
+    assert!(out.contains("    | in the case's temp\n"), "{out}");
     let (verdict, out) = blocks.run(
         &["versioned", "write-fails"],
         "build-cargo-package",
@@ -772,21 +773,33 @@ fn a_block_from_the_tool_with_a_stray_case_stops_the_run() {
 }
 
 #[test]
-fn a_block_that_is_no_check_needs_no_programs_set_up() {
+fn a_version_writer_needs_no_programs_set_up_and_a_build_gets_its_own() {
+    let _alone = support::alone();
     let scene = Scene::new();
     let env = Vec::new();
     let git = "git".into();
+    let tool = scene.path().join("tool");
+    script(&tool, NEBENSOUND_REPO);
+    let root = repository(&scene);
     let bench = Direct {
-        tool: &scene.path().join("no-tool"),
-        root: scene.path(),
+        tool: &tool,
+        root: &root,
         env: &env,
         git: &git,
         scratch: scene.path(),
         with_runtimes: false,
     };
-    for block in ["version-cargo", "build-cargo-package"] {
+    let mut out = Vec::new();
+    assert_eq!(cases::set_up(bench, &root, "version-cargo", &mut out), None);
+    assert!(out.is_empty());
+    for block in ["build-cargo-package", "build-docker"] {
         let mut out = Vec::new();
-        assert_eq!(cases::set_up(bench, scene.path(), block, &mut out), None);
-        assert!(out.is_empty(), "{block}");
+        assert_eq!(cases::set_up(bench, &root, block, &mut out), None);
+        let out = String::from_utf8(out).unwrap();
+        let name = block.strip_prefix("build-").unwrap();
+        assert!(
+            out.contains(&format!("  > nebensound-repo setup --pinned {name}\n")),
+            "{out}"
+        );
     }
 }
