@@ -1,4 +1,4 @@
-//! The cases of the blocks whose check the tool carries out: run through the
+//! The cases of the blocks whose work the tool carries out: run through the
 //! tool, built with Cargo, on every system.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
@@ -124,6 +124,9 @@ case "$1" in
     [ -f garbage-plan ] && { echo garbage; exit 0; }
     [ -f plan-unwritable ] && mkdir ../plan.json
     if [ -f no-unit ]; then echo '{"units":[]}'
+    elif [ -f versioned ]; then echo '{"units":[{"kind":"component","name":"a","path":"a","checks":[],"build":"cargo-package"},{"kind":"component","name":"b","path":"b","checks":[],"build":"cargo-package"}],"versions":[{"kind":"component","name":"a","path":"a","version":"1.0.0","writers":["cargo"]},{"kind":"component","name":"b","path":"b","version":"1.0.0","writers":[]}]}'
+    elif [ -f other-writer ]; then echo '{"units":[{"kind":"component","name":"a","path":"a","checks":[],"build":"cargo-package"}],"versions":[{"kind":"component","name":"a","path":"a","version":"1.0.0","writers":["other"]}]}'
+    elif [ -f unversioned ]; then echo '{"units":[{"kind":"component","name":"a","path":"a","checks":[],"build":"cargo-package"}],"versions":[{"kind":"component","name":"a","path":"a","version":null,"writers":[]}]}'
     elif [ -f planned ] || [ -f plan-unwritable ]; then echo '{"units":[{"path":".","checks":["planned"]}]}'
     else echo '{"units":[{"path":".","checks":["json"]}]}'; fi
     [ -f vanish-at-run ] && rm -f "$0"
@@ -133,6 +136,17 @@ case "$1" in
     if [ "$1" = "--plan" ]; then echo "plan: $(cat "$2")"; shift 2; fi
     echo "run $*"
     [ -f bad ] && { echo "::error file=bad::wrong"; exit 1; }
+    exit 0 ;;
+  write-versions)
+    [ "$2" = "--plan" ] && [ -f "$3" ] || { echo "no plan: $*"; exit 2; }
+    echo "write-versions"
+    [ -f write-fails ] && { echo "cannot write"; exit 1; }
+    exit 0 ;;
+  build)
+    shift
+    if [ "$1" = "--plan" ]; then echo "plan given"; shift 2; fi
+    echo "build $*"
+    [ -f build-fails ] && { echo "::error::it fails"; exit 1; }
     exit 0 ;;
 esac
 "#;
@@ -514,6 +528,230 @@ fn a_case_that_breaks_off_cannot_be_run() {
     assert!(!out.contains("plan: "), "{out}");
 }
 
+/// The repository of the blocks with a version writer and builds that run
+/// from the tool, and a way to run one of them against a case of these
+/// markers.
+struct Blocks {
+    scene: Scene,
+    root: PathBuf,
+    scratch: PathBuf,
+}
+
+impl Blocks {
+    fn new() -> Self {
+        let scene = Scene::new();
+        let root = repository(&scene);
+        write(
+            &root,
+            &[
+                (".github/actions/version-cargo/action.yml", PLANNED),
+                (".github/actions/version-other/action.yml", PLANNED),
+                (".github/actions/build-cargo-package/action.yml", BLOCK),
+                (".github/actions/build-planned/action.yml", PLANNED),
+                (".github/actions/other-thing/action.yml", BLOCK),
+            ],
+        );
+        let scratch = scene.path().join("scratch");
+        fs::create_dir_all(&scratch).unwrap();
+        Self {
+            scene,
+            root,
+            scratch,
+        }
+    }
+
+    fn run(
+        &self,
+        markers: &[&str],
+        block: &str,
+        expect: Expect,
+    ) -> (Result<Option<String>, xtask::Error>, String) {
+        let dir = self
+            .scene
+            .path()
+            .join(format!("case-{}-{block}", markers.join("-")));
+        let files: Vec<(&str, &str)> = markers.iter().map(|marker| (*marker, "")).collect();
+        write(&dir, &files);
+        let tool = self.scene.path().join("tool");
+        script(&tool, NEBENSOUND_REPO);
+        let case = Case {
+            name: "case".to_owned(),
+            dir,
+            expect,
+        };
+        let env = xtask::runner::environment(std::env::vars_os().collect());
+        let bench = Direct {
+            tool: &tool,
+            root: &self.root,
+            env: &env,
+            git: &"git".into(),
+            scratch: &self.scratch,
+            with_runtimes: false,
+        };
+        let mut out = Vec::new();
+        let verdict = cases::direct(bench, block, &case, &mut out);
+        (verdict, String::from_utf8(out).unwrap())
+    }
+}
+
+#[test]
+fn a_version_writer_from_the_tool_writes_once_with_the_plan() {
+    let _alone = support::alone();
+    let blocks = Blocks::new();
+    // The version writer writes once, with the plan.
+    let (verdict, out) = blocks.run(&["versioned"], "version-cargo", Expect::Pass);
+    assert_eq!(verdict.unwrap(), None, "{out}");
+    assert!(
+        out.contains("  > nebensound-repo write-versions --plan "),
+        "{out}"
+    );
+    assert!(
+        out.contains(
+            "    | write-versions
+"
+        ),
+        "{out}"
+    );
+    let (verdict, out) = blocks.run(
+        &["versioned", "write-fails"],
+        "version-cargo",
+        Expect::Fail(vec!["cannot write".to_owned()]),
+    );
+    assert_eq!(verdict.unwrap(), None, "{out}");
+    let (verdict, out) = blocks.run(&["unversioned"], "version-cargo", Expect::Pass);
+    assert_eq!(
+        verdict.unwrap().as_deref(),
+        Some("no unit of the case selects the version writer `cargo`, so the block never runs"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_build_from_the_tool_runs_after_the_writers_of_its_unit() {
+    let _alone = support::alone();
+    let blocks = Blocks::new();
+    // A build runs once per unit with a version of the run, after the
+    // writers that unit selects, and only when they passed.
+    let (verdict, out) = blocks.run(&["versioned"], "build-cargo-package", Expect::Pass);
+    assert_eq!(verdict.unwrap(), None, "{out}");
+    let writes = out
+        .matches(
+            "    | write-versions
+",
+        )
+        .count();
+    assert_eq!(writes, 1, "{out}");
+    let written = out
+        .find(
+            "    | write-versions
+",
+        )
+        .unwrap();
+    let built = out
+        .find(
+            "    | build cargo-package -- a
+",
+        )
+        .unwrap();
+    assert!(written < built, "{out}");
+    assert!(
+        out.contains(
+            "    | build cargo-package -- b
+"
+        ),
+        "{out}"
+    );
+    assert!(!out.contains("plan given"), "{out}");
+    let (verdict, out) = blocks.run(
+        &["versioned", "write-fails"],
+        "build-cargo-package",
+        Expect::Fail(vec!["cannot write".to_owned()]),
+    );
+    assert_eq!(verdict.unwrap(), None, "{out}");
+    assert!(!out.contains("build cargo-package -- a"), "{out}");
+    let (verdict, out) = blocks.run(
+        &["versioned", "build-fails"],
+        "build-cargo-package",
+        Expect::Fail(vec!["::error::it fails".to_owned()]),
+    );
+    assert_eq!(verdict.unwrap(), None, "{out}");
+    let (verdict, out) = blocks.run(&["versioned"], "build-planned", Expect::Pass);
+    assert_eq!(
+        verdict.unwrap().as_deref(),
+        Some(
+            "no unit of the case starts the build `planned` with a version of the run, so the \
+             block never runs"
+        ),
+        "{out}"
+    );
+    let (verdict, out) = blocks.run(&["unversioned"], "build-cargo-package", Expect::Pass);
+    assert!(verdict.unwrap().is_some(), "{out}");
+
+    // A build block that takes the plan gets it as a check block does.
+    let dir = blocks
+        .root
+        .join(".github/actions/build-cargo-package/action.yml");
+    fs::write(&dir, PLANNED).unwrap();
+    let (verdict, out) = blocks.run(&["versioned"], "build-cargo-package", Expect::Pass);
+    assert_eq!(verdict.unwrap(), None, "{out}");
+    assert!(
+        out.contains(
+            "    | plan given
+"
+        ),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_writer_or_a_block_the_tool_does_not_know_cannot_be_run() {
+    let _alone = support::alone();
+    let blocks = Blocks::new();
+    // A writer the tool does not write for, and a block of no known kind,
+    // cannot be run.
+    let (verdict, out) = blocks.run(&["other-writer"], "version-other", Expect::Pass);
+    let error = verdict.unwrap_err().to_string();
+    assert!(
+        error.contains("the version writer `other`"),
+        "{error}\n{out}"
+    );
+    let (verdict, out) = blocks.run(&["other-writer"], "build-cargo-package", Expect::Pass);
+    let error = verdict.unwrap_err().to_string();
+    assert!(
+        error.contains("the version writer `other`"),
+        "{error}\n{out}"
+    );
+    let (verdict, out) = blocks.run(&["versioned"], "other-thing", Expect::Pass);
+    let error = verdict.unwrap_err().to_string();
+    assert!(
+        error.contains("is no check, version writer or build"),
+        "{error}\n{out}"
+    );
+
+    // A plan that is none, and a tool that is gone before the writers run.
+    for (markers, block, message) in [
+        (
+            &["no-unit"][..],
+            "version-cargo",
+            "the plan of phase 0 names no versions",
+        ),
+        (
+            &["garbage-plan"][..],
+            "build-cargo-package",
+            "the plan of phase 0 is no JSON",
+        ),
+        (
+            &["versioned", "vanish-at-run"][..],
+            "build-cargo-package",
+            "cannot start",
+        ),
+    ] {
+        let (verdict, out) = blocks.run(markers, block, Expect::Pass);
+        let error = verdict.unwrap_err().to_string();
+        assert!(error.contains(message), "{markers:?}: {error}\n{out}");
+    }
+}
+
 #[test]
 fn a_block_from_the_tool_with_a_stray_case_stops_the_run() {
     let _alone = support::alone();
@@ -531,4 +769,24 @@ fn a_block_from_the_tool_with_a_stray_case_stops_the_run() {
     );
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("stray is no case"), "{out}");
+}
+
+#[test]
+fn a_block_that_is_no_check_needs_no_programs_set_up() {
+    let scene = Scene::new();
+    let env = Vec::new();
+    let git = "git".into();
+    let bench = Direct {
+        tool: &scene.path().join("no-tool"),
+        root: scene.path(),
+        env: &env,
+        git: &git,
+        scratch: scene.path(),
+        with_runtimes: false,
+    };
+    for block in ["version-cargo", "build-cargo-package"] {
+        let mut out = Vec::new();
+        assert_eq!(cases::set_up(bench, scene.path(), block, &mut out), None);
+        assert!(out.is_empty(), "{block}");
+    }
 }

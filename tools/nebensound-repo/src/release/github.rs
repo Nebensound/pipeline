@@ -1,4 +1,5 @@
-//! The calls of the GitHub REST API the release stage makes, through curl.
+//! The calls of the GitHub REST API the release stage makes, and the one
+//! `declare` makes for the visibility of the repository, through curl.
 //!
 //! The tool links no HTTP or TLS library: like the downloads of `setup`, every
 //! request goes through curl, which the runners of GitHub bring. The token
@@ -20,8 +21,7 @@ use serde_json::{Value, json};
 
 use crate::setup::find;
 
-/// What the release stage needs of the API: the repository and how to reach
-/// it.
+/// What a call of the API needs: the repository and how to reach it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitHub {
     /// The address of the API, without a slash at the end, such as
@@ -29,7 +29,8 @@ pub struct GitHub {
     pub api: String,
     /// The repository as `owner/name`.
     pub repository: String,
-    /// The token that may write to the repository.
+    /// The token of the call: for the release stage one that may write to the
+    /// repository, for the visibility the read token of the run.
     pub token: String,
     /// Where curl is looked for: the `PATH`.
     pub search_path: OsString,
@@ -62,6 +63,17 @@ pub struct Shown {
 const PAGE: usize = 100;
 
 impl GitHub {
+    /// How GitHub shows the repository: `public`, `private` or `internal`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a sentence when the call fails or its answer names no
+    /// visibility.
+    pub fn visibility(&self) -> Result<String, String> {
+        let answer = self.call("GET", "", None)?;
+        text(&answer, "visibility", "GET", "the repository")
+    }
+
     /// Every release of the repository, drafts included, page by page.
     ///
     /// # Errors
@@ -169,8 +181,8 @@ impl GitHub {
     }
 
     /// One call of the API on the repository: `path` below
-    /// `repos/<owner>/<name>/`, with a JSON body if one is given: the answer
-    /// of a call that succeeded.
+    /// `repos/<owner>/<name>/`, or the repository itself for an empty one,
+    /// with a JSON body if one is given: the answer of a call that succeeded.
     fn call(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value, String> {
         let curl = find::search("curl", &self.search_path, cfg!(windows))
             .ok_or_else(|| "there is no curl on the PATH to call GitHub with".to_owned())?;
@@ -242,10 +254,12 @@ impl GitHub {
             ));
             lines.push(format!("data-raw = {}", quoted(&body.to_string())));
         }
-        lines.push(format!(
-            "url = {}",
-            quoted(&format!("{}/repos/{}/{path}", self.api, self.repository))
-        ));
+        let mut url = format!("{}/repos/{}", self.api, self.repository);
+        if !path.is_empty() {
+            url.push('/');
+            url.push_str(path);
+        }
+        lines.push(format!("url = {}", quoted(&url)));
         let mut config = lines.join("\n");
         config.push('\n');
         config

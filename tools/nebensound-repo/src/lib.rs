@@ -25,13 +25,19 @@
 
 pub mod annotate;
 pub mod audience;
+#[cfg(feature = "program")]
+pub mod build;
 pub mod central;
 pub mod conformance;
+#[cfg(feature = "program")]
+pub mod declare;
 #[cfg(feature = "ui")]
 pub mod draw;
 pub mod edit;
 pub mod files;
 pub mod finding;
+#[cfg(feature = "program")]
+pub mod gather;
 pub mod history;
 pub mod ignored;
 pub mod lockfiles;
@@ -65,11 +71,17 @@ pub mod terminal;
 pub mod tree;
 #[cfg(feature = "ui")]
 pub mod ui;
+#[cfg(feature = "program")]
+pub mod unwritten;
 pub mod validate;
 pub mod version;
 pub mod versions;
+#[cfg(feature = "program")]
+pub mod workflow;
 pub mod workspace;
 pub mod writer;
+#[cfg(feature = "program")]
+pub mod xtask;
 
 pub use annotate::{Annotated, Coverage, Kind, Node, annotate};
 pub use central::{Central, Ruling};
@@ -238,6 +250,18 @@ pub enum Command {
         /// The path of the unit, as the plan names it.
         unit: String,
     },
+    /// Run one build of one unit, as its building block runs it in the Build
+    /// phase: for the build cargo-package. Names the artifact it leaves as
+    /// outputs of the step.
+    // It starts Cargo and the Rust toolchain and unpacks what it built, so it
+    // is part of the feature `program`.
+    #[cfg(feature = "program")]
+    Build {
+        /// The build, as the register names it.
+        build: String,
+        /// The path of the unit, as the plan names it.
+        unit: String,
+    },
     /// Write the records of this commit's versions, as the release stage on
     /// `main` does after a push: for every unit the commit touches, a tag on
     /// it and a full GitHub Release. Takes the repository, the token and the
@@ -246,9 +270,126 @@ pub enum Command {
     // the feature `program`.
     #[cfg(feature = "program")]
     Release,
+    /// Run phase 0 as the job Declare does, and hand on the plan, the units
+    /// that run a check and the units that build as outputs of the step.
+    /// Takes what the event says of the repository and its pull request from
+    /// the variables of a workflow run, and asks GitHub for the visibility
+    /// when the event names none.
+    // It may call GitHub through curl, so it is part of the feature `program`.
+    #[cfg(feature = "program")]
+    Declare,
+    /// Report the version of every unit as the job Version does: the table
+    /// into the log and as Markdown into the summary of the run, for the pull
+    /// request the variables of the run name. After a push to a pre-branch it
+    /// says why there is none.
+    // It writes into the files of a workflow run, so it is part of the
+    // feature `program`, as `release` is.
+    #[cfg(feature = "program")]
+    ReportVersions,
+    /// Fail by name for what the register knows and nobody has written a
+    /// building block for yet, as the steps `Not written yet` do.
+    // Only a workflow run calls it, so it is part of the feature `program`.
+    #[cfg(feature = "program")]
+    Unwritten {
+        /// What is held against the written blocks.
+        #[command(subcommand)]
+        what: Unwritten,
+    },
+    /// Turn the results of the jobs the closing jobs Check and Build wait
+    /// for into one.
+    // Only a workflow run calls it, so it is part of the feature `program`.
+    #[cfg(feature = "program")]
+    Gather {
+        /// Which closing job.
+        #[command(subcommand)]
+        what: Gather,
+    },
+    /// Run the repository's own checks, `cargo xtask check --all`, with the
+    /// toolchain the xtask pins.
+    // It starts Cargo and rustup, so it is part of the feature `program`.
+    #[cfg(feature = "program")]
+    Xtask,
     /// Open the interface. Only in a build with the `ui` feature.
     #[cfg(feature = "ui")]
     Ui,
+}
+
+/// What `unwritten` holds against the blocks that are written.
+#[cfg(feature = "program")]
+#[derive(Debug, Clone, Subcommand)]
+pub enum Unwritten {
+    /// The checks of a unit, as its matrix entry names them.
+    Checks {
+        /// The path of the unit.
+        #[arg(long)]
+        unit: String,
+        /// Its checks, as a JSON list of names.
+        #[arg(long)]
+        planned: String,
+        /// The checks that have a block, as a JSON list of names.
+        #[arg(long)]
+        written: String,
+    },
+    /// The build of a unit, as its matrix entry names it.
+    Build {
+        /// The path of the unit.
+        #[arg(long)]
+        unit: String,
+        /// Its build.
+        #[arg(long)]
+        planned: String,
+        /// The builds that have a block, as a JSON list of names.
+        #[arg(long)]
+        written: String,
+    },
+    /// The version writers the plan names.
+    Writers {
+        /// The plan `nebensound-repo plan` printed; empty when there is none.
+        #[arg(long, value_name = "FILE")]
+        plan: PathBuf,
+        /// The version writers that have a block, as a JSON list of names.
+        #[arg(long)]
+        written: String,
+    },
+    /// The publish targets the plan names.
+    Targets {
+        /// The plan `nebensound-repo plan` printed; empty when there is none.
+        #[arg(long, value_name = "FILE")]
+        plan: PathBuf,
+        /// The publish targets that have a block, as a JSON list of names.
+        #[arg(long)]
+        written: String,
+    },
+}
+
+/// Which closing job `gather` speaks for, with the results it is handed.
+#[cfg(feature = "program")]
+#[derive(Debug, Clone, Subcommand)]
+pub enum Gather {
+    /// The closing job Check.
+    Checks {
+        /// How the job Declare ended.
+        #[arg(long, value_enum)]
+        declare: gather::Outcome,
+        /// How the jobs of the units ended.
+        #[arg(long, value_enum)]
+        checks: gather::Outcome,
+    },
+    /// The closing job Build.
+    Builds {
+        /// How the job Declare ended.
+        #[arg(long, value_enum)]
+        declare: gather::Outcome,
+        /// How the closing job Check ended.
+        #[arg(long, value_enum)]
+        check: gather::Outcome,
+        /// How the jobs of the builds ended.
+        #[arg(long, value_enum)]
+        builds: gather::Outcome,
+        /// The units Declare handed the build matrix, as JSON.
+        #[arg(long)]
+        planned: String,
+    },
 }
 
 /// The repository's name and default branch, as a run hands them in from its
@@ -313,6 +454,17 @@ pub enum Failure {
     /// The versions could not be written.
     #[error(transparent)]
     Write(#[from] writer::WriteError),
+    /// The build that was named is not one `build` carries out.
+    #[cfg(feature = "program")]
+    #[error("`build` carries out the build cargo-package; {build:?} is not one of them")]
+    NotBuilt {
+        /// What was named.
+        build: String,
+    },
+    /// What the variables of the run hand in does not read.
+    #[cfg(feature = "program")]
+    #[error("{0}")]
+    Run(String),
     /// The check that was named is not one `run` carries out.
     #[cfg(feature = "program")]
     #[error(
@@ -370,6 +522,35 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
+    run_with(
+        args,
+        register,
+        defaults,
+        output,
+        &|name| std::env::var(name).ok(),
+        out,
+    )
+}
+
+/// The same with the variables of the process read through `variables`.
+///
+/// The calls only a workflow run makes read the run from its variables
+/// ([`workflow`](mod@workflow)): what a step hands in, the files it writes to and the search
+/// path of the programs it starts. This form stands beside the others so that
+/// a test can hand in the run it needs without changing the variables every
+/// test of the process shares.
+pub fn run_with<I, T>(
+    args: I,
+    register: &str,
+    defaults: &str,
+    output: Output,
+    variables: &dyn Fn(&str) -> Option<String>,
+    out: &mut dyn Write,
+) -> u8
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
     let cli = match Cli::try_parse_from(args) {
         Ok(cli) => cli,
         Err(error) => {
@@ -378,7 +559,7 @@ where
             return if error.use_stderr() { MISUSE } else { OK };
         }
     };
-    dispatch(&cli, register, defaults, output, out)
+    dispatch(&cli, register, defaults, output, variables, out)
 }
 
 /// Everything after the arguments were read.
@@ -386,16 +567,27 @@ where
 /// Not generic, unlike its caller: it is compiled once, so every test binary
 /// runs the same copy of it, and a call that only one of them makes still
 /// counts as run.
-fn dispatch(cli: &Cli, register: &str, defaults: &str, output: Output, out: &mut dyn Write) -> u8 {
-    // Every call of `run` outside a workflow run opens with the line that
-    // the gate decides, also one that ends in a refusal or an error.
+fn dispatch(
+    cli: &Cli,
+    register: &str,
+    defaults: &str,
+    output: Output,
+    variables: &dyn Fn(&str) -> Option<String>,
+    out: &mut dyn Write,
+) -> u8 {
+    // Every call of `run` or `build` outside a workflow run opens with the
+    // line that the gate decides, also one that ends in a refusal or an error.
     #[cfg(feature = "program")]
-    if matches!(cli.command, Some(Command::Run { .. })) && output != Output::Workflow {
+    if matches!(
+        cli.command,
+        Some(Command::Run { .. } | Command::Build { .. })
+    ) && output != Output::Workflow
+    {
         say(out, &format!("{}\n", run::OUTSIDE));
     }
     // Whether a call makes sense does not depend on what it would have been
     // called on, so the path is checked before the repository is read at all.
-    let job = match call(cli) {
+    let job = match call(cli, variables) {
         #[cfg(feature = "program")]
         Ok(Call::Schema) => {
             let schema = crate::schema::json_schema();
@@ -414,13 +606,29 @@ fn dispatch(cli: &Cli, register: &str, defaults: &str, output: Output, out: &mut
                 }
             };
         }
-        Ok(Call::Repository(job)) => job,
+        #[cfg(feature = "program")]
+        Ok(Call::Alone(alone)) => return alone_call(cli, &alone, output, variables, out),
+        #[cfg(feature = "program")]
+        Ok(Call::Declare(pull_request)) => Deferred::Declare(pull_request),
+        Ok(Call::Repository(job)) => Deferred::Job(job),
         Err(failure) => {
             say(out, &format!("{failure}\n"));
             return MISUSE;
         }
     };
-    match execute(cli, &job, register, defaults, output, out) {
+    let context = Execution {
+        cli,
+        register,
+        defaults,
+        output,
+        variables,
+    };
+    let done = match &job {
+        #[cfg(feature = "program")]
+        Deferred::Declare(pull_request) => declare(&context, pull_request.as_ref(), out),
+        Deferred::Job(job) => execute(&context, job, out),
+    };
+    match done {
         Ok(code) => code,
         Err(failure) => {
             say(out, &format!("{failure}\n"));
@@ -443,8 +651,38 @@ enum Call {
     Schema,
     /// Print the register as a page. It is the same for every repository too.
     Register,
+    /// A call of a workflow run that needs no phase 0.
+    #[cfg(feature = "program")]
+    Alone(Alone),
+    /// Run phase 0 as Declare does and hand on the plan, for the pull
+    /// request if there is one.
+    #[cfg(feature = "program")]
+    Declare(Option<PullRequest>),
     /// Something about the repository.
     Repository(Job),
+}
+
+/// A call that reads the repository.
+enum Deferred {
+    /// `declare`, which reads it twice.
+    #[cfg(feature = "program")]
+    Declare(Option<PullRequest>),
+    /// Every other one.
+    Job(Job),
+}
+
+/// A call of a workflow run that needs no phase 0: it reads only what it is
+/// handed, or files of the repository it names itself.
+#[cfg(feature = "program")]
+enum Alone {
+    /// Fail for what has no block yet.
+    Unwritten(Unwritten),
+    /// Turn the results of the jobs a closing job waits for into one.
+    Gather(Gather),
+    /// Say why a run after a push to this pre-branch resolves no version.
+    PreBranch(String),
+    /// Run the repository's xtask.
+    Xtask,
 }
 
 /// What `write-versions` is asked for.
@@ -500,13 +738,25 @@ enum Job {
     /// Write the records of this commit's versions.
     #[cfg(feature = "program")]
     Release,
+    /// Run a build of a unit.
+    #[cfg(feature = "program")]
+    Build {
+        build: build::Build,
+        unit: RelativePath,
+    },
+    /// Report the versions as the job Version does, for the pull request if
+    /// there is one.
+    #[cfg(feature = "program")]
+    ReportVersions(Option<PullRequest>),
     /// Open the interface.
     #[cfg(feature = "ui")]
     Ui,
 }
 
 /// What the call asks for, refusing a path that is not one.
-fn call(cli: &Cli) -> Result<Call, Failure> {
+fn call(cli: &Cli, variables: &dyn Fn(&str) -> Option<String>) -> Result<Call, Failure> {
+    #[cfg(not(feature = "program"))]
+    let _ = variables;
     Ok(Call::Repository(match &cli.command {
         #[cfg(feature = "program")]
         Some(Command::Schema) => return Ok(Call::Schema),
@@ -557,6 +807,36 @@ fn call(cli: &Cli) -> Result<Call, Failure> {
         },
         #[cfg(feature = "program")]
         Some(Command::Release) => Job::Release,
+        #[cfg(feature = "program")]
+        Some(Command::Build { build, unit }) => Job::Build {
+            build: build::Build::of(build).ok_or_else(|| Failure::NotBuilt {
+                build: build.clone(),
+            })?,
+            unit: path_of(unit)?,
+        },
+        #[cfg(feature = "program")]
+        Some(Command::Declare) => {
+            return Ok(Call::Declare(
+                workflow::pull_request(variables).map_err(Failure::Run)?,
+            ));
+        }
+        #[cfg(feature = "program")]
+        Some(Command::ReportVersions) => {
+            if workflow::pre_branch(variables) {
+                return Ok(Call::Alone(Alone::PreBranch(
+                    variables("GITHUB_REF_NAME").unwrap_or_default(),
+                )));
+            }
+            Job::ReportVersions(workflow::pull_request(variables).map_err(Failure::Run)?)
+        }
+        #[cfg(feature = "program")]
+        Some(Command::Unwritten { what }) => {
+            return Ok(Call::Alone(Alone::Unwritten(what.clone())));
+        }
+        #[cfg(feature = "program")]
+        Some(Command::Gather { what }) => return Ok(Call::Alone(Alone::Gather(what.clone()))),
+        #[cfg(feature = "program")]
+        Some(Command::Xtask) => return Ok(Call::Alone(Alone::Xtask)),
         #[cfg(feature = "ui")]
         Some(Command::Ui) => Job::Ui,
         Some(Command::Explain { path }) => Job::Explain(path_of(path)?),
@@ -579,15 +859,25 @@ fn path_of(value: &str) -> Result<RelativePath, Failure> {
 /// request, `HEAD` as the squash merge of that pull request would put it on
 /// its base branch.
 fn repository_of(cli: &Cli, job: &Job) -> Repository {
-    match job {
-        Job::Version {
-            pull_request: Some(pull_request),
-            ..
-        }
-        | Job::Plan(Some(pull_request)) => {
+    let pull_request = match job {
+        Job::Plan(pull_request) => pull_request.as_ref(),
+        _ => versions_of(job),
+    };
+    match pull_request {
+        Some(pull_request) => {
             Repository::at(&cli.repository).as_pull_request(pull_request.message.clone())
         }
-        _ => Repository::at(&cli.repository),
+        None => Repository::at(&cli.repository),
+    }
+}
+
+/// The pull request a call reports the versions for, if it is one that does.
+fn versions_of(job: &Job) -> Option<&PullRequest> {
+    match job {
+        Job::Version { pull_request, .. } => pull_request.as_ref(),
+        #[cfg(feature = "program")]
+        Job::ReportVersions(pull_request) => pull_request.as_ref(),
+        _ => None,
     }
 }
 
@@ -609,6 +899,8 @@ fn files_alone(job: &Job) -> bool {
         Job::Setup(..) => true,
         #[cfg(feature = "program")]
         Job::Run { check, plan, .. } => plan.is_some() || !check.writes_versions(),
+        #[cfg(feature = "program")]
+        Job::Build { .. } => true,
         _ => false,
     }
 }
@@ -632,32 +924,82 @@ fn analysis_for(
     } else {
         repository.analyse(central)
     }?;
-    Ok(match job {
-        Job::Check(_, Some(visibility)) => analysis.with_visibility(*visibility),
-        Job::Version {
-            pull_request: Some(pull_request),
-            ..
-        } if !analysis.failed() => {
-            let found =
-                requirements::findings(repository, &analysis, central, pull_request.number)?;
-            analysis.loose.extend(found);
-            analysis
+    if let Job::Check(_, Some(visibility)) = job {
+        return Ok(analysis.with_visibility(*visibility));
+    }
+    if let Some(pull_request) = versions_of(job)
+        && !analysis.failed()
+    {
+        let found = requirements::findings(repository, &analysis, central, pull_request.number)?;
+        analysis.loose.extend(found);
+    }
+    Ok(analysis)
+}
+
+/// What every call about the repository runs with.
+struct Execution<'a> {
+    cli: &'a Cli,
+    register: &'a str,
+    defaults: &'a str,
+    output: Output,
+    #[cfg_attr(not(feature = "program"), allow(dead_code))]
+    variables: &'a dyn Fn(&str) -> Option<String>,
+}
+
+/// What a call says instead of its answer when phase 0 found errors, if it
+/// gives none then.
+///
+/// A plan read off a declaration with errors would start the wrong things
+/// with a straight face, so there is none; what is printed then is a
+/// sentence, which no matrix takes for a plan. The same holds for the rest: a
+/// file list would check the wrong files, a package could be left out without
+/// a valid reason, a version could be written into the wrong package or be
+/// one the history does not give, the programs could be those of the wrong
+/// checks, and a build could be that of the wrong unit.
+fn refusal(job: &Job) -> Option<&'static str> {
+    Some(match job {
+        Job::Plan(_) => "there is no plan: phase 0 found errors, and `check` says which\n",
+        Job::Files { .. } => {
+            "there is no file list: phase 0 found errors, and `check` says which\n"
         }
-        _ => analysis,
+        Job::ExcludedPackages => {
+            "there is no list of excluded packages: phase 0 found errors, and `check` says which\n"
+        }
+        Job::WriteVersions(_) => {
+            "no version is written: phase 0 found errors, and `check` says which\n"
+        }
+        #[cfg(feature = "program")]
+        Job::Setup(..) => {
+            "there is nothing to set up: phase 0 found errors, and `check` says which\n"
+        }
+        #[cfg(feature = "program")]
+        Job::Run { .. } => "nothing is checked: phase 0 found errors, and `check` says which\n",
+        #[cfg(feature = "program")]
+        Job::Release => "nothing is released: phase 0 found errors, and `check` says which\n",
+        #[cfg(feature = "program")]
+        Job::Build { .. } => "nothing is built: phase 0 found errors, and `check` says which\n",
+        _ => return None,
     })
 }
 
-fn execute(
-    cli: &Cli,
-    job: &Job,
-    register: &str,
-    defaults: &str,
-    output: Output,
-    out: &mut dyn Write,
-) -> Result<u8, Failure> {
-    let repository = repository_of(cli, job);
-    let central = central_from(register, defaults)?;
-    let mut analysis = analysis_for(&repository, &central, job)?;
+/// The repository a call reads, read: the repository, the central data and
+/// phase 0 on it.
+fn read(context: &Execution<'_>, job: &Job) -> Result<(Repository, Central, Analysis), Failure> {
+    let repository = repository_of(context.cli, job);
+    let central = central_from(context.register, context.defaults)?;
+    let analysis = analysis_for(&repository, &central, job)?;
+    Ok((repository, central, analysis))
+}
+
+fn execute(context: &Execution<'_>, job: &Job, out: &mut dyn Write) -> Result<u8, Failure> {
+    let output = context.output;
+    let (repository, central, mut analysis) = read(context, job)?;
+    if analysis.failed()
+        && let Some(refusal) = refusal(job)
+    {
+        say(out, refusal);
+        return Ok(FOUND);
+    }
 
     match job {
         Job::Check(given, _) => say(
@@ -675,20 +1017,7 @@ fn execute(
             };
             say(out, &format!("{text}\n"));
         }
-        // A plan read off a declaration with errors would start the wrong
-        // things with a straight face, so there is none. What is printed then
-        // is a sentence, which no matrix takes for a plan.
-        Job::Plan(_) if analysis.failed() => say(
-            out,
-            "there is no plan: phase 0 found errors, and `check` says which\n",
-        ),
         Job::Plan(pull_request) => say(out, &plan_of(&analysis, &central, pull_request.as_ref())),
-        // The same reason as for the plan: a list read off a declaration with
-        // errors would check the wrong files.
-        Job::Files { .. } if analysis.failed() => say(
-            out,
-            "there is no file list: phase 0 found errors, and `check` says which\n",
-        ),
         Job::Files { check, unit, zero } => match files::files(&analysis, &central, check, unit) {
             Ok(list) => say(out, &files::render(&list, *zero)),
             Err(refusal) => {
@@ -696,13 +1025,6 @@ fn execute(
                 return Ok(FOUND);
             }
         },
-        // The same reason again: a package read off a declaration with errors
-        // could be left out without a valid reason.
-        Job::ExcludedPackages if analysis.failed() => say(
-            out,
-            "there is no list of excluded packages: phase 0 found errors, and `check` says \
-             which\n",
-        ),
         Job::ExcludedPackages => say(
             out,
             &format!(
@@ -710,19 +1032,12 @@ fn execute(
                 packages::to_json(&repository.excluded_packages(&analysis))
             ),
         ),
-        // The same reason again: a version read off a declaration with errors
-        // could be written into the wrong package.
-        Job::WriteVersions(_) if analysis.failed() => say(
-            out,
-            "no version is written: phase 0 found errors, and `check` says which\n",
-        ),
         Job::WriteVersions(writing) => say(
             out,
             &write_versions(&repository, &analysis, &central, writing)?,
         ),
-        // The same reason once more: a version read off a declaration with
-        // errors could be one the history does not give, so what is printed
-        // then is every finding.
+        // A version read off a declaration with errors could be one the
+        // history does not give, so what is printed then is every finding.
         Job::Version {
             markdown,
             pull_request,
@@ -730,24 +1045,10 @@ fn execute(
             out,
             &versions::report(&analysis, *markdown, pull_request.as_ref()),
         ),
-        // The same reason again: the programs of a declaration with errors
-        // could be those of the wrong checks.
-        #[cfg(feature = "program")]
-        Job::Setup(..) if analysis.failed() => say(
-            out,
-            "there is nothing to set up: phase 0 found errors, and `check` says which\n",
-        ),
         #[cfg(feature = "program")]
         Job::Setup(options, named) => {
             return Ok(set_up(&analysis, &central, *options, named, out));
         }
-        // The same reason as for the file list: a declaration with errors
-        // would check the wrong files.
-        #[cfg(feature = "program")]
-        Job::Run { .. } if analysis.failed() => say(
-            out,
-            "nothing is checked: phase 0 found errors, and `check` says which\n",
-        ),
         #[cfg(feature = "program")]
         Job::Run { check, unit, plan } => {
             let orders = orders(plan.as_ref(), &analysis, &central)?;
@@ -757,17 +1058,24 @@ fn execute(
                 central: &central,
                 orders: &orders,
             };
-            return Ok(run_check(cli, &checked, *check, unit, output, out));
+            return Ok(run_check(context.cli, &checked, *check, unit, output, out));
         }
-        // The same reason as for the versions: a version read off a
-        // declaration with errors could be one the history does not give.
-        #[cfg(feature = "program")]
-        Job::Release if analysis.failed() => say(
-            out,
-            "nothing is released: phase 0 found errors, and `check` says which\n",
-        ),
         #[cfg(feature = "program")]
         Job::Release => return release_stage(&repository, &analysis, output, out),
+        #[cfg(feature = "program")]
+        Job::Build { build, unit } => {
+            let at = (&repository, &analysis, &central);
+            return Ok(build_unit(context, at, *build, unit, out));
+        }
+        #[cfg(feature = "program")]
+        Job::ReportVersions(pull_request) => {
+            return Ok(report_versions(
+                context,
+                &analysis,
+                pull_request.as_ref(),
+                out,
+            ));
+        }
         #[cfg(feature = "ui")]
         Job::Ui => {
             terminal::open(&analysis, output).map_err(|source| Failure::Terminal { source })?;
@@ -895,6 +1203,232 @@ fn release_stage(
     ))
 }
 
+/// The search path of the programs a call starts: the `PATH` among the
+/// variables of the run.
+#[cfg(feature = "program")]
+fn search_path(variables: &dyn Fn(&str) -> Option<String>) -> OsString {
+    variables("PATH").unwrap_or_default().into()
+}
+
+/// A call of a workflow run that needs no phase 0.
+#[cfg(feature = "program")]
+fn alone_call(
+    cli: &Cli,
+    alone: &Alone,
+    output: Output,
+    variables: &dyn Fn(&str) -> Option<String>,
+    out: &mut dyn Write,
+) -> u8 {
+    let mut log = workflow::Log::new(out, output == Output::Workflow);
+    let passed = match alone {
+        Alone::Unwritten(what) => match unwritten_call(what, &mut log) {
+            Ok(passed) => passed,
+            Err(message) => {
+                log.error(&message);
+                return MISUSE;
+            }
+        },
+        Alone::Gather(Gather::Checks { declare, checks }) => {
+            gather::checks(*declare, *checks, &mut log)
+        }
+        Alone::Gather(Gather::Builds {
+            declare,
+            check,
+            builds,
+            planned,
+        }) => gather::builds(
+            &gather::Builds {
+                declare: *declare,
+                check: *check,
+                builds: *builds,
+                planned,
+                pre_branch: workflow::pre_branch(variables),
+            },
+            &mut log,
+        ),
+        Alone::PreBranch(branch) => {
+            let line = format!(
+                "This run follows a push to the pre-branch `{branch}`. Versions and pre-releases \
+                 of pre-branches are not built yet, so no version is resolved, nothing is built \
+                 and nothing is published."
+            );
+            log.line(&workflow::notice("Pre-branch", &line));
+            if let Err(message) = workflow::summary(variables, &format!("{line}\n")) {
+                log.error(&message);
+                return FOUND;
+            }
+            true
+        }
+        Alone::Xtask => xtask::run(&cli.repository, &search_path(variables), &mut log),
+    };
+    if passed { OK } else { FOUND }
+}
+
+/// `unwritten`: whether everything the run asks for has a block, or why the
+/// call does not read.
+#[cfg(feature = "program")]
+fn unwritten_call(what: &Unwritten, log: &mut workflow::Log<'_>) -> Result<bool, String> {
+    let plan_of = |file: &PathBuf| {
+        fs::read_to_string(file)
+            .map_err(|error| format!("the plan {} does not read: {error}", file.display()))
+    };
+    Ok(match what {
+        Unwritten::Checks {
+            unit,
+            planned,
+            written,
+        } => unwritten::checks(
+            unit,
+            &unwritten::names(planned, "the checks of the unit")?,
+            &unwritten::names(written, "the list of written checks")?,
+            log,
+        ),
+        Unwritten::Build {
+            unit,
+            planned,
+            written,
+        } => unwritten::build(
+            unit,
+            planned,
+            &unwritten::names(written, "the list of written builds")?,
+            log,
+        ),
+        Unwritten::Writers { plan, written } => unwritten::named(
+            &plan_of(plan)?,
+            unwritten::Named::Writers,
+            &unwritten::names(written, "the list of written version writers")?,
+            log,
+        )?,
+        Unwritten::Targets { plan, written } => unwritten::named(
+            &plan_of(plan)?,
+            unwritten::Named::Targets,
+            &unwritten::names(written, "the list of written publish targets")?,
+            log,
+        )?,
+    })
+}
+
+/// `declare`: phase 0 with what the run knows of the repository, then, when
+/// it passed, the plan and the matrices handed on.
+#[cfg(feature = "program")]
+fn declare(
+    context: &Execution<'_>,
+    pull_request: Option<&PullRequest>,
+    out: &mut dyn Write,
+) -> Result<u8, Failure> {
+    let run = match declare::Run::read(context.variables) {
+        Ok(run) => run,
+        Err(message) => {
+            say(out, &format!("{}\n", report::shown(&message)));
+            return Ok(FOUND);
+        }
+    };
+    let given = IdentityArgs {
+        name: run.name.clone(),
+        default_branch: run.default_branch.clone(),
+    };
+    let checked = Job::Check(given.clone(), Some(run.visibility));
+    let planned = Job::Plan(pull_request.cloned());
+    // Phase 0 as `check` runs it, and when it passed the repository read for
+    // the plan. One chain, so that a repository that cannot be read stops the
+    // call wherever it is found.
+    let (report, read_for_plan) = read(context, &checked)
+        .and_then(|(repository, central, mut analysis)| {
+            check(&repository, &mut analysis, &central, &given, context.output)
+                .map(|report| (report, analysis.failed()))
+        })
+        .and_then(|(report, failed)| {
+            if failed {
+                Ok((report, None))
+            } else {
+                read(context, &planned).map(|read| (report, Some(read)))
+            }
+        })?;
+    say(out, &report);
+    let Some((repository, central, analysis)) = read_for_plan else {
+        return Ok(FOUND);
+    };
+    if analysis.failed() {
+        say(
+            out,
+            "there is no plan: phase 0 found errors, and `check` says which\n",
+        );
+        return Ok(FOUND);
+    }
+    let mut plan = plan::plan(&analysis, &central);
+    plan.pull_request = pull_request.map(|pull_request| pull_request.number);
+    let excluded = repository.excluded_packages(&analysis);
+    let mut log = workflow::Log::new(out, context.output == Output::Workflow);
+    Ok(
+        if declare::hand_on(&plan, &run, &excluded, context.variables, &mut log) {
+            OK
+        } else {
+            FOUND
+        },
+    )
+}
+
+/// `build`: the build of the unit, when the plan starts it there.
+#[cfg(feature = "program")]
+fn build_unit(
+    context: &Execution<'_>,
+    (repository, analysis, central): (&Repository, &Analysis, &Central),
+    which: build::Build,
+    unit: &RelativePath,
+    out: &mut dyn Write,
+) -> u8 {
+    let plan = plan::plan(analysis, central);
+    let started = plan.units.iter().any(|planned| {
+        planned.path == *unit
+            && planned
+                .build
+                .as_ref()
+                .is_some_and(|name| name.as_str() == which.name())
+    });
+    if !started {
+        say(
+            out,
+            &format!(
+                "'{}' does not build {}: the plan starts no such build there\n",
+                report::shown(&unit.to_string()),
+                which.name()
+            ),
+        );
+        return FOUND;
+    }
+    // The repository was read, so it is there.
+    let root = fs::canonicalize(&context.cli.repository).unwrap_or(context.cli.repository.clone());
+    let search_path = search_path(context.variables);
+    let settings = build::Context {
+        repository,
+        root: &root,
+        search_path: &search_path,
+        temp: &std::env::temp_dir(),
+        workflow: context.output == Output::Workflow,
+        variables: context.variables,
+    };
+    build::run(&settings, which, unit, out)
+}
+
+/// `report-versions`: the table into the log and as Markdown into the
+/// summary of the run. With phase 0 errors both say which, as for `version`,
+/// and the step fails.
+#[cfg(feature = "program")]
+fn report_versions(
+    context: &Execution<'_>,
+    analysis: &Analysis,
+    pull_request: Option<&PullRequest>,
+    out: &mut dyn Write,
+) -> u8 {
+    say(out, &versions::report(analysis, false, pull_request));
+    let markdown = versions::report(analysis, true, pull_request);
+    if let Err(message) = workflow::summary(context.variables, &markdown) {
+        say(out, &format!("{}\n", report::shown(&message)));
+        return FOUND;
+    }
+    if analysis.failed() { FOUND } else { OK }
+}
+
 /// The whole report of phase 0, ended by a line break, with what departs from
 /// the organization's conventions among the findings.
 fn check(
@@ -975,7 +1509,13 @@ fn orders(
     match file {
         Some(file) => fs::read_to_string(file)
             .map_err(|error| error.to_string())
-            .and_then(|text| writer::Order::read(&text).map_err(|error| error.to_string()))
+            .and_then(|text| {
+                // A step that was handed no plan hands on an empty one.
+                if text.trim().is_empty() {
+                    return Err("it is empty, so no plan was handed in".to_owned());
+                }
+                writer::Order::read(&text).map_err(|error| error.to_string())
+            })
             .map_err(|message| Failure::Plan {
                 path: file.display().to_string(),
                 message,

@@ -5,12 +5,17 @@
 //! own `.nebensound/repo.toml`. To run one, the xtask copies it into a fresh
 //! Git repository.
 //!
-//! A block whose check the tool carries out ([`FROM_THE_TOOL`]) is run
-//! through the tool itself ([`direct`]), on every system: before its cases
-//! the programs of its check are set up ([`set_up`]), and for each case phase
-//! 0 runs with `nebensound-repo check` and `plan`, then `nebensound-repo run`
-//! once for every unit the plan starts the check for, as a workflow run calls
-//! it, with the plan when the block takes one.
+//! A block whose work the tool carries out ([`FROM_THE_TOOL`]) is run
+//! through the tool itself ([`direct`]), on every system: before the cases of
+//! a check the programs of the check are set up ([`set_up`]), and for each
+//! case phase 0 runs with `nebensound-repo check` and `plan`. Then a check
+//! runs `nebensound-repo run` once for every unit the plan starts the check
+//! for, as a workflow run calls it, with the plan when the block takes one. A
+//! version writer runs `nebensound-repo write-versions` once with the plan,
+//! provided a unit of the plan selects the writer. A build runs
+//! `nebensound-repo build` once for every unit the plan starts the build for
+//! and gives a version of the run, after the version writers the unit
+//! selects, each through the tool with the plan, and only when they passed.
 //!
 //! Every other block runs its own steps ([`run`]): the xtask runs phase 0 on
 //! the case the way `Declare` does. A check block
@@ -38,10 +43,13 @@ use crate::action::Action;
 use crate::runner::{self, Host, Job, Place};
 use crate::{Error, say};
 
-/// The blocks whose check `nebensound-repo run` carries out. Their steps set
-/// up the programs and call `run`, so nothing of the check is left in them:
-/// their cases run through the tool itself, on every system ([`direct`]).
+/// The blocks whose work the tool carries out: the checks `nebensound-repo
+/// run` carries out, the builds `nebensound-repo build` carries out and the
+/// version writer `nebensound-repo write-versions` is. Their steps set up the
+/// programs and call the tool, so nothing of their work is left in them: their
+/// cases run through the tool itself, on every system ([`direct`]).
 pub const FROM_THE_TOOL: &[&str] = &[
+    "build-cargo-package",
     "check-css",
     "check-dockerfile",
     "check-html",
@@ -50,7 +58,20 @@ pub const FROM_THE_TOOL: &[&str] = &[
     "check-rust",
     "check-toml",
     "check-yaml",
+    "version-cargo",
 ];
+
+/// The call of the tool that writes the versions of a version writer whose
+/// block runs from the tool, without the plan it is handed.
+fn writer_call(writer: &str) -> Result<&'static [&'static str], Error> {
+    match writer {
+        "cargo" => Ok(&["write-versions"]),
+        other => Err(Error::new(format!(
+            "the tool writes no versions for the version writer `{other}`, so a build that selects \
+             it cannot run from the tool"
+        ))),
+    }
+}
 
 /// What a case is told when phase 0 fails on it.
 const PHASE0_FAILS: &str =
@@ -376,24 +397,29 @@ pub fn run(
     verdict
 }
 
+/// What a block is, by the category in front of its name.
+fn kind(block: &str) -> Result<Kind<'_>, Error> {
+    if let Some(check) = block.strip_prefix("check-") {
+        Ok(Kind::Check(check))
+    } else if let Some(writer) = block.strip_prefix("version-") {
+        Ok(Kind::Version(writer))
+    } else if let Some(build) = block.strip_prefix("build-") {
+        Ok(Kind::Build(build))
+    } else {
+        Err(Error::new(format!(
+            "`{block}` is no check, version writer or build, and the xtask runs the cases of \
+             those only"
+        )))
+    }
+}
+
 fn attempt(
     bench: Bench<'_>,
     block: &str,
     case: &Case,
     out: &mut dyn Write,
 ) -> Result<Option<String>, Error> {
-    let kind = if let Some(check) = block.strip_prefix("check-") {
-        Kind::Check(check)
-    } else if let Some(writer) = block.strip_prefix("version-") {
-        Kind::Version(writer)
-    } else if let Some(build) = block.strip_prefix("build-") {
-        Kind::Build(build)
-    } else {
-        return Err(Error::new(format!(
-            "`{block}` is no check, version writer or build, and the xtask runs the cases of \
-             those only"
-        )));
-    };
+    let kind = kind(block)?;
     let (temp, workspace) = fresh(bench.scratch, &bench.host.git, case)?;
     let runner = temp.path().join("runner");
     let place = Place {
@@ -547,7 +573,9 @@ pub fn on_github(env: &[(OsString, OsString)]) -> bool {
 /// depend on the image. Nothing when it went well, else what went wrong. What
 /// the tool prints is folded into a group.
 pub fn set_up(bench: Direct<'_>, root: &Path, block: &str, out: &mut dyn Write) -> Option<String> {
-    let check = block.strip_prefix("check-").unwrap_or(block);
+    // A version writer or a build calls no program of the register: what it
+    // runs is Cargo and the Rust toolchain, which rustup provides.
+    let check = block.strip_prefix("check-")?;
     say(
         out,
         &format!("::group::{block}, the programs of its check\n"),
@@ -571,17 +599,21 @@ pub fn set_up(bench: Direct<'_>, root: &Path, block: &str, out: &mut dyn Write) 
     }
 }
 
-/// Runs the case of the block `block`, whose check the tool carries out,
+/// Runs the case of the block `block`, whose work the tool carries out,
 /// through the tool: nothing when it went as expected, else what went wrong.
 /// Everything the run prints is folded into a group.
 ///
 /// Phase 0 runs as `Declare` runs it on GitHub, with the name, default branch
 /// and visibility a case declares for: `check`, and `plan` for the units.
-/// Then `run` checks every unit the plan starts the check for, as a workflow
-/// run calls it, so that the findings are annotations. A block that takes the
-/// plan hands it to `run` with `--plan`, as its step in `nebensound.yml` hands
-/// it to the block, so the tool gets it in a file beside the case. What the
-/// tool prints is shown with `    | ` in front, as a step's output is.
+/// Then the tool does what the block's step calls it for, as a workflow run
+/// calls it, so that the findings are annotations: `run` checks every unit
+/// the plan starts the check for; `write-versions` writes the versions of the
+/// plan; `build` builds every unit the plan starts the build for, after the
+/// version writers it selects. A check or build block that takes the plan
+/// gets it with `--plan`, as its step in `nebensound.yml` hands it to the
+/// block; a version writer always does. The tool gets it in a file beside the
+/// case. What the tool prints is shown with `    | ` in front, as a step's
+/// output is.
 ///
 /// # Errors
 ///
@@ -604,7 +636,7 @@ fn through_the_tool(
     case: &Case,
     out: &mut dyn Write,
 ) -> Result<Option<String>, Error> {
-    let check = block.strip_prefix("check-").unwrap_or(block);
+    let kind = kind(block)?;
     let planned = Action::load(&bench.root.join(ACTIONS).join(block))?.takes("plan");
     let (temp, workspace) = fresh(bench.scratch, bench.git, case)?;
     let phase0 = [
@@ -617,34 +649,116 @@ fn through_the_tool(
         return Ok(Some(PHASE0_FAILS.to_owned()));
     }
     let plan = tool(bench, &workspace, &["plan"], out)?.1.join("\n");
-    let units = units(&plan, check)?;
-    if units.is_empty() {
-        return Ok(Some(format!(
-            "no unit of the case starts the check `{check}`, so the block never runs"
-        )));
-    }
     let file = temp.path().join("plan.json");
-    let mut call = vec!["run".to_owned()];
-    if planned {
-        fs::write(&file, &plan).map_err(|error| {
-            Error::new(format!(
-                "cannot write the plan to {}: {error}",
-                file.display()
-            ))
-        })?;
-        call.extend(["--plan".to_owned(), file.to_string_lossy().into_owned()]);
-    }
-    call.extend([check.to_owned(), "--".to_owned()]);
+    fs::write(&file, &plan).map_err(|error| {
+        Error::new(format!(
+            "cannot write the plan to {}: {error}",
+            file.display()
+        ))
+    })?;
+    let with_plan = ["--plan".to_owned(), file.to_string_lossy().into_owned()];
+    let runs = match tool_runs(&kind, &plan, planned, &with_plan)? {
+        Ok(runs) => runs,
+        Err(never) => return Ok(Some(never)),
+    };
     let mut success = true;
     let mut log = Vec::new();
-    for unit in &units {
-        let mut args: Vec<&str> = call.iter().map(String::as_str).collect();
-        args.push(unit);
+    for (writers, call) in runs {
+        // The writers first, each with the plan; the call only when every
+        // one of them passed, as a build step after a step that failed is
+        // skipped.
+        let mut written = true;
+        for writer in &writers {
+            let mut args: Vec<&str> = writer_call(writer)?.to_vec();
+            args.extend(with_plan.iter().map(String::as_str));
+            let (passed, lines) = tool(bench, &workspace, &args, out)?;
+            written &= passed;
+            log.extend(lines);
+        }
+        if !written {
+            success = false;
+            continue;
+        }
+        let args: Vec<&str> = call.iter().map(String::as_str).collect();
         let (passed, lines) = tool(bench, &workspace, &args, out)?;
         success &= passed;
         log.extend(lines);
     }
     Ok(judge(&case.expect, success, &log))
+}
+
+/// One run of the tool for a case: the version writers before it, then the
+/// arguments of the call itself.
+type ToolRun = (Vec<String>, Vec<String>);
+
+/// The runs of the tool a block of `kind` asks for on the plan of phase 0,
+/// each with the version writers before it and the call itself, or why the
+/// block never runs. `with_plan` hands the tool the plan.
+fn tool_runs(
+    kind: &Kind<'_>,
+    plan: &str,
+    planned: bool,
+    with_plan: &[String],
+) -> Result<Result<Vec<ToolRun>, String>, Error> {
+    Ok(Ok(match *kind {
+        Kind::Check(check) => {
+            let units = units(plan, check)?;
+            if units.is_empty() {
+                return Ok(Err(format!(
+                    "no unit of the case starts the check `{check}`, so the block never runs"
+                )));
+            }
+            let mut call = vec!["run".to_owned()];
+            if planned {
+                call.extend(with_plan.iter().cloned());
+            }
+            call.extend([check.to_owned(), "--".to_owned()]);
+            units
+                .into_iter()
+                .map(|unit| {
+                    let mut args = call.clone();
+                    args.push(unit);
+                    (Vec::new(), args)
+                })
+                .collect()
+        }
+        Kind::Version(writer) => {
+            if writers(plan, writer)?.is_empty() {
+                return Ok(Err(format!(
+                    "no unit of the case selects the version writer `{writer}`, so the block \
+                     never runs"
+                )));
+            }
+            let mut args: Vec<String> = writer_call(writer)?
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect();
+            args.extend(with_plan.iter().cloned());
+            vec![(Vec::new(), args)]
+        }
+        Kind::Build(build) => {
+            let units = builds(plan, build)?;
+            if units.is_empty() {
+                return Ok(Err(format!(
+                    "no unit of the case starts the build `{build}` with a version of the run, so \
+                     the block never runs"
+                )));
+            }
+            let mut call = vec!["build".to_owned()];
+            if planned {
+                call.extend(with_plan.iter().cloned());
+            }
+            call.extend([build.to_owned(), "--".to_owned()]);
+            units
+                .into_iter()
+                .map(|built| {
+                    let mut args = call.clone();
+                    args.push(built.path);
+                    (built.writers, args)
+                })
+                .collect()
+        }
+    }))
 }
 
 /// One call of the tool on the case's repository, in the environment of a

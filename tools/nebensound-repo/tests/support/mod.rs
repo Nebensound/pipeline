@@ -79,6 +79,27 @@ pub fn call(args: &[&str]) -> (String, u8) {
     (String::from_utf8(out).expect("the output is UTF-8"), code)
 }
 
+/// One call of the tool, inside this process, with these variables of the
+/// run and nothing else of the process's, and this output.
+pub fn call_with(args: &[&str], variables: &[(&str, &str)], output: Output) -> (String, u8) {
+    let read = |name: &str| {
+        variables
+            .iter()
+            .find(|(key, _)| *key == name)
+            .map(|(_, value)| (*value).to_owned())
+    };
+    let mut out = Vec::new();
+    let code = nebensound_repo::run_with(
+        args.iter().copied(),
+        BUILTIN_REGISTER,
+        BUILTIN_DEFAULTS,
+        output,
+        &read,
+        &mut out,
+    );
+    (String::from_utf8(out).expect("the output is UTF-8"), code)
+}
+
 /// A sink that never writes.
 pub struct Broken;
 
