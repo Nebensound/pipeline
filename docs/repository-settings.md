@@ -55,9 +55,16 @@ gh api repos/Nebensound/pipeline/private-vulnerability-reporting
 - Squash is allowed and is how a pull request enters `main`. The squash commit
   takes the pull request's title and description, so the commit on `main` is a
   Conventional Commit without anyone retyping it.
-- Merge commits are allowed in the settings because a later branch behind
-  `main` takes its changes as merge commits. On `main` a ruleset allows squash
-  only (see [the organization's rulesets](organization/README.md)).
+- Merge commits are allowed because a pre-branch, a branch that gathers
+  several pull requests, lands in `main` by merge commit. The merge commit
+  takes the pull request's title and description as well; those settings are
+  carried by every repository and listed under
+  [Every repository of the organization](#every-repository-of-the-organization).
+  Until the owner has applied them, the read-back below fails on
+  `merge_commit_title` and `merge_commit_message`.
+  The ruleset of the default branch allows squash and merge commit once the
+  owner has applied it (see
+  [`Grundschutz Standard-Branch`](organization/README.md#grundschutz-standard-branch)).
 - Rebase is off: it would put a pull request's individual commits on `main`,
   and those are not required to be Conventional Commits.
 - Head branches are deleted after merge so that no stale branch lingers.
@@ -66,10 +73,12 @@ gh api repos/Nebensound/pipeline/private-vulnerability-reporting
 gh api repos/Nebensound/pipeline \
   --jq '{allow_squash_merge, allow_merge_commit, allow_rebase_merge,
          squash_merge_commit_title, squash_merge_commit_message,
+         merge_commit_title, merge_commit_message,
          delete_branch_on_merge}'
 # expected: allow_squash_merge true, allow_merge_commit true,
 #           allow_rebase_merge false, squash_merge_commit_title "PR_TITLE",
-#           squash_merge_commit_message "PR_BODY", delete_branch_on_merge true
+#           squash_merge_commit_message "PR_BODY", merge_commit_title "PR_TITLE",
+#           merge_commit_message "PR_BODY", delete_branch_on_merge true
 ```
 
 ## Workflow runs from forks
@@ -111,39 +120,75 @@ the pipeline changes repository settings, so a repository created later does
 not get them by itself: whoever creates a repository sets them with the call
 below, and the read-back call shows any repository that was missed.
 
+- **Squash and merge commit are allowed, and both take the pull request's
+  title and description** (`allow_squash_merge` and `allow_merge_commit`
+  `true`; `squash_merge_commit_title` and `merge_commit_title` `PR_TITLE`;
+  `squash_merge_commit_message` and `merge_commit_message` `PR_BODY`). A pull
+  request enters the default branch as a squash commit, and a pre-branch lands
+  there as a merge commit; the title of the landing commit decides the
+  version. Without `merge_commit_title` set to `PR_TITLE`, GitHub titles a
+  merge commit "Merge pull request #N from …", which is no Conventional
+  Commit. With these settings a merge commit carries the same title and
+  message a squash commit of the same pull request would carry. Which merge
+  methods the default branch accepts is set by its ruleset
+  ([`Grundschutz Standard-Branch`](organization/README.md#grundschutz-standard-branch));
+  GitHub offers only the methods that both the settings and the rulesets
+  allow.
 - **Head branches are deleted after merge.** A merged pull request leaves no
-  stale branch behind. The setting never deletes the default branch or a
-  protected branch, and a branch that no pull request was merged from is not
-  touched either. A `release` branch therefore relies on its ruleset
-  ([`release-guard`](organization/README.md#release-guard)), not on this
-  setting, to stay.
+  stale branch behind, and a pre-branch is deleted once it has landed in the
+  default branch. The setting never deletes the default branch or a protected
+  branch, and a branch that no pull request was merged from is not touched
+  either.
 - **Forks are left out.** A fork belongs to someone else's project, and its
   settings follow that project's habits. The read-back call lists no fork, and
   archived repositories are left out as well because nobody merges there.
 
-Read the state of every active repository that is not a fork (one line per
-repository, `true` is expected on every line):
+Read the state of every active repository that is not a fork, one line per
+repository:
 
 ```sh
 gh repo list Nebensound --no-archived --source --limit 1000 \
-  --json nameWithOwner,deleteBranchOnMerge \
-  --jq '.[] | [.nameWithOwner, .deleteBranchOnMerge] | @tsv'
-# expected: every line ends in "true"
+  --json nameWithOwner --jq '.[].nameWithOwner' |
+  while read -r repo; do
+    gh api "repos/$repo" \
+      --jq '[.full_name, .allow_squash_merge, .squash_merge_commit_title,
+             .squash_merge_commit_message, .allow_merge_commit,
+             .merge_commit_title, .merge_commit_message,
+             .delete_branch_on_merge] | @tsv'
+  done
+# expected on every line, after the name:
+#   true  PR_TITLE  PR_BODY  true  PR_TITLE  PR_BODY  true
 ```
 
-List only the repositories that still need the setting (empty output means the
+List only the repositories that still need a setting (empty output means the
 organization is in line):
 
 ```sh
 gh repo list Nebensound --no-archived --source --limit 1000 \
-  --json nameWithOwner,deleteBranchOnMerge \
-  --jq '.[] | select(.deleteBranchOnMerge | not) | .nameWithOwner'
+  --json nameWithOwner --jq '.[].nameWithOwner' |
+  while read -r repo; do
+    gh api "repos/$repo" \
+      --jq 'select(.allow_squash_merge != true
+                   or .squash_merge_commit_title != "PR_TITLE"
+                   or .squash_merge_commit_message != "PR_BODY"
+                   or .allow_merge_commit != true
+                   or .merge_commit_title != "PR_TITLE"
+                   or .merge_commit_message != "PR_BODY"
+                   or .delete_branch_on_merge != true) | .full_name'
+  done
 ```
 
-Set it for one repository:
+Set them for one repository:
 
 ```sh
-gh api -X PATCH repos/Nebensound/<repository> -F delete_branch_on_merge=true
+gh api -X PATCH repos/Nebensound/<repository> \
+  -F allow_squash_merge=true \
+  -f squash_merge_commit_title=PR_TITLE \
+  -f squash_merge_commit_message=PR_BODY \
+  -F allow_merge_commit=true \
+  -f merge_commit_title=PR_TITLE \
+  -f merge_commit_message=PR_BODY \
+  -F delete_branch_on_merge=true
 ```
 
 ## Repository properties

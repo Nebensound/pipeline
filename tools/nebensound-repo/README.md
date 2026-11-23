@@ -54,9 +54,9 @@ nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branc
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `check`             | Runs phase 0 and prints all of it: the resolved configuration, the linter rules laid over the defaults, the tree, the findings (annotations in a workflow run) and the counts. Warns where the name or default branch (`--name`, `--default-branch`, else Git) or a minimum file departs from the conventions. With `--visibility`, how GitHub shows the repository, it holds the declared audience against it, as `phase0` does; without it nothing is compared. The default; `phase0` calls it. |
 | `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `explain <path>`    | What holds for one path and why: for whom the repository is meant, which units contain it, how each of them is released, which commit types count like `feat`, which checks are in force, how its coverage stands.                                                                                                                                                                                                                                                                                |
+| `explain <path>`    | What holds for one path and why: for whom the repository is meant, which units contain it, the minimum version of each of them, which commit types count like `feat`, which checks are in force, how its coverage stands.                                                                                                                                                                                                                                                                         |
 | `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read. With `--pull-request <number> --message <message>`, for a pull request, as `version` reads it. See [The plan](#the-plan).                                                                                                                                                                                                                                             |
-| `version`           | The version of every unit that carries one, as a table: release mode, current version, the version of the commit at hand and, in two stages, the commits waiting for the next promotion. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                                                                                                                                                                                |
+| `version`           | The version of every unit that carries one, as a table: current version and the version of the commit at hand. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                                                                                                                                                                                                                                                          |
 | `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                                                                                                                                                                                                                          |
 | `run`               | Runs one check over the files `files` names for it in one unit, with the programs `setup` finds or installs, the way its building block runs it: for the checks `css`, `dockerfile`, `html`, `json`, `markdown`, `toml` and `yaml`. Every finding names its file, and its line and column where the program gives them; in a workflow run it is an annotation. See [Running a check](#running-a-check).                                                                                           |
 | `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                                                                                                                                                                                                                        |
@@ -110,17 +110,15 @@ a run has to start, and where.
       "name": null,
       "path": ".",
       "prefix": "v",
-      "release": "single-stage",
       "version": "0.3.2",
       "writers": []
     },
     {
-      "current": "1.5.0-pre.2",
+      "current": "1.5.2",
       "kind": "component",
       "name": "tool",
       "path": "tool",
       "prefix": "tool-v",
-      "release": "two-stage",
       "version": null,
       "writers": ["cargo"]
     }
@@ -138,9 +136,9 @@ the prefix `v`.
 
 `versions` is one entry per unit that carries a version, in the order of
 `units`: `prefix` is what the names of its records, its tags and releases,
-start with, `release` how it is released, `current` its current version, the
-highest one the history gives a commit of the line up to the commit at hand, a
-pre-release included (`null` before the first commit that touches the unit),
+start with, `current` its current version, the highest one the history gives a
+commit of the line up to the commit at hand (`null` before the first commit
+that touches the unit),
 `version` the version of the commit at hand, `null` when the commit does not
 touch the unit, and `writers` the version writers the unit selects. `current`
 is what the version writer `cargo` requires of a path dependency whose unit
@@ -153,14 +151,12 @@ says (see [the reference](../../docs/declaration.md#audience)), and
 `previous_audience` what the declaration of the commit before it on the line
 says, `null` when that commit names none or there is none. On a pull request
 into `main` that is the tip of `main`, so Declare names a change of the value in
-the summary of the run from the two. On a pull request from `main` into
-`release` it is the commit of `main` the merge brings in, so a promotion names
-no change: the change was named on its pull request into `main`.
+the summary of the run from the two.
 
 `--pull-request <number> --message <message>` builds the plan for a pull
 request, reading `HEAD` the way [`version`](#the-versions) does: every `version`
 is then the one the squash merge would get, with `-pr.<number>` behind it, such
-as `1.5.0-pre.3-pr.17`, and so is the `current` of a unit the pull request
+as `1.5.3-pr.17`, and so is the `current` of a unit the pull request
 touches, which is that version. The `current` of a unit it does not touch
 carries no suffix. Declare builds the plan this way on a pull request, so that
 the version writers write what a merge would publish.
@@ -188,33 +184,29 @@ read off a broken declaration would start the wrong things.
 ```text
 Versions
 
-  Unit            Path  Release       Current      This commit  Waiting
-  the repository  .     single-stage  0.3.2        0.3.2
-  component tool  tool  two-stage     1.5.0-pre.2  none         2
+  Unit            Path  Current  This commit
+  the repository  .     0.3.2    0.3.2
+  component tool  tool  1.5.2    none
 ```
 
 `Current` is the highest version the history gives a commit of the line up to
-the commit at hand, a pre-release included, after a promotion the full version,
-`none` before the first commit that touches the unit; `This commit` the version
-of the commit at hand, `none` when the commit does not touch the unit;
-`Waiting`, for a unit released in two stages, the commits since its last
-full release that touch it, the commit at hand included, which is what its next
-full release takes in. In one stage every commit that touches the unit is a
-release of its own, and the cell stays empty. `--markdown` prints the same rows
+the commit at hand, `none` before the first commit that touches the unit;
+`This commit` the version of the commit at hand, `none` when the commit does
+not touch the unit. `--markdown` prints the same rows
 as a Markdown table with a short legend, which the job `Version` writes into
 the summary of the run. The repository always carries a version, so the table
 is never empty.
 
 `--pull-request <number> --message <message>` reads `HEAD` as the merge commit
-GitHub builds for a pull request, which touches no unit itself. It stands for
-the commit the squash merge would put on the base branch instead: one parent,
+GitHub builds for a pull request, which carries a message of GitHub's and
+contains the commits of the branch. It stands for the commit the squash merge
+would put on the base branch instead: one parent,
 the first parent of `HEAD`, the changes of `HEAD` against it, and the message
 given, which the job takes from the title and the description of the pull
 request. Every version is then the one that merge would get, with
 `-pr.<number>` behind it, and so is the current version of a unit the pull
-request touches; the column is called `This pull request`. A merge into
-`release` is read as it is, since such a pull request is merged with a merge
-commit. Both options go together.
+request touches; the column is called `This pull request`. Both options go
+together.
 
 A repository with errors gets no table: the sentence that there are no versions,
 every finding, and exit code `1`, as with the plan.
@@ -346,7 +338,7 @@ that it installs only what that check calls. It reads the repository like
 `plan` does, and a repository with errors gets nothing set up,
 for the same reason it gets no plan. It does not read the history, though, like
 `files` and `excluded-packages`: which checks the plan starts never depends on a
-version, so a shallow clone or an error about a release does not keep anyone
+version, so a shallow clone or an error about a version does not keep anyone
 from setting up the programs.
 
 - **By default** it uses a program that is on the computer already, found on
@@ -640,17 +632,12 @@ judge things the repository does not have.
 `git add` is enough; a commit is not needed, because `ls-files` reads the index.
 
 The versions come from Git as well: the line of `main` (the first-parent line
-of `HEAD`, or at a merge into `release` that of the commit of `main` it
-merges), the declaration and the files each commit of that line held, and the
-branches `origin/release` and `origin/main`. The tags are read only to be held
-against that history: no version comes from them. Where a unit lived and how
-it was released is read at each commit from its own declaration, so a unit
-that moves or switches between one stage and two keeps its earlier releases,
-and a declaration written for an edition this tool does not know stops the
-call, wherever it stands on the line.
-At a merge into `release`, `origin/main` also tells whether it brings in the tip
-of `main`: only the tip is promoted, and any other merge is the error
-`stale-promotion`. A repository without a commit has no version yet; a shallow clone is an error,
+of `HEAD`) and the declaration and the files each commit of that line held.
+The tags are read only to be held against that history: no version comes from
+them. Where a unit lived is read at each commit from its own declaration, so a
+unit that moves keeps its earlier releases, and a declaration written for an
+edition this tool does not know stops the call, wherever it stands on the line.
+A repository without a commit has no version yet; a shallow clone is an error,
 because the history it lacks could hold the last release. Every option the person's Git configuration could change, such as
 rename detection, is given on the command line, so the answer does not depend
 on who runs it.

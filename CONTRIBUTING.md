@@ -22,6 +22,8 @@ example `feat: add check-toml` or `fix: report a missing declaration`.
 
 ## Merging
 
-Pull requests are squash-merged. The pull request title becomes the first line
-of the commit on `main`, so it has to be a valid Conventional Commit header.
+A pull request is squash-merged into `main`. A pre-branch, which gathers
+several pull requests, lands in `main` as a whole by merge commit. Either way
+the pull request title becomes the first line of the commit on `main`, so it
+has to be a valid Conventional Commit header.
 When a pull request may be merged is set out in [`AGENTS.md`](AGENTS.md).

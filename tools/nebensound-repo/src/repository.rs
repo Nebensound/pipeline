@@ -25,12 +25,6 @@ use crate::{ignored, lockfiles, packages, release_fields};
 /// Where the declaration of a repository lies.
 pub const DECLARATION: &str = crate::history::DECLARATION;
 
-/// Where the full releases of a unit released in two stages are promoted to.
-const RELEASE_BRANCH: &str = "refs/remotes/origin/release";
-
-/// Where every version is given out.
-const MAIN_BRANCH: &str = "refs/remotes/origin/main";
-
 /// The object an empty file holds, under each hash Git can use: SHA-1 and
 /// SHA-256. Fixed by the empty content, so a repository of either kind names
 /// it the same way.
@@ -165,8 +159,7 @@ impl Repository {
     /// That commit has one parent, the first parent of `HEAD`, the changes of
     /// `HEAD` against it, and this message: the title and the description of
     /// the pull request, which the squash merge takes. The versions are then
-    /// those the merge would get. A pull request into `release` is merged with
-    /// a merge commit and is read as it is.
+    /// those the merge would get.
     #[must_use]
     pub fn as_pull_request(mut self, message: impl Into<String>) -> Self {
         self.squash = Some(message.into());
@@ -405,18 +398,7 @@ impl Repository {
     /// clone one that says only that it is shallow: what it holds of the
     /// history would give versions that are wrong.
     ///
-    /// The line of `main` is the first-parent line of `HEAD`, except at a
-    /// merge into `release`: the merge commit GitHub builds for the pull
-    /// request from `main`, or the merge itself. Its first parent is a commit
-    /// of `release`, and the first-parent line below it holds the merges of
-    /// `release` rather than the commits of `main`. There the line is `HEAD`
-    /// followed by the first-parent line of the commit of `main` it merges.
-    /// Such a merge is told by its parents: the first one on the first-parent
-    /// line of `origin/release`, the second one on that of `origin/main`. A
-    /// pull request into `main` also merges onto a commit `origin/release` may
-    /// stand on, but what it merges is not a commit of `main` yet.
-    /// Whether such a merge brings in the tip of `main`, and may promote
-    /// anything, is for the library to judge from `origin/main`.
+    /// The line of `main` is the first-parent line of `HEAD`.
     ///
     /// Every option a setting of the person running it could change is given
     /// on the command line, so that the answer does not depend on their
@@ -437,7 +419,6 @@ impl Repository {
                 ..History::default()
             });
         }
-        let release = self.commit(RELEASE_BRANCH)?;
         let tags = tags(&self.git_output(&[
             "for-each-ref",
             "--format=%(refname)%00%(objecttype)%00%(objectname)%00%(*objecttype)%00%(*objectname)",
@@ -445,41 +426,13 @@ impl Repository {
         ])?);
         let Some(head) = head else {
             return Ok(History {
-                release,
                 tags,
                 ..History::default()
             });
         };
-        let main = self.commit(MAIN_BRANCH)?;
-        let mut reachable = vec!["rev-list", "--parents", head.as_str()];
-        reachable.extend(release.as_deref());
-        reachable.extend(main.as_deref());
-        let mut parents = parents(&self.git_output(&reachable)?);
-        let merged = match (
-            parents.get(&head).map(Vec::as_slice),
-            release.as_deref(),
-            main.as_deref(),
-        ) {
-            (Some([first, second, ..]), Some(release), Some(main))
-                if on_first_parent_line(&parents, release, first)
-                    && on_first_parent_line(&parents, main, second) =>
-            {
-                Some(second.as_str())
-            }
-            _ => None,
-        };
-        // Both listings put together read as one: each commit starts with
-        // an empty field, and the merge comes first, as `HEAD` does.
-        let mut listing = Vec::new();
-        if merged.is_some() {
-            listing = self.log(&["--max-count=1", head.as_str()])?;
-        }
-        listing.extend(self.log(&[merged.unwrap_or(head.as_str())])?);
-        let into_release = merged.is_some();
-        let mut line = line(&listing);
-        if let Some(message) = self.squash.as_deref()
-            && !into_release
-        {
+        let mut parents = parents(&self.git_output(&["rev-list", "--parents", head.as_str()])?);
+        let mut line = line(&self.log(&[head.as_str()])?);
+        if let Some(message) = self.squash.as_deref() {
             squash(&mut line, &mut parents, message);
         }
         let files = String::from_utf8_lossy(&self.git_output(&[
@@ -527,8 +480,6 @@ impl Repository {
             shallow: false,
             line,
             parents,
-            release,
-            main,
             tags,
             declarations,
             files,
@@ -742,25 +693,6 @@ fn squash(line: &mut [Commit], parents: &mut BTreeMap<String, Vec<String>>, mess
             .entry(head.id.clone())
             .and_modify(|own| own.truncate(1));
     }
-}
-
-/// Whether a commit lies on the first-parent line that starts at another.
-fn on_first_parent_line(
-    parents: &BTreeMap<String, Vec<String>>,
-    start: &str,
-    commit: &str,
-) -> bool {
-    let mut next = Some(start);
-    while let Some(current) = next {
-        if current == commit {
-            return true;
-        }
-        next = parents
-            .get(current)
-            .and_then(|parents| parents.first())
-            .map(String::as_str);
-    }
-    false
 }
 
 /// The first-parent line from `log --raw`.
