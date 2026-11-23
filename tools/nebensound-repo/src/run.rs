@@ -4,12 +4,12 @@
 //! The files are those `files` names for the check and the unit. The programs
 //! are those the register names for the check, found the way
 //! [`locate`](crate::setup::find::locate) finds them: the pinned copy in the
-//! tool's folder first, the one on the computer otherwise. Two of them are
+//! tool's folder first, the one on the computer otherwise. Three of them are
 //! called through their internals, so that the repository's rules are laid
-//! over the pipeline's default: markdownlint-cli2 and yamllint. Of those two
-//! only the pinned copy is taken, since only its internals are known. A
-//! program that is not there fails the check and names `setup`, which
-//! installs it; `run` installs nothing.
+//! over the pipeline's default: markdownlint-cli2, Stylelint and yamllint. Of
+//! those three only the pinned copy is taken, since only its internals are
+//! known. A program that is not there fails the check and names `setup`,
+//! which installs it; `run` installs nothing.
 //!
 //! Every program is called with the flags that set its own ignore mechanisms
 //! aside: what is not to be checked is not in the list. Each part of a check
@@ -22,6 +22,7 @@
 //! as a Hadolint finding below the failure threshold, is a warning. What the
 //! programs print stands in the output as well.
 
+pub mod css;
 pub mod dockerfile;
 pub mod json;
 pub mod markdown;
@@ -54,6 +55,8 @@ pub const ARGUMENTS: usize = 30_000;
 /// One of the checks `run` carries out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Check {
+    /// `.css` and `.scss` files.
+    Css,
     /// `Dockerfile`, `Containerfile` and `.dockerfile` files.
     Dockerfile,
     /// `.json`, `.jsonc` and `.geojson` files and the JSON lockfiles.
@@ -71,6 +74,7 @@ impl Check {
     #[must_use]
     pub fn of(name: &str) -> Option<Self> {
         match name {
+            "css" => Some(Self::Css),
             "dockerfile" => Some(Self::Dockerfile),
             "json" => Some(Self::Json),
             "markdown" => Some(Self::Markdown),
@@ -84,6 +88,7 @@ impl Check {
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
+            Self::Css => "css",
             Self::Dockerfile => "dockerfile",
             Self::Json => "json",
             Self::Markdown => "markdown",
@@ -95,6 +100,7 @@ impl Check {
     /// What one of its files is called in a sentence.
     fn noun(self) -> &'static str {
         match self {
+            Self::Css => "stylesheet",
             Self::Dockerfile => "Dockerfile",
             Self::Json => "JSON file",
             Self::Markdown => "Markdown file",
@@ -154,6 +160,7 @@ pub fn run(
         log,
     };
     let passed = match check {
+        Check::Css => css::run(&mut session),
         Check::Dockerfile => dockerfile::run(&mut session),
         Check::Json => json::run(&mut session),
         Check::Markdown => markdown::run(&mut session),

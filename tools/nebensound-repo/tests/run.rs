@@ -1,5 +1,5 @@
-//! `nebensound-repo run`: the checks for Dockerfiles, JSON, Markdown, TOML and
-//! YAML, run from the tool.
+//! `nebensound-repo run`: the checks for CSS, Dockerfiles, JSON, Markdown,
+//! TOML and YAML, run from the tool.
 //!
 //! No real program runs here. Every program is a shell script that acts like
 //! the program on what it is given and prints what it was called with, so
@@ -22,7 +22,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use nebensound_repo::Register;
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::programs::Platform;
-use nebensound_repo::run::{self, Check, Context, Level, dockerfile, markdown, toml, yaml};
+use nebensound_repo::run::{self, Check, Context, Level, css, dockerfile, markdown, toml, yaml};
 use nebensound_repo::setup::{Environment, find};
 use support::{QUIET, call};
 use tempfile::TempDir;
@@ -111,12 +111,35 @@ printf '%s\n' "# Summary" > "$out"
 exit 0
 "####;
 
-/// Node.js, which prints its version or runs markdownlint-cli2 the way the
-/// script would: every file from the folder it starts in, three levels below
-/// the fixture.
-const NODE: &str = r#"#!/bin/sh
+/// Node.js, which prints its version or runs the script it is handed the way
+/// that script would: Stylelint, which prints each finding as a plain line and
+/// as an annotation, or markdownlint-cli2, which names every file from the
+/// folder it starts in, three levels below the fixture.
+const NODE: &str = r##"#!/bin/sh
 if [ "$1" = "--version" ]; then echo v24.0.0; exit 0; fi
 echo "node $1 $2 TOOLS=$TOOLS"
+case "$3" in
+  *'load("stylelint"'*)
+    echo "default: $(grep -c -e '- stylelint-config-standard' "$DEFAULT") configurations extended"
+    echo "nothing ignored: [$(cat "$NOTHING")]"
+    status=0
+    for f in $(tr '\0' ' ' < "$LIST"); do
+      case "$f" in
+        *styled*)
+          echo "$f:2:10 error Expected \"#00aa77\" to be \"#0a7\" (color-hex-length)"
+          echo "::error file=$f,line=2,col=10::Expected \"#00aa77\" to be \"#0a7\" (color-hex-length)"
+          status=1 ;;
+        *warned*)
+          echo "$f:1:1 warning Unexpected empty block (block-no-empty)"
+          echo "::warning file=$f,line=1,col=1::Unexpected empty block (block-no-empty)" ;;
+        *missing*)
+          echo "::error file=$f::Stylelint cannot check it: Could not find \"stylelint-config-clean-order\""
+          status=1 ;;
+      esac
+    done
+    echo "Rules: the pipeline default"
+    exit "$status" ;;
+esac
 echo "Rules: the pipeline default"
 status=0
 for f in $(tr '\0' ' ' < "$LIST"); do
@@ -126,7 +149,7 @@ for f in $(tr '\0' ' ' < "$LIST"); do
   esac
 done
 exit "$status"
-"#;
+"##;
 
 /// The Python of yamllint's environment, which runs the linter the way the
 /// script would.
@@ -318,6 +341,12 @@ impl Fixture {
                 "markdownlint-cli2",
                 "0.23.2",
                 "node_modules/.bin/markdownlint-cli2",
+                "#!/bin/sh\n",
+            )
+            .pinned(
+                "stylelint",
+                "18.0.0",
+                "node_modules/.bin/stylelint",
                 "#!/bin/sh\n",
             )
             .pinned("yamllint", "1.38.0", "bin/yamllint", "#!/bin/sh\n")
@@ -955,6 +984,7 @@ fn without_a_folder_for_the_programs_nothing_runs() {
     fs::write(&file, "").unwrap();
     let register = Register::builtin().unwrap();
     for (check, name) in [
+        (Check::Css, "a.css"),
         (Check::Dockerfile, "Dockerfile"),
         (Check::Json, "a.json"),
         (Check::Markdown, "a.md"),
@@ -1050,6 +1080,7 @@ fn helpers_take_paths_and_lists_apart() {
     assert_eq!(Check::of("json"), Some(Check::Json));
     assert_eq!(Check::of("rust"), None);
     for (check, name) in [
+        (Check::Css, "css"),
         (Check::Dockerfile, "dockerfile"),
         (Check::Json, "json"),
         (Check::Markdown, "markdown"),
@@ -1186,8 +1217,8 @@ fn the_call_refuses_what_it_does_not_run() {
     assert_eq!(code, 2, "{text}");
     assert!(
         text.contains(
-            "`run` carries out the checks dockerfile, json, markdown, toml and yaml; \"rust\" is \
-             not"
+            "`run` carries out the checks css, dockerfile, json, markdown, toml and yaml; \"rust\" \
+             is not"
         ),
         "{text}"
     );
@@ -1802,4 +1833,182 @@ fn hadolint_reads_no_variable_of_its_own_from_the_computer() {
     assert_eq!(output.status.code(), Some(0), "{text}");
     has(&text, "1 Dockerfile(s) to check:");
     assert!(text.contains(" with 0 HADOLINT variable(s)"), "{text}");
+}
+
+#[test]
+fn stylesheets_are_formatted_and_pass_stylelint() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture
+        .everything()
+        .file("styles/a.css", "a {}\n")
+        .file("styles/b.scss", "$a: 1;\n");
+    let files = ["styles/a.css", "styles/b.scss"];
+    let (code, text) = fixture.run(Check::Css, &files, true);
+    assert_eq!(code, 0, "{text}");
+    has(&text, "2 stylesheet(s) to check:");
+    let prettier = text
+        .lines()
+        .find(|line| line.starts_with("prettier "))
+        .unwrap();
+    assert!(
+        prettier.starts_with("prettier --check --no-color --with-node-modules --ignore-path "),
+        "{prettier}"
+    );
+    assert!(
+        prettier.ends_with(
+            " --no-require-pragma --no-check-ignore-pragma --range-start=0 --range-end=Infinity \
+             -- styles/a.css styles/b.scss"
+        ),
+        "{prettier}"
+    );
+    // Stylelint runs on its runtime, from its pinned folder, with the
+    // default compiled into the tool and an empty ignore file.
+    let folder = fixture.folder("stylelint", "18.0.0");
+    has(
+        &text,
+        &format!("node --input-type=module --eval TOOLS={}", folder.display()),
+    );
+    has(&text, "default: 2 configurations extended");
+    has(&text, "nothing ignored: []");
+    has(&text, "Rules: the pipeline default");
+    assert!(css::STYLELINT.contains("ignoreFiles: []"));
+
+    let (code, text) = fixture.run(Check::Css, &[], true);
+    assert_eq!(code, 0, "{text}");
+    assert_eq!(
+        text,
+        "No stylesheet below '.'; there is nothing to check.\n"
+    );
+}
+
+#[test]
+fn every_kind_of_css_finding_is_reported() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.everything();
+    let files = [
+        "missing.css",
+        "styled.css",
+        "unformatted.scss",
+        "unreadable.css",
+        "warned.css",
+    ];
+    for file in files {
+        fixture.file(file, "a {}\n");
+    }
+    let (code, text) = fixture.run(Check::Css, &files, true);
+    assert_eq!(code, 1, "{text}");
+    for line in [
+        "::error file=unformatted.scss::not formatted the way Prettier writes it",
+        "::error file=unreadable.css::Prettier cannot read it: SyntaxError: Unexpected token (1:1)",
+        "styled.css:2:10 error Expected \"#00aa77\" to be \"#0a7\" (color-hex-length)",
+        "::error file=styled.css,line=2,col=10::Expected \"#00aa77\" to be \"#0a7\" \
+         (color-hex-length)",
+        "::warning file=warned.css,line=1,col=1::Unexpected empty block (block-no-empty)",
+        "::error file=missing.css::Stylelint cannot check it: Could not find \
+         \"stylelint-config-clean-order\"",
+    ] {
+        has(&text, line);
+    }
+
+    // A warning fails nothing.
+    let (code, text) = fixture.run(Check::Css, &["warned.css"], true);
+    assert_eq!(code, 0, "{text}");
+
+    // Elsewhere, an annotation reads as a line that starts with the place.
+    let (code, text) = fixture.run(Check::Css, &["styled.css", "warned.css"], false);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "styled.css:2:10: error: Expected \"#00aa77\" to be \"#0a7\" (color-hex-length)",
+    );
+    has(
+        &text,
+        "warned.css:1:1: warning: Unexpected empty block (block-no-empty)",
+    );
+}
+
+#[test]
+fn without_its_programs_the_css_check_fails() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    // Stylelint is taken pinned only: a copy on the computer does not count.
+    fixture
+        .computer("prettier", PRETTIER)
+        .computer("node", NODE)
+        .computer("stylelint", "#!/bin/sh\n")
+        .file("unformatted.css", "a {}\n");
+    let (code, text) = fixture.run(Check::Css, &["unformatted.css"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error::stylelint 18.0.0 is not pinned in the tool's folder, and the check calls the \
+         internals of the pinned copy only; `nebensound-repo setup --pinned` installs it",
+    );
+    // The other part still runs.
+    has(
+        &text,
+        "::error file=unformatted.css::not formatted the way Prettier writes it",
+    );
+
+    fs::remove_file(fixture.base.join("bin/prettier")).unwrap();
+    fixture
+        .pinned(
+            "stylelint",
+            "18.0.0",
+            "node_modules/.bin/stylelint",
+            "#!/bin/sh\n",
+        )
+        .file("styled.css", "a {}\n");
+    let (code, text) = fixture.run(Check::Css, &["styled.css"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error::prettier 3.9.6 is neither pinned in the tool's folder nor on the computer; \
+         `nebensound-repo setup` installs it",
+    );
+    has(
+        &text,
+        "::error file=styled.css,line=2,col=10::Expected \"#00aa77\" to be \"#0a7\" \
+         (color-hex-length)",
+    );
+
+    // A pinned Stylelint needs its runtime.
+    fs::remove_file(fixture.base.join("bin/node")).unwrap();
+    let (code, text) = fixture.run(Check::Css, &["styled.css"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error::stylelint 18.0.0 needs node 22.22.2 or later, and there is none; \
+         `nebensound-repo setup --with-runtimes` installs it",
+    );
+}
+
+#[test]
+fn stylelint_needs_a_runtime_from_the_register() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    let source = nebensound_repo::register::BUILTIN_REGISTER;
+    let start = source.find("[program.stylelint]").unwrap();
+    let end = source.find("[program.taplo]").unwrap();
+    let native = format!(
+        "{}[program.stylelint]\nversion = \"18.0.0\"\ncommand = \"stylelint\"\n\n\
+         [program.stylelint.download.linux-x86_64]\nurl = \"https://example.invalid/s\"\n\
+         digest = \"sha256:{}\"\nexecutable = \"stylelint\"\n\n{}",
+        &source[..start],
+        "0".repeat(64),
+        &source[end..]
+    );
+    let register = Register::parse(&native).unwrap();
+    fixture
+        .everything()
+        .pinned("stylelint", "18.0.0", "stylelint", "#!/bin/sh\n")
+        .file("a.css", "a {}\n");
+    let (code, text) = fixture.run_with(&register, Check::Css, &["a.css"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error::Stylelint runs on Node.js, and the register gives it no runtime to run on",
+    );
 }

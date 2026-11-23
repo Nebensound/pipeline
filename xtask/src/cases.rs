@@ -42,6 +42,7 @@ use crate::{Error, say};
 /// up the programs and call `run`, so nothing of the check is left in them:
 /// their cases run through the tool itself, on every system ([`direct`]).
 pub const FROM_THE_TOOL: &[&str] = &[
+    "check-css",
     "check-dockerfile",
     "check-json",
     "check-markdown",
