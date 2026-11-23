@@ -98,7 +98,6 @@ impl Scene {
         job: &mut Job,
         dir: &Path,
         inputs: &[(&str, &str)],
-        skip: &[&str],
     ) -> (Result<Outcome, xtask::Error>, String) {
         let inputs: BTreeMap<String, String> = inputs
             .iter()
@@ -115,7 +114,6 @@ impl Scene {
                 workspace: &workspace,
                 temp: &temp,
             },
-            skip,
             &mut out,
         );
         (result, String::from_utf8(out).expect("UTF-8"))
@@ -128,7 +126,7 @@ impl Scene {
         inputs: &[(&str, &str)],
     ) -> (Result<Outcome, xtask::Error>, String) {
         let dir = self.action("main", yaml);
-        self.run_on(&self.host(), &mut Job::default(), &dir, inputs, &[])
+        self.run_on(&self.host(), &mut Job::default(), &dir, inputs)
     }
 }
 

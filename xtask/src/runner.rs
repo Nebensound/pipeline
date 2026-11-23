@@ -371,8 +371,7 @@ struct Frame<'a> {
 }
 
 impl Host {
-    /// Runs the action in `dir` with the given inputs. A step named in `skip`
-    /// is left out; each of them has to be a step of the action.
+    /// Runs the action in `dir` with the given inputs.
     ///
     /// The result says whether the action succeeded. An error says that it
     /// could not be run at all: it is no action the xtask can run, or a step
@@ -387,7 +386,6 @@ impl Host {
         dir: &Path,
         given: &BTreeMap<String, String>,
         place: Place<'_>,
-        skip: &[&str],
         out: &mut dyn Write,
     ) -> Result<Outcome, Error> {
         let action = Action::load(dir)?;
@@ -401,17 +399,6 @@ impl Host {
                 )));
             }
         };
-        if let Some(missing) = skip.iter().find(|name| {
-            !steps
-                .iter()
-                .any(|step| step.name.as_deref() == Some(**name))
-        }) {
-            return Err(Error::new(format!(
-                "the xtask leaves out the step `{missing}` of the action in {}, \
-                 and it has no such step any more",
-                dir.display()
-            )));
-        }
         let github = self.github(place, dir);
         let runner = self.runner(place);
         let records = BTreeMap::new();
@@ -441,7 +428,7 @@ impl Host {
                 place,
                 dir,
             };
-            let (result, outputs) = match self.step(job, step, &frame, skip, out)? {
+            let (result, outputs) = match self.step(job, step, &frame, out)? {
                 Some(outcome) => {
                     log.extend(outcome.log);
                     failed |= !outcome.success;
@@ -483,24 +470,15 @@ impl Host {
         })
     }
 
-    /// Runs one step, unless it is left out or its condition says no.
+    /// Runs one step, unless its condition says no.
     fn step(
         &self,
         job: &mut Job,
         step: &Step,
         frame: &Frame<'_>,
-        skip: &[&str],
         out: &mut dyn Write,
     ) -> Result<Option<Outcome>, Error> {
         let title = step.title();
-        if step
-            .name
-            .as_deref()
-            .is_some_and(|name| skip.contains(&name))
-        {
-            say(out, &format!("  - {title}: left out by the xtask\n"));
-            return Ok(None);
-        }
         let runs = match &step.condition {
             Some(condition) => expr::condition(condition, frame.context)?,
             None => !frame.context.failed,
@@ -680,7 +658,7 @@ impl Host {
             return Ok(self.stand_in(*stand_in, reference, &inputs, job, frame, out));
         }
         let dir = self.fetch(name, version)?;
-        self.run(job, &dir, &inputs, frame.place, &[], out)
+        self.run(job, &dir, &inputs, frame.place, out)
     }
 
     /// The directory of the action `owner/repo[/path]` at `version`, fetched

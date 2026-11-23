@@ -120,6 +120,7 @@ fn checks(register: &Register) -> String {
                 codes(&check.extensions),
                 codes(&check.filenames),
                 codes(&check.programs),
+                check.coverage_toolchain.as_ref().map_or_else(none, code),
             ]
         })
         .collect();
@@ -127,8 +128,16 @@ fn checks(register: &Register) -> String {
         "Checks",
         "A check covers every file with one of its extensions or file names. A file\n\
          that no check covers has to be excluded. The programs are what the check calls\n\
-         (see [Programs](#programs)).",
-        &["Check", "Extensions", "File names", "Programs"],
+         (see [Programs](#programs)). The coverage toolchain is the Rust toolchain a\n\
+         check measures coverage on, on top of the one the workspace pins; the tool\n\
+         installs it through rustup.",
+        &[
+            "Check",
+            "Extensions",
+            "File names",
+            "Programs",
+            "Coverage toolchain",
+        ],
         &rows,
     )
 }

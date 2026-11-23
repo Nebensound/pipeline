@@ -274,10 +274,10 @@ runs:
         echo "$UNIT is fine"
 "#;
 
-/// A root with phase 0, the block `check-demo` and its copy `check-rust`,
-/// `check-planned` that takes the plan, the version writer `version-demo`,
-/// the build `build-demo`, and the cases `good`, `bad`, `unbuildable`,
-/// `ghost-writer`, `phase0-fails`, `no-units`, `untouched` and `no-plan`.
+/// A root with phase 0, the block `check-demo`, `check-planned` that takes
+/// the plan, the version writer `version-demo`, the build `build-demo`, and
+/// the cases `good`, `bad`, `unbuildable`, `ghost-writer`, `phase0-fails`,
+/// `no-units`, `untouched` and `no-plan`.
 fn root(scene: &Scene) -> std::path::PathBuf {
     let root = scene.path().join("root");
     write(
@@ -286,13 +286,9 @@ fn root(scene: &Scene) -> std::path::PathBuf {
             (".github/actions/phase0/action.yml", PHASE0),
             (".github/actions/check-demo/action.yml", BLOCK),
             (
-                ".github/actions/check-rust/action.yml",
-                &BLOCK.replace(
-                    "  steps:\n",
-                    "  steps:\n    - name: Make room on the runner\n      shell: bash\n      run: exit 1\n",
-                ),
+                ".github/actions/check-short/action.yml",
+                "inputs:\n  working-directory: {}\nruns:\n  using: composite\n  steps: []\n",
             ),
-            (".github/actions/check-short/action.yml", "inputs:\n  working-directory: {}\nruns:\n  using: composite\n  steps: []\n"),
             (".github/actions/check-planned/action.yml", PLANNED),
             (".github/actions/version-demo/action.yml", WRITER),
             (".github/actions/build-demo/action.yml", BUILD),
@@ -305,7 +301,10 @@ fn root(scene: &Scene) -> std::path::PathBuf {
             ("cases/ghost-writer/ghost-writer", ""),
             ("cases/good/file", ""),
             ("cases/bad/sub/bad", ""),
-            ("cases/bad/expected-finding", "::error file=sub/bad::wrong\n"),
+            (
+                "cases/bad/expected-finding",
+                "::error file=sub/bad::wrong\n",
+            ),
             ("cases/phase0-fails/phase0-fails", ""),
             ("cases/no-units/no-units", ""),
             ("cases/untouched/untouched", ""),
@@ -535,18 +534,6 @@ fn the_plan_names_the_units_of_a_build_with_their_writers() {
 }
 
 #[test]
-fn a_step_the_xtask_leaves_out_does_not_run() {
-    let scene = Scene::new();
-    root(&scene);
-    let (verdict, out) = run(&scene, "check-rust", "good", Expect::Pass);
-    assert_eq!(verdict.unwrap(), None, "{out}");
-    assert!(
-        out.contains("  - Make room on the runner: left out by the xtask"),
-        "{out}"
-    );
-}
-
-#[test]
 fn a_case_the_block_never_reaches_says_why() {
     let scene = Scene::new();
     root(&scene);
@@ -600,22 +587,6 @@ fn a_case_that_cannot_run_is_an_error() {
     write(&bare, &[("cases/good/file", "")]);
     let (verdict, _) = run_in(&scene, &bare, &scratch, "check-demo", "good", Expect::Pass);
     assert!(verdict.unwrap_err().to_string().contains("phase0"));
-
-    // A block without the step the xtask leaves out of it.
-    write(
-        &root,
-        &[(
-            ".github/actions/check-rust/action.yml",
-            "inputs:\n  working-directory: {}\nruns:\n  using: composite\n  steps: []\n",
-        )],
-    );
-    let (verdict, _) = run_in(&scene, &root, &scratch, "check-rust", "good", Expect::Pass);
-    assert!(
-        verdict
-            .unwrap_err()
-            .to_string()
-            .contains("no such step any more")
-    );
 }
 
 #[test]

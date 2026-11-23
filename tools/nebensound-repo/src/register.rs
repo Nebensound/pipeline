@@ -116,6 +116,10 @@ pub struct Check {
     /// The programs it calls.
     #[serde(default)]
     pub programs: Vec<ProgramName>,
+    /// The Rust toolchain it measures coverage on, as rustup names it: a
+    /// nightly pinned by date, on top of the toolchain the workspace pins.
+    #[serde(default, rename = "coverage-toolchain")]
+    pub coverage_toolchain: Option<String>,
 }
 
 /// What a build produces, and what it needs to produce it.

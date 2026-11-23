@@ -81,6 +81,18 @@ runs:
       run: exit 1
 ";
 
+/// The same, for a check that takes the plan of phase 0 as well.
+const PLANNED: &str = r"
+inputs:
+  working-directory: {}
+  plan: {}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: exit 1
+";
+
 const DEMO: &str = r"
 inputs:
   working-directory: {}
@@ -110,11 +122,16 @@ case "$1" in
     exit 0 ;;
   plan)
     [ -f garbage-plan ] && { echo garbage; exit 0; }
-    if [ -f no-unit ]; then echo '{"units":[]}'; else echo '{"units":[{"path":".","checks":["json"]}]}'; fi
+    [ -f plan-unwritable ] && mkdir ../plan.json
+    if [ -f no-unit ]; then echo '{"units":[]}'
+    elif [ -f planned ] || [ -f plan-unwritable ]; then echo '{"units":[{"path":".","checks":["planned"]}]}'
+    else echo '{"units":[{"path":".","checks":["json"]}]}'; fi
     [ -f vanish-at-run ] && rm -f "$0"
     exit 0 ;;
   run)
-    echo "run $2 $3 $4"
+    shift
+    if [ "$1" = "--plan" ]; then echo "plan: $(cat "$2")"; shift 2; fi
+    echo "run $*"
     [ -f bad ] && { echo "::error file=bad::wrong"; exit 1; }
     exit 0 ;;
 esac
@@ -422,7 +439,12 @@ fn a_case_that_breaks_off_cannot_be_run() {
     let scene = Scene::new();
     let env = xtask::runner::environment(std::env::vars_os().collect());
     let git = "git".into();
-    let run = |marker: &str, scratch: &Path| {
+    let root = repository(&scene);
+    write(
+        &root,
+        &[(".github/actions/check-planned/action.yml", PLANNED)],
+    );
+    let run = |marker: &str, scratch: &Path, block: &str| {
         let dir = scene.path().join(format!("case-{marker}"));
         write(&dir, &[(marker, "")]);
         let tool = scene.path().join(format!("tool-{marker}"));
@@ -434,19 +456,20 @@ fn a_case_that_breaks_off_cannot_be_run() {
         };
         let bench = Direct {
             tool: &tool,
+            root: &root,
             env: &env,
             git: &git,
             scratch,
             with_runtimes: false,
         };
         let mut out = Vec::new();
-        let verdict = cases::direct(bench, "check-json", &case, &mut out);
+        let verdict = cases::direct(bench, block, &case, &mut out);
         (verdict, String::from_utf8(out).unwrap())
     };
 
     let file = scene.path().join("a file");
     fs::write(&file, "").unwrap();
-    let (verdict, out) = run("anything", &file);
+    let (verdict, out) = run("anything", &file, "check-json");
     let error = verdict.unwrap_err().to_string();
     assert!(
         error.contains("cannot make a directory for the case"),
@@ -456,15 +479,39 @@ fn a_case_that_breaks_off_cannot_be_run() {
 
     let scratch = scene.path().join("scratch");
     fs::create_dir_all(&scratch).unwrap();
-    for (marker, message) in [
-        ("vanish-at-plan", "cannot start"),
-        ("garbage-plan", "the plan of phase 0 is no JSON"),
-        ("vanish-at-run", "cannot start"),
+    for (marker, block, message) in [
+        ("vanish-at-plan", "check-json", "cannot start"),
+        (
+            "garbage-plan",
+            "check-json",
+            "the plan of phase 0 is no JSON",
+        ),
+        ("vanish-at-run", "check-json", "cannot start"),
+        (
+            "plan-unwritable",
+            "check-planned",
+            "cannot write the plan to ",
+        ),
+        ("anything", "check-missing", "cannot read"),
     ] {
-        let (verdict, out) = run(marker, &scratch);
+        let (verdict, out) = run(marker, &scratch, block);
         let error = verdict.unwrap_err().to_string();
         assert!(error.contains(message), "{marker}: {error}\n{out}");
     }
+
+    // A block that takes the plan hands it to the tool in a file, as its step
+    // hands it to the block; one that does not takes none.
+    let (verdict, out) = run("planned", &scratch, "check-planned");
+    assert_eq!(verdict.unwrap(), None, "{out}");
+    assert!(
+        out.contains(r#"    | plan: {"units":[{"path":".","checks":["planned"]}]}"#),
+        "{out}"
+    );
+    assert!(out.contains("    | run planned -- .\n"), "{out}");
+    assert!(out.contains("  > nebensound-repo run --plan "), "{out}");
+    let (verdict, out) = run("plain", &scratch, "check-json");
+    assert_eq!(verdict.unwrap(), None, "{out}");
+    assert!(!out.contains("plan: "), "{out}");
 }
 
 #[test]

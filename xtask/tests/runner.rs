@@ -147,12 +147,12 @@ fn the_environment_and_the_path_last_for_the_job() {
             bin.display()
         )),
     );
-    let (outcome, out) = ok(scene.run_on(&host, &mut job, &first, &[], &[]));
+    let (outcome, out) = ok(scene.run_on(&host, &mut job, &first, &[]));
     assert!(outcome.success, "{out}");
     assert_eq!(job.path, [bin.display().to_string()]);
 
     let second = scene.action("second", &composite("hello\necho \"$FOO\" \"$MULTI\""));
-    let (outcome, out) = ok(scene.run_on(&host, &mut job, &second, &[], &[]));
+    let (outcome, out) = ok(scene.run_on(&host, &mut job, &second, &[]));
     assert!(outcome.success, "{out}");
     assert_eq!(outcome.log, ["hello from the path", "bar a", "b"]);
 }
@@ -186,7 +186,7 @@ fn a_step_sees_what_the_runner_hands_it() {
              echo \"${{ github.repository }} ${{ github.repository_owner }} ${{ github.run_id }} ${{ github.run_number }} ${{ github.run_attempt }}\"",
         ),
     );
-    let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[], &[]));
+    let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[]));
     assert!(outcome.success, "{out}");
     assert_eq!(
         outcome.log,
@@ -272,27 +272,6 @@ fn a_step_runs_in_its_working_directory() {
     ));
     assert!(outcome.success, "{out}");
     assert_eq!(outcome.log, ["dir"]);
-}
-
-#[test]
-fn a_named_step_can_be_left_out_and_has_to_exist() {
-    let _alone = support::alone();
-    let scene = Scene::new();
-    let dir = scene.action(
-        "main",
-        "runs:\n  using: composite\n  steps:\n    - name: Dangerous\n      shell: bash\n      run: exit 1\n    - shell: bash\n      run: echo after\n",
-    );
-    let host = scene.host();
-    let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[], &["Dangerous"]));
-    assert!(outcome.success, "{out}");
-    assert_eq!(outcome.log, ["after"]);
-    assert!(
-        out.contains("  - Dangerous: left out by the xtask"),
-        "{out}"
-    );
-
-    let message = error(scene.run_on(&host, &mut Job::default(), &dir, &[], &["Renamed"]));
-    assert!(message.contains("no such step any more"), "{message}");
 }
 
 #[test]
@@ -420,7 +399,6 @@ fn an_action_the_xtask_cannot_fetch_is_refused() {
         &mut Job::default(),
         &scene.path().join("nothing"),
         &[],
-        &[],
     ));
     assert!(message.contains("cannot read"), "{message}");
 }
@@ -442,7 +420,6 @@ fn a_step_that_cannot_be_prepared_or_started_is_an_error() {
             workspace: &workspace,
             temp: &file,
         },
-        &[],
         &mut out,
     );
     assert!(
@@ -455,7 +432,7 @@ fn a_step_that_cannot_be_prepared_or_started_is_an_error() {
 
     let mut host = scene.host();
     host.bash = OsString::from("/nonexistent/bash");
-    let message = error(scene.run_on(&host, &mut Job::default(), &dir, &[], &[]));
+    let message = error(scene.run_on(&host, &mut Job::default(), &dir, &[]));
     assert!(
         message.contains("cannot start /nonexistent/bash"),
         "{message}"
@@ -652,7 +629,7 @@ fn a_setup_step_stands_in_with_the_tool_on_the_path_in_its_version() {
                 "runs:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v7\n      with:\n        node-version: {node}\n    - if: always()\n      uses: actions/setup-go@v7\n      with:\n        go-version: \"{go}\"\n"
             ),
         );
-        ok(scene.run_on(&host, &mut Job::default(), &dir, &[], &[]))
+        ok(scene.run_on(&host, &mut Job::default(), &dir, &[]))
     };
 
     let (outcome, out) = setup("24", "1.26");
@@ -688,7 +665,7 @@ fn a_setup_step_without_its_tool_fails() {
         "main",
         "runs:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v7\n      with:\n        node-version: 24\n",
     );
-    let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[], &[]));
+    let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[]));
     assert!(!outcome.success, "{out}");
     assert!(outcome.log[0].contains("that is \"none\""), "{out}");
 }
@@ -735,7 +712,7 @@ fn a_composite_action_a_step_calls_is_fetched_and_run() {
         "main",
         "outputs:\n  said:\n    value: ${{ steps.call.outputs.said }}\nruns:\n  using: composite\n  steps:\n    - id: call\n      uses: owner/composite@v1\n      with:\n        Greeting: hi\n    - uses: owner/composite/sub@v1\n",
     );
-    let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[], &[]));
+    let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[]));
     assert!(outcome.success, "{out}");
     assert_eq!(outcome.log, ["hi from v1", "from the sub-action"]);
     assert_eq!(outcome.outputs.get("said").map(String::as_str), Some("hi"));
@@ -744,7 +721,7 @@ fn a_composite_action_a_step_calls_is_fetched_and_run() {
         "node",
         "runs:\n  using: composite\n  steps:\n    - uses: owner/composite/node@v1\n",
     );
-    let message = error(scene.run_on(&host, &mut Job::default(), &node, &[], &[]));
+    let message = error(scene.run_on(&host, &mut Job::default(), &node, &[]));
     assert!(message.contains("runs on `node24`"), "{message}");
 }
 
@@ -795,7 +772,7 @@ fn an_action_pinned_to_a_commit_is_fetched() {
         "main",
         &format!("runs:\n  using: composite\n  steps:\n    - uses: owner/pinned@{commit}\n"),
     );
-    let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[], &[]));
+    let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[]));
     assert!(outcome.success, "{out}");
     assert_eq!(outcome.log, ["pinned"]);
 }
@@ -819,14 +796,14 @@ fn a_fetch_that_fails_leaves_no_checkout_behind() {
         "main",
         "runs:\n  using: composite\n  steps:\n    - uses: owner/composite@v2\n",
     );
-    let message = error(scene.run_on(&host, &mut Job::default(), &dir, &[], &[]));
+    let message = error(scene.run_on(&host, &mut Job::default(), &dir, &[]));
     assert!(message.contains("failed"), "{message}");
     assert!(!store.join("owner/composite/v2").exists());
 
     // Once the ref exists, the next run fetches it rather than taking an
     // empty checkout for the action.
     git(&origin.join("owner/composite"), &["tag", "v2"]);
-    let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[], &[]));
+    let (outcome, out) = ok(scene.run_on(&host, &mut Job::default(), &dir, &[]));
     assert!(outcome.success, "{out}");
     assert_eq!(outcome.log, ["fetched"]);
 }

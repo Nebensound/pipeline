@@ -45,10 +45,13 @@ programs   = ["taplo"]
 
 # The toolchain, rustfmt and Clippy are the ones the workspace pins in its
 # rust-toolchain.toml, and rustup provides them; only what comes on top is
-# pinned here.
+# pinned here: cargo-llvm-cov, and the nightly toolchain coverage is measured
+# on, pinned by date, since only there does `#[coverage(off)]` take effect.
+# The tool installs both toolchains through rustup.
 [check.rust]
-extensions = [".rs"]
-programs   = ["cargo-llvm-cov"]
+extensions         = [".rs"]
+programs           = ["cargo-llvm-cov"]
+coverage-toolchain = "nightly-2026-11-14"
 
 # uv installs the interpreter the project's .python-version names and the
 # project as its uv.lock pins it; pytest and its plugins come from that lock,
@@ -407,8 +410,8 @@ url        = "https://registry.npmjs.org/@biomejs/cli-win32-arm64/-/cli-win32-ar
 digest     = "sha512:da43cace13659bc0be46edc670ed0c7b638390204bad539436eca2f38449c960d5280038f8a8e3de33232fddfc945e8145fbe5b42e2f0769cf63d4af379d4ebe"
 executable = "package/biome.exe"
 
-# The digests GitHub states for the release assets. The block installs the same
-# version from crates.io. Called on its own, it expects the subcommand first.
+# The digests GitHub states for the release assets. Called on its own, it
+# expects the subcommand first.
 [program.cargo-llvm-cov]
 version      = "0.9.0"
 command      = "cargo-llvm-cov"

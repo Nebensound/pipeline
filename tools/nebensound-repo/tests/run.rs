@@ -22,8 +22,9 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use nebensound_repo::Register;
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::programs::Platform;
+use nebensound_repo::repository::Repository;
 use nebensound_repo::run::{
-    self, Check, Context, Level, css, dockerfile, html, markdown, toml, yaml,
+    self, Check, Context, Level, Packages, css, dockerfile, html, markdown, toml, yaml,
 };
 use nebensound_repo::setup::{Environment, find};
 use support::{QUIET, call};
@@ -447,12 +448,19 @@ impl Fixture {
     ) -> (u8, String) {
         let env = self.env();
         let root = self.root();
+        let repository = Repository::at(&root);
         let context = Context {
             register,
             env: &env,
             root: &root,
             temp,
             workflow,
+            packages: Packages {
+                repository: &repository,
+                tracked: &[],
+                excluded: &[],
+                orders: &[],
+            },
         };
         let paths: Vec<RelativePath> = files
             .iter()
@@ -1133,13 +1141,14 @@ fn helpers_take_paths_and_lists_apart() {
     let huge = "y".repeat(run::ARGUMENTS + 1);
     assert_eq!(run::chunks(&[huge.as_str(), "z"]).len(), 2);
     assert_eq!(Check::of("json"), Some(Check::Json));
-    assert_eq!(Check::of("rust"), None);
+    assert_eq!(Check::of("python"), None);
     for (check, name) in [
         (Check::Css, "css"),
         (Check::Dockerfile, "dockerfile"),
         (Check::Html, "html"),
         (Check::Json, "json"),
         (Check::Markdown, "markdown"),
+        (Check::Rust, "rust"),
         (Check::Toml, "toml"),
         (Check::Yaml, "yaml"),
     ] {
@@ -1269,12 +1278,12 @@ fn workflows_and_schema_findings_are_recognized() {
 #[test]
 fn the_call_refuses_what_it_does_not_run() {
     let _alone = alone();
-    let (text, code) = call(&["nebensound-repo", "run", "rust", "."]);
+    let (text, code) = call(&["nebensound-repo", "run", "python", "."]);
     assert_eq!(code, 2, "{text}");
     assert!(
         text.contains(
-            "`run` carries out the checks css, dockerfile, html, json, markdown, toml and yaml; \
-             \"rust\" is not"
+            "`run` carries out the checks css, dockerfile, html, json, markdown, rust, toml and \
+             yaml; \"python\" is not"
         ),
         "{text}"
     );
