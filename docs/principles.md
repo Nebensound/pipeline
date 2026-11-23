@@ -59,9 +59,10 @@ it runs the same way on a developer's computer. Shell in a workflow has none of
 that: it is proven only by runs, and every caller runs it.
 
 **Today.** The checks for CSS, Dockerfiles, HTML, JSON, Markdown, TOML and YAML
-are thin blocks that call the tool. The checks for Rust and Python, the builds,
-the release stage, several steps of `nebensound.yml` and the actions `tool` and
-`phase0`, which every job runs, are still shell, partly with `jq`;
+are thin blocks that call the tool, and so is the release stage in `Publish`.
+The checks for Rust and Python, the builds, several steps of `nebensound.yml`
+and the actions `tool` and `phase0`, which every job runs, are still shell,
+partly with `jq`;
 `check-python` also embeds Python scripts.
 
 ## 4. External programs are the exception and are started from the tool
@@ -125,7 +126,7 @@ its jobs `contents: read`, and one job asks for more:
 | `Check`                               | read                                           | No. It gathers results and reads the plan.                                                                                          |
 | `Build repository`, `Build component` | read                                           | Yes: the builds compile the code and build images.                                                                                  |
 | `Build`                               | read                                           | No. It gathers results.                                                                                                             |
-| `Publish`                             | `contents: write`, after a push to `main` only | No. It runs Git, the GitHub CLI and `jq` on the checkout and starts nothing of the repository.                                      |
+| `Publish`                             | `contents: write`, after a push to `main` only | No. It builds the tool from the pipeline's source and runs it, with Git and curl; it starts nothing of the repository.              |
 
 The table holds for a caller, which pins the workflow. In this repository the
 gate calls the workflow at its own commit, so on a pull request every job runs
@@ -144,8 +145,6 @@ What is a goal and not yet true:
 
 - Reading and executing checks share a job (rule 2), so a result of a reading
   check in a unit with Rust or Python code is only as good as that code allows.
-- The logic of `Publish`, the one job that can write, is shell, proven only by
-  runs (rule 3).
 
 ## What does not hold yet
 
@@ -183,7 +182,6 @@ yet, it says so.
   fingerprint and the build of the tool from source, the lookup of the
   visibility, and the notices of phase 0 (rule 3). The build from source in a
   caller: #24. The rest: no issue exists yet.
-- **The release stage** in `Publish` is shell (rules 3 and 6): #174.
 - **Text from the repository in logs** is escaped place by place, and the file
   lists of the blocks not at all (rule 5): #143.
 - **The source of actionlint**, whose upstream stands still, and the growing
