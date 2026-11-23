@@ -123,7 +123,9 @@ fn a_package_for_a_registry_fails_on_a_requirement_without_a_record() {
     let (text, code) = version(&git, &[]);
     assert_eq!(code, 1, "{text}");
     assert!(
-        text.starts_with("there are no versions: phase 0 found errors\n"),
+        text.starts_with(
+            "there are no versions: a release would require a version that was never released\n"
+        ),
         "{text}"
     );
     assert!(text.contains(FINDING), "{text}");
@@ -131,6 +133,13 @@ fn a_package_for_a_registry_fails_on_a_requirement_without_a_record() {
 
     let (markdown, code) = version(&git, &["--markdown"]);
     assert_eq!(code, 1, "{markdown}");
+    assert!(
+        markdown.starts_with(
+            "## Versions\n\nThere are no versions: a release would require a version that was \
+             never released.\n\n"
+        ),
+        "{markdown}"
+    );
     assert!(
         markdown.contains("- error\\[unreleased\\-requirement\\] component app"),
         "{markdown}"
