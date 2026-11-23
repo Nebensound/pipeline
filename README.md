@@ -16,9 +16,22 @@ publishes what that declaration says.
 
 The commands of `nebensound-repo` are limited to the tasks of a repository. The
 tool has no external subcommands and never starts a program because a
-subcommand's name matched it: the programs it starts are those of the register,
-Git, curl, Cargo and the Rust toolchain that rustup provides (rustup, rustc,
-rustfmt).
+subcommand's name matched it. Each program it starts is one of these, started
+only by the calls named beside it:
+
+| What                                                                                         | Who may start it                                                                                   |
+| -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Git, curl                                                                                    | every call of the tool                                                                             |
+| A program of the register                                                                    | only the check or build the register names it for                                                  |
+| The Rust toolchain that rustup provides (rustup, Cargo, rustc, rustfmt)                      | only the check for Rust and a build of Rust (and the command that runs the repository's own xtask) |
+| The Python that uv provides                                                                  | only the check for Python                                                                          |
+| Docker                                                                                       | only the image build (with #179)                                                                   |
+| Code of the repository (its tests, its build scripts, the commands of the package it builds) | only executing checks and builds                                                                   |
+
+A reading check starts no toolchain of a language and no code of the
+repository. uv is pinned in the register; rustup comes from the machine, on
+GitHub Actions from the runner image. Until #179 the image build runs Docker
+from its block, not from the tool.
 
 ## Status
 

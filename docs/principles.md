@@ -80,7 +80,9 @@ with its exact version and a digest, in a form an automatic updater reads. So it
 is always clear what is used and what needs an update or a replacement. For the
 language's own toolchain the verification of its installer counts as the
 digest: the register pins the coverage toolchain of the Rust check by its exact
-name, and rustup checks what it downloads.
+name, and rustup checks what it downloads. Which program the tool may start,
+and which check or build may start it, is one rule, stated in
+[`AGENTS.md`](../AGENTS.md#the-tool) and [the README](../README.md#what-it-is).
 
 **Why.** Each external program is code the pipeline trusts with every
 repository. One list makes that trust visible, lets an updater raise it, and
@@ -192,11 +194,12 @@ yet, it says so.
   lists of the blocks not at all (rule 5): #143.
 - **The source of actionlint**, whose upstream stands still, and the growing
   list of its messages the YAML check drops (rules 4 and 5): #169.
-- **The programs the tool may start.** `AGENTS.md` and the README allow those of
-  the register, Git, curl, Cargo and the Rust toolchain that rustup provides.
-  Git, curl, Cargo and rustup, and further programs the workflow and the blocks
-  call, come from the runner image without a pinned version or digest (rule 4).
-  No issue exists yet.
+- **The programs the tool may start.** The rule in
+  [`AGENTS.md`](../AGENTS.md#the-tool) and the README names each program and
+  who may start it, and uv, which provides the Python of the Python check, is
+  pinned in the register. Git, curl, Cargo and rustup, and further programs the
+  workflow and the blocks call, come from the runner image without a pinned
+  version or digest (rule 4). No issue exists yet.
 - **One list in a form an updater reads** (rule 4). The register pins programs
   with digests, but Dependabot does not read it, and `AGENTS.md` allows actions
   pinned to a major version, without a digest. The Dependabot file does not
