@@ -157,15 +157,20 @@ pub fn named(register: &Register, names: &[String]) -> Result<Vec<CheckName>, St
 }
 
 /// The builds of the register these names name, each once, in name order,
-/// and the names that name none, in the order they came.
+/// and the names left for the checks, in the order they came: those that name
+/// no build, and those that name a check as well as a build (such as `typst`),
+/// so that both are set up.
 #[must_use]
 pub fn builds_named(register: &Register, names: &[String]) -> (Vec<BuildName>, Vec<String>) {
     let mut builds = Vec::new();
     let mut rest = Vec::new();
     for name in names {
-        match register.build.keys().find(|known| known.as_str() == name) {
-            Some(build) => builds.push(build.clone()),
-            None => rest.push(name.clone()),
+        let build = register.build.keys().find(|known| known.as_str() == name);
+        if let Some(build) = build {
+            builds.push(build.clone());
+        }
+        if build.is_none() || register.check.keys().any(|known| known.as_str() == name) {
+            rest.push(name.clone());
         }
     }
     builds.sort();

@@ -603,7 +603,8 @@ nebensound-repo setup --pinned docker  # only the programs of the build docker
 ```
 
 It sets up the programs of the checks the plan starts, or of the checks and
-builds it is named, as the register names them; a building block names its own
+builds it is named, as the register names them (a name that names a check and a
+build, such as `typst`, sets up both); a building block names its own
 check or build, so that it installs only what that calls: `build-docker` calls
 `setup --pinned docker` for Trivy. It reads the repository like
 `plan` does, and a repository with errors gets nothing set up,

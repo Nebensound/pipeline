@@ -816,7 +816,7 @@ fn trivy(context: &Context<'_>, log: &mut Log<'_>) -> Option<PathBuf> {
     let version = entry.map_or_else(String::new, |(_, program)| format!(" {}", program.version));
     log.error(&format!(
         "trivy{version} is neither pinned in the tool's folder nor on the computer; \
-         `nebensound-repo setup` installs it"
+         `nebensound-repo setup docker` installs it"
     ));
     None
 }

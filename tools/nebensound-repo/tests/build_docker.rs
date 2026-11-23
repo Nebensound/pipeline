@@ -1228,7 +1228,7 @@ fn the_scan_names_every_vulnerability_with_a_fixed_version() {
         &Run::new(&fixture),
         "Scan the image",
         "::error::trivy 0.76.2 is neither pinned in the tool's folder nor on the computer; \
-         `nebensound-repo setup` installs it",
+         `nebensound-repo setup docker` installs it",
     );
 }
 
@@ -1266,7 +1266,7 @@ fn a_register_without_the_pinned_images_or_programs_starts_nothing() {
         &run,
         "Scan the image",
         "::error::trivy is neither pinned in the tool's folder nor on the computer; \
-         `nebensound-repo setup` installs it",
+         `nebensound-repo setup docker` installs it",
     );
 }
 

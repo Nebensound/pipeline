@@ -711,7 +711,7 @@ fn a_build_gets_the_programs_it_calls() {
     fixture.install("alpha", &prints("alpha 1.2.3"));
     let register = register(&format!(
         "{}{}[build.scan]\nproduces = \"container\"\nprograms = [\"alpha\"]\n\
-         [build.pack]\nproduces = \"crate\"\n",
+         [build.pack]\nproduces = \"crate\"\n[build.yaml]\nproduces = \"crate\"\n",
         check(&["alpha"]),
         native("alpha", "1.2.3", "file:///nowhere", &sha256(b"x"), "alpha"),
     ));
@@ -721,6 +721,11 @@ fn a_build_gets_the_programs_it_calls() {
     let shown: Vec<String> = builds.iter().map(ToString::to_string).collect();
     assert_eq!(shown, ["pack", "scan"]);
     assert_eq!(rest, ["json"]);
+    // A name that is a check and a build sets up both.
+    let (builds, rest) = setup::builds_named(&register, &names(&["yaml", "scan"]));
+    let shown: Vec<String> = builds.iter().map(ToString::to_string).collect();
+    assert_eq!(shown, ["scan", "yaml"]);
+    assert_eq!(rest, ["yaml"]);
 
     let set_up = |checks: &[&str], builds: &[&str], mode| {
         let checks: Vec<CheckName> = checks
