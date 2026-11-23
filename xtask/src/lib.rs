@@ -51,11 +51,11 @@ const MISUSE: u8 = 2;
 
 /// What the steps of the blocks the xtask runs step by step call on the
 /// machine beside the programs [`runner::needs`] finds, each with its name and
-/// the command that shows it is there. Phase 0, `check-python` and
-/// `check-rust` run jq; `nebensound-repo setup` can install a jq of its own,
-/// but into its cache and not onto the `PATH` the steps search. `build-docker`
-/// builds with Docker's Buildx and starts what it built with Docker. The
-/// tool and `check-rust` install toolchains with rustup.
+/// the command that shows it is there. Phase 0 and `check-python` run jq;
+/// `nebensound-repo setup` can install a jq of its own, but into its cache and
+/// not onto the `PATH` the steps search. `build-docker` builds with Docker's
+/// Buildx and starts what it built with Docker. The action `tool` and
+/// `build-cargo-package` install toolchains with rustup.
 pub const MACHINE: &[(&str, &str, &[&str])] = &[
     ("docker", "docker", &["buildx", "version"]),
     ("jq", "jq", &["--version"]),
@@ -73,8 +73,8 @@ Usage: cargo xtask check --all
 check --all   Holds the building blocks, the register and nebensound.yml to
               each other, and runs every building block against its test cases
               in tests/pass/ and tests/fail/. The blocks whose check the tool
-              carries out (css, dockerfile, html, json, markdown, toml, yaml)
-              run through the tool of this commit, on every system, after
+              carries out (css, dockerfile, html, json, markdown, rust, toml,
+              yaml) run through the tool of this commit, on every system, after
               `nebensound-repo setup --pinned <check>` has set up the programs
               of their check; a runtime one of them needs is taken from the
               computer. In a run on GitHub Actions the setup also gets
@@ -461,6 +461,7 @@ fn cases(
         let env = runner::environment(setup.env.clone());
         let bench = cases::Direct {
             tool: &tool,
+            root: &setup.root,
             env: &env,
             git: &"git".into(),
             scratch: scratch.path(),
@@ -605,7 +606,6 @@ fn stepwise_cases(
             workspace: &setup.root,
             temp: scratch,
         },
-        &[],
         out,
     );
     say(out, "::endgroup::\n");

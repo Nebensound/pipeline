@@ -222,11 +222,17 @@ pub enum Command {
     /// Run one check over the files it covers in one unit, less what
     /// `[[exclude]]` takes out, with the programs `setup` finds or installs:
     /// what its building block runs. For the checks css, dockerfile, html,
-    /// json, markdown, toml and yaml.
+    /// json, markdown, rust, toml and yaml.
     // It starts the programs `setup` finds, so it is part of the feature
     // `program` as well.
     #[cfg(feature = "program")]
     Run {
+        /// The versions the rust check writes before it tests a package: from
+        /// a plan `nebensound-repo plan` printed, for a checkout without the
+        /// history to resolve them from. Without it they are resolved from
+        /// the history, as `plan` resolves them.
+        #[arg(long, value_name = "FILE")]
+        plan: Option<PathBuf>,
         /// The check, as the register names it.
         check: String,
         /// The path of the unit, as the plan names it.
@@ -310,8 +316,8 @@ pub enum Failure {
     /// The check that was named is not one `run` carries out.
     #[cfg(feature = "program")]
     #[error(
-        "`run` carries out the checks css, dockerfile, html, json, markdown, toml and yaml; \
-         {check:?} is not one of them, and its building block runs it"
+        "`run` carries out the checks css, dockerfile, html, json, markdown, rust, toml and \
+         yaml; {check:?} is not one of them, and its building block runs it"
     )]
     NotRun {
         /// What was named.
@@ -381,6 +387,12 @@ where
 /// runs the same copy of it, and a call that only one of them makes still
 /// counts as run.
 fn dispatch(cli: &Cli, register: &str, defaults: &str, output: Output, out: &mut dyn Write) -> u8 {
+    // Every call of `run` outside a workflow run opens with the line that
+    // the gate decides, also one that ends in a refusal or an error.
+    #[cfg(feature = "program")]
+    if matches!(cli.command, Some(Command::Run { .. })) && output != Output::Workflow {
+        say(out, &format!("{}\n", run::OUTSIDE));
+    }
     // Whether a call makes sense does not depend on what it would have been
     // called on, so the path is checked before the repository is read at all.
     let job = match call(cli) {
@@ -477,11 +489,13 @@ enum Job {
     /// every check the declaration starts.
     #[cfg(feature = "program")]
     Setup(setup::Options, Vec<String>),
-    /// Run a check over the files it covers in a unit.
+    /// Run a check over the files it covers in a unit, with the versions of
+    /// this plan if one is given.
     #[cfg(feature = "program")]
     Run {
         check: run::Check,
         unit: RelativePath,
+        plan: Option<PathBuf>,
     },
     /// Write the records of this commit's versions.
     #[cfg(feature = "program")]
@@ -534,11 +548,12 @@ fn call(cli: &Cli) -> Result<Call, Failure> {
             checks.clone(),
         ),
         #[cfg(feature = "program")]
-        Some(Command::Run { check, unit }) => Job::Run {
+        Some(Command::Run { plan, check, unit }) => Job::Run {
             check: run::Check::of(check).ok_or_else(|| Failure::NotRun {
                 check: check.clone(),
             })?,
             unit: path_of(unit)?,
+            plan: plan.clone(),
         },
         #[cfg(feature = "program")]
         Some(Command::Release) => Job::Release,
@@ -583,14 +598,17 @@ fn repository_of(cli: &Cli, job: &Job) -> Repository {
 /// only the commit at hand: the history is read in Declare, and the versions
 /// come with the plan it hands on. Which programs `setup` needs follows from
 /// the checks the plan starts, never from a version, so a question about a
-/// release does not keep anyone from setting up the programs either.
+/// release does not keep anyone from setting up the programs either. A check
+/// that writes versions reads the history only when no plan hands them in.
 fn files_alone(job: &Job) -> bool {
     match job {
         Job::Files { .. }
         | Job::ExcludedPackages
         | Job::WriteVersions(Writing { plan: Some(_), .. }) => true,
         #[cfg(feature = "program")]
-        Job::Setup(..) | Job::Run { .. } => true,
+        Job::Setup(..) => true,
+        #[cfg(feature = "program")]
+        Job::Run { check, plan, .. } => plan.is_some() || !check.writes_versions(),
         _ => false,
     }
 }
@@ -731,10 +749,15 @@ fn execute(
             "nothing is checked: phase 0 found errors, and `check` says which\n",
         ),
         #[cfg(feature = "program")]
-        Job::Run { check, unit } => {
-            return Ok(run_check(
-                cli, &analysis, &central, *check, unit, output, out,
-            ));
+        Job::Run { check, unit, plan } => {
+            let orders = orders(plan.as_ref(), &analysis, &central)?;
+            let checked = Checked {
+                repository: &repository,
+                analysis: &analysis,
+                central: &central,
+                orders: &orders,
+            };
+            return Ok(run_check(cli, &checked, *check, unit, output, out));
         }
         // The same reason as for the versions: a version read off a
         // declaration with errors could be one the history does not give.
@@ -782,19 +805,34 @@ fn set_up(
     setup::run(central.register(), &checks, options, &mut environment, out)
 }
 
+/// The repository a check runs on, read: phase 0 on it, and the versions its
+/// packages are given.
+#[cfg(feature = "program")]
+struct Checked<'a> {
+    repository: &'a Repository,
+    analysis: &'a Analysis,
+    central: &'a Central,
+    orders: &'a [writer::Order],
+}
+
 /// `run`: the check over the files it covers in the unit, at the repository
 /// root without links, with the programs on this computer. In a workflow run
 /// every finding is an annotation.
 #[cfg(feature = "program")]
 fn run_check(
     cli: &Cli,
-    analysis: &Analysis,
-    central: &Central,
+    checked: &Checked<'_>,
     check: run::Check,
     unit: &RelativePath,
     output: Output,
     out: &mut dyn Write,
 ) -> u8 {
+    let Checked {
+        repository,
+        analysis,
+        central,
+        orders,
+    } = *checked;
     let list = match files::files(analysis, central, check.name(), unit) {
         Ok(list) => list,
         Err(refusal) => {
@@ -805,12 +843,25 @@ fn run_check(
     // The repository was read, so it is there.
     let root = fs::canonicalize(&cli.repository).unwrap_or(cli.repository.clone());
     let environment = setup::Environment::current();
+    let tracked: Vec<RelativePath> = analysis
+        .tree
+        .files()
+        .into_iter()
+        .map(|(node, _)| node.path.clone())
+        .collect();
+    let excluded = repository.excluded_packages(analysis);
     let context = run::Context {
         register: central.register(),
         env: &environment,
         root: &root,
         temp: &std::env::temp_dir(),
         workflow: output == Output::Workflow,
+        packages: run::Packages {
+            repository,
+            tracked: &tracked,
+            excluded: &excluded,
+            orders,
+        },
     };
     run::run(&context, check, unit, &list, out)
 }
@@ -900,16 +951,7 @@ fn write_versions(
     central: &Central,
     writing: &Writing,
 ) -> Result<String, Failure> {
-    let orders = match &writing.plan {
-        Some(file) => fs::read_to_string(file)
-            .map_err(|error| error.to_string())
-            .and_then(|text| writer::Order::read(&text).map_err(|error| error.to_string()))
-            .map_err(|message| Failure::Plan {
-                path: file.display().to_string(),
-                message,
-            })?,
-        None => writer::Order::of(&plan::plan(analysis, central)),
-    };
+    let orders = orders(writing.plan.as_ref(), analysis, central)?;
     let manifests: Vec<RelativePath> = analysis
         .tree
         .files()
@@ -921,6 +963,25 @@ fn write_versions(
         "{}\n",
         writer::write(repository, &manifests, &orders, writing.workspace.as_ref())?
     ))
+}
+
+/// The versions of the units: from the plan in `file`, or, without one,
+/// resolved from the history as `plan` resolves them.
+fn orders(
+    file: Option<&PathBuf>,
+    analysis: &Analysis,
+    central: &Central,
+) -> Result<Vec<writer::Order>, Failure> {
+    match file {
+        Some(file) => fs::read_to_string(file)
+            .map_err(|error| error.to_string())
+            .and_then(|text| writer::Order::read(&text).map_err(|error| error.to_string()))
+            .map_err(|message| Failure::Plan {
+                path: file.display().to_string(),
+                message,
+            }),
+        None => Ok(writer::Order::of(&plan::plan(analysis, central))),
+    }
 }
 
 /// Why a declaration could not be read.

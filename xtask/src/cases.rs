@@ -10,7 +10,7 @@
 //! the programs of its check are set up ([`set_up`]), and for each case phase
 //! 0 runs with `nebensound-repo check` and `plan`, then `nebensound-repo run`
 //! once for every unit the plan starts the check for, as a workflow run calls
-//! it.
+//! it, with the plan when the block takes one.
 //!
 //! Every other block runs its own steps ([`run`]): the xtask runs phase 0 on
 //! the case the way `Declare` does. A check block
@@ -47,6 +47,7 @@ pub const FROM_THE_TOOL: &[&str] = &[
     "check-html",
     "check-json",
     "check-markdown",
+    "check-rust",
     "check-toml",
     "check-yaml",
 ];
@@ -70,15 +71,6 @@ pub const ACTIONS: &str = ".github/actions";
 /// gate never sees them. Counting them would fail the layout locally where
 /// the gate passes.
 pub const LEFT_BEHIND: &[&str] = &[".DS_Store"];
-
-/// The steps of a block the xtask does not run, each with why: the block, the
-/// step's name and the reason. Each of them has to be a step of its block.
-pub const SKIPPED: &[(&str, &str, &str)] = &[(
-    "check-rust",
-    "Make room on the runner",
-    "it deletes software of the machine it runs on with sudo; on a developer's machine that \
-     software is theirs",
-)];
 
 /// What a case expects of its block.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -415,7 +407,6 @@ fn attempt(
         &bench.root.join(ACTIONS).join("phase0"),
         &BTreeMap::new(),
         place,
-        &[],
         out,
     )?;
     if !phase0.success {
@@ -428,15 +419,10 @@ fn attempt(
         Err(never) => return Ok(Some(never)),
     };
 
-    let skip: Vec<&str> = SKIPPED
-        .iter()
-        .filter(|(name, _, _)| *name == block)
-        .map(|(_, step, _)| *step)
-        .collect();
     let mut success = true;
     let mut log = Vec::new();
-    let mut runs = |dir: &Path, inputs: &BTreeMap<String, String>, skip: &[&str]| {
-        let outcome = bench.host.run(&mut job, dir, inputs, place, skip, out)?;
+    let mut runs = |dir: &Path, inputs: &BTreeMap<String, String>| {
+        let outcome = bench.host.run(&mut job, dir, inputs, place, out)?;
         log.extend(outcome.log);
         Ok::<bool, Error>(outcome.success)
     };
@@ -448,9 +434,9 @@ fn attempt(
         for writer in &call.writers {
             let writer = bench.root.join(ACTIONS).join(format!("version-{writer}"));
             let inputs = BTreeMap::from([("plan".to_owned(), plan.clone())]);
-            written &= runs(&writer, &inputs, &[])?;
+            written &= runs(&writer, &inputs)?;
         }
-        success &= written && runs(&dir, &call.inputs, &skip)?;
+        success &= written && runs(&dir, &call.inputs)?;
     }
     Ok(judge(&case.expect, success, &log))
 }
@@ -522,6 +508,8 @@ fn calls(kind: &Kind<'_>, plan: &str, dir: &Path) -> Result<Result<Vec<Call>, St
 pub struct Direct<'a> {
     /// The tool of this commit.
     pub tool: &'a Path,
+    /// The root of this repository, where the blocks lie.
+    pub root: &'a Path,
     /// The environment every call of the tool starts from (see
     /// [`runner::environment`]).
     pub env: &'a [(OsString, OsString)],
@@ -590,8 +578,10 @@ pub fn set_up(bench: Direct<'_>, root: &Path, block: &str, out: &mut dyn Write) 
 /// Phase 0 runs as `Declare` runs it on GitHub, with the name, default branch
 /// and visibility a case declares for: `check`, and `plan` for the units.
 /// Then `run` checks every unit the plan starts the check for, as a workflow
-/// run calls it, so that the findings are annotations. What the tool prints
-/// is shown with `    | ` in front, as a step's output is.
+/// run calls it, so that the findings are annotations. A block that takes the
+/// plan hands it to `run` with `--plan`, as its step in `nebensound.yml` hands
+/// it to the block, so the tool gets it in a file beside the case. What the
+/// tool prints is shown with `    | ` in front, as a step's output is.
 ///
 /// # Errors
 ///
@@ -615,7 +605,8 @@ fn through_the_tool(
     out: &mut dyn Write,
 ) -> Result<Option<String>, Error> {
     let check = block.strip_prefix("check-").unwrap_or(block);
-    let (_temp, workspace) = fresh(bench.scratch, bench.git, case)?;
+    let planned = Action::load(&bench.root.join(ACTIONS).join(block))?.takes("plan");
+    let (temp, workspace) = fresh(bench.scratch, bench.git, case)?;
     let phase0 = [
         "check",
         "--name=case",
@@ -632,10 +623,24 @@ fn through_the_tool(
             "no unit of the case starts the check `{check}`, so the block never runs"
         )));
     }
+    let file = temp.path().join("plan.json");
+    let mut call = vec!["run".to_owned()];
+    if planned {
+        fs::write(&file, &plan).map_err(|error| {
+            Error::new(format!(
+                "cannot write the plan to {}: {error}",
+                file.display()
+            ))
+        })?;
+        call.extend(["--plan".to_owned(), file.to_string_lossy().into_owned()]);
+    }
+    call.extend([check.to_owned(), "--".to_owned()]);
     let mut success = true;
     let mut log = Vec::new();
     for unit in &units {
-        let (passed, lines) = tool(bench, &workspace, &["run", check, "--", unit], out)?;
+        let mut args: Vec<&str> = call.iter().map(String::as_str).collect();
+        args.push(unit);
+        let (passed, lines) = tool(bench, &workspace, &args, out)?;
         success &= passed;
         log.extend(lines);
     }

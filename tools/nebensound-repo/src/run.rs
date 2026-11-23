@@ -1,6 +1,10 @@
 //! `nebensound-repo run`: one check over the files it covers in one unit, the
 //! way its building block runs it.
 //!
+//! The Rust check is the one that runs code of the repository: it builds and
+//! tests a Cargo workspace with the Rust toolchain, which rustup provides, and
+//! goes its own way ([`rust`](mod@rust)). What follows holds for the others.
+//!
 //! The files are those `files` names for the check and the unit. The programs
 //! are those the register names for the check, found the way
 //! [`locate`](crate::setup::find::locate) finds them: the pinned copy in the
@@ -21,6 +25,13 @@
 //! line that starts with `file:line:col:`. A finding that fails nothing, such
 //! as a Hadolint finding below the failure threshold, is a warning. What the
 //! programs print stands in the output as well.
+//!
+//! The gate decides: what counts is the result of the run on GitHub Actions.
+//! A run anywhere else comes as close to it as is sensible, and is never the
+//! same in every case, so every call of the command `run` outside a workflow
+//! run opens with a line that says so ([`OUTSIDE`]), also one that ends in a
+//! refusal or an error before a check starts. In a workflow run that line is
+//! not written.
 
 pub mod css;
 pub mod dockerfile;
@@ -28,6 +39,7 @@ pub mod html;
 pub mod json;
 mod links;
 pub mod markdown;
+pub mod rust;
 pub mod toml;
 pub mod yaml;
 
@@ -42,17 +54,28 @@ use tempfile::TempDir;
 
 use crate::Register;
 use crate::names::ProgramName;
+use crate::packages::Excluded;
 use crate::path::RelativePath;
 use crate::programs::Installer;
 use crate::report::shown;
+use crate::repository::Repository;
 use crate::setup::Environment;
 use crate::setup::find;
 use crate::setup::install::search_path_with;
+use crate::writer::Order;
 
 /// How many bytes of file names one call of a program is handed at most. A
 /// command line has a limit, the smallest on Windows; a longer list is handed
 /// over in several calls, as `xargs` would.
 pub const ARGUMENTS: usize = 30_000;
+
+/// The first line of every call of the command `run` outside a workflow run,
+/// written where the call is dispatched, before anything can refuse it. It
+/// is neither a
+/// finding nor a workflow command, so nothing that reads findings off the
+/// output takes it for one.
+pub const OUTSIDE: &str = "Not running in GitHub Actions, so the result can differ from the \
+                           gate's, which is the one that counts.";
 
 /// One of the checks `run` carries out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +90,8 @@ pub enum Check {
     Json,
     /// `.md` and `.markdown` files.
     Markdown,
+    /// `.rs` files, the Cargo workspace at the unit's path.
+    Rust,
     /// `.toml` files and the TOML lockfiles.
     Toml,
     /// `.yml` and `.yaml` files.
@@ -83,6 +108,7 @@ impl Check {
             "html" => Some(Self::Html),
             "json" => Some(Self::Json),
             "markdown" => Some(Self::Markdown),
+            "rust" => Some(Self::Rust),
             "toml" => Some(Self::Toml),
             "yaml" => Some(Self::Yaml),
             _ => None,
@@ -98,6 +124,7 @@ impl Check {
             Self::Html => "html",
             Self::Json => "json",
             Self::Markdown => "markdown",
+            Self::Rust => "rust",
             Self::Toml => "toml",
             Self::Yaml => "yaml",
         }
@@ -111,9 +138,17 @@ impl Check {
             Self::Html => "HTML file",
             Self::Json => "JSON file",
             Self::Markdown => "Markdown file",
+            Self::Rust => "Rust file",
             Self::Toml => "TOML file",
             Self::Yaml => "YAML file",
         }
+    }
+
+    /// Whether it writes the versions of the plan before it tests a package:
+    /// then it reads the history for them when no plan is handed in.
+    #[must_use]
+    pub fn writes_versions(self) -> bool {
+        self == Self::Rust
     }
 }
 
@@ -132,6 +167,26 @@ pub struct Context<'a> {
     pub temp: &'a Path,
     /// Whether this is a workflow run, where a finding is an annotation.
     pub workflow: bool,
+    /// What the Rust check reads of the repository beyond its files; the
+    /// other checks read none of it.
+    pub packages: Packages<'a>,
+}
+
+/// What the Rust check reads of the repository beyond its files.
+pub struct Packages<'a> {
+    /// The repository, into whose manifests the package test writes the
+    /// versions.
+    pub repository: &'a Repository,
+    /// Every file Git tracks, as a path from the repository root: the
+    /// manifests the versions are written into, and the `.rs` files of an
+    /// excluded package, which coverage leaves out one by one where another
+    /// package lies inside it.
+    pub tracked: &'a [RelativePath],
+    /// The packages `[[exclude]]` takes out as a whole.
+    pub excluded: &'a [Excluded],
+    /// The versions the package test writes: from the plan handed in, or
+    /// resolved from the history.
+    pub orders: &'a [Order],
 }
 
 /// Runs the check over these files of the unit, prints what the programs
@@ -162,6 +217,7 @@ pub fn run(
     }
     let mut session = Session {
         context,
+        unit: unit.clone(),
         files: files.iter().map(ToString::to_string).collect(),
         temp: None,
         log,
@@ -172,6 +228,7 @@ pub fn run(
         Check::Html => html::run(&mut session),
         Check::Json => json::run(&mut session),
         Check::Markdown => markdown::run(&mut session),
+        Check::Rust => rust::run(&mut session),
         Check::Toml => toml::run(&mut session),
         Check::Yaml => yaml::run(&mut session),
     };
@@ -471,6 +528,8 @@ impl Ran {
 /// One run of a check.
 struct Session<'a, 'o> {
     context: &'a Context<'a>,
+    /// The unit, as the plan names it.
+    unit: RelativePath,
     /// The files, as paths from the repository root.
     files: Vec<String>,
     /// The folder of what the programs are handed, once it is made.

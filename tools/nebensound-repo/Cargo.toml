@@ -106,6 +106,10 @@ name              = "run"
 required-features = ["program"]
 
 [[test]]
+name              = "run_rust"
+required-features = ["program"]
+
+[[test]]
 name              = "setup"
 required-features = ["program"]
 

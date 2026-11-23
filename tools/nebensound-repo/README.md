@@ -47,25 +47,25 @@ channel would be a second version that can fall behind.
 ## Calls
 
 ```text
-nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branch>] [--visibility <public|private|internal>] | tree | explain <path> | plan [--pull-request <number> --message <message>] | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | run <check> <unit> | excluded-packages | write-versions [--plan <file>] [--workspace <path>] | setup [--pinned] [--with-runtimes] [--check] [<check> ...] | release | schema | register | ui]
+nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branch>] [--visibility <public|private|internal>] | tree | explain <path> | plan [--pull-request <number> --message <message>] | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | run [--plan <file>] <check> <unit> | excluded-packages | write-versions [--plan <file>] [--workspace <path>] | setup [--pinned] [--with-runtimes] [--check] [<check> ...] | release | schema | register | ui]
 ```
 
-| Call                | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `check`             | Runs phase 0 and prints all of it: the resolved configuration, the linter rules laid over the defaults, the tree, the findings (annotations in a workflow run) and the counts. Warns where the name or default branch (`--name`, `--default-branch`, else Git) or a minimum file departs from the conventions. With `--visibility`, how GitHub shows the repository, it holds the declared audience against it, as `phase0` does; without it nothing is compared. The default; `phase0` calls it. |
-| `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `explain <path>`    | What holds for one path and why: for whom the repository is meant, which units contain it, the minimum version of each of them, which commit types count like `feat`, which checks are in force, how its coverage stands.                                                                                                                                                                                                                                                                         |
-| `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read. With `--pull-request <number> --message <message>`, for a pull request, as `version` reads it. See [The plan](#the-plan).                                                                                                                                                                                                                                             |
-| `version`           | The version of every unit that carries one, as a table: current version and the version of the commit at hand. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                                                                                                                                                                                                                                                          |
-| `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                                                                                                                                                                                                                          |
-| `run`               | Runs one check over the files `files` names for it in one unit, with the programs `setup` finds or installs, the way its building block runs it: for the checks `css`, `dockerfile`, `html`, `json`, `markdown`, `toml` and `yaml`. Every finding names its file, and its line and column where the program gives them; in a workflow run it is an annotation. See [Running a check](#running-a-check).                                                                                           |
-| `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                                                                                                                                                                                                                        |
-| `write-versions`    | Writes the version of every unit with the version writer `cargo` into its `Cargo.toml`, the path dependencies on it and `Cargo.lock`, in the working tree; never committed. With `--plan <file>`, takes the versions from a printed plan instead of the history; with `--workspace <path>`, starts from the units of the workspace at that path.                                                                                                                                                  |
-| `setup`             | Finds or installs the programs that the checks the plan starts call, or those of the checks named, as the register pins them: by default it uses those on the computer and installs the pinned version of what is missing; `--pinned` installs every one into its own folder; `--check` changes nothing. See [Setting up the programs](#setting-up-the-programs).                                                                                                                                 |
-| `release`           | Writes the records of the versions of the commit at hand, as the job `Publish` does after a push to `main`: for every unit the commit touches, a tag on it and a full GitHub Release. Takes the repository, the token and the summary of the run from the variables of a workflow run. See [The release stage](#the-release-stage).                                                                                                                                                               |
-| `schema`            | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. The TOML check assigns the copy in `schemas/`, which `run` compiles in; [their README](schemas/README.md#nebensound-declarationjson) says how to write that copy again.                                                                                                                                                                                                            |
-| `register`          | The register as Markdown, exactly as [`docs/register.md`](../../docs/register.md) holds it, which a test compares with this output. Reads no repository.                                                                                                                                                                                                                                                                                                                                          |
-| `ui`                | The same result to walk through. Only in a build with the `ui` feature.                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Call                | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `check`             | Runs phase 0 and prints all of it: the resolved configuration, the linter rules laid over the defaults, the tree, the findings (annotations in a workflow run) and the counts. Warns where the name or default branch (`--name`, `--default-branch`, else Git) or a minimum file departs from the conventions. With `--visibility`, how GitHub shows the repository, it holds the declared audience against it, as `phase0` does; without it nothing is compared. The default; `phase0` calls it.                                                      |
+| `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `explain <path>`    | What holds for one path and why: for whom the repository is meant, which units contain it, the minimum version of each of them, which commit types count like `feat`, which checks are in force, how its coverage stands.                                                                                                                                                                                                                                                                                                                              |
+| `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read. With `--pull-request <number> --message <message>`, for a pull request, as `version` reads it. See [The plan](#the-plan).                                                                                                                                                                                                                                                                                                  |
+| `version`           | The version of every unit that carries one, as a table: current version and the version of the commit at hand. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                                                                                                                                                                                                                                                                                                               |
+| `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                                                                                                                                                                                                                                                                               |
+| `run`               | Runs one check over the files `files` names for it in one unit, with the programs `setup` finds or installs, the way its building block runs it: for the checks `css`, `dockerfile`, `html`, `json`, `markdown`, `rust`, `toml` and `yaml`. The rust check writes the versions of `--plan <file>` before its package test, or, without it, the versions resolved from the history. Every finding names its file, and its line and column where the program gives them; in a workflow run it is an annotation. See [Running a check](#running-a-check). |
+| `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                                                                                                                                                                                                                                                                             |
+| `write-versions`    | Writes the version of every unit with the version writer `cargo` into its `Cargo.toml`, the path dependencies on it and `Cargo.lock`, in the working tree; never committed. With `--plan <file>`, takes the versions from a printed plan instead of the history; with `--workspace <path>`, starts from the units of the workspace at that path.                                                                                                                                                                                                       |
+| `setup`             | Finds or installs the programs that the checks the plan starts call, or those of the checks named, as the register pins them: by default it uses those on the computer and installs the pinned version of what is missing; `--pinned` installs every one into its own folder; `--check` changes nothing. See [Setting up the programs](#setting-up-the-programs).                                                                                                                                                                                      |
+| `release`           | Writes the records of the versions of the commit at hand, as the job `Publish` does after a push to `main`: for every unit the commit touches, a tag on it and a full GitHub Release. Takes the repository, the token and the summary of the run from the variables of a workflow run. See [The release stage](#the-release-stage).                                                                                                                                                                                                                    |
+| `schema`            | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. The TOML check assigns the copy in `schemas/`, which `run` compiles in; [their README](schemas/README.md#nebensound-declarationjson) says how to write that copy again.                                                                                                                                                                                                                                                                 |
+| `register`          | The register as Markdown, exactly as [`docs/register.md`](../../docs/register.md) holds it, which a test compares with this output. Reads no repository.                                                                                                                                                                                                                                                                                                                                                                                               |
+| `ui`                | The same result to walk through. Only in a build with the `ui` feature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
 Exit code: `0` when there is nothing to report; `1` when the repository has a
 problem or cannot be read; `2` when the call itself was wrong. A **warning stops
@@ -506,14 +506,21 @@ runtime on the computer that is too old for the program is not given.
 
 ## Running a check
 
-`run` carries out the checks for CSS, Dockerfiles, HTML, JSON, Markdown, TOML
-and YAML the way their building blocks run them, on any computer the programs
-run on:
+`run` carries out the checks for CSS, Dockerfiles, HTML, JSON, Markdown, Rust,
+TOML and YAML the way their building blocks run them, on any computer the
+programs run on:
 
 ```bash
 nebensound-repo setup --pinned --with-runtimes   # once, or after a change of the register
 nebensound-repo run markdown .                   # the Markdown check of the repository
 ```
+
+The gate decides: what counts is the result of the run on GitHub Actions. A
+run anywhere else comes as close to it as is sensible but can differ, so every
+call of `run` outside a workflow run opens with a line that says so, also one
+that ends in a refusal or an error before the check starts: `Not running in
+GitHub Actions, so the result can differ from the gate's, which is the one that
+counts.` A workflow run's log does not get that line.
 
 It takes exactly the files `files` names for the check and the unit, and a
 pair the plan does not start is refused, as there. A repository with errors
@@ -549,7 +556,7 @@ what Hadolint prints with `--verbose` and judges every finding of its JSON
 report against it.
 
 Every part of a check runs even when one before it failed, so one run reports
-every finding. What the programs print stands in the output. A finding names
+every finding; the Rust check is the exception ([below](#the-rust-check)). What the programs print stands in the output. A finding names
 its file, and its line and column where the program gives them: in a workflow
 run (`GITHUB_ACTIONS=true` without a terminal) as an annotation, elsewhere as a
 line such as `README.md:3: error: MD001/heading-increment …`. A finding that
@@ -560,6 +567,61 @@ In an annotation the file name and the message are escaped the way the runner re
 them, so a name holding `,` or `:` points at its file. Prettier names
 no position for a file it finds unformatted, and check-jsonschema a JSON path
 instead of a line; there the finding names the file alone.
+
+### The Rust check
+
+`run rust` checks the Cargo workspace at the unit's path, and unlike the other
+checks it runs code of the repository. It runs these steps in this order, each
+in a group of the log (`::group::` in a workflow run, its name elsewhere), up to
+the first that fails, which it names below the group as `<step>: failed`:
+
+1. Install the toolchain the workspace pins: `rustup toolchain install` from its
+   `rust-toolchain.toml`, with rustfmt and Clippy.
+2. Find the packages: `cargo metadata --locked` with all features, each local
+   package held against the packages `[[exclude]]` takes out as a whole
+   ([Excluded packages](#excluded-packages)). A member that is not out is
+   checked; a path dependency that is no member and not out is formatted only;
+   what is out is named with its reason and left out of every step.
+3. Formatting: `cargo fmt --package` for the members, rustfmt for the other
+   path dependencies, one call per edition, all with `--check` and
+   `disable_all_formatting=false`. A file rustfmt names is a finding on it;
+   the differences follow.
+4. Clippy with all features and with no default features, `--no-deps` and
+   `-D warnings`.
+5. Tests with all features, the doc tests included, and with no default
+   features.
+6. Documentation with `RUSTDOCFLAGS=-D warnings`.
+7. A release build.
+8. The oldest `rust-version` a checked package claims, compared as numbers,
+   installed with the minimal profile, and the workspace built with it.
+9. Coverage: the nightly toolchain the register pins for the check
+   (`coverage-toolchain`), installed with `llvm-tools-preview`, and
+   cargo-llvm-cov as the register pins it, found as for every other program,
+   at 100% of regions, lines and functions. An excluded package's folder is
+   left uncounted, or its own `.rs` files one by one where another package
+   lies inside it.
+10. The package test: the versions written as `write-versions --workspace
+<unit>` writes them, from the plan `--plan` names or, without it, resolved
+    from the history; every published package that is checked packaged in one
+    `cargo package`, each copied out of the workspace and tested there with its
+    siblings' copies and the other local packages it reaches in place of
+    crates.io. Every `Cargo.toml` and `Cargo.lock` Git tracks is put back as
+    it was, byte for byte, so a developer's working tree keeps what it held.
+
+A workspace whose members are all excluded is only formatted. Every program
+runs in the workspace's folder, without the variables of the computer whose
+names start with `CARGO` or `RUST`, other than `CARGO_HOME` and `RUSTUP_HOME`,
+which only say where Cargo and the toolchains are: so no setting that comes as
+a variable changes what the check finds. Settings that come as files still
+apply, and `run` does not hunt them down: a directory override rustup keeps in
+its settings file (`rustup override set`), which ranks above
+`rust-toolchain.toml`, and Cargo's configuration files in the folders above the
+workspace and in `CARGO_HOME`. A hosted runner has neither, so they are ways a
+local result can differ from the gate's. What the programs print
+stands in the output as it comes; the one finding with a file is the
+formatting's.
+
+### What it hands the programs, and its exit code
 
 What `run` hands the programs (an empty ignore file, the list of files, the
 configurations, the schemas with their own location, the page rules) goes into a folder of its

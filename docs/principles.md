@@ -57,11 +57,15 @@ possible.
 
 **Why.** Rust in the tool has unit tests, a coverage gate and memory safety, and
 it runs the same way on a developer's computer. Shell in a workflow has none of
-that: it is proven only by runs, and every caller runs it.
+that: it is proven only by runs, and every caller runs it. The gate still
+decides: a run on a developer's computer comes as close to it as is sensible,
+says in its first line that its result can differ, and can differ through
+settings that come as files, such as a rustup override on the checkout or
+Cargo's configuration files, which the tool does not neutralise.
 
-**Today.** The checks for CSS, Dockerfiles, HTML, JSON, Markdown, TOML and YAML
-are thin blocks that call the tool, and the release stage in `Publish` is one
-call of the tool. The checks for Rust and Python, the builds, several steps of
+**Today.** The checks for CSS, Dockerfiles, HTML, JSON, Markdown, Rust, TOML and
+YAML are thin blocks that call the tool, and the release stage in `Publish` is
+one call of the tool. The check for Python, the builds, several steps of
 `nebensound.yml` and the actions `tool` and `phase0`, which every job runs, are
 still shell, partly with `jq`;
 `check-python` also embeds Python scripts.
@@ -72,7 +76,10 @@ What can sensibly be done in Rust inside the tool is done there. Where an
 external program is used, it is a standard tool: one that is very widely used
 and maintained. Every external program, action and package stands in one list,
 with its exact version and a digest, in a form an automatic updater reads. So it
-is always clear what is used and what needs an update or a replacement.
+is always clear what is used and what needs an update or a replacement. For the
+language's own toolchain the verification of its installer counts as the
+digest: the register pins the coverage toolchain of the Rust check by its exact
+name, and rustup checks what it downloads.
 
 **Why.** Each external program is code the pipeline trusts with every
 repository. One list makes that trust visible, lets an updater raise it, and
@@ -170,7 +177,6 @@ yet, it says so.
   each block's `action.yml`, shell included, the way the runner does. They are
   the proof for the shell that exists. What becomes of them once every block is
   one call of the tool is decided by no issue yet.
-- **The check for Rust** is shell (rule 3): #74.
 - **The check for Python** is shell with embedded Python scripts (rule 3):
   #113.
 - **The builds** `build-cargo-package` and `build-docker` are shell (rule 3).
@@ -188,9 +194,10 @@ yet, it says so.
 - **The source of actionlint**, whose upstream stands still, and the growing
   list of its messages the YAML check drops (rules 4 and 5): #169.
 - **The programs the tool may start.** `AGENTS.md` and the README allow those of
-  the register, Git, curl and Cargo. Git, curl and Cargo, and further programs
-  the workflow and the blocks call, come from the runner image without a pinned
-  version or digest (rule 4). No issue exists yet.
+  the register, Git, curl, Cargo and the Rust toolchain that rustup provides.
+  Git, curl, Cargo and rustup, and further programs the workflow and the blocks
+  call, come from the runner image without a pinned version or digest (rule 4).
+  No issue exists yet.
 - **One list in a form an updater reads** (rule 4). The register pins programs
   with digests, but Dependabot does not read it, and `AGENTS.md` allows actions
   pinned to a major version, without a digest. The Dependabot file does not

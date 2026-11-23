@@ -95,12 +95,21 @@ fn the_page_names_what_the_register_says() {
             "`.dockerfile`",
             "`Dockerfile`, `Containerfile`",
             "`dockerfmt`, `hadolint`",
+            "none",
         ],
         &[
             "`json`",
             "`.json`, `.jsonc`, `.geojson`",
             "`composer.lock`, `flake.lock`, `Pipfile.lock`",
             "`biome`, `jq`, `prettier`",
+            "none",
+        ],
+        &[
+            "`rust`",
+            "`.rs`",
+            "none",
+            "`cargo-llvm-cov`",
+            "`nightly-2026-11-14`",
         ],
         &[
             "`prettier`",

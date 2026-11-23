@@ -17,7 +17,8 @@ publishes what that declaration says.
 The commands of `nebensound-repo` are limited to the tasks of a repository. The
 tool has no external subcommands and never starts a program because a
 subcommand's name matched it: the programs it starts are those of the register,
-Git, curl and Cargo.
+Git, curl, Cargo and the Rust toolchain that rustup provides (rustup, rustc,
+rustfmt).
 
 ## Status
 
@@ -362,10 +363,15 @@ into the checkout.
 ### `check-rust`
 
 [`.github/actions/check-rust`](.github/actions/check-rust) checks one Cargo
-workspace, the unit's path. The toolchain is the one the workspace pins in its
-`rust-toolchain.toml`; the oldest supported version is the `rust-version` its
-packages claim. Neither is an input, so no repository can tell the check to look
-away:
+workspace, the unit's path. The block sets up cargo-llvm-cov as the register
+pins it and calls `nebensound-repo run rust`, which runs the steps below in this
+order, each in a group of the log, up to the first that fails (see
+[the tool](tools/nebensound-repo/README.md#running-a-check)). The toolchain is
+the one the workspace pins in its `rust-toolchain.toml`; the oldest supported
+version is the `rust-version` its packages claim; coverage is measured on the
+nightly toolchain [the register](docs/register.md#checks) pins for the check.
+The tool installs all three through rustup. None is an input, so no repository
+can tell the check to look away:
 
 - Formatted the way `cargo fmt` writes it: every member, and every path
   dependency that is no member, as `cargo fmt --all` reaches it. Such a
@@ -375,12 +381,13 @@ away:
 - Documentation builds without a warning.
 - A release build succeeds.
 - The workspace builds with the oldest `rust-version` any package claims.
-- Regions, lines and functions are 100% covered (`cargo-llvm-cov`, on a pinned
-  nightly toolchain, where `#[coverage(off)]` takes effect).
+- Regions, lines and functions are 100% covered (`cargo-llvm-cov`, on the
+  pinned nightly toolchain, where `#[coverage(off)]` takes effect).
 - Every published package builds and passes its tests from its own packaged
   contents, outside the source tree. The versions are written first, as
-  [`version-cargo`](#version-cargo) writes them, and put back when the step
-  ends: a package without a version is not published, so only a unit with a
+  [`version-cargo`](#version-cargo) writes them, from the plan the block hands
+  the tool, and every manifest and lockfile is put back as it is committed when
+  the step ends: a package without a version is not published, so only a unit with a
   version is verified here, on a pull request with the version its merge would
   get. The writing starts from the units of the workspace alone, as Cargo
   finds it, and follows their path dependencies wherever they lie, so what
@@ -957,13 +964,16 @@ that kind. The first one teaches it, together with its cases.
 
 Then it runs every block against its cases, each copied into a fresh Git
 repository. The blocks whose check runs from the tool (`check-css`,
-`check-dockerfile`, `check-html`, `check-json`, `check-markdown`, `check-toml`,
-`check-yaml`) hold nothing of their check in their steps, so their cases run
-through the tool itself: the xtask builds the tool of this commit with Cargo,
-runs phase 0 on the case with `nebensound-repo check` and `plan`, as `Declare`
-does, and calls
-`nebensound-repo run` once for every unit the plan starts the check for, in the
-environment of a workflow run, so that the findings are annotations. Before
+`check-dockerfile`, `check-html`, `check-json`, `check-markdown`, `check-rust`,
+`check-toml`, `check-yaml`) hold nothing of their check in their steps, so their
+cases run through the tool itself: the xtask builds the tool of this commit with
+Cargo, runs phase 0 on the case with `nebensound-repo check` and `plan`, as
+`Declare` does, and calls `nebensound-repo run` once for every unit the plan
+starts the check for, in the environment of a workflow run, so that the findings
+are annotations. A block that takes the plan, as `check-rust` does, gets it as
+its step in `nebensound.yml` hands it: the xtask hands it to `run` with
+`--plan`, in a file beside the case. The cases of `check-rust` install the
+toolchains a case needs through rustup, as the check does in a run. Before
 the cases of each such block it sets up the programs of its check with
 `nebensound-repo setup --pinned <check>`, the first of the two calls the block
 makes: it installs the pinned version of every program the check calls where it
@@ -1020,11 +1030,7 @@ it is new enough and otherwise the one the register pins, installed with
 `--with-runtimes`; `check-python` downloads the Node.js that Pyright runs on
 itself. The two stand-ins stay, so that a block calling one of them
 is run as well; for such a step the xtask takes the program already on the
-PATH and fails the step unless it is the version the step asks for. One step
-does not run:
-`Make room on the runner` of `check-rust`, which deletes software of the machine with `sudo`; on a developer's machine,
-that software would be theirs. A step the xtask leaves out has to exist, so
-renaming it fails the xtask instead of letting the step run.
+PATH and fails the step unless it is the version the step asks for.
 
 A step gets only the variables a step on a runner has too: `PATH`, `HOME`, the
 user, the locale, where Cargo, rustup and Go keep their files, the proxy and
