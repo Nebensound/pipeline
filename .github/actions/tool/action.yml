@@ -111,8 +111,19 @@ runs:
     # its start: a file named `a##[warning]x.json` would start a warning
     # wherever its name is printed, with no line break in it. Text that holds
     # `##[` is therefore written the same way, and every `[` right behind `##`
-    # as `\u{5b}`, its escape: `##\u{5b}warning]`. Every other character, and
-    # text that holds neither a control character nor `##[`, stays as it is.
+    # as `\u{5b}`, its escape: `##\u{5b}warning]`.
+    #
+    # A name needs no line break to start a `::` command either: a file at the
+    # root named `::warning::x.json` starts a warning wherever its name begins
+    # a line, a file list above all, and the runner passes over white space in
+    # front. Text that starts with `::`, past such white space, is therefore
+    # written the same way, and the first `:` of that `::` as `\u{3a}`:
+    # `\u{3a}:warning::x.json`. The white space is what the runner passes over
+    # (.NET's `TrimStart`) and is no control character: a space, U+00A0,
+    # U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F and U+3000. A
+    # control character in front, a tab say, is written as its escape, which
+    # starts with `\`, so a `::` behind it starts nothing. Every other
+    # character, and text that holds none of the three, stays as it is.
     #
     # `shown_list` writes so every entry of what comes in on standard input,
     # each ended by a zero byte, one line each: a file list of
@@ -131,7 +142,8 @@ runs:
     # and `:` and `,` cannot end the property early. `property` leaves `##[`
     # as it stands: the runner has no escape for `#` or `[` in a property, so
     # only the name as it stands names the real file, and inside a `::`
-    # command `##[` starts nothing.
+    # command `##[` starts nothing. A leading `::` is written `%3A%3A` there,
+    # which the runner reads back as the real name.
     #
     # The functions are written here, like every other piece of shell of the
     # blocks, rather than kept as a .sh file, which would need the shell
@@ -145,13 +157,29 @@ runs:
         # shown TEXT: TEXT as one line of a step's log, without a line break
         # behind it. See the action tool of Nebensound/pipeline.
         shown() {
-          local text="$1" out="" char code i
-          if [[ "$text" != *[[:cntrl:]]* && "$text" != *'##['* ]]; then
+          local text="$1" out="" char code i colon=-1
+          # The white space in front that the runner passes over and that is
+          # no control character, then whether a `::` follows.
+          for ((i = 0; i < ${#text}; i++)); do
+            case "${text:i:1}" in
+              ' ' | $'\u00a0' | $'\u1680' | $'\u2000' | $'\u2001' | $'\u2002' | \
+                $'\u2003' | $'\u2004' | $'\u2005' | $'\u2006' | $'\u2007' | \
+                $'\u2008' | $'\u2009' | $'\u200a' | $'\u2028' | $'\u2029' | \
+                $'\u202f' | $'\u205f' | $'\u3000') ;;
+              *) break ;;
+            esac
+          done
+          if [[ "${text:i:2}" == '::' ]]; then colon=$i; fi
+          if [[ "$text" != *[[:cntrl:]]* && "$text" != *'##['* && colon -lt 0 ]]; then
             printf '%s' "$text"
             return
           fi
           for ((i = 0; i < ${#text}; i++)); do
             char="${text:i:1}"
+            if ((i == colon)); then
+              out+='\u{3a}'
+              continue
+            fi
             case "$char" in
               $'\t') out+='\t' ;;
               $'\n') out+='\n' ;;

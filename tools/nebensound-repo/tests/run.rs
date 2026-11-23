@@ -1584,6 +1584,51 @@ fn a_file_name_with_the_older_command_form_starts_no_workflow_command() {
 }
 
 #[test]
+fn a_file_name_that_starts_with_colons_starts_no_workflow_command() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.everything();
+    // No line break: dockerfmt prints the name at the start of its line, and
+    // the runner reads a line that starts with `::` as a command.
+    let dockerfile = "::warning::x-unformatted.dockerfile";
+    fixture.file(dockerfile, "FROM scratch\n");
+    let (code, text) = fixture.run(Check::Dockerfile, &[dockerfile], true);
+    assert_eq!(code, 1, "{text}");
+    for line in [
+        "\\u{3a}:warning::x-unformatted.dockerfile",
+        "\\u{3a}:warning::x-unformatted.dockerfile is not formatted",
+        "hadolint about \\u{3a}:warning::x-unformatted.dockerfile",
+        // The tool's own annotation names the real file: `%3A` reads back as
+        // `:`.
+        "::error file=%3A%3Awarning%3A%3Ax-unformatted.dockerfile::not formatted the way \
+         dockerfmt writes it; 'dockerfmt --write' fixes it",
+    ] {
+        has(&text, line);
+    }
+    starts_no_warning(&text);
+}
+
+#[test]
+fn program_output_names_every_part_of_a_path_that_starts_with_colons_as_shown() {
+    let files = ["docs/::warning::x.md".to_owned(), "plain/a.md".to_owned()];
+    let names = run::fragments(&files);
+    // The whole path starts with no `::`; its base name does, and a program
+    // that prints the base name at the start of a line would start the
+    // command.
+    assert_eq!(
+        names,
+        [(
+            "::warning::x.md".to_owned(),
+            "\\u{3a}:warning::x.md".to_owned()
+        )]
+    );
+    assert_eq!(
+        run::flattened("::warning::x.md:1 found\n", &names),
+        "\\u{3a}:warning::x.md:1 found\n"
+    );
+}
+
+#[test]
 fn program_output_names_every_file_with_the_older_command_form_as_shown() {
     let files = [
         "#[plain]##.md".to_owned(),

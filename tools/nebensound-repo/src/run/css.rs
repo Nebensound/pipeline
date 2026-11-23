@@ -83,19 +83,26 @@ const property = (value) => escape(value).replaceAll(":", "%3A").replaceAll(",",
 // A plain log line carries text from the repository too, a file name
 // or a finding in a checked file: a control character in it is
 // written as its escape, the way the tool writes it (`shown`), or a
-// line break would start a workflow command of its own; and so is a
-// `[` right behind `##`, which the runner reads anywhere in a line as
-// the start of the older form of a workflow command.
+// line break would start a workflow command of its own; so is a `[`
+// right behind `##`, which the runner reads anywhere in a line as the
+// start of the older form of a workflow command; and so is the first
+// `:` of a `::` the text starts with, past the white space the runner
+// passes over (.NET's `TrimStart`) that is no control character.
 const escapes = { "\t": "\\t", "\n": "\\n", "\r": "\\r", "\\": "\\\\", "'": "\\'", '"': '\\"' };
 const control = /\p{Cc}/u;
-const flat = (value) =>
-  control.test(value) || /##\[/u.test(value)
-    ? Array.from(value, (char) =>
-        escapes[char] ?? (control.test(char) ? `\\u{${char.codePointAt(0).toString(16)}}` : char),
-      )
-        .join("")
-        .replace(/(?<=##)\[/gu, "\\u{5b}")
-    : value;
+const spaces = /^[ \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*/u;
+const flat = (value) => {
+  if (!control.test(value) && !/##\[/u.test(value) && !value.replace(spaces, "").startsWith("::")) {
+    return value;
+  }
+  const out = Array.from(value, (char) =>
+    escapes[char] ?? (control.test(char) ? `\\u{${char.codePointAt(0).toString(16)}}` : char),
+  )
+    .join("")
+    .replace(/(?<=##)\[/gu, "\\u{5b}");
+  const lead = out.match(spaces)[0].length;
+  return out.startsWith("::", lead) ? `${out.slice(0, lead)}\\u{3a}${out.slice(lead + 1)}` : out;
+};
 const message = (error) => (error instanceof Error ? error.message : String(error));
 
 const list = fs.readFileSync(LIST, "utf8").split("\0").filter((file) => file !== "");

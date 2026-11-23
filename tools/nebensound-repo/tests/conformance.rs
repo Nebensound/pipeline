@@ -609,6 +609,38 @@ fn an_annotation_names_the_place_in_its_file_and_escapes_what_would_end_it() {
 }
 
 #[test]
+fn an_annotation_names_the_real_file_whatever_command_its_name_holds() {
+    // Inside a line the runner reads as a `::` command it looks for neither
+    // form, so `file=` keeps the name as it stands, and `%3A` reads back as
+    // `:`. Only a control character is written as its escape there.
+    let names = ["::warning::x.md", "a##[warning]x.md", "c\nd.md"];
+    let mut analysis = analysis(QUIET, &names);
+    let at = |value: &str| RelativePath::new(value).expect("a path in the fixture");
+    let loose = analysis.tree.attach(
+        names
+            .iter()
+            .map(|name| Finding::warning(Rule::PointlessExclusion, "odd name").at(at(name)))
+            .collect(),
+    );
+    assert!(loose.is_empty(), "{loose:?}");
+    let text = report::annotations(&analysis);
+
+    for line in [
+        "::warning file=%3A%3Awarning%3A%3Ax.md,title=pointless-exclusion::[pointless-exclusion] \
+         at ::warning::x.md: odd name",
+        "::warning file=a##[warning]x.md,title=pointless-exclusion::[pointless-exclusion] at \
+         a##\\u{5b}warning]x.md: odd name",
+        "::warning file=c\\nd.md,title=pointless-exclusion::[pointless-exclusion] at c\\nd.md: \
+         odd name",
+    ] {
+        assert!(
+            text.lines().any(|found| found == line),
+            "{line}\nin\n{text}"
+        );
+    }
+}
+
+#[test]
 fn a_terminal_is_told_before_the_run_it_is_attached_in() {
     assert_eq!(Output::detect(true, false), Output::Workflow);
     assert_eq!(Output::detect(true, true), Output::Terminal);

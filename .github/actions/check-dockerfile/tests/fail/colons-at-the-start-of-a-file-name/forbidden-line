@@ -1,0 +1,3 @@
+# The warning the name of the file would start, were it printed as it stands at
+# the start of a line: in dockerfmt's line about it and in the file list.
+::warning::x*

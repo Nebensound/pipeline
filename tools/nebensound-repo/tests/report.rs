@@ -118,7 +118,7 @@ fn a_line_break_in_the_path_of_a_unit_is_written_as_an_escape() {
 }
 
 #[test]
-fn escapes_control_characters_and_the_older_command_form_as_the_shell_and_scripts_do() {
+fn escapes_what_would_start_a_command_as_the_shell_and_scripts_do() {
     for (text, expected) in [
         ("plain", "plain"),
         ("caf\u{e9} \"q\" \\", "caf\u{e9} \"q\" \\"),
@@ -137,6 +137,20 @@ fn escapes_control_characters_and_the_older_command_form_as_the_shell_and_script
         ),
         ("a\n##[warning]x", "a\\n##\\u{5b}warning]x"),
         ("#[derive] # [ #\u{200b}#[", "#[derive] # [ #\u{200b}#["),
+        // The runner reads a line that starts with `::`, past white space,
+        // as a command: the first `:` of that `::` is written as its escape.
+        // White space there is what the runner passes over and is no control
+        // character; a control character in front is an escape that starts
+        // with `\`, and a `::` behind it starts nothing.
+        ("::warning::x.json", "\\u{3a}:warning::x.json"),
+        (" \u{a0}::x \"q\"", " \u{a0}\\u{3a}:x \\\"q\\\""),
+        ("\u{3000}\u{2028}::", "\u{3000}\u{2028}\\u{3a}:"),
+        ("  ::a##[b]\n", "  \\u{3a}:a##\\u{5b}b]\\n"),
+        ("\t::x", "\\t::x"),
+        ("\u{200b}::x", "\u{200b}::x"),
+        ("\u{feff}::x", "\u{feff}::x"),
+        ("a::b", "a::b"),
+        (":x", ":x"),
     ] {
         assert_eq!(report::shown(text), expected, "{text:?}");
     }

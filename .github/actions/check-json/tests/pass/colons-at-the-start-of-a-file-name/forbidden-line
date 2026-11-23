@@ -1,0 +1,4 @@
+# The warnings the names of the files would start, were they printed as they
+# stand at the start of a line.
+::warning::x*
+::warning::y*

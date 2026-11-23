@@ -124,12 +124,15 @@ Text from the repository goes into a step's log escaped: Git allows a line
 break in a file name, and a value of the declaration holds whatever someone
 wrote, while the runner reads a line of the log that starts with `::` as a
 workflow command, one that could add an annotation of its own or stop the
-commands of the step. The runner also reads an older form, `##[name]data`, and
-that one anywhere in a line, so a file named `a##[warning]x.json` would start a
-warning wherever its name is printed. So a control character in a file name, a
-unit's path or a reason is written as its escape, a line break as `\n`, and a
-`[` right behind `##` as `\u{5b}`, its escape (`##\u{5b}warning]`), the same
-way everywhere. The tool writes it so in its report and in `run`, also where a
+commands of the step. Such a line needs no line break either: a file at the
+root named `::warning::x.json` starts a warning wherever its name begins a
+line, and the runner passes over white space in front. The runner also reads an
+older form, `##[name]data`, and that one anywhere in a line, so a file named
+`a##[warning]x.json` would start a warning wherever its name is printed. So a
+control character in a file name, a unit's path or a reason is written as its
+escape, a line break as `\n`; a `[` right behind `##` as `\u{5b}`, its escape
+(`##\u{5b}warning]`); and the first `:` of a `::` the text starts with, past
+white space, as `\u{3a}` (`\u{3a}:warning::x.json`), the same way everywhere. The tool writes it so in its report and in `run`, also where a
 program it starts names one of the check's files, and so do the scripts `run`
 hands Stylelint and html-validate. The blocks written in shell and the steps of
 `nebensound.yml` source the functions `shown`, `shown_list` and
@@ -140,7 +143,8 @@ way. Nothing else is escaped, so a decomposed accent still reads as the
 accent. A path in the `file=` property of an annotation goes through the
 function `property` of that file, which escapes it the way the runner reads it
 back, so that the annotation stays on the real file; inside such a `::`
-command the runner does not look for `##[`. What a program prints about the
+command the runner does not look for `##[`, and a leading `::` is written
+`%3A%3A` there, which it reads back as the real name. What a program prints about the
 repository beyond that stands as it prints it: where the repository's own code
 runs, in `check-rust`, `check-python` and the builds, that code could print any
 line itself.
@@ -899,7 +903,8 @@ followed by `::warning::x` and forbid that warning: the passing ones of
 `check-dockerfile`, where dockerfmt names the unformatted file in its own
 output, so it fails without the escaping of program output in `run`. The cases
 `older-command-form-in-a-file-name` do the same for a file whose name holds
-`##[warning]x`, in the same three blocks.
+`##[warning]x`, and the cases `colons-at-the-start-of-a-file-name` for a file
+at the root whose name starts with `::warning::`, in the same three blocks.
 
 `cargo xtask check --all` first holds the blocks, the register and
 `nebensound.yml` to each other:

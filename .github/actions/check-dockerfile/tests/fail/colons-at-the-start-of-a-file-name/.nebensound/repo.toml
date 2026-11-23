@@ -1,0 +1,9 @@
+# An unformatted Dockerfile at the root whose name starts with `::warning::x`.
+# dockerfmt names an unformatted file at the start of a line on its own
+# output, as the name stands, and the runner reads a line that starts with
+# `::` as a workflow command, so it would start a warning were the tool to
+# print that output unchanged: the check fails on the file, writes dockerfmt's
+# line with the first `:` escaped, and starts no command.
+[repo]
+audience = "public"
+pipeline = { check = ["dockerfile"], dependabot = ["docker"] }

@@ -1,0 +1,9 @@
+# Two formatted JSON files at the root whose names start with `::warning::`,
+# the second behind an ideographic space (U+3000). The runner reads a line that
+# starts with `::`, once white space in front is passed over, as a workflow
+# command, so either name printed as it stands at the start of a line would
+# start a warning with no line break in it: the check names both files with
+# the first `:` escaped, and starts no command.
+[repo]
+audience = "public"
+pipeline = "none"

@@ -35,8 +35,9 @@ description: >-
 # path of the unit, is written through `shown`, `shown_list` and
 # `shown_findings`, which the action `tool` writes for the job
 # (NEBENSOUND_SHOWN), and in the Python scripts through a function `shown`
-# that writes it the same way, so that neither a line break nor `##[` in it
-# starts a workflow command. What a program prints stands as the program
+# that writes it the same way, so that neither a line break, nor `##[`, nor
+# a `::` it starts with starts a workflow command. What a program prints
+# stands as the program
 # prints it: the project's own code runs in this check, its tests above all,
 # and could print any line itself.
 
@@ -605,20 +606,35 @@ runs:
             files = [name for name in file.read().decode().split("\0") if name]
 
 
+        # The white space the runner passes over in front of a `::` command
+        # (.NET's `TrimStart`) that is no control character.
+        SPACES = " \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
+
+
         def shown(value):
             """Text from the repository as one line of the log, written the way
             the shell function `shown` of the action tool writes it: a control
-            character, a line break above all, as its escape, and a `[` right
+            character, a line break above all, as its escape; a `[` right
             behind `##` as `\\u{5b}`, since the runner reads `##[` anywhere in
-            a line as the start of the older form of a workflow command."""
-            if "##[" not in value and not any(unicodedata.category(char) == "Cc" for char in value):
+            a line as the start of the older form of a workflow command; and
+            the first `:` of a `::` the text starts with, past white space, as
+            `\\u{3a}`, since the runner reads such a line as a command."""
+            if (
+                "##[" not in value
+                and not value.lstrip(SPACES).startswith("::")
+                and not any(unicodedata.category(char) == "Cc" for char in value)
+            ):
                 return value
             escapes = {"\t": "\\t", "\n": "\\n", "\r": "\\r", "\\": "\\\\", "'": "\\'", '"': '\\"'}
-            return "".join(
+            out = "".join(
                 escapes.get(char)
                 or (f"\\u{{{ord(char):x}}}" if unicodedata.category(char) == "Cc" else char)
                 for char in value
             ).replace("##[", "##\\u{5b}")
+            rest = out.lstrip(SPACES)
+            if rest.startswith("::"):
+                out = out[: len(out) - len(rest)] + "\\u{3a}" + rest[1:]
+            return out
 
 
         def escaped(value, property=False):
@@ -1008,20 +1024,35 @@ runs:
         root, unit, listed, report = sys.argv[1:5]
 
 
+        # The white space the runner passes over in front of a `::` command
+        # (.NET's `TrimStart`) that is no control character.
+        SPACES = " \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
+
+
         def shown(value):
             """Text from the repository as one line of the log, written the way
             the shell function `shown` of the action tool writes it: a control
-            character, a line break above all, as its escape, and a `[` right
+            character, a line break above all, as its escape; a `[` right
             behind `##` as `\\u{5b}`, since the runner reads `##[` anywhere in
-            a line as the start of the older form of a workflow command."""
-            if "##[" not in value and not any(unicodedata.category(char) == "Cc" for char in value):
+            a line as the start of the older form of a workflow command; and
+            the first `:` of a `::` the text starts with, past white space, as
+            `\\u{3a}`, since the runner reads such a line as a command."""
+            if (
+                "##[" not in value
+                and not value.lstrip(SPACES).startswith("::")
+                and not any(unicodedata.category(char) == "Cc" for char in value)
+            ):
                 return value
             escapes = {"\t": "\\t", "\n": "\\n", "\r": "\\r", "\\": "\\\\", "'": "\\'", '"': '\\"'}
-            return "".join(
+            out = "".join(
                 escapes.get(char)
                 or (f"\\u{{{ord(char):x}}}" if unicodedata.category(char) == "Cc" else char)
                 for char in value
             ).replace("##[", "##\\u{5b}")
+            rest = out.lstrip(SPACES)
+            if rest.startswith("::"):
+                out = out[: len(out) - len(rest)] + "\\u{3a}" + rest[1:]
+            return out
 
 
         def escaped(value, property=False):

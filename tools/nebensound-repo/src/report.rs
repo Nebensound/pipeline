@@ -22,25 +22,47 @@ const COLUMN: usize = 56;
 /// something the reader never asked for. The path keeps its bytes for the
 /// analysis; only what is shown is escaped.
 ///
-/// The runner of GitHub Actions also reads an older form of a workflow
-/// command, `##[name]data`, and it looks for that form anywhere in a line, not
-/// only at its start. A file named `a##[warning]x.json` would start a warning
-/// wherever its name is printed, with no line break in it.
+/// The runner of GitHub Actions reads a line as a workflow command in two
+/// forms. The form `::name::data` counts when the line starts with it once
+/// white space in front is passed over, so a file named `::warning::x.json`
+/// starts a warning wherever its name begins a line, with no line break in
+/// it. The older form `##[name]data` counts anywhere in a line, so a file
+/// named `a##[warning]x.json` starts one wherever its name is printed.
 ///
-/// Text that holds a control character (Unicode category `Cc`) or `##[` has
-/// every control character written as its escape: a tab as `\t`, a line break
-/// as `\n`, a carriage return as `\r`, any other as `\u{<hex>}`; a backslash
-/// and a quote get a backslash in front; and a `[` right behind `##` is
-/// written as `\u{5b}`, its escape, so that `##[warning]` reads
-/// `##\u{5b}warning]`. Every other character stays as it is, so a decomposed
-/// accent reads as the accent. Text with neither stays as it is. The shell
-/// function `shown` of the action `tool` and the copies in the scripts the
-/// checks run write the same.
+/// Text that holds a control character (Unicode category `Cc`) or `##[`, or
+/// that starts with `::` once white space is passed over, is written this
+/// way: every control character as its escape, a tab as `\t`, a line break as
+/// `\n`, a carriage return as `\r`, any other as `\u{<hex>}`; a backslash and
+/// a quote with a backslash in front; a `[` right behind `##` as `\u{5b}`, its
+/// escape, so that `##[warning]` reads `##\u{5b}warning]`; and the first `:` of
+/// a `::` the text starts with, past white space, as `\u{3a}`, so that
+/// `::warning::x` reads `\u{3a}:warning::x`. White space here is what the
+/// runner passes over and is no control character: a space, U+00A0, U+1680,
+/// U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F and U+3000. Every other
+/// character stays as it is, so a decomposed accent reads as the accent. Other
+/// text stays as it is. The shell function `shown` of the action `tool` and
+/// the copies in the scripts the checks run write the same.
 #[must_use]
 pub fn shown(text: &str) -> String {
-    if !text.chars().any(char::is_control) && !text.contains(OLDER_FORM) {
+    if !text.chars().any(char::is_control)
+        && !text.contains(OLDER_FORM)
+        && command_start(text).is_none()
+    {
         return text.to_owned();
     }
+    // No escape writes or replaces a `#`, a `[`, a `:` or white space that is
+    // no control character, so both forms stand in the escaped text exactly
+    // where they stand in the text, and a control character in front of a
+    // `::` is now an escape that starts with `\`.
+    let out = escaped(text).replace(OLDER_FORM, "##\\u{5b}");
+    match command_start(&out) {
+        Some(at) => format!("{}\\u{{3a}}{}", &out[..at], &out[at + 1..]),
+        None => out,
+    }
+}
+
+/// Every character of `text` as [`shown`] writes it, one by one.
+fn escaped(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for character in text.chars() {
         match character {
@@ -55,9 +77,15 @@ pub fn shown(text: &str) -> String {
             _ => out.push(character),
         }
     }
-    // No escape above writes a `#` or a `[` or replaces one, so `##[` stands
-    // in `out` exactly where it stands in the text.
-    out.replace(OLDER_FORM, "##\\u{5b}")
+    out
+}
+
+/// Where the `::` that `text` starts with lies, once the white space in front
+/// that [`shown`] names is passed over; nothing when it starts with none.
+fn command_start(text: &str) -> Option<usize> {
+    let rest = text
+        .trim_start_matches(|character: char| character.is_whitespace() && !character.is_control());
+    rest.starts_with("::").then(|| text.len() - rest.len())
 }
 
 /// How the older form of a workflow command starts: see [`shown`].
@@ -385,8 +413,20 @@ fn data(text: &str) -> String {
 }
 
 /// A property of a workflow command, where `:` and `,` end the value as well.
+///
+/// A control character is written as its escape, as [`shown`] writes it, and
+/// nothing else of [`shown`] applies: inside a line the runner reads as a `::`
+/// command it looks for neither form, and only the path as it stands names
+/// the real file.
 fn property(text: &str) -> String {
-    data(text).replace(':', "%3A").replace(',', "%2C")
+    let text = if text.chars().any(char::is_control) {
+        escaped(text)
+    } else {
+        text.to_owned()
+    };
+    text.replace('%', "%25")
+        .replace(':', "%3A")
+        .replace(',', "%2C")
 }
 
 /// The summary line with the counts.
