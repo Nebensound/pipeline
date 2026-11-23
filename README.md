@@ -886,11 +886,12 @@ A case of either kind may also hold a file `forbidden-line`, which names lines
 the block must not print, written the same way: no line the block prints may
 match one of them, read the way the runner reads a workflow command, from its
 first character that is not white space. Such a line fails the case whatever
-else the block did. It is not part of the case's repository either. The
-passing cases `line-break-in-a-file-name` of `check-json` and `check-rust`
-hold a file whose name holds a line break followed by `::warning::x` and
-forbid that warning, for a check that runs from the tool and a block written
-in shell.
+else the block did. It is not part of the case's repository either. The cases
+`line-break-in-a-file-name` hold a file whose name holds a line break followed
+by `::warning::x` and forbid that warning: the passing ones of `check-rust` (a
+block written in shell) and `check-json`, and the failing one of
+`check-dockerfile`, where dockerfmt names the unformatted file in its own
+output, so it fails without the escaping of program output in `run`.
 
 `cargo xtask check --all` first holds the blocks, the register and
 `nebensound.yml` to each other:
