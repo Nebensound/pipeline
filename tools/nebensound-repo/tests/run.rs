@@ -599,6 +599,28 @@ fn nothing_to_check_is_said_and_passes() {
 }
 
 #[test]
+fn outside_a_workflow_run_the_first_line_says_the_gate_decides() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    let outside = "Not running in GitHub Actions, so the result can differ from the gate's, \
+                   which is the one that counts.";
+    assert_eq!(run::OUTSIDE, outside);
+    // Every check, whether or not it has files: the line is written before
+    // anything else.
+    let (code, text) = fixture.run(Check::Yaml, &[], false);
+    assert_eq!(code, 0, "{text}");
+    assert_eq!(
+        text,
+        format!("{outside}\nNo YAML file below '.'; there is nothing to check.\n")
+    );
+    // Read as a plain line, it is no finding.
+    assert_eq!(run::plain(outside).as_deref(), Some(outside));
+    // A workflow run does not get it: the gate's log stays as it was.
+    let (_, text) = fixture.run(Check::Json, &[], true);
+    assert!(!text.contains("GitHub Actions"), "{text}");
+}
+
+#[test]
 fn a_missing_program_fails_the_check_and_names_setup() {
     let _alone = alone();
     let fixture = Fixture::new();
@@ -1312,7 +1334,13 @@ fn the_call_refuses_what_it_does_not_run() {
     );
     let (text, code) = call(&["nebensound-repo", "-C", root, "run", "json", "."]);
     assert_eq!(code, 0, "{text}");
-    assert_eq!(text, "No JSON file below '.'; there is nothing to check.\n");
+    assert_eq!(
+        text,
+        format!(
+            "{}\nNo JSON file below '.'; there is nothing to check.\n",
+            run::OUTSIDE
+        )
+    );
 }
 
 #[test]
@@ -1341,7 +1369,9 @@ fn the_binary_runs_a_check_with_the_programs_of_the_computer() {
         .expect("the built binary");
     let text = String::from_utf8_lossy(&output.stdout);
     assert_eq!(output.status.code(), Some(1), "{text}");
-    has(&text, "2 TOML file(s) to check:");
+    // A workflow run's log, as `GITHUB_ACTIONS` and a pipe make it, opens
+    // with the check itself.
+    assert!(text.starts_with("2 TOML file(s) to check:\n"), "{text}");
     assert!(
         text.contains("::error file=unformatted.toml::does not parse"),
         "{text}"

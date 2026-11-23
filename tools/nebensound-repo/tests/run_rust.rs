@@ -793,6 +793,7 @@ fn outside_a_workflow_run_a_finding_is_a_line() {
     );
     has(&text, "Formatting");
     assert!(!text.contains("::"), "{text}");
+    assert_eq!(text.lines().next(), Some(run::OUTSIDE), "{text}");
 }
 
 #[test]

@@ -25,6 +25,11 @@
 //! line that starts with `file:line:col:`. A finding that fails nothing, such
 //! as a Hadolint finding below the failure threshold, is a warning. What the
 //! programs print stands in the output as well.
+//!
+//! The gate decides: what counts is the result of the run on GitHub Actions.
+//! A run anywhere else comes as close to it as is sensible, and is never the
+//! same in every case, so for every check its first line says so
+//! ([`OUTSIDE`]). In a workflow run that line is not written.
 
 pub mod css;
 pub mod dockerfile;
@@ -61,6 +66,12 @@ use crate::writer::Order;
 /// command line has a limit, the smallest on Windows; a longer list is handed
 /// over in several calls, as `xargs` would.
 pub const ARGUMENTS: usize = 30_000;
+
+/// The first line of a check run outside a workflow run. It is neither a
+/// finding nor a workflow command, so nothing that reads findings off the
+/// output takes it for one.
+pub const OUTSIDE: &str = "Not running in GitHub Actions, so the result can differ from the \
+                           gate's, which is the one that counts.";
 
 /// One of the checks `run` carries out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -176,7 +187,7 @@ pub struct Packages<'a> {
 
 /// Runs the check over these files of the unit, prints what the programs
 /// print and every finding, and returns the exit code: 0 when nothing was
-/// found, 1 otherwise.
+/// found, 1 otherwise. Outside a workflow run, [`OUTSIDE`] comes first.
 pub fn run(
     context: &Context<'_>,
     check: Check,
@@ -188,6 +199,9 @@ pub fn run(
         out,
         workflow: context.workflow,
     };
+    if !context.workflow {
+        log.line(OUTSIDE);
+    }
     let noun = check.noun();
     if files.is_empty() {
         log.line(&format!(
