@@ -106,8 +106,8 @@ fills ([`.github/actions/tool`](.github/actions/tool)); it builds the tool
 only when the cache misses. The list does not travel through a job output,
 which is limited in size.
 
-The checks for CSS, Dockerfiles, JSON, Markdown, TOML and YAML run from the
-tool. Their blocks do two things:
+The checks for CSS, Dockerfiles, HTML, JSON, Markdown, TOML and YAML run from
+the tool. Their blocks do two things:
 `nebensound-repo setup --pinned --with-runtimes <check>` puts the pinned
 version of every program the check calls into the tool's folder in the cache
 directory, with a runtime one of them needs where the runner has none that is
@@ -125,11 +125,12 @@ once `nebensound-repo setup` has put the programs in place. `run` installs
 nothing: it takes the pinned copy of a program first and the computer's
 otherwise, and fails with a pointer to `setup` where there is neither, while
 the parts of the check whose programs are there still run.
-markdownlint-cli2, Stylelint and yamllint are run through their internals, so
-that the repository's rules are laid over the pipeline's default, and of those
-three `run` takes only the pinned copy. What `run` hands the programs, its
-configuration for Biome, the schemas for Taplo and the pipeline's linter
-defaults, is compiled into the tool.
+html-validate, markdownlint-cli2, Stylelint and yamllint are run through their
+internals, so that the repository's rules are laid over the pipeline's default,
+and of those four `run` takes only the pinned copy. What `run` hands the
+programs, its configuration for Biome, the schemas for Taplo, the pipeline's
+linter defaults and the page rules of the HTML check, is compiled into the
+tool.
 
 ### `check-css`
 
@@ -179,8 +180,9 @@ Both parts run even when the other failed, so one run shows every finding.
 ### `check-html`
 
 [`.github/actions/check-html`](.github/actions/check-html) checks every `.html`
-and `.htm` file of the unit. HTML that a build generates is checked like
-written HTML once it is committed; the build output of a run is not.
+and `.htm` file of the unit through `nebensound-repo run html`. HTML that a
+build generates is checked like written HTML once it is committed; the build
+output of a run is not.
 
 - Formatted the way Prettier writes it, run as in `check-json`.
 - No html-validate finding, with the repository's configuration laid over the
@@ -195,22 +197,29 @@ written HTML once it is committed; the build output of a run is not.
   empty `alt=""` counts, for an image that only decorates). A page is a file
   whose document begins with `<!doctype html>` or has an `<html>` root; any
   other HTML file, such as a fragment or header a generator includes, gets the
-  checks above without these. The page rules are html-validate rules shipped
-  beside the block ([`page-rules.mjs`](.github/actions/check-html/page-rules.mjs)),
-  switched on after the repository's configuration, so neither that
-  configuration nor an inline `html-validate-disable` comment switches them
-  off: only an `[[exclude]]` entry takes a page out. Each finding names the
-  page, the line and the field.
+  checks above without these. The page rules are html-validate rules compiled
+  into the tool
+  ([`src/run/html.rs`](tools/nebensound-repo/src/run/html.rs)), switched on
+  after the repository's configuration, so neither that configuration nor an
+  inline `html-validate-disable` comment switches them off: only an
+  `[[exclude]]` entry takes a page out. Each finding names the page, the line
+  and the field. Every html-validate finding is an annotation at its line and
+  column: an error fails the check, a warning fails nothing.
 - Every link into the repository leads to a file and an `id` that exist,
   lychee run as in `check-markdown`, with the same `lychee.toml` handling: a
   stylesheet or an image counts as much as an anchor. A link from the root of a
   site, such as `/style.css` or `/login`, is not checked, since where the site
   is served is not in the declaration; links to the outside are not checked in
-  a pull request.
+  a pull request. lychee's report stands in the output, and every broken link
+  in it is a finding on the page that holds it, at the line and column lychee
+  names.
 
-A template that does not parse as HTML needs an `[[exclude]]` entry with its
-reason. Every step runs even when one before it failed, so one run shows every
-finding.
+html-validate is pinned in the register, and `setup` installs nothing beside
+it: a configuration that names another package, such as a plugin, fails,
+naming it. `run` takes only the pinned html-validate, since it calls
+html-validate's internals, and starts it on its runtime, Node.js. A template
+that does not parse as HTML needs an `[[exclude]]` entry with its reason. Every
+part runs even when one before it failed, so one run shows every finding.
 
 ### `check-json`
 
@@ -580,9 +589,8 @@ pipeline:
 (`stylelint-config-standard`, for `.scss` `stylelint-config-standard-scss`) and
 [`tools/nebensound-repo/rules/html-validate.json`](tools/nebensound-repo/rules/html-validate.json)
 (the presets `recommended` and `a11y`, less what contradicts Prettier through
-html-validate's own preset `prettier`). `run` hands the linter the default
-compiled into the tool of the pipeline version that runs, and `check-html` reads
-its own from there. A repository's own
+html-validate's own preset `prettier`). `run` hands each linter the default
+compiled into the tool of the pipeline version that runs. A repository's own
 configuration is laid over that default rule by rule: its file names only the
 rules it wants different, every rule it does not name keeps the default's value,
 and a later change of the default reaches it without a change of its own.
@@ -641,7 +649,7 @@ over the other rule by rule, and what the repository's `extends` names comes
 along over the default as well. An `overrides` entry matches its `files` from
 the repository root. html-validate reads the `.htmlvalidate.json` (`.mjs`,
 `.cjs`, `.js`) of a page's folder and of every folder above it, up to one that
-says `root: true`; `check-html` lays them over the default, the nearer over
+says `root: true`; `run html` lays them over the default, the nearer over
 the farther. The page rules lie over everything and cannot be switched off.
 Both checks find only the pinned packages, so a configuration that names
 another one, such as a plugin, fails with the package named.
@@ -900,11 +908,11 @@ that kind. The first one teaches it, together with its cases.
 
 Then it runs every block against its cases, each copied into a fresh Git
 repository. The blocks whose check runs from the tool (`check-css`,
-`check-dockerfile`, `check-json`, `check-markdown`, `check-toml`, `check-yaml`)
-hold nothing of their check in their steps, so their cases run through the
-tool itself: the xtask builds the tool of this commit with Cargo, runs phase 0
-on the case with `nebensound-repo check` and `plan`, as `Declare` does, and
-calls
+`check-dockerfile`, `check-html`, `check-json`, `check-markdown`, `check-toml`,
+`check-yaml`) hold nothing of their check in their steps, so their cases run
+through the tool itself: the xtask builds the tool of this commit with Cargo,
+runs phase 0 on the case with `nebensound-repo check` and `plan`, as `Declare`
+does, and calls
 `nebensound-repo run` once for every unit the plan starts the check for, in the
 environment of a workflow run, so that the findings are annotations. Before
 the cases of each such block it sets up the programs of its check with
@@ -946,14 +954,13 @@ stands in:
 | `Swatinem/rust-cache`, `actions/cache/restore`, `actions/cache/save` | Nothing: a cache changes how fast a step runs, not what it finds.                                              |
 | `actions/upload-artifact`                                            | Nothing leaves the machine, but every path the step names has to exist, as `if-no-files-found: error` demands. |
 
-Any other such action fails the xtask until it has a stand-in. Of the blocks,
-`check-html` calls `actions/setup-node` for Node.js 24, and none calls
-`actions/setup-go`; for such a step the xtask takes the `node` already on
-the PATH and fails the step unless it is version 24. In the gate, that is the
-Node.js of the runner image: no step before the xtask in `Check repository`
-puts one on the PATH, and `nebensound-repo setup` there finds it and installs
-none. On a developer's machine it is their own, which `cargo xtask setup`
-checks on Linux and does not install. One step does not run:
+Any other such action fails the xtask until it has a stand-in. No block calls
+`actions/setup-node` or `actions/setup-go` today: the checks that run from the
+tool get Node.js from `nebensound-repo setup`, and `check-python` downloads the
+Node.js that Pyright runs on itself. The two stand-ins stay, so that a block calling one of them
+is run as well; for such a step the xtask takes the program already on the
+PATH and fails the step unless it is the version the step asks for. One step
+does not run:
 `Make room on the runner` of `check-rust`, which deletes software of the machine with `sudo`; on a developer's machine,
 that software would be theirs. A step the xtask leaves out has to exist, so
 renaming it fails the xtask instead of letting the step run.
@@ -995,12 +1002,11 @@ take the pinned programs `cargo xtask check --all` sets up itself, and a
 runtime from the computer or from `--with-runtimes`. Then, on Linux, it checks
 what only the cases of the other blocks need: a program an action of their
 steps would put on the `PATH`, in the version the step asks for (read from
-their `action.yml`), Docker with Buildx, jq, npm and rustup. It
+their `action.yml`), Docker with Buildx, jq and rustup. It
 installs none of these, since they stay the machine's, but names each one that
 is missing or of another version and exits with `1` then, so that a machine it
 passes can run the cases. `nebensound-repo setup` may have put a jq into its
-cache, but the steps look for jq on the `PATH`. npm is asked for apart from
-Node.js, since some systems ship it as a package of its own. That the Docker
+cache, but the steps look for jq on the `PATH`. That the Docker
 daemon runs is not checked; the cases of `build-docker` fail without it. On
 another system those cases do not run, so `setup` leaves out what only they
 need and says so, and its exit code is the tool's.

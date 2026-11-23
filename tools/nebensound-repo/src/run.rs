@@ -4,12 +4,12 @@
 //! The files are those `files` names for the check and the unit. The programs
 //! are those the register names for the check, found the way
 //! [`locate`](crate::setup::find::locate) finds them: the pinned copy in the
-//! tool's folder first, the one on the computer otherwise. Three of them are
+//! tool's folder first, the one on the computer otherwise. Four of them are
 //! called through their internals, so that the repository's rules are laid
-//! over the pipeline's default: markdownlint-cli2, Stylelint and yamllint. Of
-//! those three only the pinned copy is taken, since only its internals are
-//! known. A program that is not there fails the check and names `setup`,
-//! which installs it; `run` installs nothing.
+//! over the pipeline's default: html-validate, markdownlint-cli2, Stylelint
+//! and yamllint. Of those four only the pinned copy is taken, since only its
+//! internals are known. A program that is not there fails the check and names
+//! `setup`, which installs it; `run` installs nothing.
 //!
 //! Every program is called with the flags that set its own ignore mechanisms
 //! aside: what is not to be checked is not in the list. Each part of a check
@@ -24,7 +24,9 @@
 
 pub mod css;
 pub mod dockerfile;
+pub mod html;
 pub mod json;
+mod links;
 pub mod markdown;
 pub mod toml;
 pub mod yaml;
@@ -59,6 +61,8 @@ pub enum Check {
     Css,
     /// `Dockerfile`, `Containerfile` and `.dockerfile` files.
     Dockerfile,
+    /// `.html` and `.htm` files.
+    Html,
     /// `.json`, `.jsonc` and `.geojson` files and the JSON lockfiles.
     Json,
     /// `.md` and `.markdown` files.
@@ -76,6 +80,7 @@ impl Check {
         match name {
             "css" => Some(Self::Css),
             "dockerfile" => Some(Self::Dockerfile),
+            "html" => Some(Self::Html),
             "json" => Some(Self::Json),
             "markdown" => Some(Self::Markdown),
             "toml" => Some(Self::Toml),
@@ -90,6 +95,7 @@ impl Check {
         match self {
             Self::Css => "css",
             Self::Dockerfile => "dockerfile",
+            Self::Html => "html",
             Self::Json => "json",
             Self::Markdown => "markdown",
             Self::Toml => "toml",
@@ -102,6 +108,7 @@ impl Check {
         match self {
             Self::Css => "stylesheet",
             Self::Dockerfile => "Dockerfile",
+            Self::Html => "HTML file",
             Self::Json => "JSON file",
             Self::Markdown => "Markdown file",
             Self::Toml => "TOML file",
@@ -162,6 +169,7 @@ pub fn run(
     let passed = match check {
         Check::Css => css::run(&mut session),
         Check::Dockerfile => dockerfile::run(&mut session),
+        Check::Html => html::run(&mut session),
         Check::Json => json::run(&mut session),
         Check::Markdown => markdown::run(&mut session),
         Check::Toml => toml::run(&mut session),

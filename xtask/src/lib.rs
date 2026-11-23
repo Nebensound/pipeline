@@ -16,8 +16,8 @@
 //!   `--with-runtimes` a runtime one of them needs. Then, on
 //!   Linux, it checks what only the cases of the other blocks need
 //!   ([`MACHINE`]): a program an action of a block's step would put on the
-//!   `PATH`, in the version the step asks for, Docker with Buildx, jq, npm
-//!   and rustup. It installs none of them: the blocks fetch their own programs
+//!   `PATH`, in the version the step asks for, Docker with Buildx, jq and
+//!   rustup. It installs none of them: the blocks fetch their own programs
 //!   when the cases run them, and these stay the machine's, so it names each
 //!   one that is missing. Elsewhere those cases do not run, so it leaves them
 //!   out and says why.
@@ -53,14 +53,11 @@ const MISUSE: u8 = 2;
 /// the command that shows it is there. Phase 0, `check-python` and
 /// `check-rust` run jq; `nebensound-repo setup` can install a jq of its own,
 /// but into its cache and not onto the `PATH` the steps search. `build-docker`
-/// builds with Docker's Buildx and starts what it built with Docker.
-/// `check-html` installs its programs with npm, which `actions/setup-node`
-/// puts beside Node.js on GitHub, and which some systems ship apart from
-/// Node.js. The tool and `check-rust` install toolchains with rustup.
+/// builds with Docker's Buildx and starts what it built with Docker. The
+/// tool and `check-rust` install toolchains with rustup.
 pub const MACHINE: &[(&str, &str, &[&str])] = &[
     ("docker", "docker", &["buildx", "version"]),
     ("jq", "jq", &["--version"]),
-    ("npm", "npm", &["--version"]),
     ("rustup", "rustup", &["--version"]),
 ];
 
@@ -75,8 +72,8 @@ Usage: cargo xtask check --all
 check --all   Holds the building blocks, the register and nebensound.yml to
               each other, and runs every building block against its test cases
               in tests/pass/ and tests/fail/. The blocks whose check the tool
-              carries out (css, dockerfile, json, markdown, toml, yaml) run
-              through the tool of this commit, on every system, after
+              carries out (css, dockerfile, html, json, markdown, toml, yaml)
+              run through the tool of this commit, on every system, after
               `nebensound-repo setup --pinned <check>` has set up the programs
               of their check; a runtime one of them needs is taken from the
               computer. The cases of the other blocks run the blocks' own steps,
@@ -89,7 +86,7 @@ setup         Calls `nebensound-repo setup` for this repository, built from
               Then, on Linux, it checks, and installs nothing, what only the
               cases of the other blocks need: a program an action of their
               steps would put on the PATH, in the version they ask for, Docker
-              with Buildx, jq, npm and rustup.
+              with Buildx, jq and rustup.
 ";
 
 /// Why something could not be done, as one sentence.
