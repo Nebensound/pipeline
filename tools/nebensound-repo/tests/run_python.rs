@@ -96,7 +96,7 @@ case "$1 $2" in
     for arg in "$@"; do last="$arg"; done
     echo "pytest==9.2" > "$last"
     [ -f "$here/corrupt" ] && echo "[" > pyproject.toml
-    [ -f "$here/unreadable" ] && chmod 000 pyproject.toml
+    [ -f "$here/unreadable" ] && rm pyproject.toml && mkdir pyproject.toml
     [ -f "$here/read-only-early" ] && chmod 444 pyproject.toml ;;
   "build --wheel")
     cp pyproject.toml "$here/built"
@@ -226,7 +226,7 @@ impl Fixture {
         // elsewhere.
         let computer = std::env::var_os("PATH").unwrap_or_default();
         for utility in [
-            "basename", "cat", "chmod", "cp", "curl", "dirname", "grep", "mkdir", "sed",
+            "basename", "cat", "chmod", "cp", "curl", "dirname", "grep", "mkdir", "rm", "sed",
         ] {
             let found = find::search(utility, &computer, false).unwrap();
             std::os::unix::fs::symlink(found, here.join("utilities").join(utility)).unwrap();
@@ -1363,20 +1363,19 @@ fn a_wheel_that_cannot_be_built() {
     );
 
     // A manifest that cannot be read is named with the I/O error, not taken
-    // for one without a build backend.
+    // for one without a build backend nor for one that does not parse. uv
+    // leaves a folder in its place: reading that fails for every user, root
+    // included, which `chmod 000` would not stop.
     let fixture = Fixture::new();
     fixture.mark("unreadable", "");
     let (code, text) = fixture.run();
-    fs::set_permissions(
-        fixture.root().join("pyproject.toml"),
-        fs::Permissions::from_mode(0o644),
-    )
-    .unwrap();
+    let error = fs::read_to_string(fixture.root().join("pyproject.toml")).unwrap_err();
     assert_eq!(code, 1, "{text}");
-    starts(
+    has(
         &text,
-        "::error file=pyproject.toml::pyproject.toml cannot be read: ",
+        &format!("::error file=pyproject.toml::pyproject.toml cannot be read: {error}"),
     );
+    lacks(&text, "TOML parse error");
     lacks(&text, "declares no build backend");
     lacks(&fixture.noted("calls"), "uv build --wheel");
 
