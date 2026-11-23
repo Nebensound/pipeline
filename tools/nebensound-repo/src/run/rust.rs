@@ -24,8 +24,8 @@
 //! Cargo's configuration files in the folders above the workspace and in
 //! `CARGO_HOME`. A hosted runner has neither, so they are ways a run on a
 //! developer's computer can differ from the gate's, whose result is the one
-//! that counts. The build `cargo-package` starts its programs under the same
-//! rule, which [`crate::toolchain`] states once for both.
+//! that counts. The build `cargo-package` and `xtask` start the toolchain
+//! under the same rule, which [`crate::toolchain`] states once for all.
 //!
 //! The files are the ones `files` names for the check and the unit. Rust code
 //! is excluded by the package, never by the file; phase 0 fails on an

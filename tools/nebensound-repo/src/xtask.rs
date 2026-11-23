@@ -6,12 +6,22 @@
 //! resolves it from `xtask/`, and the command runs from the root with that
 //! toolchain, since the root is where `cargo xtask` is reached. An xtask that
 //! pins none fails here rather than running on whatever the computer brings.
-
-use std::ffi::OsStr;
-use std::path::Path;
-use std::process::{Command, Stdio};
+//!
+//! rustup and Cargo start under the rule of [`crate::toolchain`], as for the
+//! Rust check and the build: without the variables of this process that steer
+//! Cargo, rustc and rustup ([`steers`](crate::toolchain::steers)), so that no
+//! setting that comes as a variable changes what the xtask finds. The one it
+//! sets itself, `RUSTUP_TOOLCHAIN` for the toolchain it names, is set after
+//! they are taken out. Settings that come as files still apply, and `xtask`
+//! does not hunt them down: a directory override rustup keeps in its settings
+//! file, which ranks above `rust-toolchain.toml`, and Cargo's configuration
+//! files in the folders above the repository and in `CARGO_HOME`. A hosted
+//! runner has neither, so they are ways a run on a developer's computer can
+//! differ from the gate's, whose result is the one that counts.
 
 use crate::workflow::Log;
+use std::ffi::OsStr;
+use std::path::Path;
 
 /// The files that pin the xtask's toolchain, from the repository root, in the
 /// order rustup would find them from `xtask/`.
@@ -37,14 +47,7 @@ pub fn run(root: &Path, search_path: &OsStr, log: &mut Log<'_>) -> bool {
         );
         return false;
     };
-    let command = |program: &str, dir: &Path| {
-        let mut command = Command::new(program);
-        command
-            .current_dir(dir)
-            .env("PATH", search_path)
-            .stdin(Stdio::null());
-        command
-    };
+    let command = |program: &str, dir: &Path| crate::toolchain::command(program, dir, search_path);
     let xtask = root.join("xtask");
     let mut install = command("rustup", &xtask);
     install.args(["toolchain", "install"]);

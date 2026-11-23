@@ -412,7 +412,8 @@ findings as annotations in a workflow run and as lines elsewhere.
 - **`xtask`** runs `cargo xtask check --all` at the repository root with the
   toolchain the xtask pins: the `rust-toolchain.toml` (or `rust-toolchain`) in
   `xtask/`, else the one at the root, installed through rustup. An xtask that
-  pins none fails before anything runs.
+  pins none fails before anything runs. rustup and Cargo start under
+  [the rule for the Rust toolchain](#starting-the-rust-toolchain).
 
 The plan stays an input where a step takes it today: the version writers, the
 Rust check, the steps that hold the version writers and publish targets in
@@ -453,17 +454,27 @@ metadata --locked --all-features`, each patched in from its folder for
 Then it names the artifact and the file as the outputs `artifact` and `crate`
 of the step, for `actions/upload-artifact`.
 
-Every program runs without the variables of the computer whose names start
-with `CARGO` or `RUST`, other than `CARGO_HOME` and `RUSTUP_HOME`, which only
-say where Cargo and the toolchains are: so no setting that comes as a variable
-changes what the build hands on. It is the rule of
-[the Rust check](#the-rust-check), and one place in the tool states it for
-both. Settings that come as files still apply, and `build` does not hunt them
+rustup, rustc and Cargo start under
+[the rule for the Rust toolchain](#starting-the-rust-toolchain).
+
+## Starting the Rust toolchain
+
+Wherever the tool starts the Rust toolchain (rustup, Cargo, rustc, rustfmt,
+and with them what Cargo starts), it does so under one rule, and one place in
+the tool builds every such command: in [the Rust check](#the-rust-check), in
+[the build `cargo-package`](#running-a-build) and in
+[`xtask`](#the-calls-of-a-workflow-run). Every such program runs without the
+variables of the computer whose names start with `CARGO` or `RUST`, other than
+`CARGO_HOME` and `RUSTUP_HOME`, which only say where Cargo and the toolchains
+are: so no setting that comes as a variable changes what a check finds or what
+a build hands on. A variable the tool sets itself for a call, such as the
+toolchain it names in `RUSTUP_TOOLCHAIN`, is set after the others are taken
+out. Settings that come as files still apply, and the tool does not hunt them
 down: a directory override rustup keeps in its settings file
 (`rustup override set`), which ranks above `rust-toolchain.toml`, and Cargo's
 configuration files in the folders above the workspace and in `CARGO_HOME`. A
 hosted runner has neither, so they are ways a local result can differ from the
-gate's.
+gate's, which is the one that counts.
 
 ## The files of a check
 
@@ -719,18 +730,10 @@ the first that fails, which it names below the group as `<step>: failed`:
     it was, byte for byte, so a developer's working tree keeps what it held.
 
 A workspace whose members are all excluded is only formatted. Every program
-runs in the workspace's folder, without the variables of the computer whose
-names start with `CARGO` or `RUST`, other than `CARGO_HOME` and `RUSTUP_HOME`,
-which only say where Cargo and the toolchains are: so no setting that comes as
-a variable changes what the check finds. Settings that come as files still
-apply, and `run` does not hunt them down: a directory override rustup keeps in
-its settings file (`rustup override set`), which ranks above
-`rust-toolchain.toml`, and Cargo's configuration files in the folders above the
-workspace and in `CARGO_HOME`. A hosted runner has neither, so they are ways a
-local result can differ from the gate's. `build cargo-package` starts its
-programs under the same rule (see [Running a build](#running-a-build)). What
-the programs print stands in the output as it comes; the one finding with a
-file is the formatting's.
+runs in the workspace's folder, under
+[the rule for the Rust toolchain](#starting-the-rust-toolchain). What the
+programs print stands in the output as it comes; the one finding with a file
+is the formatting's.
 
 ### What it hands the programs, and its exit code
 

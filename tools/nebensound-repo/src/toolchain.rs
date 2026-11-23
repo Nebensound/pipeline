@@ -1,10 +1,13 @@
-//! How the tool starts Cargo and the Rust toolchain: one rule for the Rust
-//! check (`run rust`) and the build `cargo-package` alike.
+//! How the tool starts Cargo and the Rust toolchain: one rule for every such
+//! start, in the Rust check (`run rust`), the build `cargo-package` and
+//! `xtask` alike, and [`command`] the one place that builds those commands.
 //!
 //! Every program runs without the variables of this process that steer Cargo,
 //! rustc and rustup ([`steers`]), so that no setting that comes as a variable
-//! changes what the check finds or what the build hands on. Settings that come
-//! as files still apply, and neither hunts them down: a directory override
+//! changes what a check finds or what a build hands on. A variable a caller
+//! sets on the command it gets, such as the toolchain it names in
+//! `RUSTUP_TOOLCHAIN`, is set after the removals. Settings that come as files
+//! still apply, and the tool does not hunt them down: a directory override
 //! rustup keeps in its settings file, which ranks above `rust-toolchain.toml`,
 //! and Cargo's configuration files in the folders above the workspace and in
 //! `CARGO_HOME`. A hosted runner has neither, so they are ways a run on a
@@ -24,7 +27,7 @@ pub const KEPT: &[&str] = &["CARGO_HOME", "RUSTUP_HOME"];
 /// and is taken out of what the programs the tool starts inherit: every one
 /// whose name starts with `CARGO` or `RUST`, such as `RUSTFLAGS`,
 /// `CARGO_TARGET_DIR`, `RUSTUP_TOOLCHAIN` or `CARGO_INCREMENTAL`, less
-/// [`KEPT`]. The check and the build set what they need themselves.
+/// [`KEPT`]. Whoever starts the toolchain sets what it needs itself.
 #[must_use]
 pub fn steers(name: &OsStr) -> bool {
     let name = name.to_string_lossy();
@@ -34,7 +37,8 @@ pub fn steers(name: &OsStr) -> bool {
 /// A command that starts `program` in the folder `dir`, with the search path
 /// `search_path`, nothing on its input, and without the variables [`steers`]
 /// names.
-pub(crate) fn command(program: impl AsRef<OsStr>, dir: &Path, search_path: &OsStr) -> Command {
+#[must_use]
+pub fn command(program: impl AsRef<OsStr>, dir: &Path, search_path: &OsStr) -> Command {
     let mut command = Command::new(program);
     command
         .current_dir(dir)

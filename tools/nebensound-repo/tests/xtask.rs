@@ -28,6 +28,7 @@ fn alone() -> MutexGuard<'static, ()> {
 
 const RUSTUP: &str = r#"#!/bin/sh
 here=$(cd "$(dirname "$0")/.." && pwd -P)
+echo "rustup sees CARGO_MANIFEST_DIR=${CARGO_MANIFEST_DIR-unset}" >&2
 echo "rustup $* in $(basename "$(pwd -P)")" >&2
 [ "$1" = toolchain ] && [ -f "$here/install-fails" ] && exit 1
 if [ "$1 $2" = "show active-toolchain" ]; then
@@ -38,6 +39,7 @@ exit 0
 
 const CARGO: &str = r#"#!/bin/sh
 here=$(cd "$(dirname "$0")/.." && pwd -P)
+echo "cargo sees CARGO_MANIFEST_DIR=${CARGO_MANIFEST_DIR-unset}" >&2
 echo "cargo $* in $(basename "$(pwd -P)") with $RUSTUP_TOOLCHAIN"
 echo "::error::from the xtask"
 [ -f "$here/xtask-fails" ] && exit 1
@@ -113,6 +115,40 @@ fn the_xtask_runs_with_the_toolchain_it_pins() {
     fs::write(base.path().join("xtask-fails"), "").unwrap();
     let (passed, _) = xtask_in(repository.path(), base.path());
     assert!(!passed);
+}
+
+/// Every program says first whether a variable that steers the toolchain
+/// reached it: the test process has `CARGO_MANIFEST_DIR`, since Cargo sets it
+/// for every test it runs, and `xtask` takes it out with every other variable
+/// whose name starts with `CARGO` or `RUST`. The toolchain it names still
+/// reaches Cargo, set after the removals.
+#[test]
+fn every_program_starts_without_the_variables_that_steer_the_toolchain() {
+    let _alone = alone();
+    assert!(
+        std::env::var_os("CARGO_MANIFEST_DIR").is_some(),
+        "the test needs a variable xtask takes out; Cargo sets this one for its tests"
+    );
+    let base = programs();
+    let repository = directory(&[("xtask/Cargo.toml", ""), ("rust-toolchain.toml", "")]);
+    let (passed, text) = xtask_in(repository.path(), base.path());
+    assert!(passed, "{text}");
+    let seen: Vec<&str> = text
+        .lines()
+        .filter(|line| line.contains(" sees "))
+        .collect();
+    assert_eq!(
+        seen,
+        [
+            // rustup toolchain install, rustup show active-toolchain
+            "rustup sees CARGO_MANIFEST_DIR=unset",
+            "rustup sees CARGO_MANIFEST_DIR=unset",
+            // cargo xtask check --all
+            "cargo sees CARGO_MANIFEST_DIR=unset",
+        ],
+        "{text}"
+    );
+    assert!(text.contains("with 1.98.1-aarch64-apple-darwin"), "{text}");
 }
 
 #[test]

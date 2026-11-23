@@ -52,8 +52,9 @@
 //! `rust-toolchain.toml`, and Cargo's configuration files in the folders above
 //! the workspace and in `CARGO_HOME`. A hosted runner has neither, so they are
 //! ways a run on a developer's computer can differ from the gate's, whose
-//! result is the one that counts. The Rust check starts its programs under the
-//! same rule, which [`crate::toolchain`] states once for both.
+//! result is the one that counts. The Rust check and `xtask` start the
+//! toolchain under the same rule, which [`crate::toolchain`] states once for
+//! all.
 //!
 //! No cache: what is built here is the artifact a release hands on.
 
