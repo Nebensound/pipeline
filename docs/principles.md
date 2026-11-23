@@ -27,9 +27,10 @@ is one more case to think through in each later change, and one more place
 where a change can go wrong in every repository at once.
 
 **Today.** `Declare` is the preparing job: it runs phase 0 and hands the plan to
-the jobs after it. The checks are cut differently: one job per unit, with one
-step per check, so reading checks and checks that run code share a job. Every
-check adds a step of its own to `nebensound.yml` and its name to a list there.
+the jobs after it, except `Publish`, which works out the versions itself. The
+checks are cut differently: one job per unit, with one step per check, so
+reading checks and checks that run code share a job. Every check adds a step of
+its own to `nebensound.yml` and its name to a list there.
 
 ## 2. Reading and executing are kept apart
 
@@ -59,10 +60,10 @@ it runs the same way on a developer's computer. Shell in a workflow has none of
 that: it is proven only by runs, and every caller runs it.
 
 **Today.** The checks for CSS, Dockerfiles, HTML, JSON, Markdown, TOML and YAML
-are thin blocks that call the tool, and so is the release stage in `Publish`.
-The checks for Rust and Python, the builds, several steps of `nebensound.yml`
-and the actions `tool` and `phase0`, which every job runs, are still shell,
-partly with `jq`;
+are thin blocks that call the tool, and the release stage in `Publish` is one
+call of the tool. The checks for Rust and Python, the builds, several steps of
+`nebensound.yml` and the actions `tool` and `phase0`, which every job runs, are
+still shell, partly with `jq`;
 `check-python` also embeds Python scripts.
 
 ## 4. External programs are the exception and are started from the tool
