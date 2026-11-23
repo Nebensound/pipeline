@@ -95,7 +95,8 @@ case "$1 $2" in
   "export --frozen")
     for arg in "$@"; do last="$arg"; done
     echo "pytest==9.2" > "$last"
-    [ -f "$here/corrupt" ] && echo "[" > pyproject.toml ;;
+    [ -f "$here/corrupt" ] && echo "[" > pyproject.toml
+    [ -f "$here/read-only-early" ] && chmod 444 pyproject.toml ;;
   "build --wheel")
     cp pyproject.toml "$here/built"
     [ -f "$here/read-only" ] && chmod 444 pyproject.toml
@@ -1388,11 +1389,36 @@ fn a_wheel_that_cannot_be_built() {
     )
     .unwrap();
     assert_eq!(code, 1, "{text}");
-    has(
+    starts(
         &text,
-        "::error file=pyproject.toml::cannot be put back as it is committed",
+        "::error file=pyproject.toml::cannot be put back as it is committed: ",
     );
     lacks(&text, "uv build cannot build");
+
+    // The placeholder cannot be written: that is the finding, uv build does
+    // not run, and the file, still as committed, is not written again.
+    let fixture = Fixture::new();
+    fixture.mark("read-only-early", "");
+    let (code, text) = fixture.run();
+    fs::set_permissions(
+        fixture.root().join("pyproject.toml"),
+        fs::Permissions::from_mode(0o644),
+    )
+    .unwrap();
+    assert_eq!(code, 1, "{text}");
+    starts(
+        &text,
+        "::error file=pyproject.toml::cannot be given the placeholder version 0.0.0: ",
+    );
+    has(&text, "The wheel installs and runs: failed");
+    lacks(&text, "The wheel gets the placeholder version");
+    lacks(&text, "uv build cannot build");
+    lacks(&text, "cannot be put back");
+    lacks(&fixture.noted("calls"), "uv build --wheel");
+    assert_eq!(
+        fs::read_to_string(fixture.root().join("pyproject.toml")).unwrap(),
+        PYPROJECT
+    );
 }
 
 #[test]
@@ -1472,6 +1498,7 @@ fn ruff_helpers() {
         ruff::from_root(root, "x", "/elsewhere/a.py"),
         "/elsewhere/a.py"
     );
+    assert_eq!(ruff::from_root(root, "x", "/rx/a.py"), "/rx/a.py");
     let none = ruff::settings(Path::new("pyproject.toml"), "[tool]\nother = 1\n").unwrap();
     assert!(none.is_none());
     let none = ruff::settings(Path::new("pyproject.toml"), "tool = 1\n").unwrap();
@@ -1686,6 +1713,23 @@ fn wheel_helpers() {
             .unwrap()
             .contains("did not answer within 60 seconds")
     );
+}
+
+#[test]
+fn what_a_command_that_does_not_answer_started_is_stopped_with_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("log");
+    let marker = dir.path().join("marker");
+    // A launcher: it starts a server in the background and waits for it.
+    let mut launcher = Command::new("sh");
+    launcher.args([
+        "-c",
+        &format!("(sleep 1; echo alive > '{}') & wait", marker.display()),
+    ]);
+    let ended = wheel::answer(launcher, &log, Duration::from_millis(300)).unwrap();
+    assert_eq!(ended, None);
+    std::thread::sleep(Duration::from_millis(1500));
+    assert!(!marker.exists(), "the server outlived the command");
 }
 
 #[test]

@@ -942,6 +942,7 @@ dependencies = [
  "ratatui",
  "regex",
  "roxmltree",
+ "rustix",
  "schemars",
  "serde",
  "serde_json",

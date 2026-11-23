@@ -19,7 +19,7 @@
 //! checkout.
 
 use std::collections::HashSet;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -307,15 +307,23 @@ pub fn inside(folder: &str, file: &str) -> String {
 }
 
 /// A file Ruff names, from the repository root: an absolute one below the
-/// root, or one from the folder it runs in.
+/// root, or one from the folder it runs in. Absolute is what the platform
+/// calls absolute, so `C:\...` on Windows as well; the result is separated
+/// by `/` on every platform.
 #[must_use]
 pub fn from_root(root: &Path, folder: &str, filename: &str) -> String {
-    if filename.starts_with('/') {
-        let prefix = format!("{}/", root.display());
-        filename
-            .strip_prefix(&prefix)
-            .unwrap_or(filename)
-            .to_owned()
+    let path = Path::new(filename);
+    if path.is_absolute() {
+        path.strip_prefix(root).map_or_else(
+            |_| filename.to_owned(),
+            |inside| {
+                inside
+                    .iter()
+                    .map(OsStr::to_string_lossy)
+                    .collect::<Vec<_>>()
+                    .join("/")
+            },
+        )
     } else {
         at(folder, filename)
     }

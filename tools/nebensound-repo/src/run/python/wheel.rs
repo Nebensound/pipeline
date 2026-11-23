@@ -236,6 +236,11 @@ fn read_wheel(wheel: &Path) -> zip::result::ZipResult<(Vec<String>, Vec<String>)
 /// most `patience`: how it ended, or [`None`] when it did not end in time and
 /// was stopped.
 ///
+/// On Unix the command leads a process group of its own, and a command that
+/// is stopped takes that group with it, as `timeout` stopped it: a launcher
+/// that started a server and waits for it leaves no server running, holding
+/// `log` open.
+///
 /// # Errors
 ///
 /// When the command cannot be started or waited for.
@@ -245,6 +250,8 @@ pub fn answer(
     patience: Duration,
 ) -> std::io::Result<Option<ExitStatus>> {
     let file = File::create(log)?;
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut command, 0);
     let mut child: Child = file.try_clone().and_then(|copy| {
         command.stdout(copy).stderr(file);
         command.spawn()
@@ -256,10 +263,22 @@ pub fn answer(
             ended => return ended,
         }
         if start.elapsed() >= patience {
+            #[cfg(unix)]
+            stop_group(&child);
             return child.kill().and_then(|()| child.wait()).map(|_| None);
         }
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// Kills the process group `child` leads, and with it whatever the command
+/// started. Its result is left aside: it fails only when no process of the
+/// group is left, and the command itself is killed right after, where an
+/// error that matters shows.
+#[cfg(unix)]
+fn stop_group(child: &Child) {
+    use rustix::process::{Pid, Signal, kill_process_group};
+    let _ = kill_process_group(Pid::from_child(child), Signal::KILL);
 }
 
 /// What is said about a command that did not answer `--help` as it should,
@@ -479,8 +498,33 @@ fn build(session: &mut Session<'_, '_>, paths: &Paths, programs: &Programs) -> O
         );
         return None;
     };
+    placed(session, paths, programs, &path, &committed, &changed)
+}
+
+/// The wheel built with `changed`, the placeholder version, in `path`, and
+/// `path` put back to `committed` afterwards: the wheel, or nothing, with why
+/// written.
+fn placed(
+    session: &mut Session<'_, '_>,
+    paths: &Paths,
+    programs: &Programs,
+    path: &Path,
+    committed: &str,
+    changed: &str,
+) -> Option<PathBuf> {
     let dist = paths.temp("dist");
-    let built = fs::write(&path, changed).is_ok() && {
+    let written = match fs::write(path, changed) {
+        Ok(()) => true,
+        Err(error) => {
+            session.log.error(
+                Some(&paths.manifest),
+                None,
+                &format!("cannot be given the placeholder version {PLACEHOLDER}: {error}"),
+            );
+            false
+        }
+    };
+    let built = written && {
         session.log.line(&format!(
             "The wheel gets the placeholder version {PLACEHOLDER}."
         ));
@@ -496,7 +540,20 @@ fn build(session: &mut Session<'_, '_>, paths: &Paths, programs: &Programs) -> O
             ],
         )
     };
-    let restored = fs::write(&path, &committed).is_ok();
+    // Written only where it differs: a placeholder that could not be written
+    // left it as committed, unless the write broke off halfway.
+    let restored = fs::read_to_string(path).is_ok_and(|text| text == committed)
+        || match fs::write(path, committed) {
+            Ok(()) => true,
+            Err(error) => {
+                session.log.error(
+                    Some(&paths.manifest),
+                    None,
+                    &format!("cannot be put back as it is committed: {error}"),
+                );
+                false
+            }
+        };
     let mut wheels: Vec<PathBuf> = fs::read_dir(&dist)
         .into_iter()
         .flatten()
@@ -506,15 +563,8 @@ fn build(session: &mut Session<'_, '_>, paths: &Paths, programs: &Programs) -> O
         .collect();
     wheels.sort();
     let wheel = wheels.into_iter().next().filter(|_| built);
-    if !restored {
-        session.log.error(
-            Some(&paths.manifest),
-            None,
-            "cannot be put back as it is committed",
-        );
-    }
     let Some(wheel) = wheel.filter(|_| restored) else {
-        if restored {
+        if written && restored {
             session.log.error(
                 Some(&paths.manifest),
                 None,
