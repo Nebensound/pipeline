@@ -932,13 +932,22 @@ does, and calls
 environment of a workflow run, so that the findings are annotations. Before
 the cases of each such block it sets up the programs of its check with
 `nebensound-repo setup --pinned <check>`, the first of the two calls the block
-makes, without `--with-runtimes`: it installs the pinned version of every
-program the check calls where it is missing, so that the cases do not depend on
-which blocks ran before the xtask, and it installs no runtime. A runtime one of
-those programs needs is the computer's, one that is new enough, or one
-`cargo xtask setup --with-runtimes` put in place. A setup that fails is a
-problem of its own, and the block's cases still run with the programs that are
-there.
+makes: it installs the pinned version of every program the check calls where it
+is missing, so that the cases do not depend on which blocks ran before the
+xtask. A runtime one of those programs needs, such as the Node.js of Stylelint,
+html-validate, Prettier and markdownlint-cli2, is the one `nebensound-repo`
+finds: a pinned one in the tool's folder first, else the computer's, when it is
+new enough for the programs. On a developer's computer the setup goes without
+`--with-runtimes` and installs no runtime, so a missing or too old one is
+installed only by `cargo xtask setup --with-runtimes` or with a yes at the
+prompt. In a run on GitHub Actions, which is how the gate runs the xtask, the
+setup goes with `--with-runtimes`, as the block's own call does: a Node.js the
+runner image lacks or carries too old is installed in the version the register
+pins, into the tool's folder, where `nebensound-repo run` finds it and puts it
+in front of the `PATH` of the programs that need it. So the cases pass whatever
+Node.js the image carries; one that is new enough is used as it is. A setup
+that fails is a problem of its own, and the block's cases still run with the
+programs that are there.
 
 Every other block runs its own steps. The xtask builds the tool through
 [`.github/actions/tool`](.github/actions/tool), runs
@@ -970,9 +979,12 @@ stands in:
 | `actions/upload-artifact`                                            | Nothing leaves the machine, but every path the step names has to exist, as `if-no-files-found: error` demands. |
 
 Any other such action fails the xtask until it has a stand-in. No block calls
-`actions/setup-node` or `actions/setup-go` today: the checks that run from the
-tool get Node.js from `nebensound-repo setup`, and `check-python` downloads the
-Node.js that Pyright runs on itself. The two stand-ins stay, so that a block calling one of them
+`actions/setup-node` or `actions/setup-go` today, so no case depends on the
+Node.js already on the PATH: the cases of the checks that run from the tool get
+Node.js the way their setup above finds it, in the gate the runner image's when
+it is new enough and otherwise the one the register pins, installed with
+`--with-runtimes`; `check-python` downloads the Node.js that Pyright runs on
+itself. The two stand-ins stay, so that a block calling one of them
 is run as well; for such a step the xtask takes the program already on the
 PATH and fails the step unless it is the version the step asks for. One step
 does not run:
@@ -1014,7 +1026,8 @@ tool of this commit, built from `tools/nebensound-repo/` with the toolchain the
 tool pins, and hands it every option unchanged (`--pinned`, `--with-runtimes`,
 `--check`, the names of checks). The cases of the blocks that run from the tool
 take the pinned programs `cargo xtask check --all` sets up itself, and a
-runtime from the computer or from `--with-runtimes`. Then, on Linux, it checks
+runtime from the computer or from `--with-runtimes`, which `cargo xtask check
+--all` passes itself only in a run on GitHub Actions. Then, on Linux, it checks
 what only the cases of the other blocks need: a program an action of their
 steps would put on the `PATH`, in the version the step asks for (read from
 their `action.yml`), Docker with Buildx, jq and rustup. It
