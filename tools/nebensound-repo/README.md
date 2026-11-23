@@ -57,7 +57,7 @@ nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branc
 | `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read. With `--pull-request <number> --message <message>`, for a pull request, as `version` reads it. See [The plan](#the-plan).                                                                                                                                                                                                                                             |
 | `version`           | The version of every unit that carries one, as a table: current version and the version of the commit at hand. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                                                                                                                                                                                                                                                          |
 | `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                                                                                                                                                                                                                          |
-| `run`               | Runs one check over the files `files` names for it in one unit, with the programs `setup` finds or installs, the way its building block runs it: for the checks `json`, `markdown`, `toml` and `yaml`. Every finding names its file, and its line and column where the program gives them; in a workflow run it is an annotation. See [Running a check](#running-a-check).                                                                                                                        |
+| `run`               | Runs one check over the files `files` names for it in one unit, with the programs `setup` finds or installs, the way its building block runs it: for the checks `dockerfile`, `json`, `markdown`, `toml` and `yaml`. Every finding names its file, and its line and column where the program gives them; in a workflow run it is an annotation. See [Running a check](#running-a-check).                                                                                                          |
 | `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                                                                                                                                                                                                                        |
 | `write-versions`    | Writes the version of every unit with the version writer `cargo` into its `Cargo.toml`, the path dependencies on it and `Cargo.lock`, in the working tree; never committed. With `--plan <file>`, takes the versions from a printed plan instead of the history; with `--workspace <path>`, starts from the units of the workspace at that path.                                                                                                                                                  |
 | `setup`             | Finds or installs the programs that the checks the plan starts call, or those of the checks named, as the register pins them: by default it uses those on the computer and installs the pinned version of what is missing; `--pinned` installs every one into its own folder; `--check` changes nothing. See [Setting up the programs](#setting-up-the-programs).                                                                                                                                 |
@@ -437,8 +437,8 @@ runtime on the computer that is too old for the program is not given.
 
 ## Running a check
 
-`run` carries out the checks for JSON, Markdown, TOML and YAML the way their
-building blocks run them, on any computer the programs run on:
+`run` carries out the checks for Dockerfiles, JSON, Markdown, TOML and YAML the
+way their building blocks run them, on any computer the programs run on:
 
 ```bash
 nebensound-repo setup --pinned --with-runtimes   # once, or after a change of the register
@@ -459,14 +459,21 @@ on Node.js and yamllint on the Python of its own environment. Of those two
 only the pinned copy is taken, since only its internals are known, and the
 check fails with a pointer to `setup --pinned` otherwise. actionlint uses the
 ShellCheck and pyflakes on the `PATH`, where there are any, and the output says
-whether it found them.
+whether it found them. Hadolint gets the repository's `.hadolint.yaml` or
+`.hadolint.yml` at the root, or an empty configuration, and none of the
+`HADOLINT_*` variables of the computer; `run` reads the failure threshold from
+what Hadolint prints with `--verbose` and judges every finding of its JSON
+report against it.
 
 Every part of a check runs even when one before it failed, so one run reports
 every finding. What the programs print stands in the output. A finding names
 its file, and its line and column where the program gives them: in a workflow
 run (`GITHUB_ACTIONS=true` without a terminal) as an annotation, elsewhere as a
-line such as `README.md:3: error: MD001/heading-increment …`. In an
-annotation the file name and the message are escaped the way the runner reads
+line such as `README.md:3: error: MD001/heading-increment …`. A finding that
+fails nothing, such as a Hadolint finding below the failure threshold or
+dockerfmt's warning about a setting of `.editorconfig` it cannot use, is a
+warning: `::warning` in a workflow run, `Dockerfile:3:1: warning: …` elsewhere.
+In an annotation the file name and the message are escaped the way the runner reads
 them, so a name holding `,` or `:` points at its file. Prettier names
 no position for a file it finds unformatted, and check-jsonschema a JSON path
 instead of a line; there the finding names the file alone.
