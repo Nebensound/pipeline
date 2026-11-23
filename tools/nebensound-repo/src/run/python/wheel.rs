@@ -466,9 +466,14 @@ fn build(session: &mut Session<'_, '_>, paths: &Paths, programs: &Programs) -> O
         .arg(&requirements);
     super::printed(session, export, "uv")?;
     let path = paths.dir.join("pyproject.toml");
-    let committed = fs::read_to_string(&path).unwrap_or_default();
-    let manifest = match toml::from_str::<Table>(&committed) {
-        Ok(manifest) => manifest,
+    let read = fs::read_to_string(&path).map_err(|error| error.to_string());
+    let parsed = read.and_then(|committed| {
+        toml::from_str::<Table>(&committed)
+            .map(|manifest| (committed, manifest))
+            .map_err(|error| error.to_string())
+    });
+    let (committed, manifest) = match parsed {
+        Ok(read) => read,
         Err(error) => {
             session.log.error(
                 Some(&paths.manifest),

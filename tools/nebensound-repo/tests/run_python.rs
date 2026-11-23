@@ -96,6 +96,7 @@ case "$1 $2" in
     for arg in "$@"; do last="$arg"; done
     echo "pytest==9.2" > "$last"
     [ -f "$here/corrupt" ] && echo "[" > pyproject.toml
+    [ -f "$here/unreadable" ] && chmod 000 pyproject.toml
     [ -f "$here/read-only-early" ] && chmod 444 pyproject.toml ;;
   "build --wheel")
     cp pyproject.toml "$here/built"
@@ -1360,6 +1361,24 @@ fn a_wheel_that_cannot_be_built() {
         &text,
         "::error file=pyproject.toml::pyproject.toml cannot be read: ",
     );
+
+    // A manifest that cannot be read is named with the I/O error, not taken
+    // for one without a build backend.
+    let fixture = Fixture::new();
+    fixture.mark("unreadable", "");
+    let (code, text) = fixture.run();
+    fs::set_permissions(
+        fixture.root().join("pyproject.toml"),
+        fs::Permissions::from_mode(0o644),
+    )
+    .unwrap();
+    assert_eq!(code, 1, "{text}");
+    starts(
+        &text,
+        "::error file=pyproject.toml::pyproject.toml cannot be read: ",
+    );
+    lacks(&text, "declares no build backend");
+    lacks(&fixture.noted("calls"), "uv build --wheel");
 
     for failing in ["uv export", "uv build", "uv venv", "uv pip install"] {
         let fixture = Fixture::new();
