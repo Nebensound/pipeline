@@ -17,8 +17,11 @@
 //! that fails ends the check: what comes after a failed build would only
 //! repeat its error. Every program runs in the workspace's folder, without
 //! the variables of this process that steer Cargo, rustc and rustup
-//! ([`steers`]), so that a developer's settings and a runner's do not change
-//! what the check finds.
+//! ([`steers`]), so that no setting that comes as a variable changes what the
+//! check finds. Settings that come as files still apply: a directory override
+//! rustup keeps in its settings file, which ranks above `rust-toolchain.toml`,
+//! and Cargo's configuration files in the folders above the workspace and in
+//! `CARGO_HOME`. A hosted runner has neither.
 //!
 //! The files are the ones `files` names for the check and the unit. Rust code
 //! is excluded by the package, never by the file; phase 0 fails on an
@@ -1072,15 +1075,19 @@ fn test_copies(
 fn copy(from: &Path, to: &Path) -> std::io::Result<()> {
     fs::create_dir(to)
         .and_then(|()| fs::read_dir(from))
-        .and_then(|entries| {
-            entries.map_while(Result::ok).try_for_each(|entry| {
-                let path = entry.path();
-                let target = to.join(entry.file_name());
-                if path.is_dir() {
-                    copy(&path, &target)
-                } else {
-                    fs::copy(&path, &target).map(drop)
-                }
+        .and_then(|mut entries| {
+            // An entry that cannot be read ends the copy with its error, so
+            // that no package is tested from an incomplete copy.
+            entries.try_for_each(|entry| {
+                entry.and_then(|entry| {
+                    let path = entry.path();
+                    let target = to.join(entry.file_name());
+                    if path.is_dir() {
+                        copy(&path, &target)
+                    } else {
+                        fs::copy(&path, &target).map(drop)
+                    }
+                })
             })
         })
 }

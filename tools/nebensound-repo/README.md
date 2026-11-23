@@ -552,8 +552,12 @@ the first that fails, which it names below the group as `<step>: failed`:
 A workspace whose members are all excluded is only formatted. Every program
 runs in the workspace's folder, without the variables of the computer whose
 names start with `CARGO` or `RUST`, other than `CARGO_HOME` and `RUSTUP_HOME`,
-which only say where Cargo and the toolchains are: so neither a developer's
-settings nor a runner's change what the check finds. What the programs print
+which only say where Cargo and the toolchains are: so no setting that comes as
+a variable changes what the check finds. Settings that come as files still
+apply: a directory override rustup keeps in its settings file (`rustup override
+set`), which ranks above `rust-toolchain.toml`, and Cargo's configuration files
+in the folders above the workspace and in `CARGO_HOME`. A hosted runner has
+neither. What the programs print
 stands in the output as it comes; the one finding with a file is the
 formatting's.
 
