@@ -1,0 +1,9 @@
+# An unformatted Dockerfile whose name holds a line break followed by
+# `::warning::x`. dockerfmt names an unformatted file on its own output as the
+# name stands, so the runner would read the part after the line break as a
+# workflow command were the tool to print that output unchanged: the check
+# fails on the file, writes dockerfmt's line with the line break escaped, and
+# starts no command.
+[repo]
+audience = "public"
+pipeline = { check = ["dockerfile"], dependabot = ["docker"] }

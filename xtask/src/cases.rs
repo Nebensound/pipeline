@@ -204,7 +204,13 @@ fn case(dir: PathBuf, failing: bool) -> Result<Case, Error> {
             }
             forbidden
         }
-        Err(_) => Vec::new(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => {
+            return Err(Error::new(format!(
+                "{} cannot be read: {error}",
+                dir.join(FORBIDDEN).display()
+            )));
+        }
     };
     Ok(Case {
         name,

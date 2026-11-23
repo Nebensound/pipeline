@@ -62,9 +62,11 @@ description: >-
 # The unit's path and the path of its Dockerfile come from the repository, so a
 # step writes them into its log through `shown`, which the action `tool` writes
 # for the job (NEBENSOUND_SHOWN): a line break in them starts no workflow
-# command. What a program prints stands as
-# the program prints it, the log of the container and its health check among
-# it: the image runs the repository's own code, which could print any line.
+# command. In the `file=` property of an annotation the Dockerfile's path goes
+# through `property` of the same file instead, so that the annotation stays on
+# the real Dockerfile. What a program prints stands as the program prints it,
+# the log of the container and its health check among it: the image runs the
+# repository's own code, which could print any line.
 
 inputs:
   working-directory:
@@ -97,7 +99,7 @@ runs:
           dockerfile="$UNIT/deploy/Dockerfile"
         fi
         if [ ! -f "$dockerfile" ]; then
-          echo "::error file=$(shown "$dockerfile")::'$unit' builds docker but holds no deploy/Dockerfile."
+          echo "::error file=$(property "$dockerfile")::'$unit' builds docker but holds no deploy/Dockerfile."
           exit 1
         fi
         if [ "$(uname -m)" != "x86_64" ]; then
@@ -252,9 +254,10 @@ runs:
         . "$NEBENSOUND_SHOWN"
         unit="$(shown "$UNIT")"
         dockerfile="$(shown "$DOCKERFILE")"
+        file="$(property "$DOCKERFILE")"
         test="$(jq --compact-output '.config.Healthcheck.Test // []' "$CONFIG")"
         if [ "$test" = "[]" ] || [ "$(jq --raw-output '.[0]' <<< "$test")" = "NONE" ]; then
-          echo "::error file=$dockerfile::The image of '$unit' has no HEALTHCHECK, so nothing shows that it starts and serves. Give $dockerfile a HEALTHCHECK instruction."
+          echo "::error file=$file::The image of '$unit' has no HEALTHCHECK, so nothing shows that it starts and serves. Give $dockerfile a HEALTHCHECK instruction."
           exit 1
         fi
         echo "The image checks its health with $test."
@@ -323,7 +326,7 @@ runs:
         set -euo pipefail
         . "$NEBENSOUND_SHOWN"
         unit="$(shown "$UNIT")"
-        dockerfile="$(shown "$DOCKERFILE")"
+        file="$(property "$DOCKERFILE")"
         deadline=$((SECONDS + 300))
         while :; do
           read -r status health <<< "$(docker inspect --format \
@@ -355,7 +358,7 @@ runs:
         echo "What its last health check printed:"
         docker inspect --format '{{json .State.Health}}' "$CONTAINER" \
           | jq --raw-output '.Log[-1].Output // "nothing"' || true
-        echo "::error file=$dockerfile::The image of '$unit' never became healthy: $reason."
+        echo "::error file=$file::The image of '$unit' never became healthy: $reason."
         exit 1
 
     # The IDs of the first process, real, effective and saved, as the host sees
@@ -372,6 +375,7 @@ runs:
         . "$NEBENSOUND_SHOWN"
         unit="$(shown "$UNIT")"
         dockerfile="$(shown "$DOCKERFILE")"
+        file="$(property "$DOCKERFILE")"
         pid="$(docker inspect --format '{{.State.Pid}}' "$CONTAINER")"
         if [ "$pid" = 0 ]; then
           echo "::error::The container of '$unit' stopped before its user could be read."
@@ -389,7 +393,7 @@ runs:
           exit 1
         fi
         if [ "$real" -eq 0 ] || [ "$effective" -eq 0 ] || [ "$saved" -eq 0 ]; then
-          echo "::error file=$dockerfile::The image of '$unit' runs as root: its first process has the user ID 0. Give $dockerfile a USER other than root."
+          echo "::error file=$file::The image of '$unit' runs as root: its first process has the user ID 0. Give $dockerfile a USER other than root."
           exit 1
         fi
         echo "The image of '$unit' runs with the user ID $effective."
@@ -427,7 +431,7 @@ runs:
         set -euo pipefail
         . "$NEBENSOUND_SHOWN"
         unit="$(shown "$UNIT")"
-        dockerfile="$(shown "$DOCKERFILE")"
+        file="$(property "$DOCKERFILE")"
         report="$DIR/trivy.json"
         "$DIR/trivy/trivy" image --input "$LAYOUT" --config "" --ignorefile "" \
           --cache-dir "$DIR/trivy-cache" --scanners vuln \
@@ -443,9 +447,9 @@ runs:
           exit 0
         fi
         while IFS= read -r finding; do
-          echo "::error file=$dockerfile::$finding"
+          echo "::error file=$file::$finding"
         done <<< "$found"
-        echo "::error file=$dockerfile::The image of '$unit' has $(wc -l <<< "$found") vulnerabilities of severity HIGH or CRITICAL with a fixed version."
+        echo "::error file=$file::The image of '$unit' has $(wc -l <<< "$found") vulnerabilities of severity HIGH or CRITICAL with a fixed version."
         exit 1
 
     # Overwrite: a name is unique per unit, version and commit, so the only

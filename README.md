@@ -132,10 +132,14 @@ hands Stylelint and html-validate. The blocks written in shell and the steps of
 `nebensound.yml` source the functions `shown` and `shown_list`, which the
 action [`tool`](.github/actions/tool) writes for the job and whose file it
 names in `NEBENSOUND_SHOWN`; the Python scripts of `check-python` carry a
-function `shown` of their own that writes it the same way. What a program
-prints about the repository beyond that stands as it prints it: where the
-repository's own code runs, in `check-rust`, `check-python` and the builds,
-that code could print any line itself.
+function `shown` of their own that writes it the same way. Only control
+characters are escaped, so a decomposed accent still reads as the accent. A
+path in the `file=` property of an annotation goes through the third function
+of that file, `property`, which escapes it the way the runner reads it back, so
+that the annotation stays on the real file. What a program prints about the
+repository beyond that stands as it prints it: where the repository's own code
+runs, in `check-rust`, `check-python` and the builds, that code could print any
+line itself.
 
 The same call runs a check on a developer's computer, on Linux and macOS alike,
 once `nebensound-repo setup` has put the programs in place. `run` installs

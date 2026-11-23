@@ -73,6 +73,10 @@ fn what_is_no_case_is_refused() {
             &[("tests/pass/a/forbidden-line", "# only a comment\n")],
             "holds forbidden-line, and it names no line",
         ),
+        (
+            &[("tests/pass/a/forbidden-line/stray", "")],
+            "forbidden-line cannot be read",
+        ),
         (&[("tests/pass", "")], "cannot list"),
     ] {
         let scene = Scene::new();

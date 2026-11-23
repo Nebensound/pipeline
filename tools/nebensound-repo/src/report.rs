@@ -21,12 +21,34 @@ const COLUMN: usize = 56;
 /// stand, either could forge a line of this report or set the terminal to
 /// something the reader never asked for. The path keeps its bytes for the
 /// analysis; only what is shown is escaped.
+///
+/// Text that holds a control character (Unicode category `Cc`) has every one
+/// written as its escape: a tab as `\t`, a line break as `\n`, a carriage
+/// return as `\r`, any other as `\u{<hex>}`; a backslash and a quote get a
+/// backslash in front. Every other character stays as it is, so a decomposed
+/// accent reads as the accent. Text without a control character stays as it
+/// is. The shell function `shown` of the action `tool` and the copies in the
+/// scripts the checks run write the same.
 #[must_use]
 pub fn shown(text: &str) -> String {
     if !text.chars().any(char::is_control) {
         return text.to_owned();
     }
-    text.chars().flat_map(char::escape_debug).collect()
+    let mut out = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\\' | '\'' | '"' => {
+                out.push('\\');
+                out.push(character);
+            }
+            _ if character.is_control() => out.extend(character.escape_unicode()),
+            _ => out.push(character),
+        }
+    }
+    out
 }
 
 /// What a file can expect: checked, excused, or open.

@@ -86,7 +86,7 @@ runs:
         "$TOOL_HOME/nebensound-repo" --version
         echo "$TOOL_HOME" >> "$GITHUB_PATH"
 
-    # Text from the repository goes into a step's log through two functions,
+    # Text from the repository goes into a step's log through three functions,
     # which every block written in shell and every step of nebensound.yml that
     # writes such text sources from the file NEBENSOUND_SHOWN names:
     #
@@ -101,12 +101,22 @@ runs:
     # that holds a control character the way the tool writes it in its own
     # output: a line break as `\n`, a carriage return as `\r`, a tab as `\t`,
     # a backslash and a quote behind a backslash, and any other control
-    # character as `\u{<hex>}`; text without one stays as it is. `shown_list`
-    # writes so every entry of what comes in on standard input, each ended by a
-    # zero byte, one line each: a file list of `nebensound-repo files -z`, or
-    # the output of jq with `--join-output` and "\u0000" behind every line. A
+    # character as `\u{<hex>}`; every other character, and text without a
+    # control character, stays as it is. A control character is one of
+    # Unicode category Cc, as in the tool: bash's `[[:cntrl:]]` in the job's
+    # UTF-8 locale names those, and the line and paragraph separators U+2028
+    # and U+2029 besides, which `shown` therefore leaves as they are.
+    # `shown_list` writes so every entry of what comes in on standard input,
+    # each ended by a zero byte, one line each: a file list of
+    # `nebensound-repo files -z`, or the output of jq with `--join-output` and
+    # "\u0000" behind every line. A
     # workflow command a block writes holds no control character once it is
     # escaped, so it passes through unchanged.
+    #
+    # A path in a property of a workflow command, `file=` above all, goes
+    # through the third function, `property`, instead: the runner reads `%0A`
+    # there back as a line break, so the annotation stays on the real file,
+    # and `:` and `,` cannot end the property early.
     #
     # The functions are written here, like every other piece of shell of the
     # blocks, rather than kept as a .sh file, which would need the shell
@@ -132,6 +142,8 @@ runs:
               $'\n') out+='\n' ;;
               $'\r') out+='\r' ;;
               \\ | \' | \") out+="\\$char" ;;
+              # Not of category Cc, though glibc counts them as cntrl.
+              $'\u2028' | $'\u2029') out+="$char" ;;
               [[:cntrl:]])
                 printf -v code '%x' "'$char"
                 out+="\\u{$code}"
@@ -150,6 +162,19 @@ runs:
             shown "$entry"
             printf '\n'
           done
+        }
+
+        # property TEXT: TEXT as the value of a property of a workflow
+        # command, `file=` above all, escaped the way the runner reads it
+        # back, so that the annotation names the real file.
+        property() {
+          local value="$1"
+          value="${value//%/%25}"
+          value="${value//$'\r'/%0D}"
+          value="${value//$'\n'/%0A}"
+          value="${value//:/%3A}"
+          value="${value//,/%2C}"
+          printf '%s' "$value"
         }
         BASH
         echo "NEBENSOUND_SHOWN=$file" >> "$GITHUB_ENV"

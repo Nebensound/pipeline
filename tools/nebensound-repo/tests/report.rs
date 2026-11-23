@@ -118,6 +118,21 @@ fn a_line_break_in_the_path_of_a_unit_is_written_as_an_escape() {
 }
 
 #[test]
+fn only_control_characters_are_escaped_the_same_way_the_shell_and_the_scripts_do() {
+    for (text, expected) in [
+        ("plain", "plain"),
+        ("caf\u{e9} \"q\" \\", "caf\u{e9} \"q\" \\"),
+        ("e\u{301}\u{200b}\n.md", "e\u{301}\u{200b}\\n.md"),
+        (
+            "a\n::warning::x\t\\q\"\u{1}\u{7f}\u{85}\r\0",
+            "a\\n::warning::x\\t\\\\q\\\"\\u{1}\\u{7f}\\u{85}\\r\\u{0}",
+        ),
+    ] {
+        assert_eq!(report::shown(text), expected, "{text:?}");
+    }
+}
+
+#[test]
 fn the_tree_shows_what_holds_for_every_file() {
     let text = report::tree(&analysis(MIXED, MIXED_FILES));
 
