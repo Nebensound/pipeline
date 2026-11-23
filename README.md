@@ -1006,14 +1006,13 @@ called and tested, so a `publish-` block is reported until the xtask learns
 that kind. The first one teaches it, together with its cases.
 
 Then it runs every block against its cases, each copied into a fresh Git
-repository. The blocks whose work runs from the tool (`check-css`,
+repository. The work of every block runs from the tool (`check-css`,
 `check-dockerfile`, `check-html`, `check-json`, `check-markdown`,
 `check-python`, `check-rust`, `check-toml`, `check-yaml`, `version-cargo`,
-`build-cargo-package`, `build-docker`), which today is every block, hold
-nothing of their work in their steps, so their cases run through the tool
-itself: the xtask builds the tool of this commit with Cargo,
-runs phase 0 on the case with `nebensound-repo check` and `plan`, as `Declare`
-does, and calls the tool as the block's step does, in the environment of a
+`build-cargo-package`, `build-docker`), and its steps hold nothing of it, so
+the cases run through the tool itself: the xtask builds the tool of this commit
+with Cargo, runs phase 0 on the case with `nebensound-repo check` and `plan`, as
+`Declare` does, and calls the tool as the block's step does, in the environment of a
 workflow run, so that the findings are annotations; its temporary folder
 (`RUNNER_TEMP`) is the case's own, so that what a build leaves there goes with
 the case. A check calls `nebensound-repo run` once for every unit the plan
@@ -1050,89 +1049,35 @@ pass whatever Node.js the image carries; one that is new enough is used as it
 is. A setup that fails is a problem of its own, and the block's cases still run
 with the programs that are there.
 
-A block whose work is not carried out by the tool runs its own steps; today
-there is none, so this half of the runner runs no case. The xtask builds the
-tool through [`.github/actions/tool`](.github/actions/tool), runs
-[`.github/actions/phase0`](.github/actions/phase0) on the case, and runs a check
-block once for every unit the plan starts the block's check for, just as a unit
-job does, with the plan when the block takes one. A version writer's block runs
-once with the plan, provided a unit of the plan selects the writer. A build
-block runs once for every unit the plan starts the build for and gives a version
-of the run, just as a build job does: first the block of every version writer
-the unit selects, with the plan, and the build block only when they passed, with
-the plan when it takes one. A passing case needs the block to succeed
-everywhere. A failing case needs it to fail and to print every finding the case
-names, so a block that fails for another reason does not count.
+A passing case needs every call to succeed. A failing case needs one to fail
+and the tool to print every finding the case names, so a call that fails for
+another reason does not count. The xtask runs no block's own steps: a block
+whose work the tool does not carry out is a problem of its own, named with the
+reason that its cases cannot run.
 
-The xtask keeps no copy of what such a block does. It reads every step from the
-block's `action.yml` and runs it the way the runner of GitHub Actions does: it
-decides each `if:`, fills in every `${{ … }}`, hands each `run:` to bash and
-reads back what the step writes to `GITHUB_OUTPUT`, `GITHUB_ENV` and
-`GITHUB_PATH`. A composite action a block calls is fetched at the ref the block
-names, a branch, a tag or a full commit SHA, and run the same way. An action
-that runs on Node.js cannot run like that; for the ones it knows, the xtask
-stands in:
+A call of the tool for a case gets only the variables a step on a runner has
+too: `PATH`, `HOME`, the user, the locale, where Cargo, rustup and Go keep their
+files, the proxy and certificate settings, and the `XDG_` folders. A variable
+that steers a program, such as `CARGO_TERM_COLOR`, `RUSTFLAGS` or
+`NODE_OPTIONS`, would otherwise make a case print something else locally than
+in the gate. Beside them it gets `CI`, `GITHUB_ACTIONS` and `RUNNER_TEMP`, as in
+a workflow run. Phase 0 runs with the name `case`, the default branch `main` and
+the visibility `public`, so that a case gets no finding for any of them.
 
-| Action                                                               | What stands in                                                                                |
-| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `actions/setup-node`, `actions/setup-go`                             | The tool already on the PATH, in the version the step asks for; anything else fails the step. |
-| `Swatinem/rust-cache`, `actions/cache/restore`, `actions/cache/save` | Nothing: a cache changes how fast a step runs, not what it finds.                             |
+What a call of the tool prints stands in the log behind a `|`, so that the
+findings of a failing case do not become annotations of the gate. What the
+xtask itself finds is an annotation.
 
-Any other such action fails the xtask until it has a stand-in. No block calls
-`actions/setup-node` or `actions/setup-go` today, so no case depends on the
-Node.js already on the PATH: the cases of the checks that run from the tool get
-Node.js the way their setup above finds it, in the gate the runner image's when
-it is new enough and otherwise the one the register pins, installed with
-`--with-runtimes`. The two stand-ins stay, so that a block calling one of them
-is run as well; for such a step the xtask takes the program already on the
-PATH and fails the step unless it is the version the step asks for.
-
-A step gets only the variables a step on a runner has too: `PATH`, `HOME`, the
-user, the locale, where Cargo, rustup and Go keep their files, the proxy and
-certificate settings, and the `XDG_` folders. A variable that steers a tool,
-such as `CARGO_TERM_COLOR`, `RUSTFLAGS` or `NODE_OPTIONS`, would otherwise make
-a block print something else locally than in the gate. Of the variables the
-runner sets for every step, a step gets `CI`, `GITHUB_ACTIONS`, the `RUNNER_`
-and file-command variables, and fixed values for the repository and the run
-(`GITHUB_REPOSITORY`, `GITHUB_RUN_ID` and their kin), which an action a block
-calls may read; a case belongs to no repository on GitHub and to no run. The
-expressions `github.*`, `runner.*` and `job.*` know only the names the blocks
-and the actions they call read, with the same values; any other name fails the
-xtask, since on GitHub it would have a value the xtask cannot give. Phase 0
-reads the name and the default branch of the event's repository, which are
-`case` and `main`, so that a case gets no warning for either. What a step
-installs with `cargo install` goes into a folder of the run that comes first on
-its `PATH`, so the cases leave the developer's own programs as they are.
-
-What a step or a call of the tool prints stands in the log behind a `|`, so
-that the findings of a failing case do not become annotations of the gate. What
-the xtask itself finds is an annotation.
-
-The cases of the blocks that run from the tool run wherever the tool does, on
-Linux and macOS alike, except those of `build-docker`, which need an `x86_64`
-Linux machine with Docker (see above). The steps of the other blocks are
-written for the Linux runners of GitHub Actions, and so for now their cases run on Linux only, in the
-gate on every pull request and locally on Linux. Elsewhere the xtask holds the
-blocks, the register and `nebensound.yml` to each other, runs the cases of the
-blocks that run from the tool, names the other blocks in one sentence and exits
-with `1`, since their cases did not run.
+The cases run wherever the tool does, on Linux and macOS alike, except those of
+`build-docker`, which need an `x86_64` Linux machine with Docker (see above).
 
 `cargo xtask setup` calls `nebensound-repo setup` for this repository with the
 tool of this commit, built from `tools/nebensound-repo/` with the toolchain the
-tool pins, and hands it every option unchanged (`--pinned`, `--with-runtimes`,
-`--check`, the names of checks and builds). The cases of the blocks that run
-from the tool take the pinned programs `cargo xtask check --all` sets up itself,
-and a runtime from the computer or from `--with-runtimes`, which `cargo xtask
-check --all` passes itself only in a run on GitHub Actions. Then, on Linux, it
-checks what only the cases of blocks that run their own steps need (today
-there are none): a program an action of their steps would put on the `PATH`, in
-the version the step asks for (read from their `action.yml`), jq and rustup (the
-steps of such blocks ran jq, the action `tool` installs the tool's toolchain).
-It installs none of these, since they stay the machine's, but names each one that is missing or of another version and exits
-with `1` then, so that a machine it passes can run the cases. `nebensound-repo
-setup` may have put a jq into its cache, but the steps look for jq on the
-`PATH`. On another system those cases do not run, so `setup` leaves out what
-only they need and says so, and its exit code is the tool's.
+tool pins, hands it every option unchanged (`--pinned`, `--with-runtimes`,
+`--check`, the names of checks and builds), and exits with its exit code. The
+cases take the pinned programs `cargo xtask check --all` sets up itself, and a
+runtime from the computer or from `--with-runtimes`, which `cargo xtask check
+--all` passes itself only in a run on GitHub Actions.
 
 The cases are
 taken out of this repository's own checks with `[[exclude]]` and a reason in

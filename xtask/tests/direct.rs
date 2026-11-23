@@ -70,7 +70,7 @@ runs:
       run: echo 'plan={"units":[{"path":".","checks":["demo"]}]}' >> "$GITHUB_OUTPUT"
 "#;
 
-/// A block whose steps are never run here: its check runs from the tool.
+/// A block whose steps are never run: its check runs from the tool.
 const BLOCK: &str = r"
 inputs:
   working-directory: {}
@@ -133,6 +133,7 @@ case "$1" in
     exit 0 ;;
   run)
     shift
+    git ls-files | grep -q expected-finding && { echo "the finding is committed"; exit 1; }
     if [ "$1" = "--plan" ]; then echo "plan: $(cat "$2")"; shift 2; fi
     echo "run $*"
     [ -f bad ] && { echo "::error file=bad::wrong"; exit 1; }
@@ -180,8 +181,8 @@ fn cargo(scene: &Scene, tool: &Path, code: u8) -> PathBuf {
 }
 
 /// A repository with `check-json`, whose check runs from the tool, and
-/// `check-demo`, which runs its steps; each case of `check-json` names what
-/// it expects.
+/// `check-demo`, whose work the tool does not carry out; each case of
+/// `check-json` names what it expects.
 fn repository(scene: &Scene) -> PathBuf {
     let root = scene.path().join("root");
     write(
@@ -212,15 +213,12 @@ fn repository(scene: &Scene) -> PathBuf {
 
 /// A run on a developer's computer: without `GITHUB_ACTIONS`, even when the
 /// tests themselves run on GitHub Actions.
-fn setup(root: &Path, scratch: &Path, os: &str, cargo: PathBuf) -> Setup {
+fn setup(root: &Path, scratch: &Path, cargo: PathBuf) -> Setup {
     Setup {
         root: root.to_path_buf(),
-        os: os.to_owned(),
-        arch: "x86_64".to_owned(),
         env: std::env::vars_os()
             .filter(|(name, _)| name != "GITHUB_ACTIONS")
             .collect(),
-        origin: "file:///nowhere".to_owned(),
         scratch: scratch.to_path_buf(),
         cargo: cargo.into(),
     }
@@ -240,7 +238,7 @@ fn the_cases_of_a_block_from_the_tool_run_through_the_tool() {
     let root = repository(&scene);
     let tool = scene.path().join("nebensound-repo");
     script(&tool, NEBENSOUND_REPO);
-    let setup = setup(&root, scene.path(), "linux", cargo(&scene, &tool, 0));
+    let setup = setup(&root, scene.path(), cargo(&scene, &tool, 0));
 
     let (code, out) = call(&["check", "--all"], &setup);
     assert_eq!(code, 1, "{out}");
@@ -256,8 +254,8 @@ fn the_cases_of_a_block_from_the_tool_run_through_the_tool() {
         "    | check --name=case --default-branch=main --visibility=public GITHUB_ACTIONS=true\n",
         "  > nebensound-repo run json -- .\n",
         "    | run json -- .\n",
-        "check-demo, passing case `good`: as expected\n",
-        "::group::The tool\n",
+        "::error::check-demo: the tool carries out none of its work, so its cases cannot run: \
+         the xtask runs the cases of a block through the tool only\n",
         "1 problem(s), each named above.\n",
     ] {
         assert!(out.contains(line), "{line}\n{out}");
@@ -268,6 +266,8 @@ fn the_cases_of_a_block_from_the_tool_run_through_the_tool() {
             .starts_with("build --release --locked --quiet --message-format=json --manifest-path "),
         "{built}"
     );
+    // The cases of a block the tool does not carry out do not run.
+    assert!(!out.contains("check-demo, passing case"), "{out}");
 
     // A case phase 0 refuses, and one whose plan starts the check nowhere.
     let tests = root.join(".github/actions/check-json/tests");
@@ -319,7 +319,7 @@ fn on_github_actions_the_setup_may_install_a_runtime() {
     let root = repository(&scene);
     let tool = scene.path().join("nebensound-repo");
     script(&tool, NEBENSOUND_REPO);
-    let mut setup = setup(&root, scene.path(), "linux", cargo(&scene, &tool, 0));
+    let mut setup = setup(&root, scene.path(), cargo(&scene, &tool, 0));
     setup.env.push(("GITHUB_ACTIONS".into(), "true".into()));
 
     let (code, out) = call(&["check", "--all"], &setup);
@@ -356,27 +356,84 @@ fn only_github_actions_set_to_true_is_a_run_on_github() {
     assert!(!cases::on_github(&[]));
 }
 
+/// Takes the check `name` out of the repository at `root`: its block, its
+/// register entry and its step.
+fn without(root: &Path, name: &str) {
+    fs::remove_dir_all(root.join(format!(".github/actions/check-{name}"))).unwrap();
+    let register = REGISTER.replace(&format!("[check.{name}]\nextensions = [\".{name}\"]\n"), "");
+    let workflow = fs::read_to_string(root.join(".github/workflows/nebensound.yml")).unwrap();
+    let start = workflow.find(&format!("      - name: {name}\n")).unwrap();
+    let end = start + 1 + workflow[start + 1..].find("      - name: ").unwrap();
+    let workflow = format!("{}{}", &workflow[..start], &workflow[end..]).replace(
+        r#"'["demo", "json"]'"#,
+        &format!(r#"'["{}"]'"#, if name == "demo" { "json" } else { "demo" }),
+    );
+    write(
+        root,
+        &[
+            ("tools/nebensound-repo/register.toml", &register),
+            (".github/workflows/nebensound.yml", &workflow),
+        ],
+    );
+}
+
 #[test]
-fn elsewhere_than_linux_only_the_blocks_from_the_tool_run() {
+fn when_every_case_holds_nothing_is_reported() {
     let _alone = support::alone();
     let scene = Scene::new();
     let root = repository(&scene);
+    without(&root, "demo");
     let tool = scene.path().join("nebensound-repo");
     script(&tool, NEBENSOUND_REPO);
-    let setup = setup(&root, scene.path(), "macos", cargo(&scene, &tool, 0));
 
-    let (code, out) = call(&["check", "--all"], &setup);
-    assert_eq!(code, 1, "{out}");
+    let (code, out) = call(
+        &["check", "--all"],
+        &setup(&root, scene.path(), cargo(&scene, &tool, 0)),
+    );
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("They agree.\n"), "{out}");
     assert!(
         out.contains("check-json, failing case `bad`: as expected\n"),
         "{out}"
     );
-    assert!(!out.contains("::group::The tool\n"), "{out}");
     assert!(
-        out.contains(
-            "::error::For now the test cases of check-demo run only on Linux, since they run the \
-             steps of the building blocks"
-        ),
+        out.ends_with("Every building block holds to its test cases.\n"),
+        "{out}"
+    );
+
+    // Without room for the run, nothing runs.
+    let file = scene.path().join("a file");
+    fs::write(&file, "").unwrap();
+    let (code, out) = call(
+        &["check", "--all"],
+        &setup(&root, &file, cargo(&scene, &tool, 0)),
+    );
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains("::error::cannot make a directory for the run in "),
+        "{out}"
+    );
+    assert!(!out.contains("::group::"), "{out}");
+    assert!(out.ends_with("1 problem(s), each named above.\n"), "{out}");
+}
+
+#[test]
+fn without_a_block_from_the_tool_no_tool_is_built() {
+    let _alone = support::alone();
+    let scene = Scene::new();
+    let root = repository(&scene);
+    without(&root, "json");
+
+    // Cargo is not even there: nothing needs it.
+    let (code, out) = call(
+        &["check", "--all"],
+        &setup(&root, scene.path(), scene.path().join("no-cargo")),
+    );
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("They agree.\n"), "{out}");
+    assert!(!out.contains("::group::"), "{out}");
+    assert!(
+        out.contains("::error::check-demo: the tool carries out none of its work"),
         "{out}"
     );
     assert!(out.ends_with("1 problem(s), each named above.\n"), "{out}");
@@ -393,7 +450,7 @@ fn without_a_tool_no_case_of_a_block_from_the_tool_runs() {
     // Cargo fails.
     let (code, out) = call(
         &["check", "--all"],
-        &setup(&root, scene.path(), "macos", cargo(&scene, &tool, 101)),
+        &setup(&root, scene.path(), cargo(&scene, &tool, 101)),
     );
     assert_eq!(code, 1, "{out}");
     assert!(
@@ -407,17 +464,14 @@ fn without_a_tool_no_case_of_a_block_from_the_tool_runs() {
     // Cargo names nothing it built.
     let silent = scene.path().join("silent-cargo");
     script(&silent, "#!/bin/sh\nexit 0\n");
-    let (code, out) = call(
-        &["check", "--all"],
-        &setup(&root, scene.path(), "macos", silent),
-    );
+    let (code, out) = call(&["check", "--all"], &setup(&root, scene.path(), silent));
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("::error::Cargo built no tool"), "{out}");
 
     // There is no Cargo.
     let (code, out) = call(
         &["check", "--all"],
-        &setup(&root, scene.path(), "macos", scene.path().join("no-cargo")),
+        &setup(&root, scene.path(), scene.path().join("no-cargo")),
     );
     assert_eq!(code, 1, "{out}");
     assert!(
@@ -431,7 +485,6 @@ fn without_a_tool_no_case_of_a_block_from_the_tool_runs() {
         &setup(
             &root,
             scene.path(),
-            "macos",
             cargo(&scene, &scene.path().join("gone"), 0),
         ),
     );
@@ -450,7 +503,7 @@ fn without_a_tool_no_case_of_a_block_from_the_tool_runs() {
 fn a_case_that_breaks_off_cannot_be_run() {
     let _alone = support::alone();
     let scene = Scene::new();
-    let env = xtask::runner::environment(std::env::vars_os().collect());
+    let env = xtask::process::environment(std::env::vars_os().collect());
     let git = "git".into();
     let root = repository(&scene);
     write(
@@ -514,6 +567,25 @@ fn a_case_that_breaks_off_cannot_be_run() {
 
     // A block that takes the plan hands it to the tool in a file, as its step
     // hands it to the block; one that does not takes none.
+    // A case whose directory is gone cannot be copied.
+    let tool = scene.path().join("tool-gone");
+    script(&tool, NEBENSOUND_REPO);
+    let bench = Direct {
+        tool: &tool,
+        root: &root,
+        env: &env,
+        git: &git,
+        scratch: &scratch,
+        with_runtimes: false,
+    };
+    let gone = Case {
+        name: "gone".to_owned(),
+        dir: scene.path().join("gone"),
+        expect: Expect::Pass,
+    };
+    let error = cases::direct(bench, "check-json", &gone, &mut Vec::new()).unwrap_err();
+    assert!(error.to_string().contains("`cp -R"), "{error}");
+
     let (verdict, out) = run("planned", &scratch, "check-planned");
     assert_eq!(verdict.unwrap(), None, "{out}");
     assert!(
@@ -578,7 +650,7 @@ impl Blocks {
             dir,
             expect,
         };
-        let env = xtask::runner::environment(std::env::vars_os().collect());
+        let env = xtask::process::environment(std::env::vars_os().collect());
         let bench = Direct {
             tool: &tool,
             root: &self.root,
@@ -766,7 +838,7 @@ fn a_block_from_the_tool_with_a_stray_case_stops_the_run() {
     );
     let (code, out) = call(
         &["check", "--all"],
-        &setup(&root, scene.path(), "linux", cargo(&scene, &tool, 0)),
+        &setup(&root, scene.path(), cargo(&scene, &tool, 0)),
     );
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("stray is no case"), "{out}");

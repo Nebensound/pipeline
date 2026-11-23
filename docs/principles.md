@@ -179,12 +179,6 @@ yet, it says so.
   performs one step and is named after its register entry with the category in
   front. It describes the cut above, one named block per step. No issue exists
   yet that replaces it.
-- **The test cases of the building blocks** in `AGENTS.md` and
-  [the README](../README.md#test-cases-of-the-building-blocks): the cases of a
-  block that is a call of the tool run through the tool; the xtask runs the
-  `action.yml` of a block that is not a call of the tool, shell included, the
-  way the runner does; today every block is a call of the tool, so that half of
-  the xtask runs no case. What becomes of it is decided by no issue yet.
 - **The action `tool`** holds logic in shell: the fingerprint and the build of
   the tool from source (rule 3). The build from source in a caller: #24. The
   fingerprint: no issue exists yet.
