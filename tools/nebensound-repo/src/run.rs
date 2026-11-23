@@ -346,14 +346,14 @@ pub fn annotation_at(
 
 /// The message of a workflow command: a line break would end the command, and
 /// `%` starts an escape.
-fn data(text: &str) -> String {
+pub(crate) fn data(text: &str) -> String {
     text.replace('%', "%25")
         .replace('\r', "%0D")
         .replace('\n', "%0A")
 }
 
 /// A property of a workflow command, where `:` and `,` end the value as well.
-fn property(text: &str) -> String {
+pub(crate) fn property(text: &str) -> String {
     data(text).replace(':', "%3A").replace(',', "%2C")
 }
 

@@ -1,7 +1,8 @@
 name: phase0
 description: >-
   Reads the declaration of the calling repository, resolves it and checks it
-  against what the repository holds: phase 0 of the pipeline.
+  against what the repository holds: phase 0 of the pipeline. Hands on the
+  plan and the matrices of the jobs after it.
 
 # No inputs. What a repository is stands in its .nebensound/repo.toml, and this
 # action reads it there.
@@ -17,126 +18,45 @@ outputs:
       Which unit runs which check, as one line of JSON (`nebensound-repo plan`),
       with the versions a pull request's merge would get on a pull request.
       Empty when phase 0 found errors: then nothing is to be started.
-    value: ${{ steps.plan.outputs.plan }}
+    value: ${{ steps.phase0.outputs.plan }}
+  units:
+    description: >-
+      The units of the plan that run a check, as one line of JSON: the matrix
+      of the jobs of the units. Empty when phase 0 found errors.
+    value: ${{ steps.phase0.outputs.units }}
+  builds:
+    description: >-
+      The units of the plan that build in this run, each with the version
+      writers it selects, as one line of JSON: the matrix of the jobs of the
+      builds. Empty when phase 0 found errors.
+    value: ${{ steps.phase0.outputs.builds }}
 
 runs:
   using: composite
   steps:
-    # The repository's name and default branch are not declared: GitHub holds
-    # both, and the event of the run names them. They go in through the
-    # environment, never into the script. An event without them leaves the
-    # tool to read them from Git, which says in one line what it does not
-    # know. In a run the tool reports every finding as an annotation.
+    # One call of the tool: phase 0 with what the event says of the
+    # repository, then the plan, a change of the audience on a pull request,
+    # the excluded packages and the two matrices, as `nebensound-repo declare`
+    # describes them. In a run the tool reports every finding as an
+    # annotation.
     #
-    # Phase 0 also holds the declared audience against what the run knows of
-    # the repository: how GitHub shows it, `public` exactly when it is public.
-    # The event names it; one that does not carry the repository is answered
-    # by the API, which the token may always read the repository's metadata
-    # from. On a developer's machine nobody passes it, and nothing is
-    # compared.
+    # The repository's name, default branch and visibility are not declared:
+    # GitHub holds them, and the event of the run names them. The pull
+    # request's number, title and description make the message of its squash
+    # merge, which the plan is built for. All of it goes in through the
+    # environment, never into the script. An event without the name or the
+    # branch leaves the tool to read them from Git; one without the
+    # visibility is answered by the API, which the token may always read the
+    # repository's metadata from.
     - name: Run phase 0
+      id: phase0
       shell: bash
       env:
-        NAME: ${{ github.event.repository.name }}
-        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        VISIBILITY: ${{ github.event.repository.visibility }}
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        set -euo pipefail
-        if [ -z "$VISIBILITY" ]; then
-          VISIBILITY="$(gh api "repos/$GITHUB_REPOSITORY" --jq .visibility)"
-        fi
-        call=(nebensound-repo -C "$GITHUB_WORKSPACE" check)
-        # One argument with "=", so that a value starting with "-" stays the
-        # value and is not read as an option.
-        if [ -n "$NAME" ]; then
-          call+=("--name=$NAME")
-        fi
-        if [ -n "$DEFAULT_BRANCH" ]; then
-          call+=("--default-branch=$DEFAULT_BRANCH")
-        fi
-        call+=("--visibility=$VISIBILITY")
-        "${call[@]}"
-
-    # Only reached when phase 0 passed: a declaration with errors gets no plan.
-    #
-    # On a pull request the checkout is the merge commit GitHub builds for it,
-    # which touches no unit. The plan is then built for the squash merge, with
-    # the title and description as its message, as the job Version reads it:
-    # every version in it is the one that merge would get, with -pr.<number>
-    # behind it, so that the version writers and the package test of
-    # check-rust prove what a merge would publish. The text goes in through
-    # the environment, never into the script.
-    - name: Hand on the plan
-      id: plan
-      shell: bash
-      env:
-        NUMBER: ${{ github.event.pull_request.number }}
-        TITLE: ${{ github.event.pull_request.title }}
-        BODY: ${{ github.event.pull_request.body }}
-      run: |
-        set -euo pipefail
-        call=(nebensound-repo -C "$GITHUB_WORKSPACE" plan)
-        if [ -n "$NUMBER" ]; then
-          message="$TITLE"
-          if [ -n "$BODY" ]; then
-            message="$(printf '%s\n\n%s' "$TITLE" "$BODY")"
-          fi
-          # One argument with "=", so that a title starting with "-" stays
-          # the message and is not read as an option.
-          call+=(--pull-request "$NUMBER" "--message=$message")
-        fi
-        plan="$("${call[@]}")"
-        echo "$plan"
-        echo "plan=$plan" >> "$GITHUB_OUTPUT"
-
-    # Only reached when phase 0 passed. A pull request that changes for whom
-    # the repository is meant names the old and the new value in the summary
-    # of the run, as a notice: the value decides which rules hold for the
-    # repository, so a reviewer should not have to find it in the diff. The
-    # plan carries both, the one before being that of the base branch on a
-    # pull request into `main`. Both are one of a few fixed words, so nothing
-    # needs escaping.
-    #
-    # The step runs before the excluded packages are named: GitHub keeps only
-    # the first annotations of a job, and a long list of them would hide this
-    # one. The line also goes into the step summary, which keeps all of it.
-    - name: Name a change of the audience
-      shell: bash
-      env:
-        NUMBER: ${{ github.event.pull_request.number }}
-        PLAN: ${{ steps.plan.outputs.plan }}
-      run: |
-        set -euo pipefail
-        if [ -z "$NUMBER" ]; then
-          exit 0
-        fi
-        line="$(jq -r 'select(.audience != .previous_audience)
-          | "This pull request changes the audience of the repository from \(.previous_audience // "none declared") to \(.audience)."' <<< "$PLAN")"
-        if [ -n "$line" ]; then
-          echo "::notice title=Audience changed::$line"
-          echo "$line" >> "$GITHUB_STEP_SUMMARY"
-        fi
-
-    # Only reached when phase 0 passed. Every Rust package `[[exclude]]` takes
-    # out as a whole is named in the summary of the run, with its reason: a
-    # notice, not a warning, since the declaration gives the reason.
-    # `check-rust` leaves such a package out of every step and compiles it
-    # only as a dependency of others.
-    - name: Name the excluded packages
-      shell: bash
-      run: |
-        set -euo pipefail
-        # The tool writes a refusal where the list would go: into the log
-        # with it, or the step fails without saying why.
-        if ! list="$(nebensound-repo -C "$GITHUB_WORKSPACE" excluded-packages)"; then
-          echo "$list" >&2
-          exit 1
-        fi
-        echo "$list"
-        # A workflow command ends at a line break and reads `%` as the start
-        # of an escape, so a reason holding either is escaped.
-        jq -r '.[]
-          | "The Rust package at \(.path) is excluded from every step of check-rust: \(.reason)"
-          | gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A")
-          | "::notice title=Excluded package::\(.)"' <<< "$list"
+        NEBENSOUND_NAME: ${{ github.event.repository.name }}
+        NEBENSOUND_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        NEBENSOUND_VISIBILITY: ${{ github.event.repository.visibility }}
+        NEBENSOUND_PULL_REQUEST: ${{ github.event.pull_request.number }}
+        NEBENSOUND_TITLE: ${{ github.event.pull_request.title }}
+        NEBENSOUND_BODY: ${{ github.event.pull_request.body }}
+        GITHUB_TOKEN: ${{ github.token }}
+      run: nebensound-repo -C "$GITHUB_WORKSPACE" declare
