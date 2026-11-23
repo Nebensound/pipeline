@@ -27,6 +27,8 @@ the open issues and milestones show what comes next.
 
 ## Reference
 
+- [The principles](docs/principles.md): the six rules every change is held
+  against, what the pipeline protects, and what does not hold yet.
 - [The declaration](docs/declaration.md): every field of
   `.nebensound/repo.toml`, its default and effect, and every finding phase 0
   reports.
