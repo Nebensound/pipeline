@@ -73,7 +73,7 @@ pub use central::{Central, Ruling};
 pub use edit::DeclarationFile;
 pub use finding::{Finding, Rule, Severity, UnitName};
 pub use history::{History, UnitVersion, Versions};
-pub use model::{Audience, Declaration, Edition, Pipeline, Publish, Release, Versioning};
+pub use model::{Audience, Declaration, Edition, Pipeline, Publish, Versioning};
 pub use register::Register;
 pub use resolve::{Resolution, Unit, resolve};
 pub use tree::Tree;
@@ -174,9 +174,8 @@ pub enum Command {
         #[arg(long, value_name = "PATH")]
         workspace: Option<String>,
     },
-    /// Print the version of every unit that carries one: how it is released,
-    /// its current version, the version of the commit at hand and, in two
-    /// stages, how many commits wait for the next promotion.
+    /// Print the version of every unit that carries one: its current version
+    /// and the version of the commit at hand.
     Version {
         /// Print the table as Markdown, for the summary of a run.
         #[arg(long)]

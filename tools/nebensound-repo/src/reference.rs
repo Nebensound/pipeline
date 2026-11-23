@@ -39,9 +39,9 @@ What a name means does not change within an edition. Versions are resolved from
 the declaration of every earlier commit, read in its edition with the register
 of the tool that runs (see [Versions](declaration.md#versions) and
 [Editions](declaration.md#editions)). A default that changed under the same name
-(the release mode of a target, or what a preset brings) would change what the
-declarations of old commits mean, and with it the versions of an existing
-history. Such a change comes as a new name or as a new edition.";
+(what a preset brings, for example) would change what the declarations of old
+commits mean, and with it the versions of an existing history. Such a change
+comes as a new name or as a new edition.";
 
 /// The page, as `docs/register.md` holds it.
 #[must_use]
@@ -237,18 +237,14 @@ fn targets(register: &Register) -> String {
                 code(name),
                 codes(&target.accepts),
                 target.requires_check.as_ref().map_or_else(none, code),
-                code(&target.release),
             ]
         })
         .collect();
     section(
         "Publish targets",
         "A target accepts some kinds of artifact, and it can demand that a check is in\n\
-         force for the unit that publishes there. It also says how a unit that publishes\n\
-         there is released when the unit does not say: a unit with several targets is\n\
-         released in two stages if any of them is, and a unit without a target in one\n\
-         (see [Releases](declaration.md#releases)).",
-        &["Target", "Accepts", "Requires check", "Release"],
+         force for the unit that publishes there.",
+        &["Target", "Accepts", "Requires check"],
         &rows,
     )
 }

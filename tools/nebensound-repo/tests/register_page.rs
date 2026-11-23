@@ -130,8 +130,8 @@ fn the_page_names_what_the_register_says() {
             "`trivy`",
         ],
         &["`cargo-package`", "`crate`", "`cargo`", "none", "none"],
-        &["`crates.io`", "`crate`", "`rust`", "`two-stage`"],
-        &["`ghcr`", "`container`", "none", "`single-stage`"],
+        &["`crates.io`", "`crate`", "`rust`"],
+        &["`ghcr`", "`container`", "none"],
         &[
             "`cargo`",
             "the package version in the unit's Cargo.toml, written through Cargo",

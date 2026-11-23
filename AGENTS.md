@@ -66,5 +66,3 @@ once all four hold:
    inside the issue's scope are not decisions: the pull request lists them and
    the review covers them. A pull request that needs a decision waits until
    its issue is amended.
-
-Merging into `release` is reserved for the maintainers.

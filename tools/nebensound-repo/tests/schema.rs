@@ -212,7 +212,7 @@ fn the_pattern_schema_lets_through_everything_the_parser_accepts() {
 
 #[test]
 fn the_version_pattern_accepts_exactly_what_the_parser_accepts() {
-    use nebensound_repo::TagVersion;
+    use nebensound_repo::Version;
 
     // Short strings hold no number beyond `u64`, the one thing the parser
     // refuses that a pattern cannot say.
@@ -220,40 +220,31 @@ fn the_version_pattern_accepts_exactly_what_the_parser_accepts() {
     let agree = |candidate: &str| {
         assert_eq!(
             regex.is_match(candidate),
-            TagVersion::read(candidate).is_ok(),
+            Version::parse(candidate).is_ok(),
             "the schema and the parser disagree on {candidate:?}"
         );
     };
     for candidate in strings(&['0', '1', '.', 'v', '-'], 6) {
         agree(&candidate);
     }
-    // The pre-release part, behind three numbers that read.
+    // A pre-release part, behind three numbers that read, is refused by both.
     for suffix in strings(&['p', 'r', 'e', '.', '0', '1', '-'], 6) {
         agree(&format!("1.0.0-{suffix}"));
     }
 }
 
 #[test]
-fn both_fields_stand_on_the_repository_and_on_a_component() {
+fn the_minimum_version_stands_on_the_repository_and_on_a_component_and_release_nowhere() {
     let schema = committed();
     let definitions = &schema["definitions"];
 
     for table in ["Repo", "Component"] {
         let properties = &definitions[table]["properties"];
         assert_eq!(
-            properties["release"]["anyOf"][0]["$ref"], "#/definitions/Release",
-            "{table}"
-        );
-        assert_eq!(
             properties["minimum-version"]["anyOf"][0]["$ref"], "#/definitions/Version",
             "{table}"
         );
+        assert!(properties.get("release").is_none(), "{table}");
     }
-    let values: Vec<&serde_json::Value> = definitions["Release"]["oneOf"]
-        .as_array()
-        .expect("the values of a release mode")
-        .iter()
-        .map(|value| &value["const"])
-        .collect();
-    assert_eq!(values, ["single-stage", "two-stage"]);
+    assert!(definitions.get("Release").is_none());
 }

@@ -21,9 +21,9 @@ What a name means does not change within an edition. Versions are resolved from
 the declaration of every earlier commit, read in its edition with the register
 of the tool that runs (see [Versions](declaration.md#versions) and
 [Editions](declaration.md#editions)). A default that changed under the same name
-(the release mode of a target, or what a preset brings) would change what the
-declarations of old commits mean, and with it the versions of an existing
-history. Such a change comes as a new name or as a new edition.
+(what a preset brings, for example) would change what the declarations of old
+commits mean, and with it the versions of an existing history. Such a change
+comes as a new name or as a new edition.
 
 ## Base set
 
@@ -157,18 +157,15 @@ what the build calls (see [Programs](#programs)).
 ## Publish targets
 
 A target accepts some kinds of artifact, and it can demand that a check is in
-force for the unit that publishes there. It also says how a unit that publishes
-there is released when the unit does not say: a unit with several targets is
-released in two stages if any of them is, and a unit without a target in one
-(see [Releases](declaration.md#releases)).
+force for the unit that publishes there.
 
-| Target             | Accepts                              | Requires check | Release        |
-| ------------------ | ------------------------------------ | -------------- | -------------- |
-| `crates.io`        | `crate`                              | `rust`         | `two-stage`    |
-| `ghcr`             | `container`                          | none           | `single-stage` |
-| `pages`            | `site`                               | none           | `single-stage` |
-| `private-registry` | `crate`                              | none           | `two-stage`    |
-| `release-assets`   | `executable`, `firmware`, `document` | none           | `single-stage` |
+| Target             | Accepts                              | Requires check |
+| ------------------ | ------------------------------------ | -------------- |
+| `crates.io`        | `crate`                              | `rust`         |
+| `ghcr`             | `container`                          | none           |
+| `pages`            | `site`                               | none           |
+| `private-registry` | `crate`                              | none           |
+| `release-assets`   | `executable`, `firmware`, `document` | none           |
 
 ## Version writers
 
