@@ -471,8 +471,9 @@ url    = "https://files.pythonhosted.org/packages/06/e9/644e47c8b929f14cbda2b677
 digest = "sha256:14ce5c94871c551268ea948ffe21e9f1464dc48fb20bf9a4c13deeaaf756cf9b"
 
 # The digest PyPI states for the wheel that runs on every Python;
-# `requires_python` is ">=3.11". check-python lays it over the project's
-# environment, so the project's Python has to be 3.11 or later.
+# `requires_python` is ">=3.11". The python check fetches this wheel itself,
+# holds it to the digest and lays it over the project's environment, so the
+# project's Python has to be 3.11 or later.
 [program.coverage]
 version         = "7.17.4"
 command         = "coverage"
@@ -646,8 +647,7 @@ url    = "https://registry.npmjs.org/prettier/-/prettier-3.9.6.tgz"
 digest = "sha512:3a9374cf355d89a880871a6eba3e5e7e9212e2c63d8fb6d8eae4799a78f9c8fcc691d92334a4897944e13dbeb4270dbd42e019800e28fbf881e3d90589a057ea"
 
 # The npm registry's `dist.integrity`, in hexadecimal; `engines.node` is
-# ">=14". The package holds everything it runs, so check-python unpacks it
-# and starts it with Node.js.
+# ">=14". The package holds everything it runs.
 [program.pyright]
 version         = "1.1.414"
 command         = "pyright"

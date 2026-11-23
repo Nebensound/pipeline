@@ -1,10 +1,9 @@
 //! A step of `nebensound.yml` or of an action under `.github/actions/` is one
 //! call of the tool: all logic is Rust, in the tool, and tested.
 //!
-//! The exceptions are named, each with what keeps it: the action `tool`, which
-//! gets the tool and cannot call it before it has it, until the tool is a
-//! release binary; and `check-python`, whose check moves into the tool on its
-//! own.
+//! The exception is named, with what keeps it: the action `tool`, which gets
+//! the tool and cannot call it before it has it, until the tool is a release
+//! binary.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
@@ -14,7 +13,7 @@ use std::path::Path;
 use yaml_rust2::{Yaml, YamlLoader};
 
 /// The actions whose steps still hold more than a call.
-const EXCEPTIONS: &[&str] = &["check-python", "tool"];
+const EXCEPTIONS: &[&str] = &["tool"];
 
 fn parsed(path: &Path) -> Yaml {
     YamlLoader::load_from_str(&fs::read_to_string(path).unwrap()).unwrap()[0].clone()

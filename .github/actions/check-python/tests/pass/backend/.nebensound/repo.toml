@@ -1,0 +1,8 @@
+# The covered project built with a backend no lockfile names: hatchling, which
+# `[build-system]` asks for without a version and which `uv.lock` does not
+# hold, since a lockfile of uv pins no build dependency. Installing the project
+# and building its wheel both take the backend from the package index, so the
+# case passes only because uv installs it from there, without a lock.
+[repo]
+audience = "public"
+pipeline = { check = ["python"], dependabot = ["uv"] }

@@ -1181,13 +1181,14 @@ fn helpers_take_paths_and_lists_apart() {
     let huge = "y".repeat(run::ARGUMENTS + 1);
     assert_eq!(run::chunks(&[huge.as_str(), "z"]).len(), 2);
     assert_eq!(Check::of("json"), Some(Check::Json));
-    assert_eq!(Check::of("python"), None);
+    assert_eq!(Check::of("shell"), None);
     for (check, name) in [
         (Check::Css, "css"),
         (Check::Dockerfile, "dockerfile"),
         (Check::Html, "html"),
         (Check::Json, "json"),
         (Check::Markdown, "markdown"),
+        (Check::Python, "python"),
         (Check::Rust, "rust"),
         (Check::Toml, "toml"),
         (Check::Yaml, "yaml"),
@@ -1323,13 +1324,13 @@ fn the_call_refuses_what_it_does_not_run() {
     let opens = |text: &str| {
         assert_eq!(text.lines().next(), Some(run::OUTSIDE), "{text}");
     };
-    let (text, code) = call(&["nebensound-repo", "run", "python", "."]);
+    let (text, code) = call(&["nebensound-repo", "run", "shell", "."]);
     assert_eq!(code, 2, "{text}");
     opens(&text);
     assert!(
         text.contains(
-            "`run` carries out the checks css, dockerfile, html, json, markdown, rust, toml and \
-             yaml; \"python\" is not"
+            "`run` carries out the checks css, dockerfile, html, json, markdown, python, rust, \
+             toml and yaml; \"shell\" is not"
         ),
         "{text}"
     );
