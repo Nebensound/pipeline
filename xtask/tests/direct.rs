@@ -96,7 +96,8 @@ const NEBENSOUND_REPO: &str = r#"#!/bin/sh
 shift 2
 case "$1" in
   setup)
-    echo "setup $2 $3 GITHUB_ACTIONS=$GITHUB_ACTIONS"
+    shift
+    echo "setup $* GITHUB_ACTIONS=$GITHUB_ACTIONS"
     [ -f setup-fails ] && { echo "cannot download"; exit 1; }
     exit 0 ;;
   check)
@@ -174,12 +175,16 @@ fn repository(scene: &Scene) -> PathBuf {
     root
 }
 
+/// A run on a developer's computer: without `GITHUB_ACTIONS`, even when the
+/// tests themselves run on GitHub Actions.
 fn setup(root: &Path, scratch: &Path, os: &str, cargo: PathBuf) -> Setup {
     Setup {
         root: root.to_path_buf(),
         os: os.to_owned(),
         arch: "x86_64".to_owned(),
-        env: std::env::vars_os().collect(),
+        env: std::env::vars_os()
+            .filter(|(name, _)| name != "GITHUB_ACTIONS")
+            .collect(),
         origin: "file:///nowhere".to_owned(),
         scratch: scratch.to_path_buf(),
         cargo: cargo.into(),
@@ -270,6 +275,50 @@ fn the_cases_of_a_block_from_the_tool_run_through_the_tool() {
     ] {
         assert!(out.contains(line), "{line}\n{out}");
     }
+}
+
+#[test]
+fn on_github_actions_the_setup_may_install_a_runtime() {
+    let _alone = support::alone();
+    let scene = Scene::new();
+    let root = repository(&scene);
+    let tool = scene.path().join("nebensound-repo");
+    script(&tool, NEBENSOUND_REPO);
+    let mut setup = setup(&root, scene.path(), "linux", cargo(&scene, &tool, 0));
+    setup.env.push(("GITHUB_ACTIONS".into(), "true".into()));
+
+    let (code, out) = call(&["check", "--all"], &setup);
+    assert_eq!(code, 1, "{out}");
+    for line in [
+        "  > nebensound-repo setup --pinned --with-runtimes json\n",
+        "    | setup --pinned --with-runtimes json GITHUB_ACTIONS=true\n",
+        "check-json, passing case `good`: as expected\n",
+        "check-json, failing case `bad`: as expected\n",
+    ] {
+        assert!(out.contains(line), "{line}\n{out}");
+    }
+
+    // A setup that fails names the call it made.
+    write(&root, &[("setup-fails", "")]);
+    let (code, out) = call(&["check", "--all"], &setup);
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains(
+            "::error::check-json: `nebensound-repo setup --pinned --with-runtimes json` failed, \
+             so its cases run with the programs that are there\n"
+        ),
+        "{out}"
+    );
+}
+
+#[test]
+fn only_github_actions_set_to_true_is_a_run_on_github() {
+    let env = |value: &str| vec![("GITHUB_ACTIONS".into(), value.into())];
+    assert!(cases::on_github(&env("true")));
+    assert!(!cases::on_github(&env("false")));
+    assert!(!cases::on_github(&env("")));
+    assert!(!cases::on_github(&[("CI".into(), "true".into())]));
+    assert!(!cases::on_github(&[]));
 }
 
 #[test]
@@ -386,6 +435,7 @@ fn a_case_that_breaks_off_cannot_be_run() {
             env: &env,
             git: &git,
             scratch,
+            with_runtimes: false,
         };
         let mut out = Vec::new();
         let verdict = cases::direct(bench, "check-json", &case, &mut out);

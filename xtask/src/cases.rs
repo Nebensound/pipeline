@@ -593,29 +593,53 @@ pub struct Direct<'a> {
     pub git: &'a OsString,
     /// Where each case gets a directory of its own.
     pub scratch: &'a Path,
+    /// Whether [`set_up`] may install a runtime that is missing or too old,
+    /// with `--with-runtimes`: in a run on GitHub Actions only ([`on_github`]),
+    /// never on a developer's computer.
+    pub with_runtimes: bool,
+}
+
+/// Whether the environment `env` is that of a run on GitHub Actions, which
+/// sets `GITHUB_ACTIONS` to `true` for every step.
+#[must_use]
+pub fn on_github(env: &[(OsString, OsString)]) -> bool {
+    env.iter()
+        .any(|(name, value)| name == "GITHUB_ACTIONS" && value == "true")
 }
 
 /// Sets up the programs of the check of the block `block`, whose check the
 /// tool carries out, before its cases run: `nebensound-repo setup --pinned
 /// <check>` on the repository at `root`, the first of the two calls the block
-/// makes, without `--with-runtimes`. It installs the pinned version of every
-/// program the check calls where it is missing, and no runtime, which stays
-/// the computer's unless someone agrees. So the cases do not depend on which
-/// blocks ran before them. Nothing when it went well, else what went wrong.
-/// What the tool prints is folded into a group.
+/// makes. It installs the pinned version of every program the check calls
+/// where it is missing. So the cases do not depend on which blocks ran before
+/// them.
+///
+/// A runtime one of those programs needs is the computer's when it is new
+/// enough. On a developer's computer the call goes without `--with-runtimes`,
+/// so no runtime is installed unless someone agrees. In a run on GitHub
+/// Actions ([`Direct::with_runtimes`]) it goes with `--with-runtimes`, as the
+/// block's call does, so that a runtime the runner image lacks or carries too
+/// old is installed in the version the register pins, and the cases do not
+/// depend on the image. Nothing when it went well, else what went wrong. What
+/// the tool prints is folded into a group.
 pub fn set_up(bench: Direct<'_>, root: &Path, block: &str, out: &mut dyn Write) -> Option<String> {
     let check = block.strip_prefix("check-").unwrap_or(block);
     say(
         out,
         &format!("::group::{block}, the programs of its check\n"),
     );
-    let done = tool(bench, root, &["setup", "--pinned", check], out);
+    let args: &[&str] = if bench.with_runtimes {
+        &["setup", "--pinned", "--with-runtimes", check]
+    } else {
+        &["setup", "--pinned", check]
+    };
+    let done = tool(bench, root, args, out);
     say(out, "::endgroup::\n");
     match done {
         Ok((true, _)) => None,
         Ok((false, _)) => Some(format!(
-            "`nebensound-repo setup --pinned {check}` failed, so its cases run with the programs \
-             that are there"
+            "`nebensound-repo {}` failed, so its cases run with the programs that are there",
+            args.join(" ")
         )),
         Err(error) => Some(format!(
             "the programs of its check cannot be set up: {error}"
