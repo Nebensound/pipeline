@@ -16,7 +16,7 @@ and what runs on a pull request and on a push.
 
 The workflow does not publish or deploy anything yet, and it reports versions
 without tagging or releasing them: tags and releases are records the release
-stages will write, and no version is read from them. Those phases arrive one at
+stage will write, and no version is read from them. Those phases arrive one at
 a time, each when it does something: a job that only existed to be green would
 report success for work nobody did. Until a phase is built, no job stands in for it,
 and this page does not describe it.
@@ -57,8 +57,7 @@ it and hands the result on:
    whom the repository is meant.
 4. On a pull request into `main` that changes the audience, the old and the new
    value are named in the summary of the run, as a notice and in the step
-   summary. A promotion into `release` names no change: it was named on the
-   pull request into `main`.
+   summary.
 5. Then every Rust package `[[exclude]]` takes out as a
    whole (`nebensound-repo excluded-packages`) is named in the summary of the
    run with its reason, as a notice.
@@ -76,27 +75,26 @@ cache Declare filled and runs `nebensound-repo version`: the text table goes
 into the log, and the same table as Markdown into the summary of the run, one
 row per unit that carries a version:
 
-| Column      | What it says                                                                                                                                     |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Unit, Path  | Which unit, and where it lives.                                                                                                                  |
-| Release     | `single-stage` or `two-stage`.                                                                                                                   |
-| Current     | The highest version the history gives a commit up to the commit at hand, a pre-release included; `none` before the first commit that touches it. |
-| This commit | The version of the commit at hand, `none` when the commit does not touch the unit.                                                               |
-| Waiting     | In two stages only: the commits since the last full release that touch the unit, the commit at hand included. Empty in one stage.                |
+| Column      | What it says                                                                                                             |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Unit, Path  | Which unit, and where it lives.                                                                                          |
+| Current     | The highest version the history gives a commit up to the commit at hand; `none` before the first commit that touches it. |
+| This commit | The version of the commit at hand, `none` when the commit does not touch the unit.                                       |
 
 [The reference of the declaration](declaration.md#versions) describes how each
 value is resolved. The repository always carries a version, so the table always
 has a row.
 
-On a pull request the checkout is the merge commit GitHub builds for it, and a
-merge commit touches no unit. The tool therefore reads it as the commit the
-squash merge would put on the base branch: one parent, the changes of the pull
-request, and its title and description as the message, as they stand when the
-run starts. The column is called `This pull request` there, and each version in
-it is the one that merge would get with `-pr.<number>` behind it, such as
-`0.4.2-pr.17` or `1.2.0-pre.3-pr.17`; so is the current version of a unit the
-pull request touches. It names artifacts and is never published. A pull request
-into `release` is merged with a merge commit and is read as it is.
+On a pull request the checkout is the merge commit GitHub builds for it, which
+carries a message of GitHub's and contains the commits of the branch. The tool
+therefore reads it as the commit the squash merge would put on the base
+branch: one parent, the changes of the pull request, and its title and
+description as the message, as they stand when the run starts. A merge commit
+that lands the pull request with the same title and description comes to the
+same versions. The column is called `This pull request` there, and each
+version in it is the one that merge would get with `-pr.<number>` behind it,
+such as `0.4.2-pr.17`; so is the current version of a unit the pull request
+touches. It names artifacts and is never published.
 
 The job runs whatever Declare's result. When phase 0 finds an error, such as a
 shallow clone, there is no table: the log and the summary list every finding

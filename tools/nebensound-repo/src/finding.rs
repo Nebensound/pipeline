@@ -82,8 +82,8 @@ pub enum Rule {
     PublishWithoutVersion,
     /// A version writer on a unit that carries no version to copy.
     VersionWriterWithoutVersion,
-    /// A `release` or `minimum-version` on a unit that carries no version for
-    /// it to act on.
+    /// A `minimum-version` on a unit that carries no version for it to act
+    /// on.
     ReleaseFieldWithoutVersion,
     /// A build without a version writer it needs, so that its artifact would
     /// carry a version the run did not write.
@@ -102,21 +102,8 @@ pub enum Rule {
     UnconventionalCommit,
     /// A clone without the whole history, so no version can be told.
     ShallowClone,
-    /// A unit that is or was released in two stages at a commit that counts
-    /// for it, and no branch `origin/release`.
-    MissingReleaseBranch,
-    /// A unit released in one stage with commits since its last full release
-    /// that were released in two stages, and so given pre-releases that never
-    /// became a full release.
-    UnreleasedBeforeSwitch,
     /// A version whose field to raise holds the largest number already.
     ExhaustedVersion,
-    /// A branch `origin/release`, and no unit released in two stages.
-    PointlessReleaseBranch,
-    /// A unit released in one stage whose minimum version is a pre-release.
-    PreReleaseMinimum,
-    /// A merge into `release` of a commit other than the tip of `main`.
-    StalePromotion,
     /// A tag that reads as a release of a unit, sits elsewhere than on the
     /// commit the history gives its version, and is not below the unit's
     /// current version.
@@ -172,12 +159,7 @@ impl Rule {
             Self::MissingLockfile => "missing-lockfile",
             Self::UnconventionalCommit => "unconventional-commit",
             Self::ShallowClone => "shallow-clone",
-            Self::MissingReleaseBranch => "missing-release-branch",
-            Self::UnreleasedBeforeSwitch => "unreleased-before-switch",
             Self::ExhaustedVersion => "exhausted-version",
-            Self::PointlessReleaseBranch => "pointless-release-branch",
-            Self::PreReleaseMinimum => "pre-release-minimum",
-            Self::StalePromotion => "stale-promotion",
             Self::ConflictingTag => "conflicting-tag",
             Self::UnexcusedIgnore => "unexcused-ignore",
             Self::UnreadableIgnoreFile => "unreadable-ignore-file",

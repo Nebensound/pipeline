@@ -60,7 +60,7 @@
               "$ref": "#/definitions/Version"
             }
           ],
-          "description": "The version it gets is never lower than this: `X.Y.Z`, or\n`X.Y.Z-pre.N` for a pre-release of a unit released in two stages."
+          "description": "The version it gets is never lower than this, as `X.Y.Z`."
         },
         "path": {
           "allOf": [
@@ -77,14 +77,6 @@
             }
           ],
           "description": "What runs for it."
-        },
-        "release": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/Release"
-            }
-          ],
-          "description": "Whether it is released in one stage or in two. Left out, its publish\ntargets decide."
         },
         "versioning": {
           "anyOf": [
@@ -289,21 +281,6 @@
       "pattern": "^(?:\\.|(?:[^/\\\\.][^/\\\\]*|\\.[^/\\\\.][^/\\\\]*|\\.\\.[^/\\\\]+)(?:/(?:[^/\\\\.][^/\\\\]*|\\.[^/\\\\.][^/\\\\]*|\\.\\.[^/\\\\]+))*/?)$",
       "type": "string"
     },
-    "Release": {
-      "description": "How a unit's version reaches a full release.\n\nWritten down rather than read off the repository: whether a branch\n`release` exists says nothing, since a deleted branch must not turn the next\nmerge into a full release.",
-      "oneOf": [
-        {
-          "const": "single-stage",
-          "description": "A merge to `main` is a full release.",
-          "type": "string"
-        },
-        {
-          "const": "two-stage",
-          "description": "A merge to `main` is a pre-release, and a pull request from `main` into\n`release` makes the full release.",
-          "type": "string"
-        }
-      ]
-    },
     "Repo": {
       "additionalProperties": false,
       "description": "The repository as a unit.",
@@ -348,7 +325,7 @@
               "$ref": "#/definitions/Version"
             }
           ],
-          "description": "The version it gets is never lower than this: `X.Y.Z`, or\n`X.Y.Z-pre.N` for a pre-release of a unit released in two stages."
+          "description": "The version it gets is never lower than this, as `X.Y.Z`."
         },
         "pipeline": {
           "anyOf": [
@@ -357,14 +334,6 @@
             }
           ],
           "description": "What runs for it."
-        },
-        "release": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/Release"
-            }
-          ],
-          "description": "Whether it is released in one stage or in two. Left out, its publish\ntargets decide."
         },
         "versioning": {
           "anyOf": [
@@ -383,8 +352,8 @@
       "type": "string"
     },
     "Version": {
-      "description": "A version as X.Y.Z, or X.Y.Z-pre.N for a pre-release: three numbers without a leading zero or a prefix, and N a number from 1 without a leading zero. No other suffix.",
-      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-pre\\.[1-9][0-9]*)?$",
+      "description": "A version as X.Y.Z: three numbers without a leading zero, a prefix or a suffix.",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$",
       "type": "string"
     },
     "VersionWriterName": {
