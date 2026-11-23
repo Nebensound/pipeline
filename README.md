@@ -115,49 +115,83 @@ fills ([`.github/actions/tool`](.github/actions/tool)); it builds the tool
 only when the cache misses. The list does not travel through a job output,
 which is limited in size.
 
+The checks for CSS, Dockerfiles, HTML, JSON, Markdown, TOML and YAML run from
+the tool. Their blocks do two things:
+`nebensound-repo setup --pinned --with-runtimes <check>` puts the pinned
+version of every program the check calls into the tool's folder in the cache
+directory, with a runtime one of them needs where the runner has none that is
+new enough, and `nebensound-repo run <check> <unit path>` runs the
+check over exactly the files `files` names. `run` starts the programs the
+register pins with the flags described below, each part even when one before it
+failed, and reports every finding with its file, and its line and column where
+the program gives them: as an annotation in a workflow run, and as a line that
+starts with `file:line:col:` elsewhere. A finding that fails nothing, such as a
+Hadolint finding below the failure threshold, is a warning. What the programs
+print stands in the output as well.
+
+The same call runs a check on a developer's computer, on Linux and macOS alike,
+once `nebensound-repo setup` has put the programs in place. `run` installs
+nothing: it takes the pinned copy of a program first and the computer's
+otherwise, and fails with a pointer to `setup` where there is neither, while
+the parts of the check whose programs are there still run.
+html-validate, markdownlint-cli2, Stylelint and yamllint are run through their
+internals, so that the repository's rules are laid over the pipeline's default,
+and of those four `run` takes only the pinned copy. What `run` hands the
+programs, its configuration for Biome, the schemas for Taplo, the pipeline's
+linter defaults and the page rules of the HTML check, is compiled into the
+tool.
+
 ### `check-css`
 
 [`.github/actions/check-css`](.github/actions/check-css) checks every `.css`
-and `.scss` file of the unit:
+and `.scss` file of the unit through `nebensound-repo run css`:
 
 - Formatted the way Prettier writes it, run as in `check-json`.
 - No Stylelint finding, with the repository's configuration laid over the
   pipeline's default, `stylelint-config-standard`, and for `.scss`
   `stylelint-config-standard-scss` read with `postcss-scss` (see
   [Linter rules](#linter-rules)). Its `ignoreFiles` and `.stylelintignore`
-  take nothing out.
+  take nothing out. Every finding is an annotation at its line and column: an
+  error fails the check, a warning fails nothing.
 
 Stylelint and the packages the default extends are pinned in the register,
-Stylelint's companions beside it, and nothing else is installed: a
-configuration that extends or loads another package fails, naming it. Every
-step runs even when one before it failed, so one run shows every finding.
+Stylelint's companions beside it, and `setup` installs nothing else: a
+configuration that extends or loads another package fails, naming it. `run`
+takes only the pinned Stylelint, since it calls Stylelint's internals, and
+starts it on its runtime, Node.js. Both parts run even when the other failed,
+so one run shows every finding.
 
 ### `check-dockerfile`
 
 [`.github/actions/check-dockerfile`](.github/actions/check-dockerfile) checks
 every `Dockerfile`, `Containerfile` and `.dockerfile` file of the unit with
-dockerfmt 1.0.0 and Hadolint 2.15.1, the release binaries pinned by SHA-256.
-Building the image, scanning it and running it belong to the build.
+dockerfmt 1.0.0 and Hadolint 2.15.1, the release binaries the register pins by
+SHA-256, through `nebensound-repo run dockerfile`. Building the image, scanning
+it and running it belong to the build.
 
 - Formatted the way dockerfmt writes it (`dockerfmt --check`). dockerfmt has no
-  configuration file, and the block hands it no style flag: the repository's
+  configuration file, and `run` hands it no style flag: the repository's
   `.editorconfig` decides the indentation, tabs, the final newline and
   dockerfmt's own `space_redirects`. An instruction dockerfmt leaves as written
   because it cannot format it safely, which it only warns about, fails the
   check on its line: it was not checked. `# dockerfmt-ignore` on the line
-  before an instruction leaves it as written on purpose.
+  before an instruction leaves it as written on purpose. A setting of
+  `.editorconfig` dockerfmt cannot use, for which it takes its default, is a
+  warning.
 - No Hadolint finding at or above the failure threshold, by default `info`. A
   finding below it, such as a style finding by default, is a warning and fails
   nothing. The pipeline has no Hadolint default (see
-  [Linter rules](#linter-rules)).
+  [Linter rules](#linter-rules)). Hadolint's JSON report is read by the tool,
+  and every finding becomes an annotation at its line and column.
 
-Every step runs even when one before it failed, so one run shows every finding.
+Both parts run even when the other failed, so one run shows every finding.
 
 ### `check-html`
 
 [`.github/actions/check-html`](.github/actions/check-html) checks every `.html`
-and `.htm` file of the unit. HTML that a build generates is checked like
-written HTML once it is committed; the build output of a run is not.
+and `.htm` file of the unit through `nebensound-repo run html`. HTML that a
+build generates is checked like written HTML once it is committed; the build
+output of a run is not.
 
 - Formatted the way Prettier writes it, run as in `check-json`.
 - No html-validate finding, with the repository's configuration laid over the
@@ -172,22 +206,29 @@ written HTML once it is committed; the build output of a run is not.
   empty `alt=""` counts, for an image that only decorates). A page is a file
   whose document begins with `<!doctype html>` or has an `<html>` root; any
   other HTML file, such as a fragment or header a generator includes, gets the
-  checks above without these. The page rules are html-validate rules shipped
-  beside the block ([`page-rules.mjs`](.github/actions/check-html/page-rules.mjs)),
-  switched on after the repository's configuration, so neither that
-  configuration nor an inline `html-validate-disable` comment switches them
-  off: only an `[[exclude]]` entry takes a page out. Each finding names the
-  page, the line and the field.
+  checks above without these. The page rules are html-validate rules compiled
+  into the tool
+  ([`src/run/html.rs`](tools/nebensound-repo/src/run/html.rs)), switched on
+  after the repository's configuration, so neither that configuration nor an
+  inline `html-validate-disable` comment switches them off: only an
+  `[[exclude]]` entry takes a page out. Each finding names the page, the line
+  and the field. Every html-validate finding is an annotation at its line and
+  column: an error fails the check, a warning fails nothing.
 - Every link into the repository leads to a file and an `id` that exist,
   lychee run as in `check-markdown`, with the same `lychee.toml` handling: a
   stylesheet or an image counts as much as an anchor. A link from the root of a
   site, such as `/style.css` or `/login`, is not checked, since where the site
   is served is not in the declaration; links to the outside are not checked in
-  a pull request.
+  a pull request. lychee's report stands in the output, and every broken link
+  in it is a finding on the page that holds it, at the line and column lychee
+  names.
 
-A template that does not parse as HTML needs an `[[exclude]]` entry with its
-reason. Every step runs even when one before it failed, so one run shows every
-finding.
+html-validate is pinned in the register, and `setup` installs nothing beside
+it: a configuration that names another package, such as a plugin, fails,
+naming it. `run` takes only the pinned html-validate, since it calls
+html-validate's internals, and starts it on its runtime, Node.js. A template
+that does not parse as HTML needs an `[[exclude]]` entry with its reason. Every
+part runs even when one before it failed, so one run shows every finding.
 
 ### `check-json`
 
@@ -199,8 +240,9 @@ finding.
   `jq`.
 - `.jsonc` is strict JSONC as [jsonc.org](https://jsonc.org) defines it: JSON
   plus comments, trailing commas allowed. Biome judges it as a parser only, with
-  the action's own configuration and no lint rule; a repository's Biome
-  configuration is not read.
+  the tool's own configuration
+  ([`run/biome.json`](tools/nebensound-repo/run/biome.json)) and no lint rule;
+  a repository's Biome configuration is not read.
 - `composer.lock`, `flake.lock` and `Pipfile.lock` are strict JSON like
   `.json`, judged by `jq`, but not format-checked: the tool that writes them
   decides their layout (Composer and pipenv indent with four spaces). Every file
@@ -211,7 +253,7 @@ finding.
   `requirePragma`, `checkIgnorePragma`, `rangeStart` and `rangeEnd` set aside,
   which would pass a whole file unchecked.
 
-Every step runs even when one before it failed, so one run shows every finding.
+Every part runs even when one before it failed, so one run shows every finding.
 
 ### `check-markdown`
 
@@ -228,10 +270,12 @@ Every step runs even when one before it failed, so one run shows every finding.
   the root, so excluded addresses, accepted status codes and timeouts stay the
   repository's configuration. An `exclude_path` there is held against the
   declaration by phase 0, like every setting that takes files out (see
-  [Exclusions](#exclusions)). The block names `lychee.toml` as the
+  [Exclusions](#exclusions)). `run` names `lychee.toml` as the
   configuration, so a lychee table in `Cargo.toml`, `pyproject.toml` or
   `package.json`, which lychee would otherwise read where there is no
-  `lychee.toml`, is not read.
+  `lychee.toml`, is not read. lychee's report stands in the output, and every
+  broken link in it is a finding on the file that holds it, at the line and
+  column lychee names.
 
 ### `check-python`
 
@@ -341,8 +385,9 @@ keeps in with an `[[include]]` is checked in every step, coverage included.
 ### `check-toml`
 
 [`.github/actions/check-toml`](.github/actions/check-toml) checks every `.toml`
-file of the unit, and `Cargo.lock`, `uv.lock`, `poetry.lock` and `pdm.lock`,
-with Taplo 0.10.0, the release binary pinned by SHA-256:
+file and every `Pipfile` of the unit, and `Cargo.lock`, `uv.lock`,
+`poetry.lock` and `pdm.lock`, with Taplo 0.10.0, the release binary the register
+pins by SHA-256:
 
 - Taplo reads each file from standard input. Given a path, it silently skips
   every `.lock` file and every `Pipfile` (all of them are fed through standard
@@ -360,31 +405,32 @@ with Taplo 0.10.0, the release binary pinned by SHA-256:
   other.
 - Every file passes `taplo lint`, run without the repository's configuration so
   that it cannot switch the schema validation off.
-- Schemas are assigned by the action, so far to `Cargo.toml` by file name and
+- Schemas are assigned by the tool, so far to `Cargo.toml` by file name and
   to `.nebensound/repo.toml` by path (below). The schemas for `Cargo.toml` are
-  copies of SchemaStore's schemas that lie beside the action with their
-  licence notice (see [their README](.github/actions/check-toml/schemas/README.md)),
-  so the check makes no request to SchemaStore. Apart from the declaration, a
+  copies of SchemaStore's schemas that the tool compiles in from
+  `tools/nebensound-repo/schemas/`, where they lie with their licence notice
+  (see [their README](tools/nebensound-repo/schemas/README.md)), so the check
+  makes no request to SchemaStore. Apart from the declaration, a
   file whose leading comments hold its own `#:schema` directive with an
   absolute URL keeps that schema. A schema that cannot be read fails the check
   instead of being skipped.
 - `.nebensound/repo.toml` is always checked against the schema of the
-  declaration that lies beside the action, the one of the same pipeline
-  version as phase 0, directive or not. `nebensound-repo schema` derives it from
+  declaration the tool compiles in, the one of the same pipeline version as
+  phase 0, directive or not. `nebensound-repo schema` derives it from
   the types phase 0 reads the file with, so an unknown key fails with its line
   and column. The schema is looser than phase 0, never stricter.
 
 The schema of the declaration on `main` has a public address, for editors:
 
 ```text
-https://raw.githubusercontent.com/Nebensound/pipeline/main/.github/actions/check-toml/schemas/nebensound-declaration.json
+https://raw.githubusercontent.com/Nebensound/pipeline/main/tools/nebensound-repo/schemas/nebensound-declaration.json
 ```
 
 An editor that reads Taplo's directive finds it through this line before the
 first key or table of `.nebensound/repo.toml`:
 
 ```toml
-#:schema https://raw.githubusercontent.com/Nebensound/pipeline/main/.github/actions/check-toml/schemas/nebensound-declaration.json
+#:schema https://raw.githubusercontent.com/Nebensound/pipeline/main/tools/nebensound-repo/schemas/nebensound-declaration.json
 ```
 
 ### `check-yaml`
@@ -396,12 +442,14 @@ first key or table of `.nebensound/repo.toml`:
   default (see [Linter rules](#linter-rules)). Its `ignore` and
   `ignore-from-file` take nothing out.
 - Every workflow directly under `.github/workflows` passes actionlint, with
-  ShellCheck reading every `run:` script. actionlint 1.7.12 does not know `$/`
-  yet and reports every such call as invalid; the block drops exactly these
-  two messages, and only for a `uses:` that begins with `$/`. Nor does it know
-  the key `queue` of a `concurrency` section, which GitHub documents; the
-  block drops the message about that one key, and every other unknown key of
-  the section is still a finding.
+  ShellCheck reading every `run:` script and pyflakes every Python one where
+  they are on the search path, as ShellCheck is on GitHub's Linux runners; the
+  output says whether each was found. actionlint 1.7.12 does not know `$/`
+  yet and reports every such call as invalid; `run` drops exactly these two
+  messages, and only for a `uses:` that begins with `$/`. Nor does it know
+  the key `queue` of a `concurrency` section, which GitHub documents; `run`
+  drops the message about that one key, and every other unknown key of the
+  section is still a finding.
 - `.github/dependabot.yml` matches the Dependabot schema (`check-jsonschema`,
   pinned, with the schema it brings along). An unknown key fails the check
   with the file and the key named, instead of surfacing only after the merge.
@@ -554,8 +602,8 @@ pipeline:
 (`stylelint-config-standard`, for `.scss` `stylelint-config-standard-scss`) and
 [`tools/nebensound-repo/rules/html-validate.json`](tools/nebensound-repo/rules/html-validate.json)
 (the presets `recommended` and `a11y`, less what contradicts Prettier through
-html-validate's own preset `prettier`). The
-block reads it from the pipeline version that runs. A repository's own
+html-validate's own preset `prettier`). `run` hands each linter the default
+compiled into the tool of the pipeline version that runs. A repository's own
 configuration is laid over that default rule by rule: its file names only the
 rules it wants different, every rule it does not name keeps the default's value,
 and a later change of the default reaches it without a change of its own.
@@ -608,15 +656,15 @@ Stylelint reads, for each stylesheet, the configuration nearest to it: the
 first of the names it looks for (`package.json` with a `stylelint` key,
 `.stylelintrc`, `.stylelintrc.json`, `.stylelintrc.yaml`,
 `stylelint.config.mjs` and the others) in the file's folder or the nearest
-folder above it. `check-css` hands it that configuration as the last of what
+folder above it. `run css` hands it that configuration as the last of what
 its configuration extends, after the default, so Stylelint itself lays the one
 over the other rule by rule, and what the repository's `extends` names comes
 along over the default as well. An `overrides` entry matches its `files` from
 the repository root. html-validate reads the `.htmlvalidate.json` (`.mjs`,
 `.cjs`, `.js`) of a page's folder and of every folder above it, up to one that
-says `root: true`; `check-html` lays them over the default, the nearer over
+says `root: true`; `run html` lays them over the default, the nearer over
 the farther. The page rules lie over everything and cannot be switched off.
-Both blocks install only the pinned packages, so a configuration that names
+Both checks find only the pinned packages, so a configuration that names
 another one, such as a plugin, fails with the package named.
 
 Ruff runs with a default of the pipeline as well:
@@ -654,9 +702,10 @@ its own it stays the repository's choice.
 
 Hadolint runs without a default of the pipeline: its own rules contradict no
 other tool of the pipeline, so there is nothing to lay beneath them, and
-`nebensound-repo check` reports nothing for it. `check-dockerfile` hands it the
-repository's `.hadolint.yaml` or `.hadolint.yml` at the root, and without one an
-empty configuration, so that no configuration in a user's home folder counts.
+`nebensound-repo check` reports nothing for it. `nebensound-repo run dockerfile`
+hands it the repository's `.hadolint.yaml` or `.hadolint.yml` at the root, and
+without one an empty configuration, so that no configuration in a user's home
+folder counts.
 `ignored`, `override`, the trusted registries, the label schema, a failure
 threshold and the inline and global ignore pragmas stay the repository's rule
 configuration. What would pass every finding is set aside: `no-fail`, a
@@ -872,11 +921,30 @@ For now the xtask knows only how a check, a version writer and a build are
 called and tested, so a `publish-` block is reported until the xtask learns
 that kind. The first one teaches it, together with its cases.
 
-Then it runs every block against its cases. It builds the tool through
-[`.github/actions/tool`](.github/actions/tool), copies each case into a fresh
-Git repository, runs [`.github/actions/phase0`](.github/actions/phase0) on it,
-and runs a check block once for every unit the plan starts the block's check
-for, just as a unit job does, with the plan when the block takes one. A version
+Then it runs every block against its cases, each copied into a fresh Git
+repository. The blocks whose check runs from the tool (`check-css`,
+`check-dockerfile`, `check-html`, `check-json`, `check-markdown`, `check-toml`,
+`check-yaml`) hold nothing of their check in their steps, so their cases run
+through the tool itself: the xtask builds the tool of this commit with Cargo,
+runs phase 0 on the case with `nebensound-repo check` and `plan`, as `Declare`
+does, and calls
+`nebensound-repo run` once for every unit the plan starts the check for, in the
+environment of a workflow run, so that the findings are annotations. Before
+the cases of each such block it sets up the programs of its check with
+`nebensound-repo setup --pinned <check>`, the first of the two calls the block
+makes, without `--with-runtimes`: it installs the pinned version of every
+program the check calls where it is missing, so that the cases do not depend on
+which blocks ran before the xtask, and it installs no runtime. A runtime one of
+those programs needs is the computer's, one that is new enough, or one
+`cargo xtask setup --with-runtimes` put in place. A setup that fails is a
+problem of its own, and the block's cases still run with the programs that are
+there.
+
+Every other block runs its own steps. The xtask builds the tool through
+[`.github/actions/tool`](.github/actions/tool), runs
+[`.github/actions/phase0`](.github/actions/phase0) on the case, and runs a
+check block once for every unit the plan starts the block's check for, just as
+a unit job does, with the plan when the block takes one. A version
 writer's block runs once with the plan, provided a unit of the plan selects the
 writer. A build block runs once for every unit the plan starts the build for
 and gives a version of the run, just as a build job does: first the block of
@@ -886,14 +954,14 @@ block to succeed everywhere. A failing case needs it to fail and to print every
 finding the case names, so a block that fails for another reason does not
 count.
 
-The xtask keeps no copy of what a block does. It reads every step from the
+The xtask keeps no copy of what such a block does. It reads every step from the
 block's `action.yml` and runs it the way the runner of GitHub Actions does: it
 decides each `if:`, fills in every `${{ … }}`, hands each `run:` to bash and
 reads back what the step writes to `GITHUB_OUTPUT`, `GITHUB_ENV` and
-`GITHUB_PATH`. A composite action a block calls, such as lychee's, is fetched at
-the ref the block names, a branch, a tag or a full commit SHA, and run the same
-way. An action that runs on Node.js
-cannot run like that; for the ones the blocks call, the xtask stands in:
+`GITHUB_PATH`. A composite action a block calls is fetched at the ref the block
+names, a branch, a tag or a full commit SHA, and run the same way. An action
+that runs on Node.js cannot run like that; for the ones it knows, the xtask
+stands in:
 
 | Action                                                               | What stands in                                                                                                 |
 | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -901,10 +969,14 @@ cannot run like that; for the ones the blocks call, the xtask stands in:
 | `Swatinem/rust-cache`, `actions/cache/restore`, `actions/cache/save` | Nothing: a cache changes how fast a step runs, not what it finds.                                              |
 | `actions/upload-artifact`                                            | Nothing leaves the machine, but every path the step names has to exist, as `if-no-files-found: error` demands. |
 
-Any other such action fails the xtask until it has a stand-in. In the gate, the
-blocks that ran before the xtask in `Check repository` have put Node.js and Go
-on the PATH. One step does not run: `Make room on the runner` of `check-rust`,
-which deletes software of the machine with `sudo`; on a developer's machine,
+Any other such action fails the xtask until it has a stand-in. No block calls
+`actions/setup-node` or `actions/setup-go` today: the checks that run from the
+tool get Node.js from `nebensound-repo setup`, and `check-python` downloads the
+Node.js that Pyright runs on itself. The two stand-ins stay, so that a block calling one of them
+is run as well; for such a step the xtask takes the program already on the
+PATH and fails the step unless it is the version the step asks for. One step
+does not run:
+`Make room on the runner` of `check-rust`, which deletes software of the machine with `sudo`; on a developer's machine,
 that software would be theirs. A step the xtask leaves out has to exist, so
 renaming it fails the xtask instead of letting the step run.
 
@@ -915,8 +987,8 @@ such as `CARGO_TERM_COLOR`, `RUSTFLAGS` or `NODE_OPTIONS`, would otherwise make
 a block print something else locally than in the gate. Of the variables the
 runner sets for every step, a step gets `CI`, `GITHUB_ACTIONS`, the `RUNNER_`
 and file-command variables, and fixed values for the repository and the run
-(`GITHUB_REPOSITORY`, `GITHUB_RUN_ID` and their kin), which lychee's action
-reads; a case belongs to no repository on GitHub and to no run. The
+(`GITHUB_REPOSITORY`, `GITHUB_RUN_ID` and their kin), which an action a block
+calls may read; a case belongs to no repository on GitHub and to no run. The
 expressions `github.*`, `runner.*` and `job.*` know only the names the blocks
 and the actions they call read, with the same values; any other name fails the
 xtask, since on GitHub it would have a value the xtask cannot give. Phase 0
@@ -925,32 +997,34 @@ reads the name and the default branch of the event's repository, which are
 installs with `cargo install` goes into a folder of the run that comes first on
 its `PATH`, so the cases leave the developer's own programs as they are.
 
-What a step prints stands in the log behind a `|`, so that the findings of a
-failing case do not become annotations of the gate. What the xtask itself
-finds is an annotation.
+What a step or a call of the tool prints stands in the log behind a `|`, so
+that the findings of a failing case do not become annotations of the gate. What
+the xtask itself finds is an annotation.
 
-The blocks are written for the Linux runners of GitHub Actions, and so for now
-the cases run on Linux only, in the gate on every pull request and locally on
-Linux. Elsewhere the xtask holds the blocks, the register and `nebensound.yml`
-to each other, says in one sentence that the cases run only on Linux for now,
-and exits with `1`, since the cases did not run. Running them on macOS comes
-with the checks that run from the tool (#73, #74).
+The cases of the blocks that run from the tool run wherever the tool does, on
+Linux and macOS alike. The steps of the other blocks are written for the Linux
+runners of GitHub Actions, and so for now their cases run on Linux only, in the
+gate on every pull request and locally on Linux. Elsewhere the xtask holds the
+blocks, the register and `nebensound.yml` to each other, runs the cases of the
+blocks that run from the tool, names the other blocks in one sentence and exits
+with `1`, since their cases did not run.
 
 `cargo xtask setup` calls `nebensound-repo setup` for this repository with the
 tool of this commit, built from `tools/nebensound-repo/` with the toolchain the
 tool pins, and hands it every option unchanged (`--pinned`, `--with-runtimes`,
-`--check`). Then, on Linux, it checks what only the test cases need: Node.js and
-Go on the `PATH` in the versions the blocks' steps ask for (read from their
-`action.yml`), Docker with Buildx, jq, npm, Python's pip and rustup. It
+`--check`, the names of checks). The cases of the blocks that run from the tool
+take the pinned programs `cargo xtask check --all` sets up itself, and a
+runtime from the computer or from `--with-runtimes`. Then, on Linux, it checks
+what only the cases of the other blocks need: a program an action of their
+steps would put on the `PATH`, in the version the step asks for (read from
+their `action.yml`), Docker with Buildx, jq and rustup. It
 installs none of these, since they stay the machine's, but names each one that
 is missing or of another version and exits with `1` then, so that a machine it
-passes can run the cases.
-`nebensound-repo setup` may have put a jq into its cache, but the steps look for
-jq on the `PATH`. npm is asked for apart from Node.js, since some systems ship
-it as a package of its own. That the Docker daemon runs is not checked; the
-cases of `build-docker` fail without it. On another system the cases do not
-run, so `setup` leaves out what only they need and says so, and its exit code
-is the tool's.
+passes can run the cases. `nebensound-repo setup` may have put a jq into its
+cache, but the steps look for jq on the `PATH`. That the Docker
+daemon runs is not checked; the cases of `build-docker` fail without it. On
+another system those cases do not run, so `setup` leaves out what only they
+need and says so, and its exit code is the tool's.
 
 The cases are
 taken out of this repository's own checks with `[[exclude]]` and a reason in

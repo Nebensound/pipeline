@@ -1,16 +1,16 @@
 //! The rules a repository sets differently from the pipeline's default.
 //!
-//! Four programs of the building blocks read a rule configuration that the
-//! pipeline gives a default for: Markdownlint in `check-markdown`, yamllint in
-//! `check-yaml`, Stylelint in `check-css` and html-validate in `check-html`.
-//! The block lays the repository's own configuration over
-//! that default rule by rule, so the repository's file names only what
-//! differs, and a change of the default reaches every repository that did not
-//! name the rule. The defaults lie beside this tool in `rules/`: the blocks
-//! read them from there, and the tool compiles them in, so both speak of the
-//! same files.
+//! Four programs of the checks read a rule configuration that the pipeline
+//! gives a default for: Markdownlint in the Markdown check, yamllint in the
+//! YAML check, Stylelint in the CSS check and html-validate in the HTML check.
+//! `run` lays the repository's own configuration over that default rule by
+//! rule, so the repository's file names only what differs, and a change of the
+//! default reaches every repository that did not name the rule. The defaults
+//! lie beside this tool in `rules/`: the tool compiles them in, both to hand
+//! them to the linters in `run` and to report on them here, so both speak of
+//! the same files.
 //!
-//! Read are the files the blocks lay over the default:
+//! Read are the files the checks lay over the default:
 //!
 //! - Markdownlint: in every folder, the first options file markdownlint-cli2
 //!   reads there (`.markdownlint-cli2.jsonc`, `.yaml`, `.cjs`, `.mjs`) with
@@ -30,12 +30,12 @@
 //! - Stylelint: `rules` in the configuration nearest to a file the css check
 //!   covers, the first of the names Stylelint looks for in that file's folder
 //!   or in the nearest folder above it (`package.json` only where it holds a
-//!   `stylelint` key). The block lays it over the default; a nearer one takes
+//!   `stylelint` key). `run` lays it over the default; a nearer one takes
 //!   the place of one farther up, not its rules.
 //! - html-validate: `rules` in every `.htmlvalidate.json` (`.mjs`, `.cjs`,
 //!   `.js`) of a folder that holds a file the html check covers, or holds one
 //!   below it, up to a folder whose `.htmlvalidate.json` says `root: true`.
-//!   The block lays them over the default, each nearer one over the ones above
+//!   `run` lays them over the default, each nearer one over the ones above
 //!   it; one in a folder that says `root: true` lies over the default alone.
 //!
 //! The two of them are shown only where their check covers a file, and so is
@@ -66,16 +66,16 @@ use yaml_rust2::{Event, Yaml, YamlLoader};
 use crate::ignored::{Read, folder};
 use crate::report::{column, shown};
 
-/// The pipeline's default for Markdownlint, as `check-markdown` reads it.
+/// The pipeline's default for Markdownlint, as `run markdown` hands it over.
 pub const MARKDOWNLINT: &str = include_str!("../rules/markdownlint.jsonc");
 
-/// The pipeline's default for yamllint, as `check-yaml` reads it.
+/// The pipeline's default for yamllint, as `run yaml` hands it over.
 pub const YAMLLINT: &str = include_str!("../rules/yamllint.yaml");
 
-/// The pipeline's default for Stylelint, as `check-css` reads it.
+/// The pipeline's default for Stylelint, as `run css` hands it over.
 pub const STYLELINT: &str = include_str!("../rules/stylelint.yaml");
 
-/// The pipeline's default for html-validate, as `check-html` reads it.
+/// The pipeline's default for html-validate, as `run html` hands it over.
 pub const HTML_VALIDATE: &str = include_str!("../rules/html-validate.json");
 
 /// The pipeline's default for Ruff, as `check-python` reads it.
@@ -97,7 +97,8 @@ pub struct Defaults<'a> {
 }
 
 impl Defaults<'static> {
-    /// The defaults compiled into this tool: the files the blocks read.
+    /// The defaults compiled into this tool: the files `run` hands the
+    /// linters.
     pub const BUILT_IN: Self = Self {
         markdownlint: MARKDOWNLINT,
         yamllint: YAMLLINT,

@@ -52,6 +52,8 @@ pub mod resolve;
 pub(crate) mod ruff_config;
 pub mod rules;
 #[cfg(feature = "program")]
+pub mod run;
+#[cfg(feature = "program")]
 pub mod schema;
 #[cfg(feature = "program")]
 pub mod setup;
@@ -208,6 +210,24 @@ pub enum Command {
         /// Change nothing; say what is missing or differs.
         #[arg(long)]
         check: bool,
+        /// Only the programs of these checks, as the register names them,
+        /// such as one building block needs. Without any, those of every
+        /// check the declaration starts.
+        #[arg(value_name = "CHECK")]
+        checks: Vec<String>,
+    },
+    /// Run one check over the files it covers in one unit, less what
+    /// `[[exclude]]` takes out, with the programs `setup` finds or installs:
+    /// what its building block runs. For the checks css, dockerfile, html,
+    /// json, markdown, toml and yaml.
+    // It starts the programs `setup` finds, so it is part of the feature
+    // `program` as well.
+    #[cfg(feature = "program")]
+    Run {
+        /// The check, as the register names it.
+        check: String,
+        /// The path of the unit, as the plan names it.
+        unit: String,
     },
     /// Open the interface. Only in a build with the `ui` feature.
     #[cfg(feature = "ui")]
@@ -276,6 +296,16 @@ pub enum Failure {
     /// The versions could not be written.
     #[error(transparent)]
     Write(#[from] writer::WriteError),
+    /// The check that was named is not one `run` carries out.
+    #[cfg(feature = "program")]
+    #[error(
+        "`run` carries out the checks css, dockerfile, html, json, markdown, toml and yaml; \
+         {check:?} is not one of them, and its building block runs it"
+    )]
+    NotRun {
+        /// What was named.
+        check: String,
+    },
     /// The path that was named is not one.
     #[error("{value:?} is not a path inside the repository: {source}")]
     Path {
@@ -432,9 +462,16 @@ enum Job {
         markdown: bool,
         pull_request: Option<PullRequest>,
     },
-    /// Find or install the programs of the checks.
+    /// Find or install the programs of the checks: those named, or those of
+    /// every check the declaration starts.
     #[cfg(feature = "program")]
-    Setup(setup::Options),
+    Setup(setup::Options, Vec<String>),
+    /// Run a check over the files it covers in a unit.
+    #[cfg(feature = "program")]
+    Run {
+        check: run::Check,
+        unit: RelativePath,
+    },
     /// Open the interface.
     #[cfg(feature = "ui")]
     Ui,
@@ -470,14 +507,25 @@ fn call(cli: &Cli) -> Result<Call, Failure> {
             pinned,
             with_runtimes,
             check,
-        }) => Job::Setup(setup::Options {
-            mode: match (*check, *pinned) {
-                (true, _) => setup::Mode::Check,
-                (false, true) => setup::Mode::Pinned,
-                (false, false) => setup::Mode::Missing,
+            checks,
+        }) => Job::Setup(
+            setup::Options {
+                mode: match (*check, *pinned) {
+                    (true, _) => setup::Mode::Check,
+                    (false, true) => setup::Mode::Pinned,
+                    (false, false) => setup::Mode::Missing,
+                },
+                with_runtimes: *with_runtimes,
             },
-            with_runtimes: *with_runtimes,
-        }),
+            checks.clone(),
+        ),
+        #[cfg(feature = "program")]
+        Some(Command::Run { check, unit }) => Job::Run {
+            check: run::Check::of(check).ok_or_else(|| Failure::NotRun {
+                check: check.clone(),
+            })?,
+            unit: path_of(unit)?,
+        },
         #[cfg(feature = "ui")]
         Some(Command::Ui) => Job::Ui,
         Some(Command::Explain { path }) => Job::Explain(path_of(path)?),
@@ -526,7 +574,7 @@ fn files_alone(job: &Job) -> bool {
         | Job::ExcludedPackages
         | Job::WriteVersions(Writing { plan: Some(_), .. }) => true,
         #[cfg(feature = "program")]
-        Job::Setup(_) => true,
+        Job::Setup(..) | Job::Run { .. } => true,
         _ => false,
     }
 }
@@ -636,20 +684,25 @@ fn execute(
         // The same reason again: the programs of a declaration with errors
         // could be those of the wrong checks.
         #[cfg(feature = "program")]
-        Job::Setup(_) if analysis.failed() => say(
+        Job::Setup(..) if analysis.failed() => say(
             out,
             "there is nothing to set up: phase 0 found errors, and `check` says which\n",
         ),
         #[cfg(feature = "program")]
-        Job::Setup(options) => {
-            let checks = setup::started(&plan::plan(&analysis, &central));
-            let mut environment = setup::Environment::current();
-            return Ok(setup::run(
-                central.register(),
-                &checks,
-                *options,
-                &mut environment,
-                out,
+        Job::Setup(options, named) => {
+            return Ok(set_up(&analysis, &central, *options, named, out));
+        }
+        // The same reason as for the file list: a declaration with errors
+        // would check the wrong files.
+        #[cfg(feature = "program")]
+        Job::Run { .. } if analysis.failed() => say(
+            out,
+            "nothing is checked: phase 0 found errors, and `check` says which\n",
+        ),
+        #[cfg(feature = "program")]
+        Job::Run { check, unit } => {
+            return Ok(run_check(
+                cli, &analysis, &central, *check, unit, output, out,
             ));
         }
         #[cfg(feature = "ui")]
@@ -659,6 +712,67 @@ fn execute(
     }
 
     Ok(if analysis.failed() { FOUND } else { OK })
+}
+
+/// `setup`: the programs of the checks named, or of every check the
+/// declaration starts, found or installed on this computer.
+#[cfg(feature = "program")]
+fn set_up(
+    analysis: &Analysis,
+    central: &Central,
+    options: setup::Options,
+    named: &[String],
+    out: &mut dyn Write,
+) -> u8 {
+    let checks = if named.is_empty() {
+        setup::started(&plan::plan(analysis, central))
+    } else {
+        match setup::named(central.register(), named) {
+            Ok(checks) => checks,
+            Err(unknown) => {
+                say(
+                    out,
+                    &format!("the register has no check {:?}\n", report::shown(&unknown)),
+                );
+                return MISUSE;
+            }
+        }
+    };
+    let mut environment = setup::Environment::current();
+    setup::run(central.register(), &checks, options, &mut environment, out)
+}
+
+/// `run`: the check over the files it covers in the unit, at the repository
+/// root without links, with the programs on this computer. In a workflow run
+/// every finding is an annotation.
+#[cfg(feature = "program")]
+fn run_check(
+    cli: &Cli,
+    analysis: &Analysis,
+    central: &Central,
+    check: run::Check,
+    unit: &RelativePath,
+    output: Output,
+    out: &mut dyn Write,
+) -> u8 {
+    let list = match files::files(analysis, central, check.name(), unit) {
+        Ok(list) => list,
+        Err(refusal) => {
+            say(out, &format!("{refusal}\n"));
+            return FOUND;
+        }
+    };
+    // The repository was read, so it is there.
+    let root = fs::canonicalize(&cli.repository).unwrap_or(cli.repository.clone());
+    let environment = setup::Environment::current();
+    let context = run::Context {
+        register: central.register(),
+        env: &environment,
+        root: &root,
+        temp: &std::env::temp_dir(),
+        workflow: output == Output::Workflow,
+    };
+    run::run(&context, check, unit, &list, out)
 }
 
 /// The whole report of phase 0, ended by a line break, with what departs from

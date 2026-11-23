@@ -869,8 +869,13 @@ fn inputs(
 }
 
 /// Starts a command with its standard output and error in one stream, shows
-/// every line and keeps it, and says whether it succeeded.
-fn stream(mut command: Command, out: &mut dyn Write) -> Result<(bool, Vec<String>), Error> {
+/// every line with `    | ` in front and keeps it, and says whether it
+/// succeeded.
+///
+/// # Errors
+///
+/// When the command cannot be started.
+pub fn stream(mut command: Command, out: &mut dyn Write) -> Result<(bool, Vec<String>), Error> {
     let program = command.get_program().to_string_lossy().into_owned();
     let started = io::pipe().and_then(|(reader, writer)| {
         writer.try_clone().and_then(|copy| {
