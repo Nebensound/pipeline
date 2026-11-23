@@ -148,7 +148,12 @@ fn every_program_starts_without_the_variables_that_steer_the_toolchain() {
         ],
         "{text}"
     );
-    assert!(text.contains("with 1.98.1-aarch64-apple-darwin"), "{text}");
+    assert!(
+        text.lines()
+            .any(|line| line.starts_with("cargo xtask check --all in ")
+                && line.ends_with(" with 1.98.1-aarch64-apple-darwin")),
+        "{text}"
+    );
 }
 
 #[test]

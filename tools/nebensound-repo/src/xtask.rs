@@ -19,9 +19,10 @@
 //! runner has neither, so they are ways a run on a developer's computer can
 //! differ from the gate's, whose result is the one that counts.
 
-use crate::workflow::Log;
 use std::ffi::OsStr;
 use std::path::Path;
+
+use crate::workflow::Log;
 
 /// The files that pin the xtask's toolchain, from the repository root, in the
 /// order rustup would find them from `xtask/`.
