@@ -120,6 +120,23 @@ starts with `file:line:col:` elsewhere. A finding that fails nothing, such as a
 Hadolint finding below the failure threshold, is a warning. What the programs
 print stands in the output as well.
 
+Text from the repository goes into a step's log escaped: Git allows a line
+break in a file name, and a value of the declaration holds whatever someone
+wrote, while the runner reads a line of the log that starts with `::` as a
+workflow command, one that could add an annotation of its own or stop the
+commands of the step. So a control character in a file name, a unit's path or
+a reason is written as its escape, a line break as `\n`, the same way
+everywhere. The tool writes it so in its report and in `run`, also where a
+program it starts names one of the check's files, and so do the scripts `run`
+hands Stylelint and html-validate. The blocks written in shell and the steps of
+`nebensound.yml` source the functions `shown` and `shown_list`, which the
+action [`tool`](.github/actions/tool) writes for the job and whose file it
+names in `NEBENSOUND_SHOWN`; the Python scripts of `check-python` carry a
+function `shown` of their own that writes it the same way. What a program
+prints about the repository beyond that stands as it prints it: where the
+repository's own code runs, in `check-rust`, `check-python` and the builds,
+that code could print any line itself.
+
 The same call runs a check on a developer's computer, on Linux and macOS alike,
 once `nebensound-repo setup` has put the programs in place. `run` installs
 nothing: it takes the pinned copy of a program first and the computer's
@@ -860,6 +877,16 @@ line that is not empty and does not start with `#` must match a whole line the
 block prints, with `*` standing for any text, for example
 `::error file=data.json::not formatted the way Prettier writes it`. That file is
 not part of the case's repository.
+
+A case of either kind may also hold a file `forbidden-line`, which names lines
+the block must not print, written the same way: no line the block prints may
+match one of them, read the way the runner reads a workflow command, from its
+first character that is not white space. Such a line fails the case whatever
+else the block did. It is not part of the case's repository either. The
+passing cases `line-break-in-a-file-name` of `check-json` and `check-rust`
+hold a file whose name holds a line break followed by `::warning::x` and
+forbid that warning, for a check that runs from the tool and a block written
+in shell.
 
 `cargo xtask check --all` first holds the blocks, the register and
 `nebensound.yml` to each other:

@@ -27,6 +27,13 @@ description: >-
 #
 # No cache. What is built here is the artifact a release hands on, and a cache
 # that a pull request can write has no business in it.
+#
+# The unit's path comes from the repository, and so does the path of the crate
+# below it, so a step writes them into its log through `shown`, which the
+# action `tool` writes for the job (NEBENSOUND_SHOWN): a line break in them
+# starts no workflow command. What a program prints stands as the program
+# prints it: the package's own code runs here, its build script and tests, and
+# could print any line.
 
 inputs:
   working-directory:
@@ -60,8 +67,10 @@ runs:
         UNIT: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
+        . "$NEBENSOUND_SHOWN"
+        unit="$(shown "$UNIT")"
         if [ ! -f Cargo.toml ]; then
-          echo "::error::'$UNIT' builds cargo-package but holds no Cargo.toml."
+          echo "::error::'$unit' builds cargo-package but holds no Cargo.toml."
           exit 1
         fi
         manifest="$(pwd -P)/Cargo.toml"
@@ -69,7 +78,7 @@ runs:
         package="$(jq --compact-output --arg manifest "$manifest" \
           '[.packages[] | select(.manifest_path == $manifest)] | first // empty' <<< "$metadata")"
         if [ -z "$package" ]; then
-          echo "::error::The Cargo.toml of '$UNIT' is a workspace without a package of its own, so there is no one crate to build."
+          echo "::error::The Cargo.toml of '$unit' is a workspace without a package of its own, so there is no one crate to build."
           exit 1
         fi
         name="$(jq --raw-output '.name' <<< "$package")"
@@ -79,7 +88,7 @@ runs:
         artifact="$(jq --raw-output --null-input \
           --arg path "$UNIT" --arg version "$version" --arg sha "$sha" \
           '"crate-" + ($path | @uri) + "@" + $version + "@" + $sha')"
-        echo "'$UNIT' is the package $name $version; its artifact is '$artifact'."
+        echo "'$unit' is the package $name $version; its artifact is '$artifact'."
         {
           echo "name=$name"
           echo "version=$version"
@@ -136,13 +145,15 @@ runs:
         PATCHES: ${{ steps.patches.outputs.list }}
       run: |
         set -euo pipefail
+        . "$NEBENSOUND_SHOWN"
+        crate="$(shown "$CRATE")"
         patches=()
         while IFS=$'\t' read -r name dir; do
           patches+=(--config "patch.crates-io.$name.path='$dir'")
         done < "$PATCHES"
         cargo package --locked --allow-dirty --package "$PACKAGE" "${patches[@]}"
         if [ ! -f "$CRATE" ]; then
-          echo "::error::cargo package passed, but '$CRATE' is not there."
+          echo "::error::cargo package passed, but '$crate' is not there."
           exit 1
         fi
         sha256sum "$CRATE"
@@ -164,6 +175,8 @@ runs:
         PATCHES: ${{ steps.patches.outputs.list }}
       run: |
         set -euo pipefail
+        . "$NEBENSOUND_SHOWN"
+        crate="$(shown "$CRATE")"
         toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
         patches=()
         while IFS=$'\t' read -r name dir; do
@@ -175,7 +188,7 @@ runs:
         tar -xzf "$CRATE" -C "$destination"
         unpacked="$destination/$PACKAGE-$VERSION"
         if [ ! -f "$unpacked/Cargo.toml" ]; then
-          echo "::error::'$CRATE' does not unpack to $PACKAGE-$VERSION/Cargo.toml."
+          echo "::error::'$crate' does not unpack to $PACKAGE-$VERSION/Cargo.toml."
           exit 1
         fi
         echo "The packaged manifest names $(grep -m 1 '^version = ' "$unpacked/Cargo.toml")."

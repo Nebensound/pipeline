@@ -58,6 +58,13 @@ description: >-
 # `container-<path>@<version>@<sha>`, the path percent-encoded as jq's `@uri`
 # writes it, as build-cargo-package names its crate. It holds exactly one file,
 # `image.tar`, the OCI layout. Nothing is pushed.
+#
+# The unit's path and the path of its Dockerfile come from the repository, so a
+# step writes them into its log through `shown`, which the action `tool` writes
+# for the job (NEBENSOUND_SHOWN): a line break in them starts no workflow
+# command. What a program prints stands as
+# the program prints it, the log of the container and its health check among
+# it: the image runs the repository's own code, which could print any line.
 
 inputs:
   working-directory:
@@ -83,12 +90,14 @@ runs:
         PLAN: ${{ inputs.plan }}
       run: |
         set -euo pipefail
+        . "$NEBENSOUND_SHOWN"
+        unit="$(shown "$UNIT")"
         dockerfile="deploy/Dockerfile"
         if [ "$UNIT" != "." ]; then
           dockerfile="$UNIT/deploy/Dockerfile"
         fi
         if [ ! -f "$dockerfile" ]; then
-          echo "::error file=$dockerfile::'$UNIT' builds docker but holds no deploy/Dockerfile."
+          echo "::error file=$(shown "$dockerfile")::'$unit' builds docker but holds no deploy/Dockerfile."
           exit 1
         fi
         if [ "$(uname -m)" != "x86_64" ]; then
@@ -103,12 +112,12 @@ runs:
                     | select(.kind == $unit.kind and .name == $unit.name)).version) } ]' <<< "$PLAN")"
         count="$(jq 'length' <<< "$units")"
         if [ "$count" -ne 1 ]; then
-          echo "::error::The plan names $count units at '$UNIT' that build docker, and the block builds exactly one."
+          echo "::error::The plan names $count units at '$unit' that build docker, and the block builds exactly one."
           exit 1
         fi
         version="$(jq --raw-output '.[0].version // empty' <<< "$units")"
         if [ -z "$version" ]; then
-          echo "::error::The plan gives '$UNIT' no version of this run, so there is no image to label with it."
+          echo "::error::The plan gives '$unit' no version of this run, so there is no image to label with it."
           exit 1
         fi
         title="$(jq --raw-output '.[0].name // empty' <<< "$units")"
@@ -120,7 +129,7 @@ runs:
           --arg path "$UNIT" --arg version "$version" --arg sha "$sha" \
           '"container-" + ($path | @uri) + "@" + $version + "@" + $sha')"
         dir="$(mktemp -d "$RUNNER_TEMP/build-docker-XXXXXX")"
-        echo "'$UNIT' builds $dockerfile as $title $version; its artifact is '$artifact'."
+        echo "'$unit' builds $(shown "$dockerfile") as $title $version; its artifact is '$artifact'."
         {
           echo "dockerfile=$dockerfile"
           echo "version=$version"
@@ -189,6 +198,8 @@ runs:
         VERSION: ${{ steps.unit.outputs.version }}
       run: |
         set -euo pipefail
+        . "$NEBENSOUND_SHOWN"
+        unit="$(shown "$UNIT")"
         layout="$DIR/layout"
         mkdir -p "$layout"
         tar --extract --file "$IMAGE" --directory "$layout"
@@ -196,14 +207,14 @@ runs:
         blob() {
           file="$layout/blobs/${1/://}"
           if [ ! -f "$file" ] || [ "sha256:$(sha256sum "$file" | cut -d ' ' -f 1)" != "$1" ]; then
-            echo "::error::The layout of '$UNIT' holds no file with the digest $1."
+            echo "::error::The layout of '$unit' holds no file with the digest $1."
             exit 1
           fi
         }
         manifests="$(jq '.manifests | length' "$layout/index.json")"
         media="$(jq --raw-output '.manifests[0].mediaType' "$layout/index.json")"
         if [ "$manifests" -ne 1 ] || [ "$media" != "application/vnd.oci.image.manifest.v1+json" ]; then
-          echo "::error::The layout of '$UNIT' names $manifests entries, the first of type $media, and one image manifest is what it has to name."
+          echo "::error::The layout of '$unit' names $manifests entries, the first of type $media, and one image manifest is what it has to name."
           exit 1
         fi
         digest="$(jq --raw-output '.manifests[0].digest' "$layout/index.json")"
@@ -218,10 +229,10 @@ runs:
         platform="$(jq --raw-output '.os + "/" + .architecture' "$config")"
         labelled="$(jq --raw-output '.config.Labels["org.opencontainers.image.version"] // empty' "$config")"
         if [ "$platform" != "linux/amd64" ] || [ "$labelled" != "$VERSION" ]; then
-          echo "::error::The image of '$UNIT' is for $platform and labelled with the version '$labelled', and it has to be for linux/amd64 and labelled $VERSION."
+          echo "::error::The image of '$unit' is for $platform and labelled with the version '$labelled', and it has to be for linux/amd64 and labelled $VERSION."
           exit 1
         fi
-        echo "The image of '$UNIT' is $digest, its configuration $configuration."
+        echo "The image of '$unit' is $digest, its configuration $configuration."
         echo "The image of \`$UNIT\` $VERSION is \`$digest\`." >> "$GITHUB_STEP_SUMMARY"
         {
           echo "digest=$digest"
@@ -238,9 +249,12 @@ runs:
         CONFIG: ${{ steps.digest.outputs.config }}
       run: |
         set -euo pipefail
+        . "$NEBENSOUND_SHOWN"
+        unit="$(shown "$UNIT")"
+        dockerfile="$(shown "$DOCKERFILE")"
         test="$(jq --compact-output '.config.Healthcheck.Test // []' "$CONFIG")"
         if [ "$test" = "[]" ] || [ "$(jq --raw-output '.[0]' <<< "$test")" = "NONE" ]; then
-          echo "::error file=$DOCKERFILE::The image of '$UNIT' has no HEALTHCHECK, so nothing shows that it starts and serves. Give $DOCKERFILE a HEALTHCHECK instruction."
+          echo "::error file=$dockerfile::The image of '$unit' has no HEALTHCHECK, so nothing shows that it starts and serves. Give $dockerfile a HEALTHCHECK instruction."
           exit 1
         fi
         echo "The image checks its health with $test."
@@ -258,16 +272,18 @@ runs:
         CONFIGURATION: ${{ steps.digest.outputs.configuration }}
       run: |
         set -euo pipefail
+        . "$NEBENSOUND_SHOWN"
+        unit="$(shown "$UNIT")"
         loaded="$(docker load --input "$IMAGE")"
         echo "$loaded"
         reference="$(sed -n -e 's/^Loaded image ID: //p' -e 's/^Loaded image: //p' <<< "$loaded" | tail -n 1)"
         if [ -z "$reference" ]; then
-          echo "::error::Docker loaded the layout of '$UNIT' and named no image."
+          echo "::error::Docker loaded the layout of '$unit' and named no image."
           exit 1
         fi
         id="$(docker image inspect --format '{{.Id}}' "$reference")"
         if [ "$id" != "$CONFIGURATION" ] && [ "$id" != "$DIGEST" ]; then
-          echo "::error::Docker loaded the image $id from the layout of '$UNIT', and the layout names $DIGEST with the configuration $CONFIGURATION."
+          echo "::error::Docker loaded the image $id from the layout of '$unit', and the layout names $DIGEST with the configuration $CONFIGURATION."
           exit 1
         fi
         echo "Loaded $DIGEST as $id."
@@ -305,13 +321,16 @@ runs:
         CONTAINER: ${{ steps.start.outputs.container }}
       run: |
         set -euo pipefail
+        . "$NEBENSOUND_SHOWN"
+        unit="$(shown "$UNIT")"
+        dockerfile="$(shown "$DOCKERFILE")"
         deadline=$((SECONDS + 300))
         while :; do
           read -r status health <<< "$(docker inspect --format \
             '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$CONTAINER")"
           case "$status/$health" in
             running/healthy)
-              echo "The image of '$UNIT' is healthy."
+              echo "The image of '$unit' is healthy."
               exit 0
               ;;
             running/unhealthy)
@@ -336,7 +355,7 @@ runs:
         echo "What its last health check printed:"
         docker inspect --format '{{json .State.Health}}' "$CONTAINER" \
           | jq --raw-output '.Log[-1].Output // "nothing"' || true
-        echo "::error file=$DOCKERFILE::The image of '$UNIT' never became healthy: $reason."
+        echo "::error file=$dockerfile::The image of '$unit' never became healthy: $reason."
         exit 1
 
     # The IDs of the first process, real, effective and saved, as the host sees
@@ -350,9 +369,12 @@ runs:
         CONTAINER: ${{ steps.start.outputs.container }}
       run: |
         set -euo pipefail
+        . "$NEBENSOUND_SHOWN"
+        unit="$(shown "$UNIT")"
+        dockerfile="$(shown "$DOCKERFILE")"
         pid="$(docker inspect --format '{{.State.Pid}}' "$CONTAINER")"
         if [ "$pid" = 0 ]; then
-          echo "::error::The container of '$UNIT' stopped before its user could be read."
+          echo "::error::The container of '$unit' stopped before its user could be read."
           exit 1
         fi
         read -r real effective saved < <(awk '/^Uid:/ { print $2, $3, $4 }' "/proc/$pid/status")
@@ -363,14 +385,14 @@ runs:
         effective="$(inside "$effective")"
         saved="$(inside "$saved")"
         if [ -z "$real" ] || [ -z "$effective" ] || [ -z "$saved" ]; then
-          echo "::error::The user of the container of '$UNIT' cannot be read from the host."
+          echo "::error::The user of the container of '$unit' cannot be read from the host."
           exit 1
         fi
         if [ "$real" -eq 0 ] || [ "$effective" -eq 0 ] || [ "$saved" -eq 0 ]; then
-          echo "::error file=$DOCKERFILE::The image of '$UNIT' runs as root: its first process has the user ID 0. Give $DOCKERFILE a USER other than root."
+          echo "::error file=$dockerfile::The image of '$unit' runs as root: its first process has the user ID 0. Give $dockerfile a USER other than root."
           exit 1
         fi
-        echo "The image of '$UNIT' runs with the user ID $effective."
+        echo "The image of '$unit' runs with the user ID $effective."
 
     # The release archive, pinned by version and by the SHA-256 that
     # trivy_0.76.2_checksums.txt of the release states for it, as the register
@@ -403,6 +425,9 @@ runs:
         LAYOUT: ${{ steps.digest.outputs.layout }}
       run: |
         set -euo pipefail
+        . "$NEBENSOUND_SHOWN"
+        unit="$(shown "$UNIT")"
+        dockerfile="$(shown "$DOCKERFILE")"
         report="$DIR/trivy.json"
         "$DIR/trivy/trivy" image --input "$LAYOUT" --config "" --ignorefile "" \
           --cache-dir "$DIR/trivy-cache" --scanners vuln \
@@ -414,13 +439,13 @@ runs:
             | "\(.VulnerabilityID) (\(.Severity)) in \(.PkgName) \(.InstalledVersion), fixed in \(.FixedVersion), in \($target)" ]
           | unique[]' "$report")"
         if [ -z "$found" ]; then
-          echo "Trivy finds no vulnerability of severity HIGH or CRITICAL with a fixed version in the image of '$UNIT'."
+          echo "Trivy finds no vulnerability of severity HIGH or CRITICAL with a fixed version in the image of '$unit'."
           exit 0
         fi
         while IFS= read -r finding; do
-          echo "::error file=$DOCKERFILE::$finding"
+          echo "::error file=$dockerfile::$finding"
         done <<< "$found"
-        echo "::error file=$DOCKERFILE::The image of '$UNIT' has $(wc -l <<< "$found") vulnerabilities of severity HIGH or CRITICAL with a fixed version."
+        echo "::error file=$dockerfile::The image of '$unit' has $(wc -l <<< "$found") vulnerabilities of severity HIGH or CRITICAL with a fixed version."
         exit 1
 
     # Overwrite: a name is unique per unit, version and commit, so the only

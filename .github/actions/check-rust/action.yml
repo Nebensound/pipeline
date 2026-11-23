@@ -25,6 +25,14 @@ description: >-
 # still prints its own warnings for it then, which fail nothing. That holds for
 # a workspace member and for a path dependency outside the workspace alike. The
 # calling job puts the tool on the PATH first (the action `tool`).
+#
+# Text from the repository that a step writes into its log, a file name, a
+# folder or the reason of an [[exclude]] entry, is written through `shown` and
+# `shown_list`, which the action `tool` writes for the job (NEBENSOUND_SHOWN),
+# so that a line break in it starts no workflow command.
+# What a program prints stands as the program prints it: the repository's own
+# code runs in this check, its build scripts and tests, and could print any
+# line itself.
 
 inputs:
   working-directory:
@@ -49,6 +57,7 @@ runs:
         UNIT: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
+        . "$NEBENSOUND_SHOWN"
         list="$RUNNER_TEMP/check-rust-files"
         excluded="$RUNNER_TEMP/check-rust-excluded.json"
         # The tool writes a refusal where the list would go: into the log
@@ -66,7 +75,7 @@ runs:
           echo "excluded=$excluded"
         } >> "$GITHUB_OUTPUT"
         echo "$(tr -cd '\0' < "$list" | wc -c) Rust file(s) to check:"
-        tr '\0' '\n' < "$list"
+        shown_list < "$list"
 
     # A workspace that pulls in a database engine fills a hosted runner before
     # its tests are done. What is removed here is software this check never
@@ -111,6 +120,7 @@ runs:
         EXCLUDED: ${{ steps.files.outputs.excluded }}
       run: |
         set -euo pipefail
+        . "$NEBENSOUND_SHOWN"
         packages="$RUNNER_TEMP/check-rust-packages.json"
         cargo metadata --locked --format-version 1 --all-features \
           | jq --arg root "$(realpath "$GITHUB_WORKSPACE")" --slurpfile out "$EXCLUDED" '
@@ -137,12 +147,12 @@ runs:
           echo "others=$(jq '.others | length' "$packages")"
         } >> "$GITHUB_OUTPUT"
         echo "Checked: $(jq -r '.checked | join(", ")' "$packages")"
-        jq -r '.others[]
-          | "Formatted only, a path dependency that is no member: \(.name) at \(.dir)"' \
-          "$packages"
-        jq -r '.excluded[]
-          | "Left out of every step, \(if .member then "a member" else "a path dependency" end): \(.name) at \(.dir): \(.reason)"' \
-          "$packages"
+        jq --join-output '.others[]
+          | "Formatted only, a path dependency that is no member: \(.name) at \(.dir)\u0000"' \
+          "$packages" | shown_list
+        jq --join-output '.excluded[]
+          | "Left out of every step, \(if .member then "a member" else "a path dependency" end): \(.name) at \(.dir): \(.reason)\u0000"' \
+          "$packages" | shown_list
         if [ "$(jq '.checked | length' "$packages")" -eq 0 ]; then
           echo "Every member of the workspace is excluded, so there is nothing to check."
         fi
@@ -380,6 +390,7 @@ runs:
         PACKAGES: ${{ steps.packages.outputs.json }}
       run: |
         set -euo pipefail
+        . "$NEBENSOUND_SHOWN"
         mapfile -t without < <(jq -r '.excluded[] | select(.member) | "--exclude=\(.name)"' "$PACKAGES")
         root="$(realpath "$GITHUB_WORKSPACE")"
         git -C "$root" ls-files -z -- '*.rs' > "$RUNNER_TEMP/check-rust-tracked"
@@ -400,7 +411,7 @@ runs:
           | join("|")' "$PACKAGES")"
         ignore=()
         if [ -n "$pattern" ]; then
-          echo "Not counted: ^($pattern)"
+          echo "Not counted: ^($(shown "$pattern"))"
           ignore=(--ignore-filename-regex "^($pattern)")
         fi
         cargo "+$TOOLCHAIN" llvm-cov --locked --workspace "${without[@]}" --all-features \

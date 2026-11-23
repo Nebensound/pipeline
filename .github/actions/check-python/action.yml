@@ -30,6 +30,14 @@ description: >-
 # Pyright get the list, pytest does not collect an excluded file, and coverage
 # does not judge one. An entry that takes out the unit's whole folder leaves
 # nothing to check.
+#
+# Text from the repository that a step writes into its log, a file name or a
+# path of the unit, is written through `shown` and `shown_list`, which the
+# action `tool` writes for the job (NEBENSOUND_SHOWN), and in the Python
+# scripts through a function `shown` that writes it the same way, so that a
+# line break in it starts no workflow command. What a program prints stands as the program
+# prints it: the project's own code runs in this check, its tests above all,
+# and could print any line itself.
 
 inputs:
   working-directory:
@@ -47,6 +55,7 @@ runs:
         UNIT: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
+        . "$NEBENSOUND_SHOWN"
         dir="$RUNNER_TEMP/check-python"
         rm -rf "$dir"
         mkdir -p "$dir"
@@ -79,20 +88,20 @@ runs:
           echo "manifest=$manifest"
         } >> "$GITHUB_OUTPUT"
         if [ "$count" -eq 0 ]; then
-          echo "No Python file below '$UNIT'; there is nothing to check."
+          echo "No Python file below '$(shown "$UNIT")'; there is nothing to check."
           exit 0
         fi
         echo "$count Python file(s) to check:"
-        tr '\0' '\n' < "$list"
+        shown_list < "$list"
         if [ -s "$excluded" ]; then
           echo "Taken out by an [[exclude]] entry, and handed to no tool:"
-          tr '\0' '\n' < "$excluded"
+          shown_list < "$excluded"
         fi
         # The project the files belong to. pyproject.toml is read where the
         # unit lies, as Cargo.toml is for check-rust; a folder of loose
         # scripts would otherwise leave the tests and the 100 % coverage out.
         if ! git ls-files --error-unmatch -- "$manifest" > /dev/null 2>&1; then
-          echo "::error::check-python checks a uv project, and '$UNIT', the unit's path, holds no pyproject.toml that Git tracks; write one there (uv init), or exclude the Python files with an [[exclude]] entry and a reason"
+          echo "::error::check-python checks a uv project, and '$(shown "$UNIT")', the unit's path, holds no pyproject.toml that Git tracks; write one there (uv init), or exclude the Python files with an [[exclude]] entry and a reason"
           exit 1
         fi
 
@@ -215,6 +224,7 @@ runs:
         MANIFEST: ${{ steps.files.outputs.manifest }}
       run: |
         set -euo pipefail
+        . "$NEBENSOUND_SHOWN"
         dir="$RUNNER_TEMP/check-python"
         . "$dir/variables"
         message() {
@@ -257,7 +267,7 @@ runs:
           echo "::error file=$project::uv finds no uv.lock at '$(message "$UNIT")' or above it: check-python installs the project as its lockfile pins it (uv sync --locked); write it with 'uv lock' and commit it"
           exit 1
         fi
-        echo "The uv workspace: $workspace"
+        echo "The uv workspace: $(shown "$workspace")"
         pin=""
         for candidate in "$(at "$UNIT" .python-version)" "$(at "$workspace" .python-version)"; do
           if [ -f "$candidate" ]; then
@@ -269,7 +279,7 @@ runs:
           echo "::error file=$project::neither '$(message "$UNIT")' nor the root of its uv workspace holds a .python-version: it names the interpreter check-python installs, as rust-toolchain.toml names the toolchain of check-rust; write it with 'uv python pin' and commit it"
           exit 1
         fi
-        echo "The interpreter: $(head -n 1 "$pin"), as $pin names it"
+        echo "The interpreter: $(shown "$(head -n 1 "$pin")"), as $(shown "$pin") names it"
         (cd "$UNIT" && uv python install --no-bin)
         py="$(cd "$UNIT" && uv python find)"
         "$py" --version
@@ -410,7 +420,7 @@ runs:
         } >> "$dir/variables"
         own="$(sed -n 3p "$ruff/found")"
         if [ -n "$own" ]; then
-          echo "Ruff's rules: the pipeline default, and laid over it $own"
+          echo "Ruff's rules: the pipeline default, and laid over it $(shown "$own")"
         else
           echo "Ruff's rules: the pipeline default"
         fi
@@ -434,6 +444,8 @@ runs:
         if [ "$status" -ne 0 ]; then
           name="$MANIFEST"
           name="${name//'%'/'%25'}"
+          name="${name//$'\r'/'%0D'}"
+          name="${name//$'\n'/'%0A'}"
           name="${name//':'/'%3A'}"
           name="${name//','/'%2C'}"
           echo "::error file=$name::uv cannot install the project as its uv.lock pins it (uv sync --locked); its message stands in the log"
@@ -453,6 +465,7 @@ runs:
         LIST: ${{ steps.files.outputs.list }}
       run: |
         set -euo pipefail
+        . "$NEBENSOUND_SHOWN"
         dir="$RUNNER_TEMP/check-python"
         . "$dir/variables"
         # The files from the folder Ruff runs in, which holds every one of
@@ -478,7 +491,9 @@ runs:
         fi
         # A file that is not formatted is named at its first change; one Ruff
         # cannot read at the place it stops.
-        jq --raw-output --arg root "$(realpath "$GITHUB_WORKSPACE")" --arg folder "$RUFF_FOLDER" '
+        # Each line ended by a zero byte, so that `shown` writes the plain
+        # one on one line; the annotation, escaped, stays as it is.
+        jq --join-output --arg root "$(realpath "$GITHUB_WORKSPACE")" --arg folder "$RUFF_FOLDER" '
           def escaped: gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A");
           def property: escaped | gsub(":"; "%3A") | gsub(","; "%2C");
           .[]
@@ -489,7 +504,8 @@ runs:
             "::error file=\($file | property),line=\(.location.row),col=\(.location.column)::\(
               if .code == "unformatted" then "not formatted the way Ruff writes it; '"'"'ruff format'"'"' fixes it"
               else "Ruff cannot format it: \(.message | escaped)" end)"
-        ' "$report"
+          | . + "\u0000"
+        ' "$report" | shown_list
         if [ "$(jq 'length' "$report")" -ne 0 ] || [ "$status" -ne 0 ]; then
           exit 1
         fi
@@ -506,6 +522,7 @@ runs:
         LIST: ${{ steps.files.outputs.list }}
       run: |
         set -euo pipefail
+        . "$NEBENSOUND_SHOWN"
         dir="$RUNNER_TEMP/check-python"
         . "$dir/variables"
         inside() {
@@ -527,7 +544,7 @@ runs:
           echo "::error::Ruff could not lint the files (exit status $status); its message stands in the log"
           exit 1
         fi
-        jq --raw-output --arg root "$(realpath "$GITHUB_WORKSPACE")" --arg folder "$RUFF_FOLDER" '
+        jq --join-output --arg root "$(realpath "$GITHUB_WORKSPACE")" --arg folder "$RUFF_FOLDER" '
           def escaped: gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A");
           def property: escaped | gsub(":"; "%3A") | gsub(","; "%2C");
           .[]
@@ -536,7 +553,8 @@ runs:
              else "\($folder)/\(.filename)" end) as $file
           | "\($file):\(.location.row):\(.location.column): \(.code // "error") \(.message)",
             "::error file=\($file | property),line=\(.location.row),col=\(.location.column)::Ruff \(if .code then "\(.code): " else "" end)\(.message | escaped)"
-        ' "$report"
+          | . + "\u0000"
+        ' "$report" | shown_list
         if [ "$(jq 'length' "$report")" -ne 0 ]; then
           exit 1
         fi
@@ -578,10 +596,25 @@ runs:
         import subprocess
         import sys
         import tomllib
+        import unicodedata
 
         root, unit, listed, node, pyright, environment = sys.argv[1:7]
         with open(listed, "rb") as file:
             files = [name for name in file.read().decode().split("\0") if name]
+
+
+        def shown(value):
+            """Text from the repository as one line of the log, written the way
+            the shell function `shown` of the action tool writes it: a control
+            character, a line break above all, as its escape."""
+            if not any(unicodedata.category(char) == "Cc" for char in value):
+                return value
+            escapes = {"\t": "\\t", "\n": "\\n", "\r": "\\r", "\\": "\\\\", "'": "\\'", '"': '\\"'}
+            return "".join(
+                escapes.get(char)
+                or (f"\\u{{{ord(char):x}}}" if unicodedata.category(char) == "Cc" else char)
+                for char in value
+            )
 
 
         def escaped(value, property=False):
@@ -658,7 +691,7 @@ runs:
         config = nearest(json_config) or nearest(toml_config)
         settings = {}
         if config is not None:
-            shown = os.path.relpath(config, root)
+            config_name = os.path.relpath(config, root)
             try:
                 if config.endswith(".json"):
                     with open(config, encoding="utf-8") as file:
@@ -667,17 +700,17 @@ runs:
                     with open(config, "rb") as file:
                         settings = tomllib.load(file)["tool"]["pyright"]
             except (OSError, ValueError) as error:
-                annotate("error", shown, f"Pyright's configuration cannot be read: {error}")
+                annotate("error", config_name, f"Pyright's configuration cannot be read: {error}")
                 sys.exit(1)
             if not isinstance(settings, dict):
-                annotate("error", shown, "Pyright's configuration is not a table of settings")
+                annotate("error", config_name, "Pyright's configuration is not a table of settings")
                 sys.exit(1)
-            print(f"Pyright: strict mode, with {shown} laid over it")
+            print(f"Pyright: strict mode, with {shown(config_name)} laid over it")
             mode = settings.get("typeCheckingMode")
             if mode is not None and mode != "strict":
                 annotate(
                     "error",
-                    shown,
+                    config_name,
                     f"typeCheckingMode {json.dumps(mode)} lowers Pyright's strict mode, which "
                     "check-python holds every file to; remove it, and switch single rules off "
                     "where they have to be",
@@ -776,7 +809,7 @@ runs:
             rule = diagnostic.get("rule")
             text = diagnostic.get("message", "")
             severity = diagnostic.get("severity")
-            print(f"{name}:{line}:{column}: {severity}: {text}" + (f" ({rule})" if rule else ""))
+            print(shown(f"{name}:{line}:{column}: {severity}: {text}" + (f" ({rule})" if rule else "")))
             if severity in ("error", "warning"):
                 label = f"Pyright {rule}: " if rule else "Pyright: "
                 annotate(severity, name, label + text, line, column)
@@ -816,6 +849,8 @@ runs:
         if [ "$UNIT" = . ]; then unit="$root"; else unit="$root/$UNIT"; fi
         name="$MANIFEST"
         name="${name//'%'/'%25'}"
+        name="${name//$'\r'/'%0D'}"
+        name="${name//$'\n'/'%0A'}"
         name="${name//':'/'%3A'}"
         name="${name//','/'%2C'}"
         if ! "$UV_PROJECT_ENVIRONMENT/bin/python" -I -c \
@@ -964,8 +999,23 @@ runs:
         import json
         import os
         import sys
+        import unicodedata
 
         root, unit, listed, report = sys.argv[1:5]
+
+
+        def shown(value):
+            """Text from the repository as one line of the log, written the way
+            the shell function `shown` of the action tool writes it: a control
+            character, a line break above all, as its escape."""
+            if not any(unicodedata.category(char) == "Cc" for char in value):
+                return value
+            escapes = {"\t": "\\t", "\n": "\\n", "\r": "\\r", "\\": "\\\\", "'": "\\'", '"': '\\"'}
+            return "".join(
+                escapes.get(char)
+                or (f"\\u{{{ord(char):x}}}" if unicodedata.category(char) == "Cc" else char)
+                for char in value
+            )
 
 
         def escaped(value, property=False):
@@ -1035,11 +1085,11 @@ runs:
             if lines:
                 parts.append(f"line(s) {ranges(lines)}")
             if branches:
-                shown = ", ".join(f"{a}->{b if b > 0 else 'exit'}" for a, b in branches)
-                parts.append(f"branch(es) {shown}")
+                spans = ", ".join(f"{a}->{b if b > 0 else 'exit'}" for a, b in branches)
+                parts.append(f"branch(es) {spans}")
             first = min(lines + [a for a, _ in branches])
             summary = entry.get("summary", {})
-            print(f"{name}: {summary.get('percent_covered_display', '?')}% covered")
+            print(shown(f"{name}: {summary.get('percent_covered_display', '?')}% covered"))
             print(
                 f"::error file={escaped(name, True)},line={first}::"
                 + escaped(f"coverage.py: not covered: {' and '.join(parts)}")
@@ -1077,6 +1127,8 @@ runs:
         . "$dir/variables"
         name="$MANIFEST"
         name="${name//'%'/'%25'}"
+        name="${name//$'\r'/'%0D'}"
+        name="${name//$'\n'/'%0A'}"
         name="${name//':'/'%3A'}"
         name="${name//','/'%2C'}"
         cd "$UNIT"

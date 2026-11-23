@@ -1,0 +1,7 @@
+# A formatted JSON file whose name holds a line break followed by
+# `::warning::x`. Git allows it, and the runner would read that part, printed
+# as it stands at the start of a line, as a workflow command: the check names
+# the file with the line break escaped, and starts no command.
+[repo]
+audience = "public"
+pipeline = "none"

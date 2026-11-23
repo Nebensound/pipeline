@@ -187,7 +187,10 @@ jobs:
       # A check the register knows and nobody has written yet. It fails by
       # name, so that a pull request says what is missing instead of passing
       # without anyone having looked. It stands first, so that it is the first
-      # thing read; the checks that are written still run.
+      # thing read; the checks that are written still run. The unit's path
+      # comes from the declaration and is written through `shown`, which the
+      # action `tool` writes for the job, so that a line break in it starts no
+      # workflow command.
       - name: Not written yet
         env:
           CHECKS: ${{ toJSON(matrix.checks) }}
@@ -195,15 +198,18 @@ jobs:
           UNIT_PATH: ${{ matrix.path }}
         run: |
           set -euo pipefail
+          # shellcheck source=/dev/null
+          . "$NEBENSOUND_SHOWN"
+          unit="$(shown "$UNIT_PATH")"
           missing="$(jq --raw-output --null-input \
             --argjson checks "$CHECKS" --argjson written "$WRITTEN_CHECKS" \
             '($checks - $written)[]')"
           if [ -z "$missing" ]; then
-            echo "Every check of '$UNIT_PATH' has a building block."
+            echo "Every check of '$unit' has a building block."
             exit 0
           fi
           while IFS= read -r check; do
-            echo "::error::The check '$check' has no building block yet, so '$UNIT_PATH' is not checked for it. It is to be written under .github/actions/check-$check."
+            echo "::error::The check '$check' has no building block yet, so '$unit' is not checked for it. It is to be written under .github/actions/check-$check."
           done <<< "$missing"
           exit 1
 
@@ -425,7 +431,8 @@ jobs:
         uses: $/.github/actions/tool
 
       # A build the register knows and nobody has written yet fails by name, as
-      # a check does, so that a pull request says what is missing.
+      # a check does, so that a pull request says what is missing. The unit's
+      # path is written through `shown`, as in the check job.
       - name: Not written yet
         env:
           BUILD: ${{ matrix.build }}
@@ -433,13 +440,16 @@ jobs:
           UNIT_PATH: ${{ matrix.path }}
         run: |
           set -euo pipefail
+          # shellcheck source=/dev/null
+          . "$NEBENSOUND_SHOWN"
+          unit="$(shown "$UNIT_PATH")"
           if jq --exit-status --null-input \
             --arg build "$BUILD" --argjson written "$WRITTEN_BUILDS" \
             '$written | index($build) != null' > /dev/null; then
-            echo "The build '$BUILD' of '$UNIT_PATH' has a building block."
+            echo "The build '$BUILD' of '$unit' has a building block."
             exit 0
           fi
-          echo "::error::The build '$BUILD' has no building block yet, so '$UNIT_PATH' is not built. It is to be written under .github/actions/build-$BUILD."
+          echo "::error::The build '$BUILD' has no building block yet, so '$unit' is not built. It is to be written under .github/actions/build-$BUILD."
           exit 1
 
       - name: cargo

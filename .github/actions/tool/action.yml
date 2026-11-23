@@ -2,6 +2,8 @@ name: tool
 description: >-
   Puts the tool `nebensound-repo` on the PATH of the calling job: restored from
   the cache when this exact tool was built before, built from source otherwise.
+  Also writes the shell functions that put text from the repository into a
+  step's log, and names them in NEBENSOUND_SHOWN.
 
 # No inputs. The tool comes from the same commit as this file. GitHub fetches
 # the whole repository when it resolves an action, so the source lies three
@@ -83,3 +85,71 @@ runs:
         set -euo pipefail
         "$TOOL_HOME/nebensound-repo" --version
         echo "$TOOL_HOME" >> "$GITHUB_PATH"
+
+    # Text from the repository goes into a step's log through two functions,
+    # which every block written in shell and every step of nebensound.yml that
+    # writes such text sources from the file NEBENSOUND_SHOWN names:
+    #
+    #   . "$NEBENSOUND_SHOWN"
+    #
+    # Git allows a line break in a tracked file name, and a value of the
+    # declaration, a unit's path or the reason of an [[exclude]] entry, holds
+    # whatever someone wrote. The runner reads a line of the log that starts
+    # with `::`, after white space, as a workflow command, so such text written
+    # out as it stands could add an annotation of its own or stop the workflow
+    # commands of the step (`::stop-commands::`). `shown` therefore writes text
+    # that holds a control character the way the tool writes it in its own
+    # output: a line break as `\n`, a carriage return as `\r`, a tab as `\t`,
+    # a backslash and a quote behind a backslash, and any other control
+    # character as `\u{<hex>}`; text without one stays as it is. `shown_list`
+    # writes so every entry of what comes in on standard input, each ended by a
+    # zero byte, one line each: a file list of `nebensound-repo files -z`, or
+    # the output of jq with `--join-output` and "\u0000" behind every line. A
+    # workflow command a block writes holds no control character once it is
+    # escaped, so it passes through unchanged.
+    #
+    # The functions are written here, like every other piece of shell of the
+    # blocks, rather than kept as a .sh file, which would need the shell
+    # check, and that check has no block yet.
+    - name: Write the functions that put text from the repository into a log
+      shell: bash
+      run: |
+        set -euo pipefail
+        file="$RUNNER_TEMP/nebensound-shown.sh"
+        cat > "$file" <<'BASH'
+        # shown TEXT: TEXT as one line of a step's log, without a line break
+        # behind it. See the action tool of Nebensound/pipeline.
+        shown() {
+          local text="$1" out="" char code i
+          if [[ "$text" != *[[:cntrl:]]* ]]; then
+            printf '%s' "$text"
+            return
+          fi
+          for ((i = 0; i < ${#text}; i++)); do
+            char="${text:i:1}"
+            case "$char" in
+              $'\t') out+='\t' ;;
+              $'\n') out+='\n' ;;
+              $'\r') out+='\r' ;;
+              \\ | \' | \") out+="\\$char" ;;
+              [[:cntrl:]])
+                printf -v code '%x' "'$char"
+                out+="\\u{$code}"
+                ;;
+              *) out+="$char" ;;
+            esac
+          done
+          printf '%s' "$out"
+        }
+
+        # shown_list: every entry of standard input, each ended by a zero
+        # byte, as `shown` writes it, one line each.
+        shown_list() {
+          local entry
+          while IFS= read -r -d '' entry; do
+            shown "$entry"
+            printf '\n'
+          done
+        }
+        BASH
+        echo "NEBENSOUND_SHOWN=$file" >> "$GITHUB_ENV"
