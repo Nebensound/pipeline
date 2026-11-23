@@ -5,7 +5,7 @@
 //! built from the same rows, so that the two cannot say different things about
 //! the same commit.
 
-use crate::{Analysis, TagVersion, UnitVersion};
+use crate::{Analysis, Rule, TagVersion, UnitVersion};
 
 use crate::report::{self, shown};
 
@@ -137,11 +137,29 @@ pub fn markdown(versions: &[UnitVersion], pull_request: Option<u64>) -> String {
     format!("{}\n", lines.join("\n"))
 }
 
+/// What stopped the table.
+///
+/// The test of what a pull request's registry packages require runs only when
+/// phase 0 found no errors, so its finding alone means phase 0 passed and the
+/// job `Declare` is green: the refusal must not send the reader there.
+fn reason(analysis: &Analysis) -> &'static str {
+    if analysis
+        .findings()
+        .iter()
+        .any(|finding| finding.rule == Rule::UnreleasedRequirement)
+    {
+        "a release would require a version that was never released"
+    } else {
+        "phase 0 found errors"
+    }
+}
+
 /// Why there is no table, with every finding, as text.
 #[must_use]
 pub fn refusal_text(analysis: &Analysis) -> String {
     format!(
-        "there are no versions: phase 0 found errors\n\n{}\n",
+        "there are no versions: {}\n\n{}\n",
+        reason(analysis),
         report::findings(analysis)
     )
 }
@@ -152,7 +170,7 @@ pub fn refusal_markdown(analysis: &Analysis) -> String {
     let mut lines = vec![
         "## Versions".to_owned(),
         String::new(),
-        "There are no versions: phase 0 found errors.".to_owned(),
+        format!("There are no versions: {}.", reason(analysis)),
         String::new(),
     ];
     lines.extend(

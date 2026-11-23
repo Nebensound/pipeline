@@ -556,6 +556,12 @@ release, since a version on `main` is never a pre-release. A unit the commit
 does not touch gets none, so every record it writes is a faithful one. See
 [the phases](phases.md#publish).
 
+What a release needs has a release already, or the pull request fails: a
+package a pull request would publish to a registry may require by path only
+units whose current version has a record, unless the pull request touches
+them. Otherwise it fails with
+[`unreleased-requirement`](#unreleased-requirement).
+
 ### What the history must hold
 
 Phase 0 reads the whole history, and every tag to hold it against that
@@ -610,7 +616,9 @@ Phase 0 reports what is wrong with a declaration as findings. Each carries a
 stable code; the wording of its message may improve, the code does not change.
 
 - An **error** fails `nebensound / Declare`, and with it `nebensound / Check`.
-  No plan is made, so no check runs.
+  No plan is made, so no check runs. The one exception is
+  [`unreleased-requirement`](#unreleased-requirement), which only the versions
+  of a pull request report: it fails `nebensound / Version`.
 - A **warning** stops nothing. It says that a statement in the declaration is
   not true, not that something is broken, or that the repository departs from
   the organization's conventions (`nonconforming-name`,
@@ -855,6 +863,38 @@ are two ways out: delete the tag if nobody published it, or raise
 above it. The finding names the value that applies. A tag on exactly the
 commit to which the history gives its version is a faithful record, and one
 below the unit's version stays unnoticed (see [Records](#records)).
+
+### `unreleased-requirement`
+
+Error, on a pull request only. A unit the pull request gives a version
+publishes to a target on which packages require each other by version, a
+registry (`Dependencies by version` in [the register](register.md#publish-targets)),
+and its package requires by path, followed through further path dependencies,
+a unit the pull request does not touch whose current version has no record:
+no tag `<prefix>X.Y.Z` of that version exists. The registry would be asked for
+a version that was never released. The path dependencies followed are those
+the version writer `cargo` gives a version requirement, the dependencies of
+the package's tests included (see
+[`version-cargo`](../README.md#version-cargo)).
+
+The message names the package, the required unit, the version without a
+record, and the way out: touch the required unit in the same pull request,
+with a change below its path or a change of `.nebensound/repo.toml`, so that
+it gets a new version that is released with the merge. The release stage on
+`main` releases only the units a commit touches, so this is how what a release
+needs gets a release of its own.
+
+In steady state the finding does not come up: every commit that touches a unit
+raises its version and the release stage records it. It comes up for versions
+from before the release stage ran in a repository, and after a failed run on
+`main` that nobody repaired. A unit without a target of this kind is not held
+to it, since a tag and a GitHub Release need no record of what a package
+requires.
+
+The finding comes from `nebensound-repo version` with `--pull-request` (see
+[the phases](phases.md#version)): it fails the job `nebensound / Version`,
+not `nebensound / Declare`, and checks and builds still run. On `main` the
+merge has happened already, so nothing there is held to it.
 
 ### `unexcused-ignore`
 

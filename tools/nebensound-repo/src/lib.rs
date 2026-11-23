@@ -48,6 +48,7 @@ pub mod register;
 pub mod release_fields;
 pub mod report;
 pub mod repository;
+pub mod requirements;
 pub mod resolve;
 pub(crate) mod ruff_config;
 pub mod rules;
@@ -582,18 +583,33 @@ fn files_alone(job: &Job) -> bool {
 /// Phase 0 on the repository as the call needs it: without the history for a
 /// call that reads the files alone, and for `check` with a visibility, with
 /// the declared audience held against it.
+///
+/// For the versions of a pull request, what a package it would publish to a
+/// registry requires by path is held against the records
+/// ([`requirements`](mod@requirements)), unless phase 0 found errors already:
+/// a version read off a declaration with errors could be one the history does
+/// not give.
 fn analysis_for(
     repository: &Repository,
     central: &Central,
     job: &Job,
 ) -> Result<Analysis, Failure> {
-    let analysis = if files_alone(job) {
+    let mut analysis = if files_alone(job) {
         repository.analyse_files(central)
     } else {
         repository.analyse(central)
     }?;
     Ok(match job {
         Job::Check(_, Some(visibility)) => analysis.with_visibility(*visibility),
+        Job::Version {
+            pull_request: Some(pull_request),
+            ..
+        } if !analysis.failed() => {
+            let found =
+                requirements::findings(repository, &analysis, central, pull_request.number)?;
+            analysis.loose.extend(found);
+            analysis
+        }
         _ => analysis,
     })
 }

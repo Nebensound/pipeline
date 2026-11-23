@@ -213,6 +213,17 @@ request. Every version is then the one that merge would get, with
 request touches; the column is called `This pull request`. Both options go
 together.
 
+For a pull request the call also holds what its merge would publish to a
+registry against the records. For every unit the pull request gives a version
+that publishes to a target with `dependencies-by-version` in the register, the
+units its package requires by path are found as `write-versions` finds them,
+followed through, without writing anything. Each one the pull request does not
+touch must have a tag `<prefix><current>`; otherwise the error
+`unreleased-requirement` names the package, the unit, the version and the way
+out, and the call exits with `1`. A manifest it reads that is not TOML ends the
+call with exit code `1` and the reason, as with `write-versions`. Without
+`--pull-request` nothing is held to it.
+
 A repository with errors gets no table: the sentence that there are no versions,
 every finding, and exit code `1`, as with the plan.
 

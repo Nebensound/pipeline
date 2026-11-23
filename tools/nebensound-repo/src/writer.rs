@@ -50,6 +50,10 @@
 //! Every change goes through `toml_edit`, which keeps comments, blank lines
 //! and the order of keys. A file whose text does not change is not written, so
 //! a second call changes nothing.
+//!
+//! [`requirements`] follows the same path dependencies from one unit without
+//! writing anything, so that a pull request can be held to what its merge
+//! would publish ([`crate::requirements`]).
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
@@ -358,6 +362,65 @@ pub fn write(
     Ok(said.join("\n"))
 }
 
+/// What one package requires by path, as the writer follows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Requirements {
+    /// The name of the package.
+    pub package: String,
+    /// Every unit it requires by path, followed through further path
+    /// dependencies, that the commit at hand does not touch: its place in the
+    /// orders, and the current version it is required at. A unit without a
+    /// current version is not among them: it gets nothing written, and Cargo
+    /// refuses to package what requires it.
+    pub untouched: Vec<(usize, String)>,
+}
+
+/// What the unit at the place `from` in `orders` requires by path, followed
+/// through, as [`write()`] writes it: the same path dependencies, the dependencies
+/// of its tests included, and the same units. Nothing is written.
+///
+/// [`None`] when that unit does not select the writer `cargo` or the commit at
+/// hand does not touch it: the writer then starts nothing from it.
+///
+/// # Errors
+///
+/// Returns [`WriteError`] for a manifest it reads that cannot be read or is
+/// not TOML, and for a unit it reaches whose manifest holds no package, as
+/// [`write()`] does.
+pub fn requirements(
+    repository: &Repository,
+    orders: &[Order],
+    from: usize,
+) -> Result<Option<Requirements>, WriteError> {
+    let mut files = Files {
+        repository,
+        open: BTreeMap::new(),
+    };
+    let (places, cargo): (Vec<usize>, Vec<&Order>) = orders
+        .iter()
+        .enumerate()
+        .filter(|(_, order)| order.writers.iter().any(|writer| writer.as_str() == CARGO))
+        .unzip();
+    let Some((seed, order, version)) = places
+        .iter()
+        .zip(&cargo)
+        .enumerate()
+        .find(|(_, (place, _))| **place == from)
+        .and_then(|(seed, (_, order))| order.version.clone().map(|version| (seed, order, version)))
+    else {
+        return Ok(None);
+    };
+    let start = files.chosen(order, version, Source::Commit)?;
+    let package = start.name.clone();
+    let chosen = follow(&mut files, &cargo, BTreeMap::from([(seed, start)]))?;
+    let untouched = chosen
+        .into_iter()
+        .filter(|(_, unit)| unit.source == Source::Current)
+        .map(|(index, unit)| (places[index], unit.version))
+        .collect();
+    Ok(Some(Requirements { package, untouched }))
+}
+
 /// Where the version a unit gets comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Source {
@@ -402,19 +465,28 @@ fn choose(
     start: Option<&RelativePath>,
 ) -> Result<BTreeMap<usize, Chosen>, WriteError> {
     let mut chosen = BTreeMap::new();
-    // Each package given a version whose path dependencies are still to be
-    // followed: its name, its version and what it depends on.
-    let mut queue = VecDeque::new();
     for (index, order) in cargo.iter().enumerate() {
         let Some(version) = &order.version else {
             continue;
         };
         if start.is_none_or(|start| files.root_of(&order.path) == *start) {
-            let unit = files.chosen(order, version.clone(), Source::Commit)?;
-            queue.push_back(unit.needs.clone());
-            chosen.insert(index, unit);
+            chosen.insert(index, files.chosen(order, version.clone(), Source::Commit)?);
         }
     }
+    follow(files, cargo, chosen)
+}
+
+/// The units already `chosen`, by their place in `cargo`, and every unit they
+/// depend on by path, followed through the path dependencies of each one
+/// given a version: its current version, which is the version of the commit
+/// when the commit touches it. A unit without a current version gets nothing.
+fn follow(
+    files: &mut Files<'_>,
+    cargo: &[&Order],
+    mut chosen: BTreeMap<usize, Chosen>,
+) -> Result<BTreeMap<usize, Chosen>, WriteError> {
+    // What each package given a version depends on, still to be followed.
+    let mut queue: VecDeque<Needs> = chosen.values().map(|unit| unit.needs.clone()).collect();
     while let Some(needs) = queue.pop_front() {
         for path in needs {
             let Some((found, order)) = cargo

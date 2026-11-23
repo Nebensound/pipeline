@@ -97,6 +97,21 @@ version in it is the one that merge would get with `-pr.<number>` behind it,
 such as `0.4.2-pr.17`; so is the current version of a unit the pull request
 touches. It names artifacts and is never published.
 
+On a pull request the job also holds what a release would need against the
+records. A unit the pull request gives a version that publishes to a registry,
+a target with `Dependencies by version` in
+[the register](register.md#publish-targets), is followed through what its
+package requires by path, as the version writer `cargo` follows it. Every unit
+reached that the pull request does not touch must have a tag of its current
+version; otherwise the job fails with
+[`unreleased-requirement`](declaration.md#unreleased-requirement), which names
+the way out. It runs here because this job reads the history and the tags of
+the pull request as its merge would put them on `main`, and it fails the pull
+request without holding back its checks and builds. After a push to `main`
+nothing is held to it: the merge has happened, and failing then would only
+leave `main` red. The publish blocks of the registries are not written yet, so
+such a target also fails by name in `Check` until they are.
+
 The job runs whatever Declare's result. When phase 0 finds an error, such as a
 shallow clone, there is no table: the log and the summary list every finding
 and the job fails. It waits for Declare only to take the tool from the cache.

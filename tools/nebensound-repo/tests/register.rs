@@ -619,6 +619,22 @@ fn the_target_that_cannot_be_taken_back_is_the_one_with_a_condition() {
 }
 
 #[test]
+fn the_registries_are_the_targets_with_dependencies_by_version() {
+    // Packages on a registry require each other by version, so what they
+    // require must have a release; a release asset, an image or a site
+    // requires nothing of the kind. The tool knows it from here, never from a
+    // target's name.
+    let register = builtin();
+    let registries: Vec<&str> = register
+        .target
+        .iter()
+        .filter(|(_, target)| target.dependencies_by_version)
+        .map(|(name, _)| name.as_str())
+        .collect();
+    assert_eq!(registries, ["crates.io", "private-registry"]);
+}
+
+#[test]
 fn the_package_side_is_rust_library_without_check_and_dependabot() {
     let register = builtin();
     let preset = |name: &str| {

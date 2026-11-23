@@ -147,6 +147,13 @@ pub struct Target {
     /// A check the unit must run before it may publish here.
     #[serde(default)]
     pub requires_check: Option<CheckName>,
+    /// Whether packages published here require each other by version: a
+    /// registry, which resolves what a package requires from the versions it
+    /// holds. What such a package requires by path, and the commit at hand does
+    /// not touch, must have a release already, or the pull request fails with
+    /// `unreleased-requirement` ([`crate::requirements`]).
+    #[serde(default)]
+    pub dependencies_by_version: bool,
 }
 
 /// A named pipeline, looked up instead of written out.
