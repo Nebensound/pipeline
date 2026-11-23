@@ -332,8 +332,9 @@ so the project's interpreter has to be one.
   pipeline's default (see [Linter rules](#linter-rules)).
 - No Pyright error in strict mode, with the repository's configuration laid
   over it (see [Linter rules](#linter-rules)). Pyright is handed every file of
-  the list by name, also one in a folder whose name starts with a dot, which
-  Pyright passes over when it searches for files itself.
+  the list by name, and leaves out one in a folder whose name starts with a dot
+  all the same, without a word: the check compares how many files Pyright
+  analysed with how many it handed over, and names each one Pyright left out.
 - The tests pass: the project's pytest, run by coverage.py. Each failed test is
   an annotation on its file and line, and a project without pytest fails by
   name.

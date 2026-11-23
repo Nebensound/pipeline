@@ -651,7 +651,9 @@ from Pyright on need the project installed:
    its `ignore` and `exclude` set aside and exactly the files of the list
    handed over by name; a lower mode in its configuration or in a file, and a
    `# type: ignore` without rules before a file's first statement, are
-   findings of their own.
+   findings of their own. Where Pyright analysed fewer files than it was
+   handed, as it does with a file in a folder whose name starts with a dot,
+   each file is run alone, and each one Pyright leaves out is a finding.
 7. The tests: the project's pytest, run by coverage.py laid over the project's
    environment with `uv run --with`, measuring lines and branches below the
    unit; a test that fails is a finding on its file and line.

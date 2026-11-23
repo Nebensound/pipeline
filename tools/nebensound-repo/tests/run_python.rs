@@ -144,7 +144,9 @@ const PYRIGHT: &str = r#"
 [ "$1" = "--version" ] && { echo "pyright 1.1.414"; exit 0; }
 cp "$3" "$here/pyright-config"
 echo "pyright says something on standard error" >&2
-cat "$here/pyright.json" 2>/dev/null || echo '{"generalDiagnostics": [], "summary": {"filesAnalyzed": 3, "errorCount": 0, "warningCount": 0}}'
+# Pyright passes over a file in a folder whose name starts with a dot.
+analysed=$(sed -n 's/.*"include":\[\([^]]*\)\].*/\1/p' "$3" | grep -o '"[^"]*"' | grep -cv '\(^"\|/\)\.')
+cat "$here/pyright.json" 2>/dev/null || echo '{"generalDiagnostics": [], "summary": {"filesAnalyzed": '"$analysed"', "errorCount": 0, "warningCount": 0}}'
 exit "$(cat "$here/pyright-status" 2>/dev/null || echo 0)"
 "#;
 
@@ -222,7 +224,7 @@ impl Fixture {
         // elsewhere.
         let computer = std::env::var_os("PATH").unwrap_or_default();
         for utility in [
-            "basename", "cat", "chmod", "cp", "curl", "dirname", "grep", "mkdir",
+            "basename", "cat", "chmod", "cp", "curl", "dirname", "grep", "mkdir", "sed",
         ] {
             let found = find::search(utility, &computer, false).unwrap();
             std::os::unix::fs::symlink(found, here.join("utilities").join(utility)).unwrap();
@@ -438,7 +440,7 @@ fn every_step_runs_in_its_order_and_hands_no_tool_an_excluded_file() {
     has(&text, "No finding.");
     has(&text, "Pyright: strict mode");
     has(&text, "pyright says something on standard error");
-    has(&text, "Pyright: 3 file(s), 0 error(s), 0 warning(s)");
+    has(&text, "Pyright: 4 file(s), 0 error(s), 0 warning(s)");
     has(&text, "Every line and branch of 3 file(s) is covered.");
     has(&text, "The wheel gets the placeholder version 0.0.0.");
     has(&text, "Built sample-0.0.0-py3-none-any.whl");
@@ -989,6 +991,37 @@ fn pyright_lowered_and_its_findings() {
     let pyright: Value = serde_json::from_str(&fixture.noted("pyright-config")).unwrap();
     assert_eq!(pyright["typeCheckingMode"], "strict");
     assert_eq!(pyright["pythonVersion"], "3.12");
+}
+
+#[test]
+fn a_file_pyright_leaves_out_is_named() {
+    let _alone = alone();
+    let mut fixture = Fixture::new();
+    fixture.files.push(".typings/extra.pyi".to_owned());
+    fixture.file(".typings/extra.pyi", "");
+    let (code, text) = fixture.run();
+    assert_eq!(code, 1, "{text}");
+    has(&text, "Pyright: 4 file(s), 0 error(s), 0 warning(s)");
+    has(
+        &text,
+        "::error::Pyright analysed 4 of the 5 file(s) check-python handed it; each one it left \
+         out is named",
+    );
+    has(
+        &text,
+        "::error file=.typings/extra.pyi::Pyright did not analyse it, although check-python \
+         handed it over by name, as Pyright does with a file in a folder whose name starts with \
+         a dot; move it out of such a folder, or take it out with an [[exclude]] entry and its \
+         reason",
+    );
+    lacks(&text, "file=src/sample/cli.py::Pyright did not");
+    assert_eq!(pyright::analysed(b"not json"), 0);
+    assert_eq!(pyright::analysed(b"{}"), 0);
+    assert_eq!(pyright::analysed(b"{\"summary\": {}}"), 0);
+    assert_eq!(
+        pyright::analysed(b"{\"summary\": {\"filesAnalyzed\": 2}}"),
+        2
+    );
 }
 
 #[test]

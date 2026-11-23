@@ -325,6 +325,86 @@ fn configured(
     Some((settings, folder, lowers))
 }
 
+/// Runs Pyright with these settings, written beside the repository's
+/// configuration in `folder` for the run and removed after it: what it
+/// printed, or nothing, with why written.
+fn pyright(
+    session: &mut Session<'_, '_>,
+    paths: &Paths,
+    programs: &Programs,
+    folder: &Path,
+    settings: Map<String, Value>,
+) -> Option<std::process::Output> {
+    let run = folder.join(format!("{RUN}-{}.json", std::process::id()));
+    let written = fs::write(&run, Value::Object(settings).to_string());
+    let mut command = command(
+        paths,
+        &programs.pyright.executable,
+        &paths.root,
+        &programs.pyright.search_path,
+    );
+    command.args(["--outputjson", "--project"]).arg(&run);
+    let output = written
+        .map_err(|error| {
+            session.log.error(
+                None,
+                None,
+                &format!(
+                    "Pyright's configuration cannot be written beside the repository's: {error}"
+                ),
+            );
+        })
+        .ok()
+        .and_then(|()| session.output(command, "Pyright"));
+    let _ = fs::remove_file(&run);
+    output
+}
+
+/// How many files Pyright's JSON report says it analysed; none where it
+/// printed no report.
+#[must_use]
+pub fn analysed(stdout: &[u8]) -> u64 {
+    serde_json::from_slice::<Value>(stdout)
+        .ok()
+        .and_then(|report| report.get("summary")?.get("filesAnalyzed")?.as_u64())
+        .unwrap_or(0)
+}
+
+/// The files of the list Pyright leaves out although it is handed them by
+/// name, each run alone with the same settings: a file it analyses none of is
+/// a finding of its own. Measured: Pyright passes over a file in a folder whose
+/// name starts with a dot, even when its configuration names it.
+fn left_out(
+    session: &mut Session<'_, '_>,
+    paths: &Paths,
+    programs: &Programs,
+    folder: &Path,
+    settings: &Map<String, Value>,
+) {
+    for file in &session.files.clone() {
+        let mut alone = settings.clone();
+        alone.insert(
+            "include".to_owned(),
+            Value::from(vec![
+                relative(folder, &paths.root.join(file))
+                    .to_string_lossy()
+                    .into_owned(),
+            ]),
+        );
+        let none = pyright(session, paths, programs, folder, alone)
+            .is_some_and(|output| analysed(&output.stdout) == 0);
+        if none {
+            session.log.error(
+                Some(file),
+                None,
+                "Pyright did not analyse it, although check-python handed it over by name, as \
+                 Pyright does with a file in a folder whose name starts with a dot; move it out \
+                 of such a folder, or take it out with an [[exclude]] entry and its reason",
+            );
+        }
+    }
+}
+
 /// Every file passes Pyright in strict mode.
 pub(super) fn check(
     session: &mut Session<'_, '_>,
@@ -357,28 +437,7 @@ pub(super) fn check(
         &paths.environment(),
         python.version,
     );
-    let run = folder.join(format!("{RUN}-{}.json", std::process::id()));
-    let written = fs::write(&run, Value::Object(settings).to_string());
-    let mut command = command(
-        paths,
-        &programs.pyright.executable,
-        &paths.root,
-        &programs.pyright.search_path,
-    );
-    command.args(["--outputjson", "--project"]).arg(&run);
-    let output = written
-        .map_err(|error| {
-            session.log.error(
-                None,
-                None,
-                &format!(
-                    "Pyright's configuration cannot be written beside the repository's: {error}"
-                ),
-            );
-        })
-        .ok()
-        .and_then(|()| session.output(command, "Pyright"));
-    let _ = fs::remove_file(&run);
+    let output = pyright(session, paths, programs, &folder, settings.clone());
     let Some(output) = output else {
         return false;
     };
@@ -415,6 +474,20 @@ pub(super) fn check(
         }
     }
     session.log.line(&summary);
+    let handed = session.files.len() as u64;
+    let counted = analysed(&output.stdout);
+    if counted != handed {
+        session.log.error(
+            None,
+            None,
+            &format!(
+                "Pyright analysed {counted} of the {handed} file(s) check-python handed it; each \
+                 one it left out is named"
+            ),
+        );
+        left_out(session, paths, programs, &folder, &settings);
+        failed = true;
+    }
     if !matches!(output.status.code(), Some(0 | 1)) {
         session.log.error(
             None,
