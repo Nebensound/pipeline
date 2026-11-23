@@ -1,9 +1,12 @@
 //! `nebensound-repo run`: one check over the files it covers in one unit, the
 //! way its building block runs it.
 //!
-//! The Rust check is the one that runs code of the repository: it builds and
-//! tests a Cargo workspace with the Rust toolchain, which rustup provides, and
-//! goes its own way ([`rust`](mod@rust)). What follows holds for the others.
+//! The Rust and the Python check are the ones that run code of the
+//! repository: the Rust check builds and tests a Cargo workspace with the Rust
+//! toolchain, which rustup provides ([`rust`](mod@rust)), and the Python check
+//! installs and tests a uv project with the interpreter uv provides
+//! ([`python`](mod@python)). Each goes its own way. What follows holds for the
+//! others.
 //!
 //! The files are those `files` names for the check and the unit. The programs
 //! are those the register names for the check, found the way
@@ -39,6 +42,7 @@ pub mod html;
 pub mod json;
 mod links;
 pub mod markdown;
+pub mod python;
 pub mod rust;
 pub mod toml;
 pub mod yaml;
@@ -90,6 +94,8 @@ pub enum Check {
     Json,
     /// `.md` and `.markdown` files.
     Markdown,
+    /// `.py` and `.pyi` files, the uv project at the unit's path.
+    Python,
     /// `.rs` files, the Cargo workspace at the unit's path.
     Rust,
     /// `.toml` files and the TOML lockfiles.
@@ -108,6 +114,7 @@ impl Check {
             "html" => Some(Self::Html),
             "json" => Some(Self::Json),
             "markdown" => Some(Self::Markdown),
+            "python" => Some(Self::Python),
             "rust" => Some(Self::Rust),
             "toml" => Some(Self::Toml),
             "yaml" => Some(Self::Yaml),
@@ -124,6 +131,7 @@ impl Check {
             Self::Html => "html",
             Self::Json => "json",
             Self::Markdown => "markdown",
+            Self::Python => "python",
             Self::Rust => "rust",
             Self::Toml => "toml",
             Self::Yaml => "yaml",
@@ -138,6 +146,7 @@ impl Check {
             Self::Html => "HTML file",
             Self::Json => "JSON file",
             Self::Markdown => "Markdown file",
+            Self::Python => "Python file",
             Self::Rust => "Rust file",
             Self::Toml => "TOML file",
             Self::Yaml => "YAML file",
@@ -228,6 +237,7 @@ pub fn run(
         Check::Html => html::run(&mut session),
         Check::Json => json::run(&mut session),
         Check::Markdown => markdown::run(&mut session),
+        Check::Python => python::run(&mut session),
         Check::Rust => rust::run(&mut session),
         Check::Toml => toml::run(&mut session),
         Check::Yaml => yaml::run(&mut session),
@@ -513,6 +523,8 @@ struct Tool {
 /// How a program ended, and what it printed on both outputs as it came.
 struct Ran {
     success: bool,
+    /// Its exit status, when it gave one.
+    code: Option<i32>,
     text: String,
 }
 
@@ -520,6 +532,7 @@ impl Ran {
     fn failed() -> Self {
         Self {
             success: false,
+            code: None,
             text: String::new(),
         }
     }
@@ -678,9 +691,10 @@ impl Session<'_, '_> {
             Ok((mut reader, mut child)) => {
                 let mut bytes = Vec::new();
                 let _ = reader.read_to_end(&mut bytes);
-                let success = child.wait().is_ok_and(|status| status.success());
+                let status = child.wait().ok();
                 Ran {
-                    success,
+                    success: status.is_some_and(|status| status.success()),
+                    code: status.and_then(|status| status.code()),
                     text: String::from_utf8_lossy(&bytes).into_owned(),
                 }
             }
@@ -731,6 +745,7 @@ impl Session<'_, '_> {
     fn over(&mut self, tool: &Tool, args: &[OsString], files: &[&str], what: &str) -> Ran {
         let mut all = Ran {
             success: true,
+            code: None,
             text: String::new(),
         };
         for chunk in chunks(files) {

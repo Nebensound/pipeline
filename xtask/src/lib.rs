@@ -51,7 +51,7 @@ const MISUSE: u8 = 2;
 
 /// What the steps of the blocks the xtask runs step by step call on the
 /// machine beside the programs [`runner::needs`] finds, each with its name and
-/// the command that shows it is there. Phase 0 and `check-python` run jq;
+/// the command that shows it is there. Phase 0 and the builds run jq;
 /// `nebensound-repo setup` can install a jq of its own, but into its cache and
 /// not onto the `PATH` the steps search. `build-docker` builds with Docker's
 /// Buildx and starts what it built with Docker. The action `tool` and
@@ -73,16 +73,16 @@ Usage: cargo xtask check --all
 check --all   Holds the building blocks, the register and nebensound.yml to
               each other, and runs every building block against its test cases
               in tests/pass/ and tests/fail/. The blocks whose check the tool
-              carries out (css, dockerfile, html, json, markdown, rust, toml,
-              yaml) run through the tool of this commit, on every system, after
-              `nebensound-repo setup --pinned <check>` has set up the programs
-              of their check; a runtime one of them needs is taken from the
-              computer. In a run on GitHub Actions the setup also gets
-              --with-runtimes, so that a runtime that is missing there or too
-              old is installed in the pinned version. The cases of the other
-              blocks run the blocks' own steps, which are written for the
-              Linux runners of GitHub Actions, so for now they run on Linux
-              only.
+              carries out (css, dockerfile, html, json, markdown, python, rust,
+              toml, yaml) run through the tool of this commit, on every
+              system, after `nebensound-repo setup --pinned <check>` has set
+              up the programs of their check; a runtime one of them needs is
+              taken from the computer. In a run on GitHub Actions the setup
+              also gets --with-runtimes, so that a runtime that is missing
+              there or too old is installed in the pinned version. The cases
+              of the other blocks run the blocks' own steps, which are
+              written for the Linux runners of GitHub Actions, so for now they
+              run on Linux only.
 setup         Calls `nebensound-repo setup` for this repository, built from
               this commit, to find or install the programs its checks call.
               Every option goes to it unchanged: --pinned, --with-runtimes,

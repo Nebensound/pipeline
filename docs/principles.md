@@ -63,12 +63,13 @@ says in its first line that its result can differ, and can differ through
 settings that come as files, such as a rustup override on the checkout or
 Cargo's configuration files, which the tool does not neutralise.
 
-**Today.** The checks for CSS, Dockerfiles, HTML, JSON, Markdown, Rust, TOML and
-YAML are thin blocks that call the tool, and the release stage in `Publish` is
-one call of the tool. The check for Python, the builds, several steps of
-`nebensound.yml` and the actions `tool` and `phase0`, which every job runs, are
-still shell, partly with `jq`;
-`check-python` also embeds Python scripts.
+**Today.** The checks for CSS, Dockerfiles, HTML, JSON, Markdown, Python,
+Rust, TOML and YAML are thin blocks that call the tool, and the release stage
+in `Publish` is one call of the tool. The Python check runs Python in three
+places, each because only the interpreter can answer: whether pytest imports,
+whether a file holds a statement, and whether a package of the wheel imports.
+The builds, several steps of `nebensound.yml` and the actions `tool` and
+`phase0`, which every job runs, are still shell, partly with `jq`.
 
 ## 4. External programs are the exception and are started from the tool
 
@@ -177,8 +178,6 @@ yet, it says so.
   each block's `action.yml`, shell included, the way the runner does. They are
   the proof for the shell that exists. What becomes of them once every block is
   one call of the tool is decided by no issue yet.
-- **The check for Python** is shell with embedded Python scripts (rule 3):
-  #113.
 - **The builds** `build-cargo-package` and `build-docker` are shell (rule 3).
   No issue exists yet.
 - **The steps of `nebensound.yml`** outside the release stage that hold logic

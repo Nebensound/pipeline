@@ -1,0 +1,1 @@
+::error file=.typings/extra.pyi,line=1,col=*::Pyright reportMissingTypeArgument: *

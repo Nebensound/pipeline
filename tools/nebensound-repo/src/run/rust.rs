@@ -443,7 +443,7 @@ fn workspace(command: &[&str], without: &[String], rest: &[&str]) -> Vec<String>
 
 /// One step: its name opens a group of the log, which closes after it, and a
 /// step that fails says so below the group.
-fn step<T>(
+pub(super) fn step<T>(
     session: &mut Session<'_, '_>,
     name: &str,
     body: impl FnOnce(&mut Session<'_, '_>) -> Option<T>,
@@ -476,7 +476,7 @@ fn command(session: &Session<'_, '_>, program: impl AsRef<OsStr>, dir: &Path) ->
 /// Runs a command to its end and writes what it prints on both outputs into
 /// the log, line by line as it comes: whether it succeeded. A program that
 /// cannot be started is written as a finding and counts as failed.
-fn stream(session: &mut Session<'_, '_>, mut command: Command, what: &str) -> bool {
+pub(super) fn stream(session: &mut Session<'_, '_>, mut command: Command, what: &str) -> bool {
     let shown: Vec<String> = std::iter::once(what.to_owned())
         .chain(
             command

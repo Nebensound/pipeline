@@ -1,0 +1,7 @@
+# The covered project with a stub in a folder whose name starts with a dot,
+# holding a finding of Pyright's strict mode. Pyright passes over such folders
+# when it searches for files itself; the check hands it every file of the list
+# by name, and this case shows that Pyright then analyses this one as well.
+[repo]
+audience = "public"
+pipeline = { check = ["python"], dependabot = ["uv"] }
