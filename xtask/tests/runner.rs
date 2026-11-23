@@ -896,3 +896,15 @@ fn a_need_is_met_only_by_its_version() {
         assert_eq!(runner::probe(&need, &env), expected, "{printed}");
     }
 }
+
+#[test]
+fn a_line_a_step_printed_is_shown_so_that_the_runner_reads_no_command_in_it() {
+    // With `    | ` in front, a block's own annotation is no `::` command any
+    // more, and the runner would read the older form `##[name]` in the middle
+    // of it; the `[` behind `##` is written as its escape.
+    assert_eq!(
+        runner::shown("::error file=a##[warning]x.dockerfile::not formatted"),
+        "    | ::error file=a##\\u{5b}warning]x.dockerfile::not formatted\n"
+    );
+    assert_eq!(runner::shown("plain #[x]"), "    | plain #[x]\n");
+}

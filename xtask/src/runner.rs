@@ -17,7 +17,9 @@
 //! What a step prints is shown with `    | ` in front. A block announces its
 //! findings as workflow commands (`::error file=…::…`); in the gate, where the
 //! xtask itself runs as a step, those lines would otherwise become
-//! annotations for mistakes a failing case makes on purpose.
+//! annotations for mistakes a failing case makes on purpose. The runner also
+//! reads the older form `##[name]` anywhere in a line, so `##[` is written as
+//! `##\u{5b}` there as well: see [`shown`].
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -730,7 +732,7 @@ impl Host {
         out: &mut dyn Write,
     ) -> Outcome {
         let mut line = |text: String, success: bool| {
-            say(out, &format!("    | {text}\n"));
+            say(out, &shown(&text));
             Outcome {
                 success,
                 outputs: BTreeMap::new(),
@@ -868,6 +870,18 @@ fn inputs(
         .collect()
 }
 
+/// A line a step printed, as the xtask shows it: with `    | ` in front, so
+/// that the runner reads no workflow command at its start, and with every `[`
+/// right behind `##` written as `\u{5b}`, its escape, since the runner reads
+/// the older form `##[name]` anywhere in a line. A block's own
+/// `::error file=a##[x]…` loses its place at the start of the line here, and
+/// the runner would read the `##[x]` in it. What is kept to judge a case
+/// stays as the step printed it.
+#[must_use]
+pub fn shown(line: &str) -> String {
+    format!("    | {}\n", line.replace("##[", "##\\u{5b}"))
+}
+
 /// Starts a command with its standard output and error in one stream, shows
 /// every line with `    | ` in front and keeps it, and says whether it
 /// succeeded.
@@ -893,7 +907,7 @@ pub fn stream(mut command: Command, out: &mut dyn Write) -> Result<(bool, Vec<St
         let line = String::from_utf8_lossy(&bytes)
             .trim_end_matches('\r')
             .to_owned();
-        say(out, &format!("    | {line}\n"));
+        say(out, &shown(&line));
         log.push(line);
     }
     let success = child.wait().is_ok_and(|status| status.success());

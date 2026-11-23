@@ -553,7 +553,7 @@ fn build(setup: &Setup, out: &mut dyn Write) -> Result<PathBuf, Error> {
         })?;
     let stderr = String::from_utf8_lossy(&output.stderr);
     for line in stderr.lines() {
-        say(out, &format!("    | {line}\n"));
+        say(out, &runner::shown(line));
     }
     let built = String::from_utf8_lossy(&output.stdout)
         .lines()
