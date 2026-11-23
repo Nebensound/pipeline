@@ -1,3 +1,0 @@
-[toolchain]
-channel = "0.0.1"
-components = ["rustfmt", "clippy"]

@@ -40,12 +40,6 @@ runs:
     # only place their versions and digests stand, here as on a developer's
     # computer. They go into the tool's folder in the cache directory, outside
     # the checkout, so that nothing of them ends up in the tree being checked.
-    # Temporary: what the runner has free before the check, and what the
-    # check leaves on the disk.
-    - name: "Temporary: free space before"
-      shell: bash
-      run: df -h /
-
     - name: Set up the programs of the Rust check
       shell: bash
       run: nebensound-repo setup --pinned --with-runtimes rust
@@ -62,12 +56,3 @@ runs:
         UNIT: ${{ inputs.working-directory }}
         PLAN: ${{ inputs.plan }}
       run: nebensound-repo run rust --plan /dev/stdin -- "$UNIT" <<< "$PLAN"
-
-    - name: "Temporary: free space after"
-      if: always()
-      shell: bash
-      env:
-        UNIT: ${{ inputs.working-directory }}
-      run: |
-        df -h /
-        du -sh "$UNIT/target" "$HOME/.cargo" "$HOME/.rustup" || true

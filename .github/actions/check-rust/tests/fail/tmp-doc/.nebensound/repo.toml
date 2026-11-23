@@ -1,3 +1,0 @@
-[repo]
-audience = "public"
-pipeline = "rust-workspace"
