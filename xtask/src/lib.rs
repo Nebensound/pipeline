@@ -6,7 +6,8 @@
 //!   each other ([`layout`]), and runs every building block against its test
 //!   cases ([`cases`]). A block whose check the tool carries out runs through
 //!   the tool of this commit, on every system, after `nebensound-repo setup
-//!   --pinned <check>` has set up the programs of its check; every other block
+//!   --pinned <check>` has set up the programs of its check, in a run on
+//!   GitHub Actions with `--with-runtimes` as well; every other block
 //!   by running its own steps, read from its `action.yml` ([`runner`]), on
 //!   Linux only.
 //!   The central workflow runs `cargo xtask check --all` as the last step of
@@ -76,9 +77,12 @@ check --all   Holds the building blocks, the register and nebensound.yml to
               run through the tool of this commit, on every system, after
               `nebensound-repo setup --pinned <check>` has set up the programs
               of their check; a runtime one of them needs is taken from the
-              computer. The cases of the other blocks run the blocks' own steps,
-              which are written for the Linux runners of GitHub Actions, so
-              for now they run on Linux only.
+              computer. In a run on GitHub Actions the setup also gets
+              --with-runtimes, so that a runtime that is missing there or too
+              old is installed in the pinned version. The cases of the other
+              blocks run the blocks' own steps, which are written for the
+              Linux runners of GitHub Actions, so for now they run on Linux
+              only.
 setup         Calls `nebensound-repo setup` for this repository, built from
               this commit, to find or install the programs its checks call.
               Every option goes to it unchanged: --pinned, --with-runtimes,
@@ -460,6 +464,7 @@ fn cases(
             env: &env,
             git: &"git".into(),
             scratch: scratch.path(),
+            with_runtimes: cases::on_github(&setup.env),
         };
         for block in direct {
             if let Some(problem) = cases::set_up(bench, &setup.root, block, out) {
