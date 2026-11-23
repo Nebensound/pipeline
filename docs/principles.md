@@ -14,8 +14,10 @@ the reference describes such a part, it describes the state of today.
 
 ## 1. A simple flow
 
-A preparing job reads the declaration and hands finished data to the jobs after
-it. The checks run as a matrix of the same call: one job for all checks that
+A preparing job reads the declaration, decides which jobs start and hands on the
+matrix for that. Every job runs the tool itself and works out what it needs from
+the repository at the commit of the run; no plan is handed from job to job. The
+checks run as a matrix of the same call: one job for all checks that
 only read the repository's files, and one job for each check that runs code of
 the repository. What can be put together is put together. Adding a check does
 not add a special path to the workflow.
@@ -155,6 +157,10 @@ yet, it says so.
   `nebensound.yml` and its name to the list in `Not written yet`. The
   [phases](phases.md#one-job-per-unit) and the README describe this cut. No
   issue exists yet.
+- **Every job works out what it starts from** (rule 1). Only `Publish` does so
+  today; the other jobs follow with the cut of the jobs, and until the tool is a
+  release binary (#24) the jobs other than `Publish` still take the tool from
+  the cache.
 - **The rule on building blocks** in `AGENTS.md` and the README: a block
   performs one step and is named after its register entry with the category in
   front. It describes the cut above, one named block per step. No issue exists
