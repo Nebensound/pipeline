@@ -1,0 +1,7 @@
+# A formatted JSON file whose name holds `##[warning]x`. The runner reads that
+# older form of a workflow command anywhere in a line, so the name printed as
+# it stands would start a warning with no line break in it: the check names
+# the file with the `[` behind `##` escaped, and starts no command.
+[repo]
+audience = "public"
+pipeline = "none"

@@ -124,19 +124,23 @@ Text from the repository goes into a step's log escaped: Git allows a line
 break in a file name, and a value of the declaration holds whatever someone
 wrote, while the runner reads a line of the log that starts with `::` as a
 workflow command, one that could add an annotation of its own or stop the
-commands of the step. So a control character in a file name, a unit's path or
-a reason is written as its escape, a line break as `\n`, the same way
-everywhere. The tool writes it so in its report and in `run`, also where a
+commands of the step. The runner also reads an older form, `##[name]data`, and
+that one anywhere in a line, so a file named `a##[warning]x.json` would start a
+warning wherever its name is printed. So a control character in a file name, a
+unit's path or a reason is written as its escape, a line break as `\n`, and a
+`[` right behind `##` as `\u{5b}`, its escape (`##\u{5b}warning]`), the same
+way everywhere. The tool writes it so in its report and in `run`, also where a
 program it starts names one of the check's files, and so do the scripts `run`
 hands Stylelint and html-validate. The blocks written in shell and the steps of
-`nebensound.yml` source the functions `shown` and `shown_list`, which the
-action [`tool`](.github/actions/tool) writes for the job and whose file it
-names in `NEBENSOUND_SHOWN`; the Python scripts of `check-python` carry a
-function `shown` of their own that writes it the same way. Only control
-characters are escaped, so a decomposed accent still reads as the accent. A
-path in the `file=` property of an annotation goes through the third function
-of that file, `property`, which escapes it the way the runner reads it back, so
-that the annotation stays on the real file. What a program prints about the
+`nebensound.yml` source the functions `shown`, `shown_list` and
+`shown_findings`, which the action [`tool`](.github/actions/tool) writes for
+the job and whose file it names in `NEBENSOUND_SHOWN`; the Python scripts of
+`check-python` carry a function `shown` of their own that writes it the same
+way. Nothing else is escaped, so a decomposed accent still reads as the
+accent. A path in the `file=` property of an annotation goes through the
+function `property` of that file, which escapes it the way the runner reads it
+back, so that the annotation stays on the real file; inside such a `::`
+command the runner does not look for `##[`. What a program prints about the
 repository beyond that stands as it prints it: where the repository's own code
 runs, in `check-rust`, `check-python` and the builds, that code could print any
 line itself.
@@ -885,13 +889,17 @@ not part of the case's repository.
 A case of either kind may also hold a file `forbidden-line`, which names lines
 the block must not print, written the same way: no line the block prints may
 match one of them, read the way the runner reads a workflow command, from its
-first character that is not white space. Such a line fails the case whatever
-else the block did. It is not part of the case's repository either. The cases
-`line-break-in-a-file-name` hold a file whose name holds a line break followed
-by `::warning::x` and forbid that warning: the passing ones of `check-rust` (a
-block written in shell) and `check-json`, and the failing one of
+first character that is not white space. The runner reads the older form
+`##[name]` anywhere in a line, and a pattern with `*` in front, such as
+`*##[warning]x*`, matches anywhere in a line too. Such a line fails the case
+whatever else the block did. It is not part of the case's repository either.
+The cases `line-break-in-a-file-name` hold a file whose name holds a line break
+followed by `::warning::x` and forbid that warning: the passing ones of
+`check-rust` (a block written in shell) and `check-json`, and the failing one of
 `check-dockerfile`, where dockerfmt names the unformatted file in its own
-output, so it fails without the escaping of program output in `run`.
+output, so it fails without the escaping of program output in `run`. The cases
+`older-command-form-in-a-file-name` do the same for a file whose name holds
+`##[warning]x`, in the same three blocks.
 
 `cargo xtask check --all` first holds the blocks, the register and
 `nebensound.yml` to each other:

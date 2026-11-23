@@ -32,10 +32,11 @@ description: >-
 # nothing to check.
 #
 # Text from the repository that a step writes into its log, a file name or a
-# path of the unit, is written through `shown` and `shown_list`, which the
-# action `tool` writes for the job (NEBENSOUND_SHOWN), and in the Python
-# scripts through a function `shown` that writes it the same way, so that a
-# line break in it starts no workflow command. What a program prints stands as the program
+# path of the unit, is written through `shown`, `shown_list` and
+# `shown_findings`, which the action `tool` writes for the job
+# (NEBENSOUND_SHOWN), and in the Python scripts through a function `shown`
+# that writes it the same way, so that neither a line break nor `##[` in it
+# starts a workflow command. What a program prints stands as the program
 # prints it: the project's own code runs in this check, its tests above all,
 # and could print any line itself.
 
@@ -491,8 +492,9 @@ runs:
         fi
         # A file that is not formatted is named at its first change; one Ruff
         # cannot read at the place it stops.
-        # Each line ended by a zero byte, so that `shown` writes the plain
-        # one on one line; the annotation, escaped, stays as it is.
+        # Each finding as two records, each ended by a zero byte: the plain
+        # line, which `shown` writes on one line, and the annotation, escaped,
+        # which stays as it is (`shown_findings`).
         jq --join-output --arg root "$(realpath "$GITHUB_WORKSPACE")" --arg folder "$RUFF_FOLDER" '
           def escaped: gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A");
           def property: escaped | gsub(":"; "%3A") | gsub(","; "%2C");
@@ -505,7 +507,7 @@ runs:
               if .code == "unformatted" then "not formatted the way Ruff writes it; '"'"'ruff format'"'"' fixes it"
               else "Ruff cannot format it: \(.message | escaped)" end)"
           | . + "\u0000"
-        ' "$report" | shown_list
+        ' "$report" | shown_findings
         if [ "$(jq 'length' "$report")" -ne 0 ] || [ "$status" -ne 0 ]; then
           exit 1
         fi
@@ -554,7 +556,7 @@ runs:
           | "\($file):\(.location.row):\(.location.column): \(.code // "error") \(.message)",
             "::error file=\($file | property),line=\(.location.row),col=\(.location.column)::Ruff \(if .code then "\(.code): " else "" end)\(.message | escaped)"
           | . + "\u0000"
-        ' "$report" | shown_list
+        ' "$report" | shown_findings
         if [ "$(jq 'length' "$report")" -ne 0 ]; then
           exit 1
         fi
@@ -606,15 +608,17 @@ runs:
         def shown(value):
             """Text from the repository as one line of the log, written the way
             the shell function `shown` of the action tool writes it: a control
-            character, a line break above all, as its escape."""
-            if not any(unicodedata.category(char) == "Cc" for char in value):
+            character, a line break above all, as its escape, and a `[` right
+            behind `##` as `\\u{5b}`, since the runner reads `##[` anywhere in
+            a line as the start of the older form of a workflow command."""
+            if "##[" not in value and not any(unicodedata.category(char) == "Cc" for char in value):
                 return value
             escapes = {"\t": "\\t", "\n": "\\n", "\r": "\\r", "\\": "\\\\", "'": "\\'", '"': '\\"'}
             return "".join(
                 escapes.get(char)
                 or (f"\\u{{{ord(char):x}}}" if unicodedata.category(char) == "Cc" else char)
                 for char in value
-            )
+            ).replace("##[", "##\\u{5b}")
 
 
         def escaped(value, property=False):
@@ -1007,15 +1011,17 @@ runs:
         def shown(value):
             """Text from the repository as one line of the log, written the way
             the shell function `shown` of the action tool writes it: a control
-            character, a line break above all, as its escape."""
-            if not any(unicodedata.category(char) == "Cc" for char in value):
+            character, a line break above all, as its escape, and a `[` right
+            behind `##` as `\\u{5b}`, since the runner reads `##[` anywhere in
+            a line as the start of the older form of a workflow command."""
+            if "##[" not in value and not any(unicodedata.category(char) == "Cc" for char in value):
                 return value
             escapes = {"\t": "\\t", "\n": "\\n", "\r": "\\r", "\\": "\\\\", "'": "\\'", '"': '\\"'}
             return "".join(
                 escapes.get(char)
                 or (f"\\u{{{ord(char):x}}}" if unicodedata.category(char) == "Cc" else char)
                 for char in value
-            )
+            ).replace("##[", "##\\u{5b}")
 
 
         def escaped(value, property=False):

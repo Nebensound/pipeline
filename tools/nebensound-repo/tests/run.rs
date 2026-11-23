@@ -1526,6 +1526,88 @@ fn a_file_name_with_a_line_break_starts_no_workflow_command() {
     starts_no_warning(&text);
 }
 
+/// Whether no line of a step's log holds the older form of a workflow
+/// command, `##[`, where the runner would look for it: anywhere in a line,
+/// except in one it reads as a `::` command, an annotation here.
+fn starts_no_older_form(text: &str) {
+    let forged: Vec<&str> = text
+        .lines()
+        .filter(|line| {
+            line.contains("##[") && !line.starts_with("::error ") && !line.starts_with("::warning ")
+        })
+        .collect();
+    assert!(forged.is_empty(), "{forged:?} in\n{text}");
+}
+
+#[test]
+fn a_file_name_with_the_older_command_form_starts_no_workflow_command() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.everything();
+    // The runner reads `##[warning]` anywhere in a line, so the name needs
+    // no line break to start a command wherever a program prints it.
+    let dockerfile = "a##[warning]x-unformatted.dockerfile";
+    fixture.file(dockerfile, "FROM scratch\n");
+    let (code, text) = fixture.run(Check::Dockerfile, &[dockerfile], true);
+    assert_eq!(code, 1, "{text}");
+    for line in [
+        "a##\\u{5b}warning]x-unformatted.dockerfile",
+        "dockerfmt --check -- a##\\u{5b}warning]x-unformatted.dockerfile",
+        "a##\\u{5b}warning]x-unformatted.dockerfile is not formatted",
+        "hadolint about a##\\u{5b}warning]x-unformatted.dockerfile",
+        // The tool's own annotation names the real file: the runner reads
+        // the line as `::error` and does not look for `##[` in it.
+        "::error file=a##[warning]x-unformatted.dockerfile::not formatted the way dockerfmt \
+         writes it; 'dockerfmt --write' fixes it",
+    ] {
+        has(&text, line);
+    }
+    starts_no_older_form(&text);
+
+    // Biome's own annotation names the file the way `shown` writes it: the
+    // name is replaced wherever a program prints it.
+    let jsonc = "b##[warning]y/c##[warning]z-quoted.jsonc";
+    fixture.file(jsonc, "{}\n");
+    let (code, text) = fixture.run(Check::Json, &[jsonc], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "b##\\u{5b}warning]y/c##\\u{5b}warning]z-quoted.jsonc",
+    );
+    assert!(
+        text.lines().any(|line| line.starts_with(
+            "::error title=parse,file=b##\\u{5b}warning]y/c##\\u{5b}warning]z-quoted"
+        )),
+        "{text}"
+    );
+    starts_no_older_form(&text);
+}
+
+#[test]
+fn program_output_names_every_file_with_the_older_command_form_as_shown() {
+    let files = [
+        "#[plain]##.md".to_owned(),
+        "d##[x/e##[y.md".to_owned(),
+        "h##[/i.md".to_owned(),
+    ];
+    let names = run::fragments(&files);
+    assert_eq!(
+        names,
+        [
+            (
+                "d##[x/e##[y.md".to_owned(),
+                "d##\\u{5b}x/e##\\u{5b}y.md".to_owned()
+            ),
+            ("h##[/i.md".to_owned(), "h##\\u{5b}/i.md".to_owned()),
+            ("e##[y.md".to_owned(), "e##\\u{5b}y.md".to_owned()),
+        ]
+    );
+    assert_eq!(
+        run::flattened("sub/e##[y.md:1 found\n#[plain]##.md\ni.md\n", &names),
+        "sub/e##\\u{5b}y.md:1 found\n#[plain]##.md\ni.md\n"
+    );
+}
+
 #[test]
 fn program_output_names_every_file_with_a_control_character_as_shown() {
     let files = [

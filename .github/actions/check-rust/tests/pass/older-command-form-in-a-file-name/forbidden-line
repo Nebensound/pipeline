@@ -1,0 +1,3 @@
+# The warning the name of the file would start anywhere in a line, were it
+# printed as it stands; the `*` in front lets the pattern match there.
+*##[warning]x*

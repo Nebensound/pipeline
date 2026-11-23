@@ -98,14 +98,18 @@ const property = (value) => escape(value).replaceAll(":", "%3A").replaceAll(",",
 // A plain log line carries text from the repository too, a file name
 // or a finding in a checked file: a control character in it is
 // written as its escape, the way the tool writes it (`shown`), or a
-// line break would start a workflow command of its own.
+// line break would start a workflow command of its own; and so is a
+// `[` right behind `##`, which the runner reads anywhere in a line as
+// the start of the older form of a workflow command.
 const escapes = { "\t": "\\t", "\n": "\\n", "\r": "\\r", "\\": "\\\\", "'": "\\'", '"': '\\"' };
 const control = /\p{Cc}/u;
 const flat = (value) =>
-  control.test(value)
+  control.test(value) || /##\[/u.test(value)
     ? Array.from(value, (char) =>
         escapes[char] ?? (control.test(char) ? `\\u{${char.codePointAt(0).toString(16)}}` : char),
-      ).join("")
+      )
+        .join("")
+        .replace(/(?<=##)\[/gu, "\\u{5b}")
     : value;
 
 for (const name of [

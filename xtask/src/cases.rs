@@ -70,7 +70,9 @@ pub const FINDING: &str = "expected-finding";
 /// Each line that is not empty and does not start with `#` is a pattern, as in
 /// [`FINDING`], that no line the block printed may match. A line is read the
 /// way the runner of GitHub Actions reads a workflow command: from its first
-/// character that is not white space.
+/// character that is not white space. The runner reads the older form of a
+/// workflow command, `##[name]`, anywhere in a line; a pattern with `*` in
+/// front, such as `*##[warning]x*`, matches anywhere in a line as well.
 pub const FORBIDDEN: &str = "forbidden-line";
 
 /// Where the building blocks lie, from the repository root.

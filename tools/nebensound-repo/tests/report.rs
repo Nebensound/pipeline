@@ -118,7 +118,7 @@ fn a_line_break_in_the_path_of_a_unit_is_written_as_an_escape() {
 }
 
 #[test]
-fn only_control_characters_are_escaped_the_same_way_the_shell_and_the_scripts_do() {
+fn escapes_control_characters_and_the_older_command_form_as_the_shell_and_scripts_do() {
     for (text, expected) in [
         ("plain", "plain"),
         ("caf\u{e9} \"q\" \\", "caf\u{e9} \"q\" \\"),
@@ -127,6 +127,16 @@ fn only_control_characters_are_escaped_the_same_way_the_shell_and_the_scripts_do
             "a\n::warning::x\t\\q\"\u{1}\u{7f}\u{85}\r\0",
             "a\\n::warning::x\\t\\\\q\\\"\\u{1}\\u{7f}\\u{85}\\r\\u{0}",
         ),
+        // The runner reads `##[name]` anywhere in a line: the `[` right
+        // behind `##` is written as its escape, and the rest of the text the
+        // way text with a control character is.
+        ("a##[warning]x.json", "a##\\u{5b}warning]x.json"),
+        (
+            "###[a]##[b] #[c] \"q\" \\",
+            "###\\u{5b}a]##\\u{5b}b] #[c] \\\"q\\\" \\\\",
+        ),
+        ("a\n##[warning]x", "a\\n##\\u{5b}warning]x"),
+        ("#[derive] # [ #\u{200b}#[", "#[derive] # [ #\u{200b}#["),
     ] {
         assert_eq!(report::shown(text), expected, "{text:?}");
     }

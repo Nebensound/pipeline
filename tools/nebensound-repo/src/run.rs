@@ -21,8 +21,9 @@
 //! line that starts with `file:line:col:`. A finding that fails nothing, such
 //! as a Hadolint finding below the failure threshold, is a warning. What the
 //! programs print stands in the output as well, with every name of a file that
-//! holds a control character, such as a line break, written the way [`shown`]
-//! writes it: see [`flattened`].
+//! holds a control character, such as a line break, or the start of the older
+//! form of a workflow command, `##[`, written the way [`shown`] writes it: see
+//! [`flattened`].
 
 pub mod css;
 pub mod dockerfile;
@@ -186,9 +187,8 @@ pub fn run(
 struct Log<'o> {
     out: &'o mut dyn Write,
     workflow: bool,
-    /// The names of the check's files that a program could print with a
-    /// control character in them, each beside how it is shown: see
-    /// [`fragments`].
+    /// The names of the check's files that [`shown`] does not leave as they
+    /// are, each beside how it is shown: see [`fragments`].
     names: Vec<(String, String)>,
 }
 
@@ -360,18 +360,22 @@ fn unescape(text: &str) -> String {
         .replace("%25", "%")
 }
 
-/// The names of these files a program could print with a control character in
-/// them, the longest first, each beside how [`shown`] writes it: the path of
-/// every file that holds one, and every part of that path after a `/` that
-/// still holds one, for a program that names a file from a folder below the
-/// root.
+/// The names of these files a program could print that [`shown`] does not
+/// leave as they are, one that holds a control character or `##[`, the
+/// longest first, each beside how [`shown`] writes it: the path of every such
+/// file, and every part of that path after a `/` that is still such a name,
+/// for a program that names a file from a folder below the root.
 #[must_use]
 pub fn fragments(files: &[String]) -> Vec<(String, String)> {
     let mut names = Vec::new();
     for file in files {
         let mut rest = file.as_str();
-        while rest.chars().any(char::is_control) {
-            names.push((rest.to_owned(), shown(rest)));
+        loop {
+            let written = shown(rest);
+            if written == rest {
+                break;
+            }
+            names.push((rest.to_owned(), written));
             let Some((_, after)) = rest.split_once('/') else {
                 break;
             };
@@ -391,7 +395,12 @@ pub fn fragments(files: &[String]) -> Vec<(String, String)> {
 /// followed by `::warning::x`, printed as it stands, would add an annotation
 /// of its own, or stop the workflow commands of the step with
 /// `::stop-commands::`. Written the way [`shown`] writes it, it stays on the
-/// line it belongs to.
+/// line it belongs to. The runner reads the older form of a workflow command,
+/// `##[name]`, anywhere in a line, so a name that holds `##[` is written the
+/// way [`shown`] writes it as well. That holds in a workflow command a program
+/// writes itself, too: the runner never looks for `##[` in a line it reads as
+/// a `::` command, but the name is replaced there all the same, so such an
+/// annotation names the file the way [`shown`] writes it, not the real file.
 #[must_use]
 pub fn flattened(text: &str, names: &[(String, String)]) -> String {
     let mut text = text.to_owned();

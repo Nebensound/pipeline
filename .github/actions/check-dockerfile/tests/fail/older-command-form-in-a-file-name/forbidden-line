@@ -1,0 +1,7 @@
+# dockerfmt's line about the file, and the line of the file list, were either
+# printed as it stands: the runner would read the warning in it. The annotation
+# above names the file as it stands too, in its `file=` property, and is
+# allowed: the runner reads a line that starts with `::error` as that command
+# and does not look for `##[` in it, so these patterns leave it out.
+*##[warning]x.dockerfile is not formatted
+a##[warning]x.dockerfile

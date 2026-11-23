@@ -22,16 +22,23 @@ const COLUMN: usize = 56;
 /// something the reader never asked for. The path keeps its bytes for the
 /// analysis; only what is shown is escaped.
 ///
-/// Text that holds a control character (Unicode category `Cc`) has every one
-/// written as its escape: a tab as `\t`, a line break as `\n`, a carriage
-/// return as `\r`, any other as `\u{<hex>}`; a backslash and a quote get a
-/// backslash in front. Every other character stays as it is, so a decomposed
-/// accent reads as the accent. Text without a control character stays as it
-/// is. The shell function `shown` of the action `tool` and the copies in the
-/// scripts the checks run write the same.
+/// The runner of GitHub Actions also reads an older form of a workflow
+/// command, `##[name]data`, and it looks for that form anywhere in a line, not
+/// only at its start. A file named `a##[warning]x.json` would start a warning
+/// wherever its name is printed, with no line break in it.
+///
+/// Text that holds a control character (Unicode category `Cc`) or `##[` has
+/// every control character written as its escape: a tab as `\t`, a line break
+/// as `\n`, a carriage return as `\r`, any other as `\u{<hex>}`; a backslash
+/// and a quote get a backslash in front; and a `[` right behind `##` is
+/// written as `\u{5b}`, its escape, so that `##[warning]` reads
+/// `##\u{5b}warning]`. Every other character stays as it is, so a decomposed
+/// accent reads as the accent. Text with neither stays as it is. The shell
+/// function `shown` of the action `tool` and the copies in the scripts the
+/// checks run write the same.
 #[must_use]
 pub fn shown(text: &str) -> String {
-    if !text.chars().any(char::is_control) {
+    if !text.chars().any(char::is_control) && !text.contains(OLDER_FORM) {
         return text.to_owned();
     }
     let mut out = String::with_capacity(text.len());
@@ -48,8 +55,13 @@ pub fn shown(text: &str) -> String {
             _ => out.push(character),
         }
     }
-    out
+    // No escape above writes a `#` or a `[` or replaces one, so `##[` stands
+    // in `out` exactly where it stands in the text.
+    out.replace(OLDER_FORM, "##\\u{5b}")
 }
+
+/// How the older form of a workflow command starts: see [`shown`].
+const OLDER_FORM: &str = "##[";
 
 /// What a file can expect: checked, excused, or open.
 fn mark(coverage: &Coverage) -> String {

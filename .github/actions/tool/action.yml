@@ -86,7 +86,7 @@ runs:
         "$TOOL_HOME/nebensound-repo" --version
         echo "$TOOL_HOME" >> "$GITHUB_PATH"
 
-    # Text from the repository goes into a step's log through three functions,
+    # Text from the repository goes into a step's log through four functions,
     # which every block written in shell and every step of nebensound.yml that
     # writes such text sources from the file NEBENSOUND_SHOWN names:
     #
@@ -101,22 +101,37 @@ runs:
     # that holds a control character the way the tool writes it in its own
     # output: a line break as `\n`, a carriage return as `\r`, a tab as `\t`,
     # a backslash and a quote behind a backslash, and any other control
-    # character as `\u{<hex>}`; every other character, and text without a
-    # control character, stays as it is. A control character is one of
-    # Unicode category Cc, as in the tool: bash's `[[:cntrl:]]` in the job's
-    # UTF-8 locale names those, and the line and paragraph separators U+2028
-    # and U+2029 besides, which `shown` therefore leaves as they are.
+    # character as `\u{<hex>}`. A control character is one of Unicode
+    # category Cc, as in the tool: bash's `[[:cntrl:]]` in the job's UTF-8
+    # locale names those, and the line and paragraph separators U+2028 and
+    # U+2029 besides, which `shown` therefore leaves as they are.
+    #
+    # The runner also reads an older form of a workflow command,
+    # `##[name]data`, and it looks for `##[` anywhere in a line, not only at
+    # its start: a file named `a##[warning]x.json` would start a warning
+    # wherever its name is printed, with no line break in it. Text that holds
+    # `##[` is therefore written the same way, and every `[` right behind `##`
+    # as `\u{5b}`, its escape: `##\u{5b}warning]`. Every other character, and
+    # text that holds neither a control character nor `##[`, stays as it is.
+    #
     # `shown_list` writes so every entry of what comes in on standard input,
     # each ended by a zero byte, one line each: a file list of
     # `nebensound-repo files -z`, or the output of jq with `--join-output` and
-    # "\u0000" behind every line. A
-    # workflow command a block writes holds no control character once it is
-    # escaped, so it passes through unchanged.
+    # "\u0000" behind every line. A workflow command a block writes does not
+    # go through either: its `file=` property or its message can hold `##[`,
+    # which `shown` would rewrite, and the runner reads a line that starts
+    # with a known `::` command as that command and never looks for `##[` in
+    # it. `shown_findings` reads what comes in as pairs of such entries, a
+    # plain line and the annotation the block wrote for it, and writes the
+    # plain line as `shown` writes it and the annotation as it stands.
     #
     # A path in a property of a workflow command, `file=` above all, goes
-    # through the third function, `property`, instead: the runner reads `%0A`
+    # through the last function, `property`, instead: the runner reads `%0A`
     # there back as a line break, so the annotation stays on the real file,
-    # and `:` and `,` cannot end the property early.
+    # and `:` and `,` cannot end the property early. `property` leaves `##[`
+    # as it stands: the runner has no escape for `#` or `[` in a property, so
+    # only the name as it stands names the real file, and inside a `::`
+    # command `##[` starts nothing.
     #
     # The functions are written here, like every other piece of shell of the
     # blocks, rather than kept as a .sh file, which would need the shell
@@ -131,7 +146,7 @@ runs:
         # behind it. See the action tool of Nebensound/pipeline.
         shown() {
           local text="$1" out="" char code i
-          if [[ "$text" != *[[:cntrl:]]* ]]; then
+          if [[ "$text" != *[[:cntrl:]]* && "$text" != *'##['* ]]; then
             printf '%s' "$text"
             return
           fi
@@ -142,6 +157,11 @@ runs:
               $'\n') out+='\n' ;;
               $'\r') out+='\r' ;;
               \\ | \' | \") out+="\\$char" ;;
+              # No escape writes a `#`, so `out` ends in `##` exactly
+              # where the text does.
+              '[')
+                if [[ "$out" == *'##' ]]; then out+='\u{5b}'; else out+='['; fi
+                ;;
               # Not of category Cc, though glibc counts them as cntrl.
               $'\u2028' | $'\u2029') out+="$char" ;;
               [[:cntrl:]])
@@ -161,6 +181,18 @@ runs:
           while IFS= read -r -d '' entry; do
             shown "$entry"
             printf '\n'
+          done
+        }
+
+        # shown_findings: every pair of entries of standard input, each
+        # ended by a zero byte, a plain line and a workflow command the
+        # block wrote, escaped: the line as `shown` writes it and the
+        # command as it stands, one line each.
+        shown_findings() {
+          local plain command
+          while IFS= read -r -d '' plain && IFS= read -r -d '' command; do
+            shown "$plain"
+            printf '\n%s\n' "$command"
           done
         }
 

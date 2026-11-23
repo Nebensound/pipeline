@@ -167,6 +167,34 @@ fn a_line_the_case_forbids_fails_it_whatever_the_block_did() {
 }
 
 #[test]
+fn a_pattern_with_a_star_in_front_forbids_a_text_anywhere_in_a_line() {
+    // The runner reads the older form of a workflow command, `##[name]`,
+    // anywhere in a line, and `*` in front of a pattern matches there.
+    let forbidden = ["*##[warning]x*".to_owned()];
+    let log = [
+        "2 file(s) to check:".to_owned(),
+        "src/a##[warning]x.rs".to_owned(),
+    ];
+    assert_eq!(
+        cases::judge(&Expect::Pass, &forbidden, true, &log).as_deref(),
+        Some(
+            "the block prints a line the case forbids: `src/a##[warning]x.rs` \
+             (`*##[warning]x*`)"
+        )
+    );
+    let escaped = ["src/a##\\u{5b}warning]x.rs".to_owned()];
+    assert_eq!(
+        cases::judge(&Expect::Pass, &forbidden, true, &escaped),
+        None
+    );
+    // A pattern without one still matches from the line's first character.
+    assert_eq!(
+        cases::judge(&Expect::Pass, &["##[warning]x*".to_owned()], true, &log),
+        None
+    );
+}
+
+#[test]
 fn the_plan_names_the_units_of_a_check() {
     let plan = r#"{"units":[
         {"path":".","checks":["json","toml"]},
