@@ -349,7 +349,8 @@ the run, no unit builds, `Build` passes with a sentence that says so, and
 Publish does not run: nothing is published. The plan Declare hands on is the
 one a push to `main` would get, so the package test of `check-rust` writes the
 versions phase 0 reads into its own checkout, packages and puts the files back,
-as on `main`; no job shows those versions or builds with them.
+as on `main`; no job reports those versions in the summary or builds with
+them.
 
 A newer push or edit of a pull request cancels its run that is still going:
 only the newest state of a pull request counts. A run after a push, to `main`

@@ -33,10 +33,13 @@ fn script(job: &str, name: &str) -> String {
         .to_owned()
 }
 
-/// What a step said: whether it passed, its log, its outputs and its summary.
+/// What a step said: whether it passed, its exit status, its log, what it
+/// wrote to stderr, its outputs and its summary.
 struct Said {
     passed: bool,
+    status: Option<i32>,
     log: String,
+    errors: String,
     output: String,
     summary: String,
 }
@@ -65,7 +68,9 @@ fn run(job: &str, name: &str, pre_branch: &str, env: &[(&str, &str)]) -> Said {
     let ran = command.output().unwrap();
     Said {
         passed: ran.status.success(),
+        status: ran.status.code(),
         log: String::from_utf8(ran.stdout).unwrap(),
+        errors: String::from_utf8(ran.stderr).unwrap(),
         output: fs::read_to_string(&output).unwrap(),
         summary: fs::read_to_string(&summary).unwrap(),
     }
@@ -125,8 +130,11 @@ fn elsewhere_version_calls_the_tool() {
         "false",
         &[("NUMBER", ""), ("BRANCH", "main")],
     );
-    // The tool is not on the PATH here, so the step fails where it calls it.
+    // The tool is not on the PATH here, so the step fails where it calls it:
+    // the shell finds no `nebensound-repo`, and no other failure gets that far.
     assert!(!said.passed, "{}", said.log);
+    assert_eq!(said.status, Some(127), "{}", said.errors);
+    assert!(said.errors.contains("nebensound-repo"), "{}", said.errors);
     assert!(!said.summary.contains("pre-branch"), "{}", said.summary);
 }
 
