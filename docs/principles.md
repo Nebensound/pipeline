@@ -63,13 +63,15 @@ says in its first line that its result can differ, and can differ through
 settings that come as files, such as a rustup override on the checkout or
 Cargo's configuration files, which the tool does not neutralise.
 
-**Today.** The checks for CSS, Dockerfiles, HTML, JSON, Markdown, Rust, TOML and
-YAML, the build `cargo-package` and the version writer `cargo` are thin blocks
-that call the tool. Phase 0, the release stage in `Publish` and every other step
-of `nebensound.yml` are one call of the tool each; a test of the xtask holds
-every step to that. The check for Python, the image build and the action
-`tool`, which every job runs, are still shell, partly with `jq`; `check-python`
-also embeds Python scripts.
+**Today.** The checks for CSS, Dockerfiles, HTML, JSON, Markdown, Python,
+Rust, TOML and YAML, the build `cargo-package` and the version writer `cargo`
+are thin blocks that call the tool. Phase 0, the release stage in `Publish` and
+every other step of `nebensound.yml` are one call of the tool each; a test of
+the xtask holds every step to that. The Python check runs Python in three
+places, each because only the interpreter can answer: whether pytest imports,
+whether a file holds a statement, and whether a package of the wheel imports.
+The image build and the action `tool`, which every job runs, are still shell,
+partly with `jq`.
 
 ## 4. External programs are the exception and are started from the tool
 
@@ -80,7 +82,9 @@ with its exact version and a digest, in a form an automatic updater reads. So it
 is always clear what is used and what needs an update or a replacement. For the
 language's own toolchain the verification of its installer counts as the
 digest: the register pins the coverage toolchain of the Rust check by its exact
-name, and rustup checks what it downloads.
+name, and rustup checks what it downloads. Which program the tool may start,
+and which check or build may start it, is one rule, stated in
+[`AGENTS.md`](../AGENTS.md#the-tool) and [the README](../README.md#what-it-is).
 
 **Why.** Each external program is code the pipeline trusts with every
 repository. One list makes that trust visible, lets an updater raise it, and
@@ -177,11 +181,9 @@ yet, it says so.
 - **The test cases of the building blocks** in `AGENTS.md` and
   [the README](../README.md#test-cases-of-the-building-blocks): the cases of a
   block that is a call of the tool run through the tool; the xtask runs the
-  `action.yml` of `check-python` and `build-docker`, shell included, the way
-  the runner does, as the proof for the shell that exists. What becomes of the
-  cases once every block is one call of the tool is decided by no issue yet.
-- **The check for Python** is shell with embedded Python scripts (rule 3):
-  #113.
+  `action.yml` of `build-docker`, shell included, the way the runner does, as
+  the proof for the shell that exists. What becomes of the cases once every
+  block is one call of the tool is decided by no issue yet.
 - **The image build** `build-docker` is shell, with `jq` (rule 3): #179.
 - **The action `tool`** holds logic in shell: the fingerprint and the build of
   the tool from source (rule 3). The build from source in a caller: #24. The
@@ -190,11 +192,12 @@ yet, it says so.
   lists of the blocks not at all (rule 5): #143.
 - **The source of actionlint**, whose upstream stands still, and the growing
   list of its messages the YAML check drops (rules 4 and 5): #169.
-- **The programs the tool may start.** `AGENTS.md` and the README allow those of
-  the register, Git, curl, Cargo and the Rust toolchain that rustup provides.
-  Git, curl, Cargo and rustup, and further programs the workflow and the blocks
-  call, come from the runner image without a pinned version or digest (rule 4).
-  No issue exists yet.
+- **The programs the tool may start.** The rule in
+  [`AGENTS.md`](../AGENTS.md#the-tool) and the README names each program and
+  who may start it, and uv, which provides the Python of the Python check, is
+  pinned in the register. Git, curl, Cargo and rustup, and further programs the
+  workflow and the blocks call, come from the runner image without a pinned
+  version or digest (rule 4). No issue exists yet.
 - **One list in a form an updater reads** (rule 4). The register pins programs
   with digests, but Dependabot does not read it, and `AGENTS.md` allows actions
   pinned to a major version, without a digest. The Dependabot file does not

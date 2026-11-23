@@ -55,6 +55,7 @@ pub const FROM_THE_TOOL: &[&str] = &[
     "check-html",
     "check-json",
     "check-markdown",
+    "check-python",
     "check-rust",
     "check-toml",
     "check-yaml",

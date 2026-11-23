@@ -27,10 +27,14 @@ exclude = ["tests/declaration.rs", "tests/presets.rs", "tests/register_page.rs"]
 
 # What `setup` needs to put a pinned program in place: sha2 holds a download
 # against its digest, flate2 and tar unpack a .gz or .tar.gz build, zip a .zip
-# build (Windows). The download itself goes through curl, so no HTTP or TLS
-# library is linked. schemars derives the JSON Schema of the declaration.
+# build (Windows), and the Python check reads a wheel with it. The download
+# itself goes through curl, so no HTTP or TLS library is linked. roxmltree
+# reads the report of the tests the Python check runs. schemars derives the
+# JSON Schema of the declaration.
 # tempfile makes the folder `run` hands the programs their files in, and
-# removes it again. All of them serve the program alone and come with the
+# removes it again. rustix (Unix only, and already in the tree through
+# tempfile) stops a command of the Python check's smoke test together with the
+# process group it leads. All of them serve the program alone and come with the
 # feature `program`.
 [dependencies]
 clap         = { version = "4", features = ["derive"] }
@@ -40,6 +44,7 @@ ignore       = "0.4"
 jsonc-parser = { version = "0.34", features = ["serde"] }
 ratatui      = { version = "0.30", optional = true }
 regex        = "1"
+roxmltree    = { version = "0.21", optional = true }
 serde        = { version = "1", features = ["derive"] }
 serde_json   = "1"
 sha2         = { version = "0.10", optional = true }
@@ -63,6 +68,9 @@ default-features = false
 features         = ["deflate-flate2"]
 optional         = true
 
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["process"], optional = true }
+
 [dev-dependencies]
 portable-pty = "0.9"
 tempfile     = "3"
@@ -79,6 +87,8 @@ tempfile     = "3"
 default = ["program"]
 program = [
   "dep:flate2",
+  "dep:roxmltree",
+  "dep:rustix",
   "dep:schemars",
   "dep:sha2",
   "dep:tar",
@@ -107,6 +117,10 @@ required-features = ["program"]
 
 [[test]]
 name              = "run_rust"
+required-features = ["program"]
+
+[[test]]
+name              = "run_python"
 required-features = ["program"]
 
 [[test]]

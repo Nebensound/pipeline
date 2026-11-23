@@ -16,9 +16,22 @@ publishes what that declaration says.
 
 The commands of `nebensound-repo` are limited to the tasks of a repository. The
 tool has no external subcommands and never starts a program because a
-subcommand's name matched it: the programs it starts are those of the register,
-Git, curl, Cargo and the Rust toolchain that rustup provides (rustup, rustc,
-rustfmt).
+subcommand's name matched it. Each program it starts is one of these, started
+only by the calls named beside it:
+
+| What                                                                                         | Who may start it                                                                                                 |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Git, curl                                                                                    | every call of the tool                                                                                           |
+| A program of the register                                                                    | only the check or build the register names it for                                                                |
+| The Rust toolchain that rustup provides (rustup, Cargo, rustc, rustfmt)                      | only the check for Rust and a build of Rust (and `nebensound-repo xtask`, which runs the repository's own xtask) |
+| The Python that uv provides                                                                  | only the check for Python                                                                                        |
+| Docker                                                                                       | only the image build (with #179)                                                                                 |
+| Code of the repository (its tests, its build scripts, the commands of the package it builds) | only executing checks and builds                                                                                 |
+
+A reading check starts no toolchain of a language and no code of the
+repository. uv is pinned in the register; rustup comes from the machine, on
+GitHub Actions from the runner image. Until #179 the image build runs Docker
+from its block, not from the tool.
 
 ## Status
 
@@ -311,14 +324,19 @@ Every part runs even when one before it failed, so one run shows every finding.
 
 [`.github/actions/check-python`](.github/actions/check-python) checks one uv
 project, the unit's path: its `pyproject.toml` lies there, and its `uv.lock`
-there or at the root of the uv workspace above it. The interpreter is the one
-`.python-version` names, at the unit or at that root, installed by uv from its
-own downloads and never taken from the machine; like the toolchain of
-`check-rust`, it is no input. uv 0.13.9, Ruff 0.17.6, Pyright 1.1.414 on
-Node.js 24.22.3 and coverage.py 7.17.4 are pinned by their digests, as
-[the register](docs/register.md#programs) pins them. pytest and its plugins are
-the project's own, from its lockfile, since they import its code. coverage.py
-runs on Python 3.11 or later, so the project's interpreter has to be one.
+there or at the root of the uv workspace above it. The block sets up the
+programs the register pins for the check and calls `nebensound-repo run
+python`, which runs the steps below in this order, each in a group of the log
+(see [the tool](tools/nebensound-repo/README.md#the-python-check)). The
+interpreter is the one `.python-version` names, at the unit or at that root,
+installed by uv from its own downloads and never taken from the machine; like
+the toolchain of `check-rust`, it is no input. uv, Ruff, Pyright and
+coverage.py are the programs [the register](docs/register.md#programs) pins,
+each by its version and digests, and nowhere else; coverage.py is laid over the
+project's environment as the wheel the register pins, which the tool fetches
+and holds to its digest. pytest and its plugins are the project's own, from its
+lockfile, since they import its code. coverage.py runs on Python 3.11 or later,
+so the project's interpreter has to be one.
 
 - The project installs as its `uv.lock` pins it (`uv sync --locked`), with its
   default dependency groups. A missing `pyproject.toml`, `uv.lock` or
@@ -327,7 +345,10 @@ runs on Python 3.11 or later, so the project's interpreter has to be one.
 - No Ruff finding, with the repository's configuration laid over the
   pipeline's default (see [Linter rules](#linter-rules)).
 - No Pyright error in strict mode, with the repository's configuration laid
-  over it (see [Linter rules](#linter-rules)).
+  over it (see [Linter rules](#linter-rules)). Pyright is handed every file of
+  the list by name, and leaves out one in a folder whose name starts with a dot
+  all the same, without a word: the check compares how many files Pyright
+  analysed with how many it handed over, and names each one Pyright left out.
 - The tests pass: the project's pytest, run by coverage.py. Each failed test is
   an annotation on its file and line, and a project without pytest fails by
   name.
@@ -346,7 +367,9 @@ runs on Python 3.11 or later, so the project's interpreter has to be one.
   `tool.uv.package = false`, fails: every Python unit is an installable
   package. No version is stored in the tree, so the wheel gets the placeholder
   version `0.0.0` for this step alone, and `pyproject.toml` is put back as
-  committed afterwards. The wheel is never handed on.
+  committed afterwards. The wheel is never handed on. The build backend
+  `[build-system]` names is installed from the package index, as its
+  `requires` asks for it, without a lock: `uv.lock` pins no build dependency.
 
 A file an `[[exclude]]` entry takes out is handed to no tool: Ruff and Pyright
 get the list, pytest does not collect such a file, and coverage does not judge
@@ -357,9 +380,9 @@ nothing, since a file it leaves out counts as not covered.
 
 Every step runs even when one before it failed, so one run shows every finding;
 a step that needs the installed project is left out when installing it failed.
-uv's cache, the interpreter and the project's environment lie in the runner's
-temporary folder, and Ruff, pytest and Python write no cache and no bytecode
-into the checkout.
+uv's cache, the interpreter and the project's environment lie in the tool's
+folder in the temporary directory, which it removes again, and Ruff, pytest and
+Python write no cache and no bytecode into the checkout.
 
 ### `check-rust`
 
@@ -971,24 +994,25 @@ that kind. The first one teaches it, together with its cases.
 
 Then it runs every block against its cases, each copied into a fresh Git
 repository. The blocks whose work runs from the tool (`check-css`,
-`check-dockerfile`, `check-html`, `check-json`, `check-markdown`, `check-rust`,
-`check-toml`, `check-yaml`, `version-cargo`, `build-cargo-package`) hold nothing
-of their work in their steps, so their cases run through the tool itself: the
-xtask builds the tool of this commit with Cargo, runs phase 0 on the case with
-`nebensound-repo check` and `plan`, as `Declare` does, and calls the tool as the
-block's step does, in the environment of a workflow run, so that the findings
-are annotations. A check calls `nebensound-repo run` once for every unit the
-plan starts the check for. The version writer calls `nebensound-repo
-write-versions` once, provided a unit of the plan selects it. A build calls
-`nebensound-repo build` once for every unit the plan starts the build for and
-gives a version of the run, after the version writers the unit selects, each
-through the tool, and only when they passed. A version writer gets the plan,
-and a check or a build that takes it, as `check-rust` does, gets it as its step
-in `nebensound.yml` hands it: the xtask hands it to the tool with `--plan`, in a
-file beside the case. The cases of `check-rust` and `build-cargo-package`
-install the toolchains a case needs through rustup, as the check and the build
-do in a run. Before the cases of each check it sets up the programs of the
-check with
+`check-dockerfile`, `check-html`, `check-json`, `check-markdown`,
+`check-python`, `check-rust`, `check-toml`, `check-yaml`, `version-cargo`,
+`build-cargo-package`) hold nothing of their work in their steps, so their cases
+run through the tool itself: the xtask builds the tool of this commit with
+Cargo, runs phase 0 on the case with `nebensound-repo check` and `plan`, as
+`Declare` does, and calls the tool as the block's step does, in the environment
+of a workflow run, so that the findings are annotations. A check calls
+`nebensound-repo run` once for every unit the plan starts the check for. The
+version writer calls `nebensound-repo write-versions` once, provided a unit of
+the plan selects it. A build calls `nebensound-repo build` once for every unit
+the plan starts the build for and gives a version of the run, after the version
+writers the unit selects, each through the tool, and only when they passed. A
+version writer gets the plan, and a check or a build that takes it, as
+`check-rust` does, gets it as its step in `nebensound.yml` hands it: the xtask
+hands it to the tool with `--plan`, in a file beside the case. The cases of
+`check-rust` and `build-cargo-package` install the toolchains a case needs
+through rustup, and those of `check-python` the interpreter a case pins through
+uv, as the check and the build do in a run. Before the cases of each check it
+sets up the programs of the check with
 `nebensound-repo setup --pinned <check>`, the first of the two calls the block
 makes: it installs the pinned version of every program the check calls where it
 is missing, so that the cases do not depend on which blocks ran before the
@@ -1007,9 +1031,8 @@ Node.js the image carries; one that is new enough is used as it is. A setup
 that fails is a problem of its own, and the block's cases still run with the
 programs that are there.
 
-Every other block (today `check-python` and `build-docker`) runs its own
-steps. The xtask builds the tool through
-[`.github/actions/tool`](.github/actions/tool), runs
+Every other block (today `build-docker`) runs its own steps. The xtask builds
+the tool through [`.github/actions/tool`](.github/actions/tool), runs
 [`.github/actions/phase0`](.github/actions/phase0) on the case, and runs a
 check block once for every unit the plan starts the block's check for, just as
 a unit job does, with the plan when the block takes one. A version
@@ -1042,8 +1065,7 @@ Any other such action fails the xtask until it has a stand-in. No block calls
 Node.js already on the PATH: the cases of the checks that run from the tool get
 Node.js the way their setup above finds it, in the gate the runner image's when
 it is new enough and otherwise the one the register pins, installed with
-`--with-runtimes`; `check-python` downloads the Node.js that Pyright runs on
-itself. The two stand-ins stay, so that a block calling one of them
+`--with-runtimes`. The two stand-ins stay, so that a block calling one of them
 is run as well; for such a step the xtask takes the program already on the
 PATH and fails the step unless it is the version the step asks for.
 
@@ -1085,8 +1107,8 @@ runtime from the computer or from `--with-runtimes`, which `cargo xtask check
 --all` passes itself only in a run on GitHub Actions. Then, on Linux, it checks
 what only the cases of the other blocks need: a program an action of their
 steps would put on the `PATH`, in the version the step asks for (read from
-their `action.yml`), Docker with Buildx, jq and rustup (`check-python` and
-`build-docker` run jq, the action `tool` installs the tool's toolchain). It
+their `action.yml`), Docker with Buildx, jq and rustup (`build-docker` runs
+jq, the action `tool` installs the tool's toolchain). It
 installs none of these, since they stay the machine's, but names each one that
 is missing or of another version and exits with `1` then, so that a machine it
 passes can run the cases. `nebensound-repo setup` may have put a jq into its
