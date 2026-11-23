@@ -64,11 +64,12 @@ settings that come as files, such as a rustup override on the checkout or
 Cargo's configuration files, which the tool does not neutralise.
 
 **Today.** The checks for CSS, Dockerfiles, HTML, JSON, Markdown, Rust, TOML and
-YAML are thin blocks that call the tool, and the release stage in `Publish` is
-one call of the tool. The check for Python, the builds, several steps of
-`nebensound.yml` and the actions `tool` and `phase0`, which every job runs, are
-still shell, partly with `jq`;
-`check-python` also embeds Python scripts.
+YAML, the build `cargo-package` and the version writer `cargo` are thin blocks
+that call the tool. Phase 0, the release stage in `Publish` and every other step
+of `nebensound.yml` are one call of the tool each; a test of the xtask holds
+every step to that. The check for Python, the image build and the action
+`tool`, which every job runs, are still shell, partly with `jq`; `check-python`
+also embeds Python scripts.
 
 ## 4. External programs are the exception and are started from the tool
 
@@ -90,8 +91,7 @@ version and the digest of every download, and the tool refuses a download
 without that digest. Dependabot does not read the register. Actions are pinned
 to a major version. The Dependabot file of the repository covers the actions of
 the workflows, not those used inside the actions under `.github/actions/`. Git,
-curl, Cargo, rustup, `jq`, the GitHub CLI and Docker come from the runner image,
-unpinned.
+curl, Cargo, rustup, `jq` and Docker come from the runner image, unpinned.
 
 ## 5. One rule per kind of problem
 
@@ -131,9 +131,9 @@ its jobs `contents: read`, and one job asks for more:
 | `Declare`                             | read                                           | No. The tool reads the files and the history; when the event does not name the visibility, phase 0 asks for it with the read token. |
 | `Version`                             | read                                           | No. The tool reads the history.                                                                                                     |
 | `Check repository`, `Check component` | read                                           | Yes: `check-rust`, `check-python` and `cargo xtask check --all`.                                                                    |
-| `Check`                               | read                                           | No. It gathers results and reads the plan.                                                                                          |
+| `Check`                               | read                                           | No. It takes the tool from the cache, gathers results and reads the plan.                                                           |
 | `Build repository`, `Build component` | read                                           | Yes: the builds compile the code and build images.                                                                                  |
-| `Build`                               | read                                           | No. It gathers results.                                                                                                             |
+| `Build`                               | read                                           | No. It takes the tool from the cache and gathers results.                                                                           |
 | `Publish`                             | `contents: write`, after a push to `main` only | No. It builds the tool from the pipeline's source and runs it, with Git and curl; it starts nothing of the repository.              |
 
 The table holds for a caller, which pins the workflow. In this repository the
@@ -165,30 +165,27 @@ yet, it says so.
   [phases](phases.md#one-job-per-unit) and the README describe this cut. No
   issue exists yet.
 - **Every job works out what it starts from** (rule 1). Only `Publish` does so
-  today; the other jobs follow with the cut of the jobs, and until the tool is a
-  release binary (#24) the jobs other than `Publish` still take the tool from
-  the cache.
+  today; the other jobs follow with the cut of the jobs. Until then the
+  matrices, the version writers, the Rust check and the steps of `Check` that
+  look at the version writers and publish targets take the plan `Declare`
+  hands on, and until the tool is a release binary (#24) the jobs other than
+  `Publish` take the tool from the cache.
 - **The rule on building blocks** in `AGENTS.md` and the README: a block
   performs one step and is named after its register entry with the category in
   front. It describes the cut above, one named block per step. No issue exists
   yet that replaces it.
 - **The test cases of the building blocks** in `AGENTS.md` and
-  [the README](../README.md#test-cases-of-the-building-blocks): the xtask runs
-  each block's `action.yml`, shell included, the way the runner does. They are
-  the proof for the shell that exists. What becomes of them once every block is
-  one call of the tool is decided by no issue yet.
+  [the README](../README.md#test-cases-of-the-building-blocks): the cases of a
+  block that is a call of the tool run through the tool; the xtask runs the
+  `action.yml` of `check-python` and `build-docker`, shell included, the way
+  the runner does, as the proof for the shell that exists. What becomes of the
+  cases once every block is one call of the tool is decided by no issue yet.
 - **The check for Python** is shell with embedded Python scripts (rule 3):
   #113.
-- **The builds** `build-cargo-package` and `build-docker` are shell (rule 3).
-  No issue exists yet.
-- **The steps of `nebensound.yml`** outside the release stage that hold logic
-  in shell and `jq`, such as the lists of units and builds in `Declare`, the
-  `Not written yet` steps and the gathering in `Check` and `Build` (rule 3). No
-  issue exists yet.
-- **The actions `tool` and `phase0`** hold logic in shell and `jq`: the
-  fingerprint and the build of the tool from source, the lookup of the
-  visibility, and the notices of phase 0 (rule 3). The build from source in a
-  caller: #24. The rest: no issue exists yet.
+- **The image build** `build-docker` is shell, with `jq` (rule 3): #179.
+- **The action `tool`** holds logic in shell: the fingerprint and the build of
+  the tool from source (rule 3). The build from source in a caller: #24. The
+  fingerprint: no issue exists yet.
 - **Text from the repository in logs** is escaped place by place, and the file
   lists of the blocks not at all (rule 5): #143.
 - **The source of actionlint**, whose upstream stands still, and the growing

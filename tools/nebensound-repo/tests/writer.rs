@@ -2153,6 +2153,22 @@ fn a_plan_that_does_not_read_is_refused() {
     let missing = handed.path().join("missing.json");
     let broken = handed.path().join("broken.json");
     fs::write(&broken, "{\"versions\": [{\"path\": \"../out\"}]}").expect("written");
+    // A step that was handed no plan hands on an empty one.
+    let empty = handed.path().join("empty.json");
+    fs::write(&empty, "\n").expect("written");
+    let (text, code) = call(&[
+        "nebensound-repo",
+        "-C",
+        root,
+        "write-versions",
+        "--plan",
+        empty.to_str().expect("a path in UTF-8"),
+    ]);
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.ends_with("does not read: it is empty, so no plan was handed in\n"),
+        "{text}"
+    );
     let mut files = vec![missing, broken];
     for (index, version) in [
         "1.0",

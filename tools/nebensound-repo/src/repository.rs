@@ -182,6 +182,16 @@ impl Repository {
         &self.root
     }
 
+    /// The commit at hand, `HEAD`, by its full hash.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Git`] when git does not run or names no commit.
+    pub fn head(&self) -> Result<String, Error> {
+        let printed = self.git_output(&["rev-parse", "--verify", "HEAD^{commit}"])?;
+        Ok(String::from_utf8_lossy(&printed).trim().to_owned())
+    }
+
     /// What the repository holds, according to Git.
     ///
     /// # Errors

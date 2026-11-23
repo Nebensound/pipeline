@@ -4,12 +4,12 @@
 //!
 //! - `check` holds the building blocks, the register and `nebensound.yml` to
 //!   each other ([`layout`]), and runs every building block against its test
-//!   cases ([`cases`]). A block whose check the tool carries out runs through
-//!   the tool of this commit, on every system, after `nebensound-repo setup
-//!   --pinned <check>` has set up the programs of its check, in a run on
-//!   GitHub Actions with `--with-runtimes` as well; every other block
-//!   by running its own steps, read from its `action.yml` ([`runner`]), on
-//!   Linux only.
+//!   cases ([`cases`]). A block whose work the tool carries out runs through
+//!   the tool of this commit, on every system, a check after
+//!   `nebensound-repo setup --pinned <check>` has set up the programs of its
+//!   check, in a run on GitHub Actions with `--with-runtimes` as well; every
+//!   other block by running its own steps, read from its `action.yml`
+//!   ([`runner`]), on Linux only.
 //!   The central workflow runs `cargo xtask check --all` as the last step of
 //!   `Check repository`.
 //! - `setup` calls `nebensound-repo setup` for this repository, with the tool
@@ -51,11 +51,11 @@ const MISUSE: u8 = 2;
 
 /// What the steps of the blocks the xtask runs step by step call on the
 /// machine beside the programs [`runner::needs`] finds, each with its name and
-/// the command that shows it is there. Phase 0 and `check-python` run jq;
-/// `nebensound-repo setup` can install a jq of its own, but into its cache and
-/// not onto the `PATH` the steps search. `build-docker` builds with Docker's
-/// Buildx and starts what it built with Docker. The action `tool` and
-/// `build-cargo-package` install toolchains with rustup.
+/// the command that shows it is there. `check-python` and `build-docker` run
+/// jq; `nebensound-repo setup` can install a jq of its own, but into its cache
+/// and not onto the `PATH` the steps search. `build-docker` builds with
+/// Docker's Buildx and starts what it built with Docker. The action `tool`
+/// installs the tool's toolchain with rustup.
 pub const MACHINE: &[(&str, &str, &[&str])] = &[
     ("docker", "docker", &["buildx", "version"]),
     ("jq", "jq", &["--version"]),
@@ -72,16 +72,17 @@ Usage: cargo xtask check --all
 
 check --all   Holds the building blocks, the register and nebensound.yml to
               each other, and runs every building block against its test cases
-              in tests/pass/ and tests/fail/. The blocks whose check the tool
-              carries out (css, dockerfile, html, json, markdown, rust, toml,
-              yaml) run through the tool of this commit, on every system, after
-              `nebensound-repo setup --pinned <check>` has set up the programs
-              of their check; a runtime one of them needs is taken from the
-              computer. In a run on GitHub Actions the setup also gets
-              --with-runtimes, so that a runtime that is missing there or too
-              old is installed in the pinned version. The cases of the other
-              blocks run the blocks' own steps, which are written for the
-              Linux runners of GitHub Actions, so for now they run on Linux
+              in tests/pass/ and tests/fail/. The blocks whose work the tool
+              carries out (the checks css, dockerfile, html, json, markdown,
+              rust, toml, yaml, the build cargo-package and the version writer
+              cargo) run through the tool of this commit, on every system; for
+              a check, `nebensound-repo setup --pinned <check>` first sets up
+              the programs of the check, and a runtime one of them needs is
+              taken from the computer. In a run on GitHub Actions the setup
+              also gets --with-runtimes, so that a runtime that is missing
+              there or too old is installed in the pinned version. The cases of
+              the other blocks run the blocks' own steps, which are written for
+              the Linux runners of GitHub Actions, so for now they run on Linux
               only.
 setup         Calls `nebensound-repo setup` for this repository, built from
               this commit, to find or install the programs its checks call.

@@ -141,8 +141,9 @@ unit (see [`build-cargo-package`](#build-cargo-package) and
 
 The unit job gets the tool the same way `Declare` does, from the cache phase 0
 fills ([`.github/actions/tool`](.github/actions/tool)); it builds the tool
-only when the cache misses. The list does not travel through a job output,
-which is limited in size.
+only when the cache misses. So do the build jobs and the closing jobs `Check`
+and `Build`, whose steps are calls of the tool as well. The list does not
+travel through a job output, which is limited in size.
 
 The checks for CSS, Dockerfiles, HTML, JSON, Markdown, TOML and YAML run from
 the tool. Their blocks do two things:
@@ -495,9 +496,10 @@ first key or table of `.nebensound/repo.toml`:
 writer `cargo`. No manifest in the tree carries a version: the history is the
 truth, and Cargo cannot take a version from outside. So the version is written
 into the checkout of the run, immediately before something builds with it, and
-never committed. The block hands the plan Declare printed to
-`nebensound-repo write-versions --plan`, since its job checks out no history to
-resolve a version from. Every unit of the plan with the writer `cargo` that
+never committed. The block is one call: it hands the plan Declare printed to
+`nebensound-repo write-versions --plan` on its standard input, since its job
+checks out no history to resolve a version from, and an empty plan is refused
+by name. Every unit of the plan with the writer `cargo` that
 the commit at hand touches gets the version of the commit, on a pull request
 the one its merge would get with `-pr.<number>` behind it (such as
 `0.4.2-pr.17`). A unit the commit does not touch gets a version only where a
@@ -558,7 +560,12 @@ the build `cargo-package`. It builds one unit, the one Cargo package whose
 `Cargo.toml` stands at the unit's path, a member of a workspace or a workspace
 of its own, and runs in the unit's job of the Build phase after `version-cargo`
 has written the version of the run into the manifest: on a pull request the
-one its merge would get, with `-pr.<number>` behind it.
+one its merge would get, with `-pr.<number>` behind it. The build is one call
+of the tool, `nebensound-repo build cargo-package <unit>`, which runs each of
+the steps below in a group of the log, up to the first that fails, and names
+the artifact and the file as outputs of its step; the block's second step hands
+the file on with `actions/upload-artifact`. The tool refuses a unit the plan
+starts no `cargo-package` build for.
 
 - The toolchain is the one the workspace pins in its `rust-toolchain.toml`.
 - A unit path without a `Cargo.toml`, or one whose `Cargo.toml` is a workspace
@@ -963,18 +970,25 @@ called and tested, so a `publish-` block is reported until the xtask learns
 that kind. The first one teaches it, together with its cases.
 
 Then it runs every block against its cases, each copied into a fresh Git
-repository. The blocks whose check runs from the tool (`check-css`,
+repository. The blocks whose work runs from the tool (`check-css`,
 `check-dockerfile`, `check-html`, `check-json`, `check-markdown`, `check-rust`,
-`check-toml`, `check-yaml`) hold nothing of their check in their steps, so their
-cases run through the tool itself: the xtask builds the tool of this commit with
-Cargo, runs phase 0 on the case with `nebensound-repo check` and `plan`, as
-`Declare` does, and calls `nebensound-repo run` once for every unit the plan
-starts the check for, in the environment of a workflow run, so that the findings
-are annotations. A block that takes the plan, as `check-rust` does, gets it as
-its step in `nebensound.yml` hands it: the xtask hands it to `run` with
-`--plan`, in a file beside the case. The cases of `check-rust` install the
-toolchains a case needs through rustup, as the check does in a run. Before
-the cases of each such block it sets up the programs of its check with
+`check-toml`, `check-yaml`, `version-cargo`, `build-cargo-package`) hold nothing
+of their work in their steps, so their cases run through the tool itself: the
+xtask builds the tool of this commit with Cargo, runs phase 0 on the case with
+`nebensound-repo check` and `plan`, as `Declare` does, and calls the tool as the
+block's step does, in the environment of a workflow run, so that the findings
+are annotations. A check calls `nebensound-repo run` once for every unit the
+plan starts the check for. The version writer calls `nebensound-repo
+write-versions` once, provided a unit of the plan selects it. A build calls
+`nebensound-repo build` once for every unit the plan starts the build for and
+gives a version of the run, after the version writers the unit selects, each
+through the tool, and only when they passed. A version writer gets the plan,
+and a check or a build that takes it, as `check-rust` does, gets it as its step
+in `nebensound.yml` hands it: the xtask hands it to the tool with `--plan`, in a
+file beside the case. The cases of `check-rust` and `build-cargo-package`
+install the toolchains a case needs through rustup, as the check and the build
+do in a run. Before the cases of each check it sets up the programs of the
+check with
 `nebensound-repo setup --pinned <check>`, the first of the two calls the block
 makes: it installs the pinned version of every program the check calls where it
 is missing, so that the cases do not depend on which blocks ran before the
@@ -993,7 +1007,8 @@ Node.js the image carries; one that is new enough is used as it is. A setup
 that fails is a problem of its own, and the block's cases still run with the
 programs that are there.
 
-Every other block runs its own steps. The xtask builds the tool through
+Every other block (today `check-python` and `build-docker`) runs its own
+steps. The xtask builds the tool through
 [`.github/actions/tool`](.github/actions/tool), runs
 [`.github/actions/phase0`](.github/actions/phase0) on the case, and runs a
 check block once for every unit the plan starts the block's check for, just as
@@ -1070,7 +1085,8 @@ runtime from the computer or from `--with-runtimes`, which `cargo xtask check
 --all` passes itself only in a run on GitHub Actions. Then, on Linux, it checks
 what only the cases of the other blocks need: a program an action of their
 steps would put on the `PATH`, in the version the step asks for (read from
-their `action.yml`), Docker with Buildx, jq and rustup. It
+their `action.yml`), Docker with Buildx, jq and rustup (`check-python` and
+`build-docker` run jq, the action `tool` installs the tool's toolchain). It
 installs none of these, since they stay the machine's, but names each one that
 is missing or of another version and exits with `1` then, so that a machine it
 passes can run the cases. `nebensound-repo setup` may have put a jq into its
@@ -1082,7 +1098,8 @@ need and says so, and its exit code is the tool's.
 The cases are
 taken out of this repository's own checks with `[[exclude]]` and a reason in
 [`.nebensound/repo.toml`](.nebensound/repo.toml). A case of `check-rust` is a
-whole Cargo package, the only way Rust code can be excluded.
+whole Cargo package, the only way Rust code can be excluded, and so is a case
+of `build-cargo-package`.
 
 ## Licence
 

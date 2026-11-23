@@ -41,27 +41,33 @@ check, html-validate rules in JavaScript that stand in `src/run/html.rs` as
 text.
 
 The tool itself is not to be published: whoever needs it is to get it through
-the composite action under `.github/actions/phase0`. A second distribution
+the composite action under `.github/actions/tool`. A second distribution
 channel would be a second version that can fall behind.
 
 ## Calls
 
 ```text
-nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branch>] [--visibility <public|private|internal>] | tree | explain <path> | plan [--pull-request <number> --message <message>] | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | run [--plan <file>] <check> <unit> | excluded-packages | write-versions [--plan <file>] [--workspace <path>] | setup [--pinned] [--with-runtimes] [--check] [<check> ...] | release | schema | register | ui]
+nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branch>] [--visibility <public|private|internal>] | tree | explain <path> | plan [--pull-request <number> --message <message>] | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | run [--plan <file>] <check> <unit> | build <build> <unit> | excluded-packages | write-versions [--plan <file>] [--workspace <path>] | setup [--pinned] [--with-runtimes] [--check] [<check> ...] | declare | report-versions | unwritten <checks|build|writers|targets> … | gather <checks|builds> … | xtask | release | schema | register | ui]
 ```
 
 | Call                | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `check`             | Runs phase 0 and prints all of it: the resolved configuration, the linter rules laid over the defaults, the tree, the findings (annotations in a workflow run) and the counts. Warns where the name or default branch (`--name`, `--default-branch`, else Git) or a minimum file departs from the conventions. With `--visibility`, how GitHub shows the repository, it holds the declared audience against it, as `phase0` does; without it nothing is compared. The default; `phase0` calls it.                                                      |
+| `check`             | Runs phase 0 and prints all of it: the resolved configuration, the linter rules laid over the defaults, the tree, the findings (annotations in a workflow run) and the counts. Warns where the name or default branch (`--name`, `--default-branch`, else Git) or a minimum file departs from the conventions. With `--visibility`, how GitHub shows the repository, it holds the declared audience against it, as `declare` does; without it nothing is compared. The default; `declare` runs it.                                                     |
 | `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `explain <path>`    | What holds for one path and why: for whom the repository is meant, which units contain it, the minimum version of each of them, which commit types count like `feat`, which checks are in force, how its coverage stands.                                                                                                                                                                                                                                                                                                                              |
 | `plan`              | Which unit runs which check and builds what, and which version each unit carries, as one line of JSON for a matrix to read. With `--pull-request <number> --message <message>`, for a pull request, as `version` reads it. See [The plan](#the-plan).                                                                                                                                                                                                                                                                                                  |
 | `version`           | The version of every unit that carries one, as a table: current version and the version of the commit at hand. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                                                                                                                                                                                                                                                                                                               |
 | `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                                                                                                                                                                                                                                                                               |
 | `run`               | Runs one check over the files `files` names for it in one unit, with the programs `setup` finds or installs, the way its building block runs it: for the checks `css`, `dockerfile`, `html`, `json`, `markdown`, `rust`, `toml` and `yaml`. The rust check writes the versions of `--plan <file>` before its package test, or, without it, the versions resolved from the history. Every finding names its file, and its line and column where the program gives them; in a workflow run it is an annotation. See [Running a check](#running-a-check). |
-| `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                                                                                                                                                                                                                                                                             |
+| `build`             | Runs one build of one unit the way its building block runs it, for the build `cargo-package`, and names the artifact it leaves as outputs of the step. A unit the plan starts no such build for is refused. See [Running a build](#running-a-build).                                                                                                                                                                                                                                                                                                   |
+| `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what `declare` names in the summary of the run.                                                                                                                                                                                                                                                                                                                                                       |
 | `write-versions`    | Writes the version of every unit with the version writer `cargo` into its `Cargo.toml`, the path dependencies on it and `Cargo.lock`, in the working tree; never committed. With `--plan <file>`, takes the versions from a printed plan instead of the history; with `--workspace <path>`, starts from the units of the workspace at that path.                                                                                                                                                                                                       |
 | `setup`             | Finds or installs the programs that the checks the plan starts call, or those of the checks named, as the register pins them: by default it uses those on the computer and installs the pinned version of what is missing; `--pinned` installs every one into its own folder; `--check` changes nothing. See [Setting up the programs](#setting-up-the-programs).                                                                                                                                                                                      |
+| `declare`           | Phase 0 as the job `Declare` runs it, and the plan and the matrices it hands on as outputs of the step. See [The calls of a workflow run](#the-calls-of-a-workflow-run).                                                                                                                                                                                                                                                                                                                                                                               |
+| `report-versions`   | The versions as the job `Version` reports them: the table into the log and as Markdown into the summary of the run; after a push to a pre-branch the sentence why there are none. See [The calls of a workflow run](#the-calls-of-a-workflow-run).                                                                                                                                                                                                                                                                                                     |
+| `unwritten`         | Fails by name for every check, build, version writer or publish target the run asks for that has no building block yet, as the steps `Not written yet` do. See [The calls of a workflow run](#the-calls-of-a-workflow-run).                                                                                                                                                                                                                                                                                                                            |
+| `gather`            | The one result of the checks or of the builds, from the results of the jobs the closing job `Check` or `Build` waits for. See [The calls of a workflow run](#the-calls-of-a-workflow-run).                                                                                                                                                                                                                                                                                                                                                             |
+| `xtask`             | The repository's own checks, `cargo xtask check --all`, with the toolchain the xtask pins, as the last step of `Check repository`. See [The calls of a workflow run](#the-calls-of-a-workflow-run).                                                                                                                                                                                                                                                                                                                                                    |
 | `release`           | Writes the records of the versions of the commit at hand, as the job `Publish` does after a push to `main`: for every unit the commit touches, a tag on it and a full GitHub Release. Takes the repository, the token and the summary of the run from the variables of a workflow run. See [The release stage](#the-release-stage).                                                                                                                                                                                                                    |
 | `schema`            | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. The TOML check assigns the copy in `schemas/`, which `run` compiles in; [their README](schemas/README.md#nebensound-declarationjson) says how to write that copy again.                                                                                                                                                                                                                                                                 |
 | `register`          | The register as Markdown, exactly as [`docs/register.md`](../../docs/register.md) holds it, which a test compares with this output. Reads no repository.                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -355,6 +361,121 @@ a re-run takes up what it left. Everything goes into the log, a finding as an
 annotation in a workflow run, and the summary of the run lists every unit with
 what it got.
 
+## The calls of a workflow run
+
+A step of the workflow or of a building block is one call of the tool. Five
+calls exist for the steps of the workflow that are no check: they read the run
+from the variables the step hands them through its `env`, never inside a
+script, and from those the runner sets for every step. Each writes its
+findings as annotations in a workflow run and as lines elsewhere.
+
+| Variable                                                                | What it says                                                                              |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `NEBENSOUND_PRE_BRANCH`                                                 | `true` after a push to a pre-branch, as the workflow decides it for the whole run.        |
+| `NEBENSOUND_PULL_REQUEST`, `NEBENSOUND_TITLE`, `NEBENSOUND_BODY`        | The pull request of the run, empty when there is none. A number that is none is a misuse. |
+| `NEBENSOUND_NAME`, `NEBENSOUND_DEFAULT_BRANCH`, `NEBENSOUND_VISIBILITY` | What the event says of the repository.                                                    |
+| `GITHUB_OUTPUT`, `GITHUB_STEP_SUMMARY`, `GITHUB_REF_NAME`               | Set by the runner: where the outputs and the summary go, and the branch.                  |
+| `GITHUB_API_URL`, `GITHUB_REPOSITORY`, `GITHUB_TOKEN`                   | For `declare` to ask GitHub for the visibility when the event names none.                 |
+
+- **`declare`** runs phase 0 as `check` does, with the name, the default branch
+  and the visibility of the event; one the event does not carry is answered by
+  the API (`GET /repos/<owner>/<name>`, through curl as the release stage
+  calls it, with the read token of the run). When phase 0 passes it prints the
+  plan, for the squash merge of the pull request if there is one, names a
+  change of the audience on a pull request as a notice and in the summary,
+  names every excluded package with its reason as a notice, and prints the two
+  matrices: the units that run a check, and the units that build in this run,
+  each with the version writers it selects; after a push to a pre-branch none
+  builds. The plan and the two matrices are its outputs `plan`, `units` and
+  `builds`, one line of JSON each. With phase 0 errors nothing is handed on.
+- **`report-versions`** prints the table of `version` into the log and its
+  Markdown into the summary, for the pull request of the run, and fails with
+  phase 0 errors. After a push to a pre-branch it reads no repository and says
+  why no version is resolved, as a notice and in the summary.
+- **`unwritten checks --unit=<path> --planned <json> --written <json>`** and
+  **`unwritten build --unit=<path> --planned <build> --written <json>`** fail
+  for every check, or for the build, of a unit's matrix entry that the list of
+  written blocks does not name; **`unwritten writers`** and
+  **`unwritten targets`**, with `--plan <file> --written <json>`, for every
+  version writer or publish target the plan names. The steps hand the unit in
+  with `=`, so a path that starts with `-` is not read as an option. An empty
+  plan, as after phase 0 failed, has nothing to look at. The list of written
+  blocks stays in the step, where `cargo xtask check` holds it to the blocks
+  that exist.
+- **`gather checks --declare <result> --checks <result>`** and
+  **`gather builds --declare <result> --check <result> --builds <result> --planned <json>`**
+  turn the results GitHub gives the jobs (`success`, `failure`, `cancelled`,
+  `skipped`) into the one result a ruleset can require: the checks pass when
+  phase 0 passed and every started check passed or none started; the builds
+  pass when nothing builds in this run, and otherwise only when the checks and
+  every planned build passed.
+- **`xtask`** runs `cargo xtask check --all` at the repository root with the
+  toolchain the xtask pins: the `rust-toolchain.toml` (or `rust-toolchain`) in
+  `xtask/`, else the one at the root, installed through rustup. An xtask that
+  pins none fails before anything runs. rustup and Cargo start under
+  [the rule for the Rust toolchain](#starting-the-rust-toolchain).
+
+The plan stays an input where a step takes it today: the version writers, the
+Rust check, the steps that hold the version writers and publish targets in
+`Check`, and the matrices. That every job works out what it needs from the
+repository itself follows with the cut of the jobs.
+
+## Running a build
+
+`build <build> <unit>` carries out one build of one unit the way its building
+block runs it, in the unit's job of the Build phase, after the version writers
+the unit selects: so far the build `cargo-package`. The unit has to be one the
+plan starts that build for; a repository with errors builds nothing. As for
+`run`, the gate decides, and every call of `build` outside a workflow run opens
+with the same line.
+
+`build cargo-package` builds the one Cargo package whose `Cargo.toml` stands at
+the unit's path, with the programs on the `PATH` and in the unit's folder, in
+these steps, each in a group of the log, up to the first that fails:
+
+1. The toolchain the workspace pins, `rustup toolchain install` and
+   `rustc --version`.
+2. The package of the unit, from `cargo metadata --locked --no-deps`: the one
+   whose manifest is the unit's own `Cargo.toml`. A unit without a
+   `Cargo.toml`, or whose `Cargo.toml` is a workspace without a package of its
+   own, fails. The artifact is named `crate-<path>@<version>@<sha>`, the path
+   percent-encoded as jq's `@uri` writes it and the commit `HEAD`.
+3. The local packages it reaches through its dependencies, from `cargo
+metadata --locked --all-features`, each patched in from its folder for
+   crates.io.
+4. `cargo package --locked --allow-dirty --package <name>` with those patches,
+   and the SHA-256 of the `.crate` printed.
+5. The `.crate` unpacked into a temporary folder outside the source tree and
+   tested there with `cargo +<toolchain> test --all-features` and the same
+   patches, the toolchain being the one rustup names for the workspace. A
+   failure names the two usual causes: a file the package leaves out, a
+   dev-dependency without a version.
+
+Then it names the artifact and the file as the outputs `artifact` and `crate`
+of the step, for `actions/upload-artifact`.
+
+rustup, rustc and Cargo start under
+[the rule for the Rust toolchain](#starting-the-rust-toolchain).
+
+## Starting the Rust toolchain
+
+Wherever the tool starts the Rust toolchain (rustup, Cargo, rustc, rustfmt,
+and with them what Cargo starts), it does so under one rule, and one place in
+the tool builds every such command: in [the Rust check](#the-rust-check), in
+[the build `cargo-package`](#running-a-build) and in
+[`xtask`](#the-calls-of-a-workflow-run). Every such program runs without the
+variables of the computer whose names start with `CARGO` or `RUST`, other than
+`CARGO_HOME` and `RUSTUP_HOME`, which only say where Cargo and the toolchains
+are: so no setting that comes as a variable changes what a check finds or what
+a build hands on. A variable the tool sets itself for a call, such as the
+toolchain it names in `RUSTUP_TOOLCHAIN`, is set after the others are taken
+out. Settings that come as files still apply, and the tool does not hunt them
+down: a directory override rustup keeps in its settings file
+(`rustup override set`), which ranks above `rust-toolchain.toml`, and Cargo's
+configuration files in the folders above the workspace and in `CARGO_HOME`. A
+hosted runner has neither, so they are ways a local result can differ from the
+gate's, which is the one that counts.
+
 ## The files of a check
 
 `files <check> <unit>` names the files a building block checks: below the
@@ -609,17 +730,10 @@ the first that fails, which it names below the group as `<step>: failed`:
     it was, byte for byte, so a developer's working tree keeps what it held.
 
 A workspace whose members are all excluded is only formatted. Every program
-runs in the workspace's folder, without the variables of the computer whose
-names start with `CARGO` or `RUST`, other than `CARGO_HOME` and `RUSTUP_HOME`,
-which only say where Cargo and the toolchains are: so no setting that comes as
-a variable changes what the check finds. Settings that come as files still
-apply, and `run` does not hunt them down: a directory override rustup keeps in
-its settings file (`rustup override set`), which ranks above
-`rust-toolchain.toml`, and Cargo's configuration files in the folders above the
-workspace and in `CARGO_HOME`. A hosted runner has neither, so they are ways a
-local result can differ from the gate's. What the programs print
-stands in the output as it comes; the one finding with a file is the
-formatting's.
+runs in the workspace's folder, under
+[the rule for the Rust toolchain](#starting-the-rust-toolchain). What the
+programs print stands in the output as it comes; the one finding with a file
+is the formatting's.
 
 ### What it hands the programs, and its exit code
 

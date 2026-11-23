@@ -11,10 +11,12 @@ description: >-
 
 # One input, and it is not a setting: the plan of phase 0, as Declare hands it
 # on. A job after Declare checks out the commit at hand and nothing before it,
-# so the versions cannot be resolved here; they travel with the plan. The block
-# is a thin call of `nebensound-repo write-versions --plan`, and what it writes
-# is described there. It writes for every unit of the plan that selects the
-# writer cargo, and leaves the others alone.
+# so the versions cannot be resolved here; they travel with the plan, an input
+# that stays until the jobs are cut so that each works out what it needs
+# itself. The block is one call of `nebensound-repo write-versions --plan`,
+# which reads the plan on its standard input, refuses an empty one, and writes
+# what is described there. It writes for every unit of the plan that selects
+# the writer cargo, and leaves the others alone.
 #
 # Cargo cannot take a version from outside, so it is written immediately before
 # a build that needs it. The files it changes are Cargo.toml and Cargo.lock
@@ -36,12 +38,4 @@ runs:
       shell: bash
       env:
         PLAN: ${{ inputs.plan }}
-      run: |
-        set -euo pipefail
-        if [ -z "$PLAN" ]; then
-          echo "::error::No plan was handed in, so no version can be written."
-          exit 1
-        fi
-        file="$RUNNER_TEMP/version-cargo-plan.json"
-        printf '%s\n' "$PLAN" > "$file"
-        nebensound-repo -C "$GITHUB_WORKSPACE" write-versions --plan "$file"
+      run: nebensound-repo -C "$GITHUB_WORKSPACE" write-versions --plan /dev/stdin <<< "$PLAN"

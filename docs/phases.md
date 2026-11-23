@@ -26,43 +26,46 @@ and this page does not describe it.
 
 Phase 0. The job `nebensound / Declare` checks the calling repository out with
 its whole history and every branch and tag, runs the tool `nebensound-repo` on
-it and hands the result on:
+it and hands the result on. Phase 0 is one call, `nebensound-repo declare`,
+which does steps 2 to 6 below:
 
 1. The tool is built from the same commit of this repository as the workflow,
    and kept in the cache under a fingerprint of its sources, so two runs of the
-   same tool share one build, and every unit job of the run takes it from there
+   same tool share one build, and every later job of the run takes it from there
    ([`.github/actions/tool`](../.github/actions/tool)). Publish alone builds
    its own (see [Publish](#publish)).
-2. `nebensound-repo check` reads `.nebensound/repo.toml`, resolves it against
-   the register and checks it against what Git tracks, and resolves the version
-   of every unit from the history, holding the tags against it. It also holds
-   the repository's name and default branch, which the action hands in from the
-   event of the run, and the files every repository holds against the
-   organization's conventions, as warnings. It is given the visibility GitHub
-   shows for the repository, taken from the event or, where the event does not
-   carry it, from the API, and holds the declared audience against it (see
-   [Audience](declaration.md#audience)). It prints the resolved configuration,
-   the annotated tree, the findings, each as an annotation of the run, and a
-   summary line.
-   [The reference of the declaration](declaration.md) describes every field and
-   every finding.
-3. When phase 0 found no error, `nebensound-repo plan` prints the plan: every unit, with the checks
-   started for it and the build it names, and the version of every unit that
-   carries one, its current version and the version writers it selects. On a
-   pull request the plan is built the way the job Version reads it (see below):
-   each version is the one the merge would get, with `-pr.<number>` behind it.
-   The units that start at least one check go on to the Check phase, the units
-   whose build is not `null` and that the plan gives a version of this run go
-   on to the Build phase, each with the version writers it selects, and the
-   whole plan is handed on with them: a later job checks out no history, so a
-   version writer takes the versions from the plan. The plan also carries for
-   whom the repository is meant.
+2. Phase 0, as `nebensound-repo check` runs it, reads `.nebensound/repo.toml`,
+   resolves it against the register and checks it against what Git tracks, and
+   resolves the version of every unit from the history, holding the tags against
+   it. It also holds the repository's name and default branch, which the action
+   hands in from the event of the run, and the files every repository holds
+   against the organization's conventions, as warnings. It is given the
+   visibility GitHub shows for the repository, taken from the event or, where
+   the event does not carry it, from the API, and holds the declared audience
+   against it (see [Audience](declaration.md#audience)). It prints the resolved
+   configuration, the annotated tree, the findings, each as an annotation of the
+   run, and a summary line. [The reference of the declaration](declaration.md)
+   describes every field and every finding.
+3. When phase 0 found no error, the plan is printed, as `nebensound-repo plan`
+   prints it: every unit, with the checks started for it and the build it names,
+   and the version of every unit that carries one, its current version and the
+   version writers it selects. On a pull request the plan is built the way the
+   job Version reads it (see below): each version is the one the merge would
+   get, with `-pr.<number>` behind it. The units that start at least one check
+   go on to the Check phase, the units whose build is not `null` and that the
+   plan gives a version of this run go on to the Build phase, each with the
+   version writers it selects, and the whole plan is handed on with them: a
+   later job checks out no history, so a version writer takes the versions from
+   the plan. The plan also carries for whom the repository is meant.
 4. On a pull request into `main` that changes the audience, the old and the new
    value are named in the summary of the run, as a notice and in the step
    summary.
-5. Then every Rust package `[[exclude]]` takes out as a
-   whole (`nebensound-repo excluded-packages`) is named in the summary of the
-   run with its reason, as a notice.
+5. Then every Rust package `[[exclude]]` takes out as a whole
+   (`nebensound-repo excluded-packages`) is named in the summary of the run with
+   its reason, as a notice.
+6. Last the two matrices are handed on beside the plan: the units that start
+   at least one check, and the units that build in this run, each with the
+   version writers it selects. After a push to a pre-branch no unit builds.
 
 An error ends the phase here: there is no plan, no check runs, nothing is
 built, and `nebensound / Check` and `nebensound / Build` fail. A warning stops
@@ -73,9 +76,9 @@ nothing.
 The job `nebensound / Version` reports which version every unit carries. It
 writes nothing and tags nothing. It checks the repository out the way Declare
 does, with its whole history and every branch and tag, takes the tool from the
-cache Declare filled and runs `nebensound-repo version`: the text table goes
-into the log, and the same table as Markdown into the summary of the run, one
-row per unit that carries a version:
+cache Declare filled and runs `nebensound-repo report-versions`: the text
+table of `nebensound-repo version` goes into the log, and the same table as
+Markdown into the summary of the run, one row per unit that carries a version:
 
 | Column      | What it says                                                                                                             |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -148,18 +151,20 @@ builds it only when the cache misses. Then its steps:
    out. Every step runs even when one before it failed, so one run shows every
    finding of the unit.
 3. **`xtask check --all`**, in the job of the repository only, and only when
-   `xtask/Cargo.toml` exists. It runs `cargo xtask check --all` from the
-   repository root with the toolchain the xtask pins (the `rust-toolchain.toml`
-   in `xtask/`, else the one in the repository root); an xtask that pins none
-   fails the step. This is where a repository's own checks run, as mandatory as
-   the register's, without a workflow or a ruleset entry of their own. The
-   xtask's code is Rust like any other, so phase 0 demands a unit that runs the
-   `rust` check over `xtask/`.
+   `xtask/Cargo.toml` exists. It runs `cargo xtask check --all`
+   (`nebensound-repo xtask`) from the repository root with the toolchain the
+   xtask pins (the `rust-toolchain.toml` in `xtask/`, else the one in the
+   repository root); an xtask that pins none fails the step. This is where a
+   repository's own checks run, as mandatory as the register's, without a
+   workflow or a ruleset entry of their own. The xtask's code is Rust like any
+   other, so phase 0 demands a unit that runs the `rust` check over `xtask/`.
 
 ### Where a failed check is found
 
 The job `nebensound / Check` only gathers: it reports that something failed and
-holds no finding. The finding is in the job of the unit that failed, in the step
+holds no finding. It checks nothing out; it takes the tool from the cache and
+calls it with what it is handed (`nebensound-repo gather` and `nebensound-repo
+unwritten`). The finding is in the job of the unit that failed, in the step
 of the check, where it is written to the log and, where the check can point at
 a file, as an annotation on it, shown on the pull request's Files tab and in
 the summary of the run.

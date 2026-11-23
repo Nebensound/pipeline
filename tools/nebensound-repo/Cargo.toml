@@ -118,6 +118,34 @@ name              = "release"
 required-features = ["program"]
 
 [[test]]
+name              = "build"
+required-features = ["program"]
+
+[[test]]
+name              = "declare"
+required-features = ["program"]
+
+[[test]]
+name              = "gather"
+required-features = ["program"]
+
+[[test]]
+name              = "report_versions"
+required-features = ["program"]
+
+[[test]]
+name              = "unwritten"
+required-features = ["program"]
+
+[[test]]
+name              = "workflow"
+required-features = ["program"]
+
+[[test]]
+name              = "xtask"
+required-features = ["program"]
+
+[[test]]
 name              = "ui"
 required-features = ["ui"]
 

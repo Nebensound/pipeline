@@ -17,13 +17,15 @@
 //! that fails ends the check: what comes after a failed build would only
 //! repeat its error. Every program runs in the workspace's folder, without
 //! the variables of this process that steer Cargo, rustc and rustup
-//! ([`steers`]), so that no setting that comes as a variable changes what the
-//! check finds. Settings that come as files still apply, and the check does
-//! not hunt them down: a directory override rustup keeps in its settings file,
-//! which ranks above `rust-toolchain.toml`, and Cargo's configuration files in
-//! the folders above the workspace and in `CARGO_HOME`. A hosted runner has
-//! neither, so they are ways a run on a developer's computer can differ from
-//! the gate's, whose result is the one that counts.
+//! ([`steers`](crate::toolchain::steers)), so that no setting that comes as a
+//! variable changes what the check finds. Settings that come as files still
+//! apply, and the check does not hunt them down: a directory override rustup
+//! keeps in its settings file, which ranks above `rust-toolchain.toml`, and
+//! Cargo's configuration files in the folders above the workspace and in
+//! `CARGO_HOME`. A hosted runner has neither, so they are ways a run on a
+//! developer's computer can differ from the gate's, whose result is the one
+//! that counts. The build `cargo-package` and `xtask` start the toolchain
+//! under the same rule, which [`crate::toolchain`] states once for all.
 //!
 //! The files are the ones `files` names for the check and the unit. Rust code
 //! is excluded by the package, never by the file; phase 0 fails on an
@@ -41,7 +43,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::io::{BufRead as _, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use serde::Deserialize;
 
@@ -49,26 +51,10 @@ use super::{Session, Tool, chunks, has_extension};
 use crate::path::RelativePath;
 use crate::writer;
 
-/// The variables that start like those that steer Cargo, rustc and rustup
-/// and are kept all the same: they say where Cargo and the toolchains are,
-/// not what they do.
-pub const KEPT: &[&str] = &["CARGO_HOME", "RUSTUP_HOME"];
-
 /// The option that keeps rustfmt from passing a file it reaches unchecked:
 /// `disable_all_formatting` in the repository's configuration would, and the
 /// command line wins over the configuration.
 const FORMAT_ALL: [&str; 2] = ["--config", "disable_all_formatting=false"];
-
-/// Whether a variable of this process steers Cargo, rustc, rustdoc or rustup
-/// and is taken out of what the programs of the check inherit: every one whose
-/// name starts with `CARGO` or `RUST`, such as `RUSTFLAGS`,
-/// `CARGO_TARGET_DIR`, `RUSTUP_TOOLCHAIN` or `CARGO_INCREMENTAL`, less
-/// [`KEPT`]. The check sets what it needs itself.
-#[must_use]
-pub fn steers(name: &OsStr) -> bool {
-    let name = name.to_string_lossy();
-    (name.starts_with("CARGO") || name.starts_with("RUST")) && !KEPT.contains(&name.as_ref())
-}
 
 /// What `cargo metadata` prints, as far as the check reads it.
 #[derive(Debug, Clone, Deserialize)]
@@ -458,19 +444,9 @@ fn step<T>(
 }
 
 /// A command that starts `program` in the workspace's folder, with the
-/// computer's search path and without the variables [`steers`] names.
+/// computer's search path, under the rule of [`crate::toolchain`].
 fn command(session: &Session<'_, '_>, program: impl AsRef<OsStr>, dir: &Path) -> Command {
-    let mut command = Command::new(program);
-    command
-        .current_dir(dir)
-        .env("PATH", &session.context.env.search_path)
-        .stdin(Stdio::null());
-    for (name, _) in std::env::vars_os() {
-        if steers(&name) {
-            command.env_remove(name);
-        }
-    }
-    command
+    crate::toolchain::command(program, dir, &session.context.env.search_path)
 }
 
 /// Runs a command to its end and writes what it prints on both outputs into
