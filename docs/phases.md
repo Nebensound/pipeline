@@ -102,6 +102,14 @@ shallow clone, there is no table: the log and the summary list every finding
 and the job fails. It waits for Declare only to take the tool from the cache.
 A cancelled run skips it.
 
+After a push to a pre-branch, `pre` or `pre-*`, the job resolves no version and
+shows no table. The tool knows no branch and reads the first-parent line of
+`HEAD` as the line of `main`, so it would give each own commit of the branch a
+full version that `main` never gives. Versions and pre-releases of pre-branches
+are not built yet, so the job says that instead, as a notice and as a line in
+the summary of the run: no version is resolved, nothing is built and nothing is
+published.
+
 ## Check
 
 ### One job per unit
@@ -170,7 +178,8 @@ releases units with `publish = false`.
 ### One job per unit that builds in this run
 
 Every unit whose build the plan names and that the plan gives a version of
-this run gets a job of its own, named `nebensound / Build repository` for the
+this run, in a run that is not one after a push to a pre-branch, gets a job of
+its own, named `nebensound / Build repository` for the
 repository and `nebensound / Build component <name>` for a component. The plan
 names the build of a unit that carries a version of its own and generates no
 children (see [the declaration](declaration.md#versions)), and gives a unit a
@@ -202,7 +211,8 @@ the build tests what it hands on.
 `nebensound / Build` runs after Declare, `nebensound / Check` and every build
 job, whatever their result, so it reports on every run. It fails when phase 0
 did not pass, since then nothing is known about the builds. When nothing builds
-in this run it passes with a sentence that says so, whatever Check found.
+in this run, as after a push to a pre-branch, it passes with a sentence that
+says so, whatever Check found.
 Otherwise it fails when Check did not pass, since then nothing was built, and
 when any build job did not pass, and it passes when every build the plan
 started passed.
@@ -296,30 +306,58 @@ that are not built yet.
 
 ## Pull request and push
 
-The caller file starts the workflow on every pull request and on every push to
-`main`:
+The caller file starts the workflow on every pull request, when it is opened,
+synchronized, reopened or edited, and on every push to `main`, `pre` and
+`pre-*`:
 
 ```yaml
 on:
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
   push:
     branches:
       - main
+      - pre
+      - pre-*
 ```
 
-Both run the same jobs, Declare, Version, Check and Build, with the same steps,
-and a push to `main` runs Publish after them. The versions depend on the event:
-on a pull request `Version` shows the version the merge would get with
-`-pr.<number>` behind it, and the plan carries the same versions, which the
-package test of `check-rust` and the build jobs write and build with.
+A pull request and a push to `main` run the same jobs, Declare, Version, Check
+and Build, with the same steps, and a push to `main` runs Publish after them.
+The versions depend on the event: on a pull request `Version` shows the version
+the merge would get with `-pr.<number>` behind it, and the plan carries the
+same versions, which the package test of `check-rust` and the build jobs write
+and build with. A pull request into a pre-branch is a pull request like any
+other: it gets the checks, the version with `-pr.<number>` behind it and the
+builds, so what lands on a pre-branch was built before.
 
-A newer push to a pull request cancels its run that is still going: only the
-newest commit of a pull request counts. A run after a push to `main` is never
-cancelled. It waits in the one queue of the repository
-until the run before it has finished, so the runs after two merges publish in
-the order of their pushes and with two different versions, and a run that
-waits is never replaced by a newer one. The workflow sets this itself, in its
-`concurrency`: a pull request's group cancels and keeps one run waiting, the
+A run of `edited` is a run like any other: every job runs, as after a push to
+the pull request, since a ruleset counts a skipped required check as passed. It
+starts on every change of the title or the description, from which the version
+shown is read, and when GitHub moves an open pull request onto `main` because
+the pre-branch it went into was deleted at its landing. That costs a full run
+per edit of the title or description, and the newer run cancels the one still
+going.
+
+A push to a pre-branch runs Declare and Check as a push to `main` does.
+Versions and pre-releases of pre-branches are not built yet, so `Version`
+resolves no version and says so, as a notice and as a line in the summary of
+the run, no unit builds, `Build` passes with a sentence that says so, and
+Publish does not run: nothing is published. The plan Declare hands on is the
+one a push to `main` would get, so the package test of `check-rust` writes the
+versions phase 0 reads into its own checkout, packages and puts the files back,
+as on `main`; no job shows those versions or builds with them.
+
+A newer push or edit of a pull request cancels its run that is still going:
+only the newest state of a pull request counts. A run after a push, to `main`
+or to a pre-branch, is never cancelled. It waits in the one queue of the
+repository until the run before it has finished, so the runs after two merges
+publish in the order of their pushes and with two different versions, and a run
+that waits is never replaced by a newer one. The workflow sets this itself, in
+its `concurrency`: a pull request's group cancels and keeps one run waiting, the
 repository's group keeps up to 100 runs waiting and cancels none, and a run
 beyond that is cancelled. GitHub gives the waiting runs their turn in the order
 in which they began to wait, and since a run may begin to wait a moment after
@@ -328,9 +366,13 @@ the versions stay what the history gives each commit; the older run then finds
 its commit held by the newer release and releases nothing (see
 [Publish](#publish)).
 
-The caller grants `contents: write`, and only Publish asks for it: every other
-job reads the repository and writes nothing back, and so does every job of a
-pull request.
+The caller's job grants `contents: write`, `pull-requests: read`,
+`id-token: write`, `packages: write`, `attestations: write` and
+`deployments: write`, and only Publish asks for more than a read token,
+`contents: write`: every other job reads the repository and writes nothing
+back, and so does every job of a pull request. The caller grants what the
+planned parts need, since a permission added to it later would mean a change
+in every repository (see [Calling the workflow](calling.md#permissions)).
 
 This repository calls the workflow the same way, with one difference: its own
 caller runs the workflow at the commit under test rather than at a pinned

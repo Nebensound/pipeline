@@ -592,6 +592,11 @@ The promise of edition 1 binds from `v0.1.0` of this repository on, the first
 version meant for callers. Until then the rules of counting may still be
 corrected within edition 1.
 
+The promise covers the versions of the first-parent line of `main`. The
+versions of pre-branches join it when they are built. A push to a pre-branch
+resolves none before that (see
+[the phases](phases.md#pull-request-and-push)), so none of them can change.
+
 A tool that meets an edition it does not know stops phase 0 by name and says
 that a newer pipeline is needed, wherever the declaration that names it stands
 on the line of `main`, not only at `HEAD`. The edition is read before anything

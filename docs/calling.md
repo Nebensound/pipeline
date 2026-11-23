@@ -19,6 +19,11 @@ jobs:
     uses: Nebensound/pipeline/.github/workflows/nebensound.yml@<full commit SHA> # 2026-11-19
     permissions:
       contents: write
+      pull-requests: read
+      id-token: write
+      packages: write
+      attestations: write
+      deployments: write
 ```
 
 The date is the commit's, as `git log -1 --format=%cs <SHA>` prints it, not the
@@ -26,13 +31,54 @@ day of the pin. A shortened SHA or a branch name is not a pin. Raise the pin by
 hand, to the then current commit of `main`. From `v0.1.0` on, pin the release
 tag, which Dependabot raises as a pull request.
 
-The job grants `contents: write`, which the release stage on `main` needs to
-write tags and releases. Only the workflow's job `Publish` asks for it, after a
+## When it runs
+
+The caller file starts the workflow on a pull request when it is opened,
+synchronized, reopened or edited, and on a push to `main`, `pre` or `pre-*`:
+
+```yaml
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
+  push:
+    branches:
+      - main
+      - pre
+      - pre-*
+```
+
+`edited` is there for two reasons. The version a pull request shows is read
+from its title and description, so a run follows every change of them. And
+when a pre-branch is deleted at its landing, GitHub moves every open pull
+request into it onto `main` as an edit of its base, which starts no run without
+`edited`. The branches `pre` and `pre-*` are named from the start, so that the
+caller file does not change when the versions and pre-releases of pre-branches
+are built. Until then a push to one is checked as a push to `main` is, shows no
+version, builds nothing and publishes nothing (see
+[the phases](phases.md#pull-request-and-push)).
+
+## Permissions
+
+The caller file keeps `contents: read` for the workflow and grants its job
+`contents: write`, `pull-requests: read`, `id-token: write`,
+`packages: write`, `attestations: write` and `deployments: write`: everything
+the planned parts of the pipeline need, and more than today's jobs ask for.
+Every job of `nebensound.yml` asks only for what it needs, so a permission no
+built job needs is asked for by none. Today only the job `Publish` asks for
+more than a read token, `contents: write` to write tags and releases after a
 push to `main`; every other job, and every job of a pull request, keeps a read
-token (see [the phases](phases.md#pull-request-and-push)). A caller that raises
-its pin to a commit with `Publish` grants `contents: write` in the same change:
-GitHub refuses every run, pull requests included, whose called workflow asks
-for more than the caller grants.
+token (see [the phases](phases.md#pull-request-and-push)).
+
+The caller grants more because the two directions do not cost the same. A
+called workflow never gets more than its caller grants, and when one of its
+jobs asks for more, GitHub refuses every run of that caller, pull requests
+included. A permission added to the caller later would therefore mean a change
+in every repository that calls the workflow, while one granted too much can be
+taken out later without breaking a caller.
 
 ## The schema line runs ahead of the pin
 
