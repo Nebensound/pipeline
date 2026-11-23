@@ -1,0 +1,8 @@
+[package]
+name = "fixture"
+edition = "2024"
+publish = false
+
+[features]
+default = []
+extra = []
