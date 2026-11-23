@@ -419,11 +419,7 @@ impl Repository {
                 ..History::default()
             });
         }
-        let tags = tags(&self.git_output(&[
-            "for-each-ref",
-            "--format=%(refname)%00%(objecttype)%00%(objectname)%00%(*objecttype)%00%(*objectname)",
-            "refs/tags/",
-        ])?);
+        let tags = tags(&self.git_output(&["for-each-ref", TAG_FORMAT, "refs/tags/"])?);
         let Some(head) = head else {
             return Ok(History {
                 tags,
@@ -483,6 +479,44 @@ impl Repository {
             tags,
             declarations,
             files,
+        })
+    }
+
+    /// The records around the commit at hand, as the release stage reads
+    /// them: every tag with the commit it stands on, and which of them stand
+    /// on a commit that contains `HEAD` or that `HEAD` contains.
+    ///
+    /// It reads no version: which version a unit gets is the history's
+    /// answer ([`Self::history`]). The tags only tell what was written down
+    /// already.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Git`] when git does not run or does not answer, and
+    /// when `HEAD` names no commit: then there is nothing a record could
+    /// stand on.
+    pub fn records(&self) -> Result<Records, Error> {
+        let head = self
+            .commit("HEAD")?
+            .ok_or_else(|| self.git_failed("HEAD names no commit"))?;
+        let tags = tags(&self.git_output(&["for-each-ref", TAG_FORMAT, "refs/tags/"])?);
+        let names = |relation: &str| {
+            self.git_output(&[
+                "for-each-ref",
+                "--format=%(refname)",
+                relation,
+                head.as_str(),
+                "refs/tags/",
+            ])
+            .map(|listing| tags_named(&listing))
+        };
+        let holding_head = names("--contains")?;
+        let held_by_head = names("--merged")?;
+        Ok(Records {
+            head,
+            tags,
+            holding_head,
+            held_by_head,
         })
     }
 
@@ -640,6 +674,36 @@ impl Repository {
             message: message.trim().to_owned(),
         }
     }
+}
+
+/// What `for-each-ref` prints of a tag for [`tags`]: its name, what it points
+/// at, and what an annotated tag points on to.
+const TAG_FORMAT: &str =
+    "--format=%(refname)%00%(objecttype)%00%(objectname)%00%(*objecttype)%00%(*objectname)";
+
+/// The records of a repository around the commit at hand
+/// ([`Repository::records`]).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Records {
+    /// The commit at hand, `HEAD`, by its full hash.
+    pub head: String,
+    /// Every tag of the repository.
+    pub tags: Vec<Tag>,
+    /// The names of the tags that stand on a commit containing `HEAD`, a tag
+    /// on `HEAD` itself among them.
+    pub holding_head: BTreeSet<String>,
+    /// The names of the tags that stand on a commit `HEAD` contains, a tag
+    /// on `HEAD` itself among them.
+    pub held_by_head: BTreeSet<String>,
+}
+
+/// The names of the tags `for-each-ref --format=%(refname)` prints, one per
+/// line, without `refs/tags/`.
+fn tags_named(listing: &[u8]) -> BTreeSet<String> {
+    String::from_utf8_lossy(listing)
+        .lines()
+        .map(|line| line.strip_prefix("refs/tags/").unwrap_or(line).to_owned())
+        .collect()
 }
 
 /// The tags from `for-each-ref`, one per line, its fields separated by a zero

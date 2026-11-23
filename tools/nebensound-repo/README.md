@@ -47,7 +47,7 @@ channel would be a second version that can fall behind.
 ## Calls
 
 ```text
-nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branch>] [--visibility <public|private|internal>] | tree | explain <path> | plan [--pull-request <number> --message <message>] | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | run <check> <unit> | excluded-packages | write-versions [--plan <file>] [--workspace <path>] | setup [--pinned] [--with-runtimes] [--check] [<check> ...] | schema | register | ui]
+nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branch>] [--visibility <public|private|internal>] | tree | explain <path> | plan [--pull-request <number> --message <message>] | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | run <check> <unit> | excluded-packages | write-versions [--plan <file>] [--workspace <path>] | setup [--pinned] [--with-runtimes] [--check] [<check> ...] | release | schema | register | ui]
 ```
 
 | Call                | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -62,6 +62,7 @@ nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branc
 | `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what the composite action under `.github/actions/phase0` names in the summary of the run.                                                                                                                                                                                                                                                        |
 | `write-versions`    | Writes the version of every unit with the version writer `cargo` into its `Cargo.toml`, the path dependencies on it and `Cargo.lock`, in the working tree; never committed. With `--plan <file>`, takes the versions from a printed plan instead of the history; with `--workspace <path>`, starts from the units of the workspace at that path.                                                                                                                                                  |
 | `setup`             | Finds or installs the programs that the checks the plan starts call, or those of the checks named, as the register pins them: by default it uses those on the computer and installs the pinned version of what is missing; `--pinned` installs every one into its own folder; `--check` changes nothing. See [Setting up the programs](#setting-up-the-programs).                                                                                                                                 |
+| `release`           | Writes the records of the versions of the commit at hand, as the job `Publish` does after a push to `main`: for every unit the commit touches, a tag on it and a full GitHub Release. Takes the repository, the token and the summary of the run from the variables of a workflow run. See [The release stage](#the-release-stage).                                                                                                                                                               |
 | `schema`            | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. The TOML check assigns the copy in `schemas/`, which `run` compiles in; [their README](schemas/README.md#nebensound-declarationjson) says how to write that copy again.                                                                                                                                                                                                            |
 | `register`          | The register as Markdown, exactly as [`docs/register.md`](../../docs/register.md) holds it, which a test compares with this output. Reads no repository.                                                                                                                                                                                                                                                                                                                                          |
 | `ui`                | The same result to walk through. Only in a build with the `ui` feature.                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -302,6 +303,57 @@ A repository with errors gets nothing written, only a sentence and exit code
 `1`. A manifest or lockfile that cannot be read, is not TOML or cannot be
 written back, and a unit whose `Cargo.toml` holds no package with a name, end
 the call with exit code `1` and the reason.
+
+## The release stage
+
+`nebensound-repo release` is the release stage on `main`, all of it: the job
+`Publish` checks the repository out with its whole history, builds the tool,
+and makes this one call. It reads the version of every unit from the history,
+as phase 0 does, and every unit the commit at hand touches gets its records: a
+lightweight tag on the commit, named with the unit's prefix and its version,
+and a GitHub Release of it, a full one. The release of the repository is the
+latest, a component's never is. A unit the commit does not touch gets nothing.
+
+It works in this order, and writes nothing before it has decided for every
+unit:
+
+1. A tag of the version that stands anywhere but on the commit at hand stops
+   the call with exit code `1`, named, before anything is written: a version
+   belongs to exactly one commit.
+2. A newer record of the unit, a tag with a higher version on a commit that
+   contains the commit at hand, leaves the unit out with a sentence; the call
+   stays green.
+3. For every other unit the tag, unless it stands on the commit already, and
+   the release as a draft titled `<unit> <version>` (the repository by its
+   name), with the notes GitHub generates against the previous record, the
+   unit's tag with the highest version below on a commit the commit at hand
+   contains. A first release carries the sentence "The first release of
+   `<unit>`, so there is no earlier release to list the changes against."
+   instead. A draft an earlier attempt left is taken up, and a release that is
+   published already is left as it is.
+4. Here the publish targets will come, while the releases still take files.
+5. Every draft published, with `prerelease: false` and the mark of the latest
+   release in the same call. A published release that is not immutable gets a
+   warning.
+
+A tag is a unit's record when what follows the unit's prefix reads as a version
+as strictly as phase 0 reads it; any other tag is passed over. No version is
+read from a tag.
+
+It reads from the variables of the run `GITHUB_REPOSITORY` (`owner/name`),
+`GITHUB_API_URL`, `GITHUB_TOKEN`, the token that may write, which the workflow
+hands to this one step, and `GITHUB_STEP_SUMMARY`, the file the summary goes
+to. Without one of the first three the call is wrong (exit code `2`). Phase 0
+errors release nothing.
+
+It talks to the API through curl, as `setup` downloads: the tool links no HTTP
+or TLS library. curl is called as `curl --disable --config -` and reads the
+whole request, the token's header among it, from its standard input, so the
+token stands on no command line a process list shows and in no log. A request
+may use HTTPS only. Every call is made once: a failed call fails the stage, and
+a re-run takes up what it left. Everything goes into the log, a finding as an
+annotation in a workflow run, and the summary of the run lists every unit with
+what it got.
 
 ## The files of a check
 
