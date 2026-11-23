@@ -298,6 +298,14 @@ jobs:
           toolchain="$(cd xtask && rustup show active-toolchain | cut -d ' ' -f 1)"
           echo "Running the xtask with $toolchain, pinned in $pin."
           export RUSTUP_TOOLCHAIN="$toolchain"
+          # TEMPORARY, evidence for #149 only, reverted in the next commit:
+          # hide every node of the runner image before the xtask runs.
+          while node_path="$(command -v node)"; do
+            echo "Hiding the runner image's $node_path ($("$node_path" --version))."
+            sudo mv "$node_path" "$node_path.hidden"
+            hash -r
+          done
+          echo "node on the PATH now: $(command -v node || echo none)"
           cargo xtask check --all
 
   # The one name a ruleset can require. A matrix gives one context per unit,
