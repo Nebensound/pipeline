@@ -91,13 +91,14 @@ use crate::setup::find;
 use crate::workflow::{self, Log};
 
 /// The variables that start like those that steer Docker and are kept all
-/// the same: they say where the daemon and Docker's own files are, not what
-/// a build does.
+/// the same: they say where the daemon and Docker's own files are and how to
+/// reach the daemon, not what a build does.
 pub const KEPT: &[&str] = &[
     "DOCKER_HOST",
     "DOCKER_CONTEXT",
     "DOCKER_CONFIG",
     "DOCKER_CERT_PATH",
+    "DOCKER_TLS",
     "DOCKER_TLS_VERIFY",
 ];
 

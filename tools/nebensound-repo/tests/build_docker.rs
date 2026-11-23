@@ -482,12 +482,14 @@ fn the_variables_that_steer_docker_buildx_buildkit_and_trivy_are_taken_out() {
     ] {
         assert!(steers(OsStr::new(name)), "{name}");
     }
-    for name in
-        docker::KEPT
-            .iter()
-            .copied()
-            .chain(["PATH", "HOME", "DOCKER", "CARGO_HOME", "TRIVY"])
-    {
+    for name in docker::KEPT.iter().copied().chain([
+        "DOCKER_TLS",
+        "PATH",
+        "HOME",
+        "DOCKER",
+        "CARGO_HOME",
+        "TRIVY",
+    ]) {
         assert!(!steers(OsStr::new(name)), "{name}");
     }
     // What a started program gets: this process's variables less those, and
