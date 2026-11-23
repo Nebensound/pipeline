@@ -1329,22 +1329,24 @@ fn declare(
     };
     let checked = Job::Check(given.clone(), Some(run.visibility));
     let planned = Job::Plan(pull_request.cloned());
-    // Phase 0 as `check` runs it, and when it passed the repository read for
-    // the plan. One chain, so that a repository that cannot be read stops the
-    // call wherever it is found.
-    let (report, read_for_plan) = read(context, &checked)
+    // Phase 0 as `check` runs it, its report said as soon as it is there, and
+    // when it passed the repository read for the plan. One chain, so that a
+    // repository that cannot be read stops the call wherever it is found; a
+    // read for the plan that fails still leaves the report in the log.
+    let read_for_plan = read(context, &checked)
         .and_then(|(repository, central, mut analysis)| {
-            check(&repository, &mut analysis, &central, &given, context.output)
-                .map(|report| (report, analysis.failed()))
+            check(&repository, &mut analysis, &central, &given, context.output).map(|report| {
+                say(out, &report);
+                analysis.failed()
+            })
         })
-        .and_then(|(report, failed)| {
+        .and_then(|failed| {
             if failed {
-                Ok((report, None))
+                Ok(None)
             } else {
-                read(context, &planned).map(|read| (report, Some(read)))
+                read(context, &planned).map(Some)
             }
         })?;
-    say(out, &report);
     let Some((repository, central, analysis)) = read_for_plan else {
         return Ok(FOUND);
     };
