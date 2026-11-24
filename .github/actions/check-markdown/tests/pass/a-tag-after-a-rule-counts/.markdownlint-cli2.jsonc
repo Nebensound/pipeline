@@ -1,0 +1,10 @@
+{
+  // The rule is switched on, and the tag after it switches every rule of
+  // headings off, that one too: markdownlint reads the keys in the order they
+  // are written, so the second top-level heading below passes. Read in sorted
+  // order, `single-title` would come last and fail it.
+  "config": {
+    "single-title": true,
+    "headings": false,
+  },
+}

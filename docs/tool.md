@@ -1126,10 +1126,19 @@ at a `/`, `**` does not, and a leading `!` takes a match back; the first entry
 whose `filter` matches a file counts for it. `merge` lays its rules over the
 file's own, `replace` takes their place; the pipeline's default lies beneath
 either way. markdownlint's library knows no patterns, so the tool works out the
-rules of each file and hands the files in groups of the same rules. The tool
-reads the keys of one file in sorted order, so a file that names one rule
-twice, by a tag and by its name, can count differently than markdownlint reads
-the file itself.
+rules of each file and hands the files in groups of the same rules.
+
+markdownlint reads the keys of the rules in order, and where two keys cover the
+same rule, such as a tag and one of its rules, the later one counts. So the
+tool keeps the keys in the order the file writes them, in JSONC as in YAML, and
+hands them on in that order. It lays the layers as markdownlint-cli2 laid them,
+with JavaScript's spread of one object over another: first the default's keys
+in their order, then the file's, then those of the entry of `overrides` that
+counts for the file (over the default alone for `replace`). A key that is
+already there takes the new value in its place; a new key comes after the
+others, in the order written. With `headings: false` and then `MD025: true`,
+`MD025` holds; with `single-title: true` and then `headings: false`, it does
+not.
 
 ## Where the file list comes from
 

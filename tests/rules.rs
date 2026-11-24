@@ -258,10 +258,10 @@ fn a_key_that_is_not_handed_over_is_named_at_its_file() {
         after(&text, ".markdownlint-cli2.jsonc"),
         [
             "laid over the default rule by rule; it names no rule",
-            "`config.my-rule` is no rule, alias or tag of markdownlint 0.41.1, so it is not \
-             handed to markdownlint",
             "`customRules` is not handed to markdownlint: it names modules of rules, which would \
              be loaded and run, and the Markdown check runs no code of the repository",
+            "`config.my-rule` is no rule, alias or tag of markdownlint 0.41.1, so it is not \
+             handed to markdownlint",
         ],
         "{text}"
     );
@@ -356,6 +356,41 @@ fn the_default_of_markdownlint_stands_for_every_rule_it_does_not_name() {
     assert_eq!(after(&text, "MD041"), ["false (the same as the default)"]);
     assert_eq!(after(&text, "MD001"), ["true (over the default false)"]);
     assert_eq!(after(&text, "MD013"), ["true (the same as the default)"]);
+}
+
+#[test]
+fn the_rules_of_markdownlint_are_read_in_the_order_written() {
+    // In the default the rule comes after its tag, so the rule counts, as
+    // markdownlint 0.41.1 resolves it. Read in sorted order, the tag would
+    // come last and give `MD025` the value `false`.
+    let defaults = Defaults {
+        markdownlint: "{ \"headings\": false, \"MD025\": true }",
+        yamllint: YAMLLINT,
+        stylelint: STYLELINT,
+        html_validate: HTML_VALIDATE,
+        ruff: RUFF,
+    };
+
+    let text = rules_with(
+        defaults,
+        &[(
+            ".markdownlint.yaml",
+            "single-title: true\nheadings: false\nMD001: false\n",
+        )],
+    );
+
+    assert_eq!(
+        after(&text, "single-title"),
+        ["true (the same as the default)"]
+    );
+    assert_eq!(after(&text, "MD001"), ["false (the same as the default)"]);
+    // The report shows the file's rules in the order they count in.
+    let names: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with("          "))
+        .filter_map(|line| line.split_whitespace().next())
+        .collect();
+    assert_eq!(names, ["single-title", "headings", "MD001"], "{text}");
 }
 
 #[test]

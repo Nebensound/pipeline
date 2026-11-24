@@ -12,13 +12,15 @@ use std::collections::BTreeMap;
 
 use nebensound_repo::Register;
 use nebensound_repo::linter_config::markdownlint::{
-    CARRIED, Combine, Handed, Problem, REFUSED, SET_ASIDE, default_rules, read,
+    CARRIED, Combine, Handed, Problem, REFUSED, Rules, SET_ASIDE, default_rules, read,
 };
-use nebensound_repo::linter_config::{findings, locate};
+use nebensound_repo::linter_config::{Written, findings, locate};
 use nebensound_repo::names::ProgramName;
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::programs::Program;
 use nebensound_repo::rules::MARKDOWNLINT;
+use serde::Deserialize;
+use serde_json::{Value, json};
 use support::{QUIET, analysis, call, repository};
 
 fn register() -> Register {
@@ -149,7 +151,7 @@ fn a_file_of_rules_only_is_laid_over_the_default() {
     assert_eq!(
         handed.job(&default_rules(MARKDOWNLINT), &["a.md".to_owned()]),
         "{\"frontMatter\":null,\"noInlineConfig\":false,\"groups\":[{\"config\":\
-         {\"MD013\":true,\"Default\":true,\"headings\":false},\"files\":[\"a.md\"]}]}"
+         {\"MD013\":true,\"headings\":false,\"Default\":true},\"files\":[\"a.md\"]}]}"
     );
 }
 
@@ -212,15 +214,15 @@ fn a_key_of_the_default_takes_the_value_of_the_file_in_its_place() {
         "{ \"MD013\": { \"line_length\": 100 } }",
     )]);
     let mut default = default_rules("{ \"MD001\": true, \"MD013\": false }");
-    default.insert("MD003".to_owned(), serde_json::Value::Bool(true));
+    default.push(("MD003".to_owned(), serde_json::Value::Bool(true)));
 
     let laid = handed.rules_for(&default, "a.md");
 
     assert_eq!(
         laid.iter().map(|(key, _)| key.as_str()).collect::<Vec<_>>(),
-        ["MD001", "MD003", "MD013"]
+        ["MD001", "MD013", "MD003"]
     );
-    assert_eq!(laid[2].1, serde_json::json!({ "line_length": 100 }));
+    assert_eq!(laid[1].1, serde_json::json!({ "line_length": 100 }));
 }
 
 #[test]
@@ -235,7 +237,7 @@ fn the_options_that_are_data_are_handed_over() {
     assert_eq!(handed.front_matter.as_deref(), Some("^---$"));
     assert!(handed.no_inline_config);
     assert_eq!(
-        handed.job(&serde_json::Map::new(), &[]),
+        handed.job(&[], &[]),
         "{\"frontMatter\":\"^---$\",\"noInlineConfig\":true,\"groups\":[]}"
     );
 }
@@ -272,11 +274,11 @@ fn every_key_that_is_not_handed_over_is_named_and_the_rest_is_handed_over() {
     let code = "which would be loaded and run, and the Markdown check runs no code of the \
                 repository";
     let expected: Vec<String> = [
-        "`config.MD999` is no rule, alias or tag of markdownlint 0.41.1, so it is not handed to \
-         markdownlint"
-            .to_owned(),
         "`config.extends` is not handed to markdownlint: it names another file of configuration, \
          and the tool reads one file"
+            .to_owned(),
+        "`config.MD999` is no rule, alias or tag of markdownlint 0.41.1, so it is not handed to \
+         markdownlint"
             .to_owned(),
         format!("`customRules` is not handed to markdownlint: it names modules of rules, {code}"),
         "`fix` is not handed to markdownlint: it makes markdownlint write the files it lints, and \
@@ -332,7 +334,14 @@ fn every_key_that_is_not_handed_over_is_named_and_the_rest_is_handed_over() {
     rest.remove(unreadable);
     assert_eq!(rest, expected);
     // What is not named is handed over.
-    assert_eq!(handed.rules.keys().collect::<Vec<_>>(), ["MD041"]);
+    assert_eq!(
+        handed
+            .rules
+            .iter()
+            .map(|(key, _)| key.as_str())
+            .collect::<Vec<_>>(),
+        ["MD041"]
+    );
     assert_eq!(handed.overrides.len(), 1);
     assert_eq!(handed.overrides[0].filter, ["b/**"]);
 }
@@ -348,6 +357,11 @@ fn a_file_that_holds_no_configuration_hands_nothing_over() {
         (
             ".markdownlint.json",
             "{",
+            "cannot be read, so nothing of it is handed to markdownlint: ",
+        ),
+        (
+            ".markdownlint.json",
+            "{ \"MD044\": { \"names\": [\"a\", } }",
             "cannot be read, so nothing of it is handed to markdownlint: ",
         ),
         (
@@ -436,4 +450,185 @@ fn check_fails_on_a_file_that_is_not_read() {
         text.contains("error[unread-configuration] at docs/.markdownlint.json: not read: "),
         "{text}"
     );
+}
+
+/// The keys that cover `MD025`: its names and its one tag, as markdownlint
+/// 0.41.1 gives them.
+const MD025: &[&str] = &["md025", "single-title", "single-h1", "headings"];
+
+/// Whether `MD025` is on under these rules, as markdownlint 0.41.1 resolves
+/// them: the last key that covers the rule counts.
+fn md025_holds(rules: &Rules) -> bool {
+    rules
+        .iter()
+        .rev()
+        .find(|(key, _)| MD025.contains(&key.to_lowercase().as_str()))
+        .is_some_and(|(_, value)| value != &Value::Bool(false))
+}
+
+fn keys(rules: &Rules) -> Vec<&str> {
+    rules.iter().map(|(key, _)| key.as_str()).collect()
+}
+
+#[test]
+fn a_rule_and_its_tag_count_in_the_order_they_are_written() {
+    // Each pair is written against its sorted order, so a reader that sorted
+    // the keys would turn the outcome around. markdownlint 0.41.1 holds
+    // `MD025` after `headings: false, MD025: true` and not after
+    // `single-title: true, headings: false`.
+    let tag_then_rule = [
+        (
+            ".markdownlint.jsonc",
+            "{ \"headings\": false, \"MD025\": true }",
+        ),
+        (
+            ".markdownlint-cli2.jsonc",
+            "{ \"config\": { \"headings\": false, \"MD025\": true } }",
+        ),
+        (".markdownlint.yaml", "headings: false\nMD025: true\n"),
+        (
+            ".markdownlint-cli2.yaml",
+            "config:\n  headings: false\n  MD025: true\n",
+        ),
+    ];
+    let rule_then_tag = [
+        (
+            ".markdownlint.json",
+            "{ \"single-title\": true, \"headings\": false }",
+        ),
+        (
+            ".markdownlint-cli2.jsonc",
+            "{ \"config\": { \"single-title\": true, \"headings\": false } }",
+        ),
+        (".markdownlint.yml", "single-title: true\nheadings: false\n"),
+        (
+            ".markdownlint-cli2.yaml",
+            "config:\n  single-title: true\n  headings: false\n",
+        ),
+    ];
+    let default = default_rules(MARKDOWNLINT);
+    for (pairs, order, holds) in [
+        (tag_then_rule, ["MD013", "headings", "MD025"], true),
+        (rule_then_tag, ["MD013", "single-title", "headings"], false),
+    ] {
+        for (file, source) in pairs {
+            let (handed, problems) = handed(&[(file, source)]);
+            assert!(problems.is_empty(), "{file}: {problems:?}");
+
+            let laid = handed.rules_for(&default, "README.md");
+
+            assert_eq!(keys(&laid), order, "{file}");
+            assert_eq!(md025_holds(&laid), holds, "{file}");
+            assert!(
+                handed
+                    .job(&default, &["README.md".to_owned()])
+                    .contains(&format!(
+                        "{{\"config\":{{\"MD013\":false,\"{}\":{},\"{}\":{}}}",
+                        order[1], !holds, order[2], holds
+                    )),
+                "{file}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_layers_keep_the_order_markdownlint_cli2_gave_them() {
+    // JavaScript's spread, as markdownlint-cli2 lays an entry of `overrides`
+    // over the file's rules: a key already there takes the new value in its
+    // place, a new key comes last.
+    let (handed, problems) = handed(&[(
+        ".markdownlint-cli2.yaml",
+        "config:\n  MD025: true\n  headings: false\noverrides:\n\
+         - filter: [docs/**]\n  combine: merge\n  config:\n    MD025: true\n\
+         - filter: [notes/**]\n  combine: merge\n  config:\n    single-h1: true\n\
+         - filter: [drafts/**]\n  combine: replace\n  config:\n    headings: false\n    \
+         MD025: true\n",
+    )]);
+    assert!(problems.is_empty(), "{problems:?}");
+    let default = default_rules(MARKDOWNLINT);
+
+    for (file, order, holds) in [
+        ("README.md", &["MD013", "MD025", "headings"][..], false),
+        ("docs/a.md", &["MD013", "MD025", "headings"][..], false),
+        (
+            "notes/a.md",
+            &["MD013", "MD025", "headings", "single-h1"][..],
+            true,
+        ),
+        ("drafts/a.md", &["MD013", "headings", "MD025"][..], true),
+    ] {
+        let laid = handed.rules_for(&default, file);
+
+        assert_eq!(keys(&laid), order, "{file}");
+        assert_eq!(md025_holds(&laid), holds, "{file}");
+    }
+}
+
+#[test]
+fn a_key_written_twice_keeps_its_first_place_and_its_last_value() {
+    // As JavaScript reads such a file: `MD025` stays after `headings`.
+    let (handed, problems) = handed(&[(
+        ".markdownlint.jsonc",
+        "{ \"MD025\": false, \"headings\": false, \"MD025\": true }",
+    )]);
+    assert!(problems.is_empty(), "{problems:?}");
+
+    assert_eq!(keys(&handed.rules), ["MD025", "headings"]);
+    assert!(!md025_holds(&handed.rules));
+}
+
+#[test]
+fn the_value_of_a_rule_is_handed_over_as_written() {
+    for (file, source) in [
+        (
+            ".markdownlint.jsonc",
+            "{ \"MD044\": { \"names\": [\"Node\\u002ejs\"], \"code_blocks\": false,\n\
+               \"small\": -1, \"large\": 18446744073709551615, \"ratio\": 1.5,\n\
+               \"none\": null } }",
+        ),
+        (
+            ".markdownlint.yaml",
+            "MD044:\n  names: [Node.js]\n  code_blocks: false\n  small: -1\n  large: \
+             18446744073709551615\n  ratio: 1.5\n  none: null\n",
+        ),
+    ] {
+        let (handed, problems) = handed(&[(file, source)]);
+        assert!(problems.is_empty(), "{file}: {problems:?}");
+
+        let (key, value) = &handed.rules[0];
+        assert_eq!(key, "MD044");
+        assert_eq!(value["names"], json!(["Node.js"]), "{file}");
+        assert_eq!(value["code_blocks"], json!(false), "{file}");
+        assert_eq!(value["small"], json!(-1), "{file}");
+        assert_eq!(value["ratio"], json!(1.5), "{file}");
+        assert_eq!(value["none"], Value::Null, "{file}");
+        assert!(value["large"] != Value::Null, "{file}");
+    }
+}
+
+#[test]
+fn a_file_of_yaml_that_does_not_read_or_has_a_key_that_is_no_text_is_named() {
+    let (_, problems) = handed(&[(".markdownlint.yaml", "MD041: [\n")]);
+    assert!(
+        messages(&problems)[0]
+            .starts_with(".markdownlint.yaml: cannot be read, so nothing of it is handed"),
+        "{problems:?}"
+    );
+
+    let (handed, problems) = handed(&[(".markdownlint.yaml", "1: true\nMD041: false\n")]);
+    assert_eq!(keys(&handed.rules), ["MD041"]);
+    assert!(
+        messages(&problems)[0].starts_with(".markdownlint.yaml: `1` is no rule, alias or tag"),
+        "{problems:?}"
+    );
+}
+
+#[test]
+fn only_a_value_of_json_reads_as_a_written_value() {
+    let bytes = serde::de::value::BytesDeserializer::<serde::de::value::Error>::new(b"x");
+
+    let error = Written::deserialize(bytes).expect_err("bytes are no value of JSON");
+
+    assert!(error.to_string().contains("a value of JSON"), "{error}");
 }

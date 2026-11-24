@@ -31,18 +31,24 @@
 //! each file ([`Handed::rules_for`]) and hands the files in groups of the
 //! same rules ([`Handed::job`]).
 //!
-//! The rules are laid as markdownlint-cli2 lays them, key by key: a key of the
-//! file takes the value of the same key beneath it, and a new key comes after
-//! those beneath. markdownlint reads a configuration's keys in order, so where
-//! two keys cover the same rule, such as a tag and one of its rules, the later
-//! one counts. The tool reads the keys of one file in sorted order, not in the
-//! order they are written, so a file that names a rule twice, once by a tag
-//! and once by its name, can count differently than an editor reads it.
+//! markdownlint reads a configuration's keys in order, so where two keys
+//! cover the same rule, such as a tag and one of its rules, the later one
+//! counts. The tool therefore keeps the keys of the rules in the order the
+//! file writes them, in JSONC as in YAML ([`super::Written`]), and hands them
+//! on in that order ([`Rules`]). The rules are laid as markdownlint-cli2 laid
+//! them, with JavaScript's spread of one object over another, key by key: a
+//! key of the file takes the value of the same key beneath it, in that key's
+//! place, and a new key comes after those beneath, in the order written. So
+//! the rules of a file are the default's keys in their order, then the
+//! file's, then those of the entry of `overrides` that counts for it, and
+//! markdownlint resolves them as it would resolve the same layers in
+//! markdownlint-cli2. Within the value of one rule the order of the keys
+//! carries no meaning, since markdownlint looks each option up by name.
 
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
-use serde_json::{Map, Value};
+use serde_json::Value;
 
-use super::locate;
+use super::{Written, locate};
 use crate::ignored::Read;
 use crate::names::ProgramName;
 use crate::path::RelativePath;
@@ -113,6 +119,10 @@ pub const REFUSED: &[(&str, &str)] = &[
 /// What `extends` in the rules would make markdownlint do.
 const EXTENDS: &str = "names another file of configuration, and the tool reads one file";
 
+/// Rules, each key with its value, in the order they are written: the order
+/// counts where two keys cover the same rule.
+pub type Rules = Vec<(String, Value)>;
+
 /// How the rules of an entry of `overrides` are laid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Combine {
@@ -127,8 +137,8 @@ pub enum Combine {
 pub struct Override {
     /// Its patterns, as written.
     pub filter: Vec<String>,
-    /// Its rules.
-    pub rules: Map<String, Value>,
+    /// Its rules, in the order written.
+    pub rules: Rules,
     /// How its rules are laid.
     pub combine: Combine,
     /// The patterns, built, a leading `!` taken off.
@@ -158,8 +168,8 @@ pub struct Handed {
     /// The file it was read from; [`None`] where the repository has none, or
     /// its file holds no mapping.
     pub file: Option<RelativePath>,
-    /// The rules of the file.
-    pub rules: Map<String, Value>,
+    /// The rules of the file, in the order written.
+    pub rules: Rules,
     /// The differences by pattern, in their order.
     pub overrides: Vec<Override>,
     /// The pattern of the front matter markdownlint skips, where the file
@@ -185,11 +195,8 @@ impl Handed {
     /// then those of the first entry of `overrides` that matches the file,
     /// laid over the file's or, for `replace`, over the default's alone.
     #[must_use]
-    pub fn rules_for(&self, default: &Map<String, Value>, file: &str) -> Vec<(String, Value)> {
-        let mut laid: Vec<(String, Value)> = default
-            .iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect();
+    pub fn rules_for(&self, default: &[(String, Value)], file: &str) -> Rules {
+        let mut laid = default.to_vec();
         let entry = self.overrides.iter().find(|entry| entry.matches(file));
         if entry.is_none_or(|entry| entry.combine == Combine::Merge) {
             lay(&mut laid, &self.rules);
@@ -204,7 +211,7 @@ impl Handed {
     /// in groups of the same rules, each group with its rules, and the two
     /// options.
     #[must_use]
-    pub fn job(&self, default: &Map<String, Value>, files: &[String]) -> String {
+    pub fn job(&self, default: &[(String, Value)], files: &[String]) -> String {
         let mut groups: Vec<(String, Vec<&str>)> = Vec::new();
         for file in files {
             let config = object(&self.rules_for(default, file));
@@ -230,20 +237,24 @@ impl Handed {
     }
 }
 
-/// The rules of the pipeline's default, from its text; an empty set where it
-/// does not read, which the rules report names. The default compiled into
-/// the tool reads: a test holds it to that.
+/// The rules of the pipeline's default, from its text, in the order written;
+/// an empty set where it does not read, which the rules report names. The
+/// default compiled into the tool reads: a test holds it to that.
 #[must_use]
-pub fn default_rules(text: &str) -> Map<String, Value> {
-    match rules::parse(rules::Format::Jsonc, text) {
-        Ok(Value::Object(rules)) => rules,
-        _ => Map::new(),
+pub fn default_rules(text: &str) -> Rules {
+    match super::parse(rules::Format::Jsonc, text) {
+        Ok(Written::Mapping(rules)) => rules
+            .into_iter()
+            .map(|(key, value)| (key, value.into_value()))
+            .collect(),
+        _ => Rules::new(),
     }
 }
 
-/// Lays rules over others, key by key, as markdownlint-cli2 does: a key
-/// written beneath takes the new value in its place, a new key comes last.
-fn lay(laid: &mut Vec<(String, Value)>, over: &Map<String, Value>) {
+/// Lays rules over others, key by key, as markdownlint-cli2 does with
+/// JavaScript's spread: a key written beneath takes the new value in its
+/// place, a new key comes last, in the order written.
+fn lay(laid: &mut Rules, over: &[(String, Value)]) {
     for (key, value) in over {
         match laid.iter_mut().find(|(beneath, _)| beneath == key) {
             Some(slot) => slot.1 = value.clone(),
@@ -316,9 +327,9 @@ pub fn read(
         version: &program.version,
         problems: Vec::new(),
     };
-    let value = read(file).and_then(|source| rules::parse(rules::format(file), &source));
+    let value = read(file).and_then(|source| super::parse(rules::format(file), &source));
     match value {
-        Ok(Value::Object(top)) => {
+        Ok(Written::Mapping(top)) => {
             handed.file = Some(file.clone());
             if file
                 .file_name()
@@ -326,12 +337,12 @@ pub fn read(
             {
                 options(&mut found, &mut handed, top);
             } else {
-                handed.rules = found.rules(Value::Object(top), "");
+                handed.rules = found.rules(Written::Mapping(top), "");
             }
         }
         // An empty file of YAML holds nothing, and so lays nothing over the
         // default.
-        Ok(Value::Null) => handed.file = Some(file.clone()),
+        Ok(Written::Scalar(Value::Null)) => handed.file = Some(file.clone()),
         Ok(_) => found.problem("holds no mapping, so nothing of it is handed to markdownlint"),
         Err(error) => found.problem(&format!(
             "cannot be read, so nothing of it is handed to markdownlint: {error}"
@@ -362,17 +373,18 @@ impl Found<'_> {
         ));
     }
 
-    /// The rules of a value, each key checked; `at` is where it stands, such
-    /// as `config.`, in front of every key a problem names.
-    fn rules(&mut self, value: Value, at: &str) -> Map<String, Value> {
-        let Value::Object(written) = value else {
+    /// The rules of a value, each key checked, in the order written; `at` is
+    /// where it stands, such as `config.`, in front of every key a problem
+    /// names.
+    fn rules(&mut self, value: Written, at: &str) -> Rules {
+        let Written::Mapping(written) = value else {
             let at = at.trim_end_matches('.');
             self.problem(&format!(
                 "`{at}` is not a mapping of rules, so it is not handed to markdownlint"
             ));
-            return Map::new();
+            return Rules::new();
         };
-        let mut rules = Map::new();
+        let mut rules = Rules::new();
         for (key, value) in written {
             if key == "$schema" {
                 continue;
@@ -382,7 +394,7 @@ impl Found<'_> {
                     "`{at}extends` is not handed to markdownlint: it {EXTENDS}"
                 ));
             } else if key.eq_ignore_ascii_case("default") || !rules::covered(&key).is_empty() {
-                rules.insert(key, value);
+                rules.push((key, value.into_value()));
             } else {
                 self.problem(&format!(
                     "`{at}{key}` is no rule, alias or tag of markdownlint {}, so it is not handed \
@@ -396,18 +408,18 @@ impl Found<'_> {
 
     /// An entry of `overrides`, or [`None`] where it cannot be used, which is
     /// a problem.
-    fn entry(&mut self, index: usize, value: Value) -> Option<Override> {
+    fn entry(&mut self, index: usize, value: Written) -> Option<Override> {
         let at = format!("overrides[{index}]");
-        let Value::Object(mut entry) = value else {
+        let Written::Mapping(mut entry) = value else {
             self.problem(&format!(
                 "`{at}` is not a mapping, so it is not handed to markdownlint"
             ));
             return None;
         };
-        let filter = entry.remove("filter");
-        let config = entry.remove("config");
-        let combine = entry.remove("combine");
-        for key in entry.keys() {
+        let filter = Written::take(&mut entry, "filter");
+        let config = Written::take(&mut entry, "config");
+        let combine = Written::take(&mut entry, "combine");
+        for (key, _) in &entry {
             self.unknown(&format!("{at}.{key}"));
         }
         let missing = [
@@ -426,8 +438,15 @@ impl Found<'_> {
             ));
             return None;
         }
-        let rules = self.rules(config.unwrap_or_default(), &format!("{at}.config."));
-        let combine = match combine.unwrap_or_default().as_str() {
+        let rules = self.rules(
+            config.unwrap_or(Written::Scalar(Value::Null)),
+            &format!("{at}.config."),
+        );
+        let combine = match combine
+            .map(Written::into_value)
+            .unwrap_or_default()
+            .as_str()
+        {
             Some("merge") => Combine::Merge,
             Some("replace") => Combine::Replace,
             _ => {
@@ -438,7 +457,7 @@ impl Found<'_> {
                 return None;
             }
         };
-        let filter = match patterns(&filter.unwrap_or_default()) {
+        let filter = match patterns(&filter.map(Written::into_value).unwrap_or_default()) {
             Ok(filter) => filter,
             Err(reason) => {
                 self.problem(&format!(
@@ -456,25 +475,25 @@ impl Found<'_> {
 }
 
 /// The keys of an options file of markdownlint-cli2.
-fn options(found: &mut Found<'_>, handed: &mut Handed, top: Map<String, Value>) {
+fn options(found: &mut Found<'_>, handed: &mut Handed, top: Vec<(String, Written)>) {
     for (key, value) in top {
         match key.as_str() {
             "config" => handed.rules = found.rules(value, "config."),
             "frontMatter" => match value {
-                Value::String(pattern) => handed.front_matter = Some(pattern),
+                Written::Scalar(Value::String(pattern)) => handed.front_matter = Some(pattern),
                 _ => {
                     found.problem("`frontMatter` is not text, so it is not handed to markdownlint");
                 }
             },
             "noInlineConfig" => match value {
-                Value::Bool(flag) => handed.no_inline_config = flag,
+                Written::Scalar(Value::Bool(flag)) => handed.no_inline_config = flag,
                 _ => found.problem(
                     "`noInlineConfig` is neither true nor false, so it is not handed to \
                      markdownlint",
                 ),
             },
             "overrides" => match value {
-                Value::Array(entries) => {
+                Written::List(entries) => {
                     handed.overrides = entries
                         .into_iter()
                         .enumerate()
@@ -524,7 +543,7 @@ fn patterns(value: &Value) -> Result<Override, String> {
     }
     set.build().map_err(unreadable).map(|set| Override {
         filter: written,
-        rules: Map::new(),
+        rules: Rules::new(),
         combine: Combine::Merge,
         set,
         negated,

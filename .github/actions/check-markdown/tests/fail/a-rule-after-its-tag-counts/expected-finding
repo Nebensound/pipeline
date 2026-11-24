@@ -1,0 +1,2 @@
+# The rule written after its tag counts: a second top-level heading fails.
+::error file=README.md,line=5*::MD025/single-title*

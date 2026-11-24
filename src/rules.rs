@@ -57,8 +57,8 @@ use yaml_rust2::scanner::{Marker, TScalarStyle};
 use yaml_rust2::{Event, Yaml, YamlLoader};
 
 use crate::ignored::{Read, folder};
-use crate::linter_config;
-use crate::linter_config::markdownlint::{Combine, Handed, Problem};
+use crate::linter_config::markdownlint::{Combine, Handed, Problem, Rules};
+use crate::linter_config::{self, Written};
 use crate::register::Register;
 use crate::report::{column, shown};
 
@@ -276,7 +276,7 @@ impl Program {
     /// The rules of its default, read from the text.
     fn default(self, text: &str) -> Result<Config, String> {
         match self {
-            Self::Markdownlint => config(parse(Format::Jsonc, text)?),
+            Self::Markdownlint => config(linter_config::parse(Format::Jsonc, text)?),
             Self::Yamllint => yamllint(text),
             Self::Stylelint => rules_of(parse(Format::Yaml, text)?),
             Self::HtmlValidate => rules_of(parse(Format::Jsonc, text)?),
@@ -293,7 +293,7 @@ impl Program {
             Self::Markdownlint => {
                 let rules = covered(rule);
                 let defaults: Vec<Option<&Value>> = if rules.is_empty() {
-                    vec![default.rules.get(rule)]
+                    vec![get(&default.rules, rule)]
                 } else {
                     rules
                         .iter()
@@ -307,7 +307,7 @@ impl Program {
             }
             // yamllint lays the options of a rule over those of the rule
             // beneath, where both are on.
-            Self::Yamllint => standing(default.rules.get(rule), |under| {
+            Self::Yamllint => standing(get(&default.rules, rule), |under| {
                 let base = enabled(under);
                 let over = match (enabled(value), base.clone()) {
                     (Value::Object(own), Value::Object(mut under)) => {
@@ -320,7 +320,7 @@ impl Program {
             }),
             // Both take a rule's value as a whole.
             Self::Stylelint | Self::HtmlValidate => {
-                standing(default.rules.get(rule), |under| value == under)
+                standing(get(&default.rules, rule), |under| value == under)
             }
         }
     }
@@ -357,12 +357,20 @@ pub(crate) fn covered(key: &str) -> Vec<&'static str> {
         .collect()
 }
 
+/// The value of a rule, by the key it is written under.
+fn get<'a>(rules: &'a [(String, Value)], rule: &str) -> Option<&'a Value> {
+    rules
+        .iter()
+        .find(|(key, _)| key == rule)
+        .map(|(_, value)| value)
+}
+
 /// What the default gives one rule of Markdownlint: the value of a key that
-/// covers it, or else the value of its `default`, which stands for every rule
-/// it does not name. The pipeline's file names each rule once; where several
-/// keys cover it, the one sorted last is taken, as the keys are read in
-/// sorted order.
-fn markdownlint_default<'a>(rules: &'a Map<String, Value>, rule: &str) -> Option<&'a Value> {
+/// covers it, or else the value of its first `default`, which stands for
+/// every rule it does not name. Where several keys cover the rule, the one
+/// written last is taken, as Markdownlint reads the keys in the order
+/// written.
+fn markdownlint_default<'a>(rules: &'a [(String, Value)], rule: &str) -> Option<&'a Value> {
     rules
         .iter()
         .rev()
@@ -412,8 +420,9 @@ enum Stand {
 struct Config {
     /// What its `extends` names.
     extends: Option<String>,
-    /// Its rules, each with its value.
-    rules: Map<String, Value>,
+    /// Its rules, each with its value: Markdownlint's in the order written,
+    /// the others' sorted, since none of them reads two keys for one rule.
+    rules: Rules,
 }
 
 /// How a file is written, told by its name.
@@ -505,7 +514,7 @@ fn parse_yaml_1_1(source: &str) -> Result<Value, String> {
 
 /// A YAML value as the JSON value it stands for. A key that is not text is
 /// written out as YAML would show it.
-fn json(yaml: &Yaml) -> Value {
+pub(crate) fn json(yaml: &Yaml) -> Value {
     match yaml {
         Yaml::Hash(hash) => Value::Object(
             hash.iter()
@@ -542,13 +551,17 @@ fn extends(value: Option<Value>) -> Result<Option<String>, String> {
 }
 
 /// Rules in the form Markdownlint reads them: a mapping from rule to value,
-/// beside `extends` and the editor's `$schema`.
-fn config(value: Value) -> Result<Config, String> {
-    let Value::Object(mut rules) = value else {
+/// in the order written, beside `extends` and the editor's `$schema`.
+fn config(value: Written) -> Result<Config, String> {
+    let Written::Mapping(mut rules) = value else {
         return Err(NO_MAPPING.to_owned());
     };
-    rules.remove("$schema");
-    let extends = extends(rules.remove("extends"))?;
+    Written::take(&mut rules, "$schema");
+    let extends = extends(Written::take(&mut rules, "extends").map(Written::into_value))?;
+    let rules = rules
+        .into_iter()
+        .map(|(key, value)| (key, value.into_value()))
+        .collect();
     Ok(Config { extends, rules })
 }
 
@@ -574,8 +587,8 @@ fn rules_of(value: Value) -> Result<Config, String> {
         Some(_) => return Err("`extends` is neither text nor a list of text".to_owned()),
     };
     let rules = match top.remove("rules") {
-        None => Map::new(),
-        Some(Value::Object(rules)) => rules,
+        None => Rules::new(),
+        Some(Value::Object(rules)) => rules.into_iter().collect(),
         Some(_) => return Err("`rules` is not a mapping".to_owned()),
     };
     Ok(Config { extends, rules })
@@ -588,8 +601,8 @@ fn yamllint(source: &str) -> Result<Config, String> {
     };
     let extends = extends(top.remove("extends"))?;
     let rules = match top.remove("rules") {
-        None => Map::new(),
-        Some(Value::Object(rules)) => rules,
+        None => Rules::new(),
+        Some(Value::Object(rules)) => rules.into_iter().collect(),
         Some(_) => return Err("`rules` is not a mapping".to_owned()),
     };
     Ok(Config { extends, rules })
@@ -872,7 +885,7 @@ fn section(program: Program, default: &str, layers: &[Layer], read: &Read<'_>) -
 }
 
 /// One line for every rule, with how it stands to the default.
-fn rule_lines(program: Program, rules: &Map<String, Value>, default: &Config) -> Vec<String> {
+fn rule_lines(program: Program, rules: &[(String, Value)], default: &Config) -> Vec<String> {
     rules
         .iter()
         .map(|(rule, value)| {
@@ -922,7 +935,7 @@ pub fn markdownlint(default: &str, handed: &Handed, problems: &[Problem]) -> Vec
                 "{head}Markdownlint: the default, with these laid over it"
             ));
             let file = column(6, &shown(&file.to_string()));
-            let mut layer = |place: String, rules: &Map<String, Value>| {
+            let mut layer = |place: String, rules: &[(String, Value)]| {
                 if rules.is_empty() {
                     lines.push(format!("{file}{place}; it names no rule"));
                 } else {
