@@ -79,14 +79,33 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+        exclude-patterns: [Nebensound/pipeline/.github/workflows/nebensound.yml]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci(deps)
   - package-ecosystem: uv
     directory: /
     schedule:
       interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
   - package-ecosystem: docker
     directory: /deploy
     schedule:
       interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: docker(deps)
 ",
     ),
     (".github/workflows/gate.yml", CALLER),
