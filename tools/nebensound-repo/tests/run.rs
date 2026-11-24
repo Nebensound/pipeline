@@ -560,6 +560,7 @@ fn every_kind_of_json_finding_is_reported() {
         &text,
         "::warning file=noted.jsonc::Biome: a note%0Aon two lines",
     );
+    assert!(!text.contains("::notice"), "{text}");
     let (code, text) = fixture.run(Check::Json, &files, true);
     assert_eq!(code, 1, "{text}");
     for line in [
@@ -567,8 +568,6 @@ fn every_kind_of_json_finding_is_reported() {
          key-value pair at line 1, column 22",
         "::error file=two.json::not valid JSON: the file holds 2 values, a JSON document is \
          exactly one",
-        "::error title=parse,file=quoted.jsonc,line=1,endLine=1,col=3,endColumn=9::JSON standard \
-         does not allow single quoted strings",
         "::error file=quoted.jsonc,line=1,col=3::Biome parse: JSON standard does not allow single \
          quoted strings",
         "[warn] unformatted.json",
@@ -580,10 +579,13 @@ fn every_kind_of_json_finding_is_reported() {
     }
     // Not a file: no finding on it.
     assert!(!text.contains("::error file=Code style"), "{text}");
+    // Biome's own line is read as a finding and not printed as well.
+    assert!(!text.contains("title=parse"), "{text}");
 
     // Elsewhere a finding reads as a line that starts with its place.
     let (code, text) = fixture.run(Check::Json, &files, false);
     assert_eq!(code, 1, "{text}");
+    assert!(!text.contains("::error"), "{text}");
     has(
         &text,
         "two.json: error: not valid JSON: the file holds 2 values, a JSON document is exactly one",

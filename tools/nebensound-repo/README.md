@@ -790,9 +790,10 @@ program it starts is given and which the runner masks in the log. An
 annotation waits until the tool writes its next other command, such as the
 end of a group, or until the call ends, so that what a program printed stands
 as one stretch and its findings follow it. No program's own annotation is
-passed through: the tool reads Biome's findings off its `github` format, and
-the scripts it runs for Stylelint, html-validate and yamllint hand theirs over
-as data, one JSON object per line of a file, which the tool writes. This holds
+passed through: the tool reads Biome's findings off its `github` format in
+place of printing those lines, and the scripts it runs for Stylelint,
+html-validate and yamllint hand theirs over as data, one JSON object per line
+of a file, which the tool writes. This holds
 for every call in a workflow run, so `plan`, `files` and the other calls that
 print data print it inside such a stretch there too. Outside a workflow run
 nothing is a command, and text goes out as it is. Prettier names

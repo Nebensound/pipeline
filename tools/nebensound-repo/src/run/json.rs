@@ -118,11 +118,18 @@ fn commented(
     let ran = session.over(biome, &args, &commented, "Biome");
     let root = format!("{}/", session.context.root.display());
     let text = ran.text.replace(&root, "");
-    session.log.lines(&text);
+    // A line the tool writes as a finding of its own is not printed as well.
+    let mut found = Vec::new();
+    for line in text.lines() {
+        match biome_finding(line) {
+            Some(finding) => found.push(finding),
+            None => session.log.line(line),
+        }
+    }
     session
         .log
         .line(&format!("{} .jsonc file(s) parsed.", commented.len()));
-    for (level, file, position, message) in text.lines().filter_map(biome_finding) {
+    for (level, file, position, message) in found {
         let position = position
             .as_ref()
             .map(|(line, column)| (line.as_str(), column.as_deref()));
