@@ -574,7 +574,7 @@ fn json_is_judged_as_strictly_as_before() {
         // What jq took and RFC 8259 does not: the names of numbers that are
         // none. They are findings now.
         ("[NaN]", "not valid JSON: expected value"),
-        ("nan", "not valid JSON: expected value"),
+        ("nan", "not valid JSON: expected ident"),
         ("[Infinity]", "not valid JSON: expected value"),
     ] {
         assert_eq!(strict(text).as_deref(), Some(expected), "{text:?}");
