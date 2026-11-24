@@ -61,9 +61,14 @@ default-features = false
 features         = ["derive", "std"]
 optional         = true
 
-# Version 9 adds nix, zeroize and getrandom, with no feature to leave them out.
+# Version 8 has advisories against the extraction `setup` calls, and their
+# fixes came with 9.0.0 and 9.0.5; the requirement starts at the version the
+# lock was checked with. Version 9 adds zeroize and getrandom, and nix on macOS
+# and the BSDs, with no feature to leave them out. zip is built on every
+# platform and not only for Windows, because the Python check reads every wheel
+# with it.
 [dependencies.zip]
-version          = "8"
+version          = "9.8.2"
 default-features = false
 features         = ["deflate-flate2"]
 optional         = true
