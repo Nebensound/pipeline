@@ -88,8 +88,9 @@ not read by name, and hands the linter what it wrote (see
 that, and so does the link check, whose lychee gets only the configuration the
 tool writes from the keys of `lychee.toml` it knows. The other linters (Prettier,
 Stylelint, yamllint, html-validate, Hadolint, actionlint, the Dockerfile
-formatter and Ruff) still read the repository's configuration themselves, and
-some of their ways load code (see
+formatter, Ruff, Taplo's formatter and Pyright) still read the repository's
+configuration themselves or follow a file it names, and some of their ways load
+code (see
 [What does not hold yet](docs/principles.md#what-does-not-hold-yet)). uv is
 pinned in the register; rustup and Docker come from the machine, on GitHub
 Actions from the runner image.

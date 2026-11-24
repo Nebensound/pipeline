@@ -751,9 +751,10 @@ another file, such as `customRules` or `extends`, fails the check (see
 A file may also switch a rule of the default off or loosen it; the rules report
 shows every difference. markdownlint is the first linter under this rule, beside
 lychee, whose `lychee.toml` the tool reads key by key. The other linters still
-find and read the repository's configuration themselves: Prettier, Stylelint,
-yamllint, html-validate, Hadolint, actionlint, the Dockerfile formatter and Ruff
-(see [what does not hold yet](docs/principles.md#what-does-not-hold-yet)).
+find and read the repository's configuration themselves, or follow a file it
+names: Prettier, Stylelint, yamllint, html-validate, Hadolint, actionlint, the
+Dockerfile formatter, Ruff, Taplo's formatter and Pyright (see
+[what does not hold yet](docs/principles.md#what-does-not-hold-yet)).
 
 A repository that wants a comment to need no space after its `#` writes one
 option of one yamllint rule into `.yamllint.yaml` at its root:
