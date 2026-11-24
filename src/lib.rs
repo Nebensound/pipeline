@@ -282,12 +282,19 @@ pub enum Command {
     },
     /// Write the records of this commit's versions, as the release stage on
     /// `main` does after a push: for every unit the commit touches, a tag on
-    /// it and a full GitHub Release. Takes the repository, the token and the
-    /// summary of the run from the variables of a workflow run.
+    /// it and a full GitHub Release, with the archives of its build attached
+    /// where it publishes to release-assets. Takes the repository, the token
+    /// and the summary of the run from the variables of a workflow run.
     // It calls GitHub through curl, as `setup` downloads, so it is part of
     // the feature `program`.
     #[cfg(feature = "program")]
-    Release,
+    Release {
+        /// The folder the artifacts of the run's builds were fetched into,
+        /// each in a folder of its own named after it. Nothing in it is
+        /// started.
+        #[arg(long, value_name = "DIR")]
+        assets: Option<PathBuf>,
+    },
     /// Run phase 0 as the job Declare does, and hand on the plan, the units
     /// that run a check and the units that build as outputs of the step.
     /// Takes what the event says of the repository and its pull request from
@@ -761,9 +768,10 @@ enum Job {
         unit: RelativePath,
         plan: Option<PathBuf>,
     },
-    /// Write the records of this commit's versions.
+    /// Write the records of this commit's versions, with the artifacts of
+    /// the run's builds in this folder if one is given.
     #[cfg(feature = "program")]
-    Release,
+    Release(Option<PathBuf>),
     /// Run a build of a unit, with the versions of this plan if one is given.
     #[cfg(feature = "program")]
     Build {
@@ -834,7 +842,7 @@ fn call(cli: &Cli, variables: &dyn Fn(&str) -> Option<String>) -> Result<Call, F
             plan: plan.clone(),
         },
         #[cfg(feature = "program")]
-        Some(Command::Release) => Job::Release,
+        Some(Command::Release { assets }) => Job::Release(assets.clone()),
         #[cfg(feature = "program")]
         Some(Command::Build { plan, build, unit }) => Job::Build {
             build: build::Build::of(build).ok_or_else(|| Failure::NotBuilt {
@@ -1012,7 +1020,7 @@ fn refusal(job: &Job) -> Option<&'static str> {
         #[cfg(feature = "program")]
         Job::Run { .. } => "nothing is checked: phase 0 found errors, and `check` says which\n",
         #[cfg(feature = "program")]
-        Job::Release => "nothing is released: phase 0 found errors, and `check` says which\n",
+        Job::Release(_) => "nothing is released: phase 0 found errors, and `check` says which\n",
         #[cfg(feature = "program")]
         Job::Build { .. } => "nothing is built: phase 0 found errors, and `check` says which\n",
         _ => return None,
@@ -1098,7 +1106,9 @@ fn execute(context: &Execution<'_>, job: &Job, out: &mut Console<'_>) -> Result<
             return Ok(run_check(context.cli, &checked, *check, unit, out));
         }
         #[cfg(feature = "program")]
-        Job::Release => return release_stage(&repository, &analysis, out),
+        Job::Release(assets) => {
+            return release_stage(&repository, &analysis, &central, assets.as_deref(), out);
+        }
         #[cfg(feature = "program")]
         Job::Build { build, unit, plan } => {
             let orders = orders(plan.as_ref(), &analysis, &central)?;
@@ -1220,14 +1230,17 @@ fn run_check(
 }
 
 /// `release`: the release stage on the commit at hand, with the settings the
-/// variables of the workflow run give. Without them the call is wrong.
+/// variables of the workflow run give and the artifacts in `assets`. Without
+/// the variables the call is wrong.
 #[cfg(feature = "program")]
 fn release_stage(
     repository: &Repository,
     analysis: &Analysis,
+    central: &Central,
+    assets: Option<&std::path::Path>,
     out: &mut Console<'_>,
 ) -> Result<u8, Failure> {
-    let settings = match release::Settings::read(
+    let mut settings = match release::Settings::read(
         &|name| std::env::var(name).ok(),
         std::env::var_os("PATH").unwrap_or_default(),
     ) {
@@ -1237,8 +1250,16 @@ fn release_stage(
             return Ok(MISUSE);
         }
     };
+    settings.assets = assets.map(std::path::Path::to_path_buf);
     let records = repository.records()?;
-    Ok(release::run(&analysis.versions, &records, &settings, out))
+    let declared = release::assets::declared(analysis, central);
+    Ok(release::run(
+        &analysis.versions,
+        &declared,
+        &records,
+        &settings,
+        out,
+    ))
 }
 
 /// The search path of the programs a call starts: the `PATH` among the

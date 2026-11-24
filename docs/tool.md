@@ -52,14 +52,17 @@ the one the YAML check holds the Dependabot configuration against
 check, html-validate rules in JavaScript that stand in `src/run/html.rs` as
 text.
 
-The tool itself is not to be published: whoever needs it is to get it through
-the composite action under `.github/actions/tool`. A second distribution
-channel would be a second version that can fall behind.
+The tool is published to no registry. Each release of this repository carries
+its binary for the targets of the build `cargo-release` as assets, built from
+the commit of the release and printing its version, so it is the same tool in
+the same version, not a second one that can fall behind. The composite action
+under `.github/actions/tool` still builds the tool from the source of the
+commit a caller pins; fetching the binary of the release instead is #24.
 
 ## Calls
 
 ```text
-nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branch>] [--visibility <public|private|internal>] | tree | explain <path> | dependabot | plan [--pull-request <number> --message <message>] | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | run [--plan <file>] <check> <unit> | build [--plan <file>] <build> <unit> | excluded-packages | write-versions [--plan <file>] [--workspace <path>] | setup [--pinned] [--with-runtimes] [--check] [<check or build> ...] | declare | report-versions | unwritten <checks|build|writers|targets> … | gather <checks|builds> … | xtask | release | schema | register | ui]
+nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branch>] [--visibility <public|private|internal>] | tree | explain <path> | dependabot | plan [--pull-request <number> --message <message>] | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | run [--plan <file>] <check> <unit> | build [--plan <file>] <build> <unit> | excluded-packages | write-versions [--plan <file>] [--workspace <path>] | setup [--pinned] [--with-runtimes] [--check] [<check or build> ...] | declare | report-versions | unwritten <checks|build|writers|targets> … | gather <checks|builds> … | xtask | release [--assets <folder>] | schema | register | ui]
 ```
 
 | Call                | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -81,7 +84,7 @@ nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branc
 | `unwritten`         | Fails by name for every check, build, version writer or publish target the run asks for that has no building block yet, as the steps `Not written yet` do. See [The calls of a workflow run](#the-calls-of-a-workflow-run).                                                                                                                                                                                                                                                                                                                                      |
 | `gather`            | The one result of the checks or of the builds, from the results of the jobs the closing job `Check` or `Build` waits for. See [The calls of a workflow run](#the-calls-of-a-workflow-run).                                                                                                                                                                                                                                                                                                                                                                       |
 | `xtask`             | The repository's own checks, `cargo xtask check --all`, with the toolchain the xtask pins, as the last step of `Check repository`. See [The calls of a workflow run](#the-calls-of-a-workflow-run).                                                                                                                                                                                                                                                                                                                                                              |
-| `release`           | Writes the records of the versions of the commit at hand, as the job `Publish` does after a push to `main`: for every unit the commit touches, a tag on it and a full GitHub Release. Takes the repository, the token and the summary of the run from the variables of a workflow run. See [The release stage](#the-release-stage).                                                                                                                                                                                                                              |
+| `release`           | Writes the records of the versions of the commit at hand, as the job `Publish` does after a push to `main`: for every unit the commit touches, a tag on it and a full GitHub Release, with the archives its build handed on attached first where it publishes to `release-assets` (`--assets <folder>`). Takes the repository, the token and the summary of the run from the variables of a workflow run. See [The release stage](#the-release-stage).                                                                                                           |
 | `schema`            | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. The TOML check assigns the copy in `schemas/`, which `run` compiles in; [their README](../schemas/README.md#nebensound-declarationjson) says how to write that copy again.                                                                                                                                                                                                                                                                        |
 | `register`          | The register as Markdown, exactly as [`docs/register.md`](register.md) holds it, which a test compares with this output. Reads no repository.                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `ui`                | The same result to walk through. Only in a build with the `ui` feature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -325,10 +328,12 @@ the call with exit code `1` and the reason.
 
 ## The release stage
 
-`nebensound-repo release` is the release stage on `main`, all of it: the job
-`Publish` checks the repository out with its whole history, builds the tool,
-and makes this one call. It reads the version of every unit from the history,
-as phase 0 does, and every unit the commit at hand touches gets its records: a
+`nebensound-repo release [--assets <folder>]` is the release stage on `main`,
+all of it: the job `Publish` checks the repository out with its whole history,
+builds the tool, fetches the artifacts of the run's builds into a folder, each
+artifact in a folder of its own named after it, and makes this one call with
+that folder. It reads the version of every unit from the history, as phase 0
+does, and every unit the commit at hand touches gets its records: a
 lightweight tag on the commit, named with the unit's prefix and its version,
 and a GitHub Release of it, a full one. The release of the repository is the
 latest, a component's never is. A unit the commit does not touch gets nothing.
@@ -342,16 +347,46 @@ unit:
 2. A newer record of the unit, a tag with a higher version on a commit that
    contains the commit at hand, leaves the unit out with a sentence; the call
    stays green.
-3. For every other unit the tag, unless it stands on the commit already, and
-   the release as a draft titled `<unit> <version>` (the repository by its
+3. For every unit to release that publishes to `release-assets` and whose
+   build the plan starts, the artifacts in the folder are held against what
+   its release needs, and anything else stops the call with exit code `1`,
+   each named, before anything is written:
+   - every target the register lists for the build has its artifact, named as
+     the build names it, `<kind>-<path>@<version>@<commit>@<target>` (a build
+     without targets has one, without the last part);
+   - every artifact of the unit's build, one whose name starts with
+     `<kind>-<path>@`, belongs to the version released and to the commit at
+     hand, and is for a target of the build;
+   - each is a folder that holds exactly one plain file, a link not followed,
+     whose name names its target and holds no control character: the archive;
+   - no two archives carry the same name.
+
+   Artifacts of other units and of other kinds are passed over. Without
+   `--assets`, or with a folder that does not exist, nothing was handed on,
+   and every archive is missing. When the artifacts of a unit are refused,
+   the releases are read, still writing nothing: a release published already
+   takes no archive, so its refusal stops nothing, and a re-run after the
+   run's artifacts expired (the builds keep them for 7 days) leaves it as it
+   is. A draft left behind still needs them.
+
+4. For every unit to release the tag, unless it stands on the commit already,
+   and the release as a draft titled `<unit> <version>` (the repository by its
    name), with the notes GitHub generates against the previous record, the
    unit's tag with the highest version below on a commit the commit at hand
    contains. A first release carries the sentence "The first release of
    `<unit>`, so there is no earlier release to list the changes against."
    instead. A draft an earlier attempt left is taken up, and a release that is
    published already is left as it is.
-4. Here the publish targets will come, while the releases still take files.
-5. Every draft published, with `prerelease: false` and the mark of the latest
+5. The publish targets, while the releases are drafts that still take files:
+   the archives of `release-assets` attached to the unit's draft, each under
+   the name of its file. An asset of that name the draft holds with the same
+   SHA-256 is kept; one with another, or whose upload broke off, is deleted
+   and the archive uploaded again. An upload that GitHub does not hold under
+   that name, uploaded and with that digest, fails the call (an answer without
+   a digest as well), and so does any
+   call that fails here: no release is published then. Other assets of the
+   draft are left as they are.
+6. Every draft published, with `prerelease: false` and the mark of the latest
    release in the same call. A published release that is not immutable gets a
    warning.
 
@@ -368,7 +403,9 @@ errors release nothing.
 It talks to the API through curl, as `setup` downloads: the tool links no HTTP
 or TLS library. curl is called as `curl --disable --config -` and reads the
 whole request, the token's header among it, from its standard input, so the
-token stands on no command line a process list shows and in no log. A request
+token stands on no command line a process list shows and in no log. An archive
+is uploaded the same way, curl reading the file named in its configuration, to
+the address GitHub gives the draft for its assets (`upload_url`). A request
 may use HTTPS only. Every call is made once: a failed call fails the stage, and
 a re-run takes up what it left. Everything goes into the log, a finding as an
 annotation in a workflow run, and the summary of the run lists every unit with

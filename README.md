@@ -125,8 +125,10 @@ and has a version of the run, that is, one the commit touches
 (`nebensound / Build repository`, `nebensound / Build component <name>`), for a
 build with targets one per target with the target behind the name, and
 `nebensound / Build`, which sums the builds up. After a push to `main`,
-`nebensound / Publish` tags and releases every unit with a version of the run
-(see [the phases](docs/phases.md#publish)). A ruleset requires
+`nebensound / Publish` tags and releases every unit with a version of the run,
+and attaches the archives of its build to the release of a unit that publishes
+to `release-assets` before that release is published (see
+[the phases](docs/phases.md#publish)). A ruleset requires
 `nebensound / Version`, `nebensound / Check` and `nebensound / Build`. A check
 or a build the register knows but that has no building block yet fails by name
 in the step `Not written yet` of its unit's job, and a version writer or a
@@ -1091,7 +1093,9 @@ to pass phase 0, so the tool's own tests show that refusal instead.
   the build job exactly the builds (`WRITTEN_BUILDS`), the step
   `Version writers not written yet` exactly the version writers, and the step
   `Publish targets not written yet` exactly the publish targets, each under
-  the name of its block, the dots of a target turned into hyphens;
+  the name of its block, the dots of a target turned into hyphens, and beside
+  them `release-assets`, which the tool's release stage carries out itself in
+  `Publish` and which has no block;
 - every block has a passing and a failing case. A `.DS_Store` beside the cases
   is passed over: Git ignores it, so the gate never sees it;
 - every step of a block carries no other key than `name`, `id`, `shell`,
