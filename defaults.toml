@@ -2,7 +2,8 @@
 #
 # The same shape as any .nebensound/repo.toml, with one freedom more: here an
 # exclusion may be a pattern. Centrally, work may be excused; locally it may
-# only be added.
+# only be added. Beside it stands the Dependabot policy, which only this file
+# holds.
 
 # The base set. What every repository is required to hold has to be checked
 # everywhere as well. README and AGENTS bring Markdown, the workflows and issue
@@ -13,6 +14,40 @@
 [repo.pipeline]
 check      = ["markdown", "yaml", "json", "toml"]
 dependabot = ["github-actions"]
+
+# The Dependabot policy: how every ecosystem a declaration has watched is
+# watched, in every repository. Only the defaults hold this table; a
+# repository's declaration refuses it as an unknown key, so the policy is
+# written down once. `nebensound-repo dependabot` applies it to every entry it
+# prints, and phase 0 warns where a repository's file departs from it.
+#
+# Weekly; minor and patch updates together in one pull request per entry, a
+# major one alone; at most five open pull requests per entry. A security update
+# comes alone, as Dependabot does it without `applies-to`. No labels: with
+# `labels` set, Dependabot applies only labels that already exist; without it,
+# it applies its own (`dependencies` and one for the ecosystem) and creates
+# them where they are missing.
+[dependabot]
+interval                 = "weekly"
+open-pull-requests-limit = 5
+# Code dependencies: cargo, uv, pip, npm. None of the prefixes counts as `feat`.
+commit-prefix = "deps"
+
+[dependabot.group]
+name         = "minor-and-patch"
+update-types = ["minor", "patch"]
+
+# The base image.
+[dependabot.ecosystem.docker]
+commit-prefix = "docker(deps)"
+
+# The workflows and composite actions. The pin of the pipeline itself stays out
+# of the group, so that every raise of it is a pull request of its own: below
+# 1.0 a minor raise can be breaking. Dependabot names a reusable workflow by its
+# repository and the path of the workflow.
+[dependabot.ecosystem.github-actions]
+commit-prefix      = "ci(deps)"
+exclude-from-group = ["Nebensound/pipeline/.github/workflows/nebensound.yml"]
 
 # What nobody checks. A repository may pull an entry back in with `include`, but
 # may not add one — otherwise it could excuse a whole language in a single line.

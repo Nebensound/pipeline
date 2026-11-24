@@ -33,6 +33,7 @@ pub mod console;
 pub mod control;
 #[cfg(feature = "program")]
 pub mod declare;
+pub mod dependabot;
 #[cfg(feature = "ui")]
 pub mod draw;
 pub mod edit;
@@ -159,6 +160,9 @@ pub enum Command {
         /// The path inside the repository.
         path: String,
     },
+    /// Print the `.github/dependabot.yml` the declaration and the
+    /// organization's Dependabot policy give.
+    Dependabot,
     /// Print which unit runs which check, as JSON for a matrix.
     Plan {
         /// For a pull request: its versions are those its squash merge would
@@ -723,6 +727,8 @@ enum Job {
     Tree,
     /// Say what holds for this path.
     Explain(RelativePath),
+    /// Print the Dependabot configuration.
+    Dependabot,
     /// Print which unit runs which check, for the pull request if there is
     /// one.
     Plan(Option<PullRequest>),
@@ -786,6 +792,7 @@ fn call(cli: &Cli, variables: &dyn Fn(&str) -> Option<String>) -> Result<Call, F
             visibility,
         }) => Job::Check(identity.clone(), *visibility),
         Some(Command::Tree) => Job::Tree,
+        Some(Command::Dependabot) => Job::Dependabot,
         Some(Command::Plan { pull_request }) => Job::Plan(pull_request.read()),
         Some(Command::ExcludedPackages) => Job::ExcludedPackages,
         Some(Command::WriteVersions { plan, workspace }) => Job::WriteVersions(Writing {
@@ -908,12 +915,14 @@ fn versions_of(job: &Job) -> Option<&PullRequest> {
 /// only the commit at hand: the history is read in Declare, and the versions
 /// come with the plan it hands on. Which programs `setup` needs follows from
 /// the checks the plan starts, never from a version, so a question about a
-/// release does not keep anyone from setting up the programs either. A check
+/// release does not keep anyone from setting up the programs either, and
+/// Dependabot needs no version. A check
 /// that writes versions, and a build that labels what it builds with the
 /// version, read the history only when no plan hands them in.
 fn files_alone(job: &Job) -> bool {
     match job {
         Job::Files { .. }
+        | Job::Dependabot
         | Job::ExcludedPackages
         | Job::WriteVersions(Writing { plan: Some(_), .. }) => true,
         #[cfg(feature = "program")]
@@ -974,13 +983,17 @@ struct Execution<'a> {
 /// A plan read off a declaration with errors would start the wrong things
 /// with a straight face, so there is none; what is printed then is a
 /// sentence, which no matrix takes for a plan. The same holds for the rest: a
-/// file list would check the wrong files, a package could be left out without
+/// Dependabot configuration could watch the wrong folders, a file list would
+/// check the wrong files, a package could be left out without
 /// a valid reason, a version could be written into the wrong package or be
 /// one the history does not give, the programs could be those of the wrong
 /// checks, and a build could be that of the wrong unit.
 fn refusal(job: &Job) -> Option<&'static str> {
     Some(match job {
         Job::Plan(_) => "there is no plan: phase 0 found errors, and `check` says which\n",
+        Job::Dependabot => {
+            "there is no Dependabot configuration: phase 0 found errors, and `check` says which\n"
+        }
         Job::Files { .. } => {
             "there is no file list: phase 0 found errors, and `check` says which\n"
         }
@@ -1036,6 +1049,10 @@ fn execute(context: &Execution<'_>, job: &Job, out: &mut Console<'_>) -> Result<
             say(out, &format!("{text}\n"));
         }
         Job::Plan(pull_request) => say(out, &plan_of(&analysis, &central, pull_request.as_ref())),
+        Job::Dependabot => say(
+            out,
+            &dependabot::render(&dependabot::entries(&analysis, &central)),
+        ),
         Job::Files { check, unit, zero } => match files::files(&analysis, &central, check, unit) {
             Ok(list) => say(out, &files::render(&list, *zero)),
             Err(refusal) => {
@@ -1459,9 +1476,11 @@ fn report_versions(
 }
 
 /// The whole report of phase 0, ended by a line break, with what departs from
-/// the organization's conventions among the findings. In a workflow run every
-/// finding is an annotation, a command of the tool's own; everything else of
-/// the report is text.
+/// the organization's conventions among the findings. The Dependabot
+/// configuration is compared only when phase 0 found no error: what a
+/// declaration with errors gives could watch the wrong folders. In a workflow
+/// run every finding is an annotation, a command of the tool's own; everything
+/// else of the report is text.
 fn check(
     repository: &Repository,
     analysis: &mut Analysis,
@@ -1470,7 +1489,7 @@ fn check(
     out: &mut Console<'_>,
 ) -> Result<(), Failure> {
     let identity = repository.identity(given.name.as_deref(), given.default_branch.as_deref())?;
-    let found = conformance::findings(
+    let mut found = conformance::findings(
         &identity,
         analysis
             .tree
@@ -1478,6 +1497,13 @@ fn check(
             .into_iter()
             .map(|(node, _)| &node.path),
     );
+    if !analysis.failed() {
+        found.extend(dependabot::findings(
+            analysis,
+            central,
+            &repository.reader(),
+        ));
+    }
     let loose = analysis.tree.attach(found);
     analysis.loose.extend(loose);
     say(
@@ -1717,7 +1743,10 @@ impl Declaration {
         Ok(declaration)
     }
 
-    /// Reads a centrally kept declaration — the defaults.
+    /// Reads a centrally kept declaration: the shape of the defaults, without
+    /// the Dependabot policy, which only [`Central::parse`] takes out first.
+    /// Pointed at the real defaults, it refuses `[dependabot]` as an unknown
+    /// key; read those with [`Central::parse`].
     ///
     /// The same shape, one freedom more: here an exclusion may be a pattern.
     /// Centrally, work may be excused; locally it may only be added.
@@ -1728,7 +1757,28 @@ impl Declaration {
     /// this tool does not know, or does not match the shape.
     pub fn parse_central(source: &str) -> Result<Self, ReadError> {
         Self::read_edition(source)?;
-        let declaration: Self = toml::from_str(source)?;
+        toml::from_str::<Self>(source)?.unique_exclusions()
+    }
+
+    /// The defaults once [`Central::parse`] has taken out the table only they
+    /// hold, read as [`Declaration::parse_central`] reads them. The edition
+    /// was read off the whole text before; the text gives an error its line
+    /// and column.
+    pub(crate) fn from_central_table(
+        table: toml::Spanned<toml::de::DeTable<'_>>,
+        source: &str,
+    ) -> Result<Self, ReadError> {
+        <Self as serde::Deserialize>::deserialize(toml::de::Deserializer::from(table))
+            .map_err(|mut error| {
+                error.set_input(Some(source));
+                error
+            })?
+            .unique_exclusions()
+    }
+
+    /// The declaration, once no pattern stands twice under `[[exclude]]`.
+    fn unique_exclusions(self) -> Result<Self, ReadError> {
+        let declaration = self;
         // As a table, uniqueness came for free: TOML forbids the same key
         // twice. A list does not, so the rule stands here now.
         let mut seen = std::collections::BTreeSet::new();
