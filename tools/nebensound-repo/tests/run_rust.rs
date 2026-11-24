@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use nebensound_repo::Register;
+use nebensound_repo::console::Console;
 use nebensound_repo::names::{Reason, VersionWriterName};
 use nebensound_repo::packages::Excluded;
 use nebensound_repo::path::RelativePath;
@@ -354,7 +355,6 @@ impl Fixture {
             env: &env,
             root: &root,
             temp: &self.temp,
-            workflow: self.workflow,
             packages: Packages {
                 repository: &repository,
                 tracked: &tracked,
@@ -365,8 +365,10 @@ impl Fixture {
         let files: Vec<RelativePath> = self.files.iter().map(|file| path(file)).collect();
         let refs: Vec<&RelativePath> = files.iter().collect();
         let mut out = Vec::new();
-        let code = run::run(&context, Check::Rust, &path(unit), &refs, &mut out);
-        (code, String::from_utf8(out).unwrap())
+        let mut console = Console::new(&mut out, self.workflow);
+        let code = run::run(&context, Check::Rust, &path(unit), &refs, &mut console);
+        let code = console.end(code);
+        (code, support::printed(&String::from_utf8(out).unwrap()))
     }
 
     fn run(&self) -> (u8, String) {

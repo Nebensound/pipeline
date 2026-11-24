@@ -577,7 +577,7 @@ fn in_a_run_every_finding_is_an_annotation() {
         Output::Workflow,
         &mut out,
     );
-    let text = String::from_utf8(out).expect("the output is UTF-8");
+    let text = support::printed(&String::from_utf8(out).expect("the output is UTF-8"));
     assert_eq!(code, 0, "{text}");
     assert!(text.contains("Findings\n\n  none"), "{text}");
     assert!(!text.contains("::"), "{text}");
@@ -595,12 +595,11 @@ fn an_annotation_names_the_place_in_its_file_and_escapes_what_would_end_it() {
         Finding::warning(Rule::PointlessExclusion, "odd name").at(at("docs/b,c:d.md")),
     ]);
     assert!(loose.is_empty(), "{loose:?}");
-    let text = report::annotations(&analysis);
+    let text = report::commands(&analysis).join("\n");
 
     assert_eq!(
         text,
-        "Findings\n\n\
-         ::warning title=pointless-exclusion::[pointless-exclusion] at docs: a folder\n\
+        "::warning title=pointless-exclusion::[pointless-exclusion] at docs: a folder\n\
          ::error file=docs/a.md,line=3,col=7,title=partial-package-exclusion::\
          [partial-package-exclusion] at docs/a.md:3:7: 100%25 wrong\\nhere\n\
          ::warning file=docs/b%2Cc%3Ad.md,title=pointless-exclusion::[pointless-exclusion] \

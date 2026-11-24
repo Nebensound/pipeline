@@ -22,9 +22,11 @@
 use std::fmt::Write as _;
 use std::fs::OpenOptions;
 use std::io::{BufRead as _, BufReader, Write};
+
+use crate::console::Console;
 use std::process::Command;
 
-use crate::run::{annotation, data, plain, property};
+use crate::run::{annotation, data, property};
 use crate::versions::PullRequest;
 
 /// How a call reads the variables of the process: by name, [`None`] for one
@@ -127,32 +129,13 @@ pub fn notice(title: &str, message: &str) -> String {
     format!("::notice title={}::{}", property(title), data(message))
 }
 
-/// Where a call writes, and how: in a workflow run every workflow command as
-/// it is, elsewhere as a reader takes it in ([`plain`]).
-pub struct Log<'o> {
-    out: &'o mut dyn Write,
-    workflow: bool,
-}
+/// Where a call writes: the console ([`Console`]), with what the calls of a
+/// workflow run write through it. Text, such as what a program prints, goes
+/// out through [`Console::line`] inside a stopped stretch; a finding, a
+/// notice and a group are commands of the tool's own.
+pub type Log<'o> = Console<'o>;
 
-impl<'o> Log<'o> {
-    /// The log on `out`, of a workflow run or not.
-    pub fn new(out: &'o mut dyn Write, workflow: bool) -> Self {
-        Self { out, workflow }
-    }
-
-    /// Writes one line.
-    pub fn line(&mut self, text: &str) {
-        let text = if self.workflow {
-            Some(text.to_owned())
-        } else {
-            plain(text)
-        };
-        if let Some(text) = text {
-            let _ = self.out.write_all(text.as_bytes());
-            let _ = self.out.write_all(b"\n");
-        }
-    }
-
+impl Console<'_> {
     /// Writes every line of a text.
     pub fn lines(&mut self, text: &str) {
         for line in text.lines() {
@@ -162,20 +145,21 @@ impl<'o> Log<'o> {
 
     /// Writes a finding that names no file.
     pub fn error(&mut self, message: &str) {
-        self.line(&annotation(None, None, message));
+        self.annotate(&annotation(None, None, message));
     }
 
     /// Writes a finding on a file.
     pub fn error_on(&mut self, file: &str, message: &str) {
-        self.line(&annotation(Some(file), None, message));
+        self.annotate(&annotation(Some(file), None, message));
     }
 
-    /// Runs a step of a call: its name opens a group of the log, which closes
-    /// after it, and a step that fails says so below the group.
+    /// Runs a step of a call: its name, which the tool gives, opens a group
+    /// of the log, which closes after it, and a step that fails says so below
+    /// the group.
     pub fn step<T>(&mut self, name: &str, body: impl FnOnce(&mut Self) -> Option<T>) -> Option<T> {
-        self.line(&format!("::group::{name}"));
+        self.command(&format!("::group::{name}"));
         let done = body(self);
-        self.line("::endgroup::");
+        self.command("::endgroup::");
         if done.is_none() {
             self.line(&format!("{name}: failed"));
         }
@@ -186,6 +170,10 @@ impl<'o> Log<'o> {
     /// into the log, line by line as it comes, after a line that shows the
     /// call: whether it succeeded. A program that cannot be started is written
     /// as a finding and counts as failed.
+    ///
+    /// Its lines are text: the stretch that opens before the first of them
+    /// stays open while the program runs, and closes only when the tool
+    /// writes its next command, whether the program passed or failed.
     pub fn stream(&mut self, mut command: Command, what: &str) -> bool {
         let shown: Vec<String> = std::iter::once(what.to_owned())
             .chain(

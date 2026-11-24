@@ -14,7 +14,7 @@ use super::{Session, Tool};
 /// files out unseen by phase 0. So it is handed a copy of `lychee.toml`, or
 /// an empty file where there is none, which it reads as a configuration that
 /// sets nothing. A linked `lychee.toml` phase 0 refuses already.
-pub(super) fn config(session: &mut Session<'_, '_>) -> Option<Vec<u8>> {
+pub(super) fn config(session: &mut Session<'_, '_, '_>) -> Option<Vec<u8>> {
     let path = session.context.root.join("lychee.toml");
     let regular = fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file());
     if !regular {
@@ -116,7 +116,7 @@ fn is_space(c: char) -> bool {
 /// becomes a finding on the file that holds it, at the line and column
 /// lychee names. The report goes to `report`.
 pub(super) fn check(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     lychee: &Tool,
     configs: &[&Path],
     root: &Path,

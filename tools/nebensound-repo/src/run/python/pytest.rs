@@ -180,7 +180,7 @@ pub fn reason(status: Option<i32>) -> &'static str {
 
 /// The tests pass.
 pub(super) fn check(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
     programs: &Programs,
     taken: &[String],

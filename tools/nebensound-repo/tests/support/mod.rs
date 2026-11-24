@@ -221,3 +221,24 @@ impl Git {
         String::from_utf8(output.stdout).expect("git answers in UTF-8")
     }
 }
+
+/// What a log of a workflow run holds besides the lines that stop and resume
+/// the runner's processing of workflow commands: every other line, in order,
+/// each ended by a line break.
+pub fn printed(text: &str) -> String {
+    let mut stopped: Option<String> = None;
+    let mut kept = String::new();
+    for line in text.lines() {
+        match &stopped {
+            Some(token) if line == format!("::{token}::") => stopped = None,
+            None if line.starts_with("::stop-commands::") => {
+                stopped = Some(line["::stop-commands::".len()..].to_owned());
+            }
+            _ => {
+                kept.push_str(line);
+                kept.push('\n');
+            }
+        }
+    }
+    kept
+}

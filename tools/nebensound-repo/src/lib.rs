@@ -29,6 +29,7 @@ pub mod audience;
 pub mod build;
 pub mod central;
 pub mod conformance;
+pub mod console;
 #[cfg(feature = "program")]
 pub mod declare;
 #[cfg(feature = "ui")]
@@ -106,6 +107,7 @@ use clap::{Args, Parser, Subcommand};
 use thiserror::Error;
 
 use crate::audience::Visibility;
+use crate::console::Console;
 use crate::output::Output;
 use crate::path::RelativePath;
 use crate::register::{BUILTIN_DEFAULTS, BUILTIN_REGISTER};
@@ -553,15 +555,19 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let cli = match Cli::try_parse_from(args) {
-        Ok(cli) => cli,
+    // Everything the call prints goes through the console, the one place
+    // that keeps text from outside the pipeline from starting a workflow
+    // command.
+    let mut console = Console::new(out, output == Output::Workflow);
+    let code = match Cli::try_parse_from(args) {
+        Ok(cli) => dispatch(&cli, register, defaults, output, variables, &mut console),
         Err(error) => {
             // --help and --version are not a failure, only an output.
-            say(out, &error.render().to_string());
-            return if error.use_stderr() { MISUSE } else { OK };
+            say(&mut console, &error.render().to_string());
+            if error.use_stderr() { MISUSE } else { OK }
         }
     };
-    dispatch(&cli, register, defaults, output, variables, out)
+    console.end(code)
 }
 
 /// Everything after the arguments were read.
@@ -575,7 +581,7 @@ fn dispatch(
     defaults: &str,
     output: Output,
     variables: &dyn Fn(&str) -> Option<String>,
-    out: &mut dyn Write,
+    out: &mut Console<'_>,
 ) -> u8 {
     // Every call of `run` or `build` outside a workflow run opens with the
     // line that the gate decides, also one that ends in a refusal or an error.
@@ -609,7 +615,7 @@ fn dispatch(
             };
         }
         #[cfg(feature = "program")]
-        Ok(Call::Alone(alone)) => return alone_call(cli, &alone, output, variables, out),
+        Ok(Call::Alone(alone)) => return alone_call(cli, &alone, variables, out),
         #[cfg(feature = "program")]
         Ok(Call::Declare(pull_request)) => Deferred::Declare(pull_request),
         Ok(Call::Repository(job)) => Deferred::Job(job),
@@ -639,10 +645,9 @@ fn dispatch(
     }
 }
 
-/// Writes, and stays quiet when the output is gone: a message about that would
-/// take the same road.
-fn say(out: &mut dyn Write, text: &str) {
-    let _ = out.write_all(text.as_bytes());
+/// Writes text: in a workflow run inside a stopped stretch ([`Console`]).
+fn say(out: &mut Console<'_>, text: &str) {
+    out.text(text);
 }
 
 /// One call, with everything about it already checked.
@@ -943,6 +948,7 @@ struct Execution<'a> {
     cli: &'a Cli,
     register: &'a str,
     defaults: &'a str,
+    #[cfg_attr(not(feature = "ui"), allow(dead_code))]
     output: Output,
     #[cfg_attr(not(feature = "program"), allow(dead_code))]
     variables: &'a dyn Fn(&str) -> Option<String>,
@@ -993,8 +999,7 @@ fn read(context: &Execution<'_>, job: &Job) -> Result<(Repository, Central, Anal
     Ok((repository, central, analysis))
 }
 
-fn execute(context: &Execution<'_>, job: &Job, out: &mut dyn Write) -> Result<u8, Failure> {
-    let output = context.output;
+fn execute(context: &Execution<'_>, job: &Job, out: &mut Console<'_>) -> Result<u8, Failure> {
     let (repository, central, mut analysis) = read(context, job)?;
     if analysis.failed()
         && let Some(refusal) = refusal(job)
@@ -1004,10 +1009,7 @@ fn execute(context: &Execution<'_>, job: &Job, out: &mut dyn Write) -> Result<u8
     }
 
     match job {
-        Job::Check(given, _) => say(
-            out,
-            &check(&repository, &mut analysis, &central, given, output)?,
-        ),
+        Job::Check(given, _) => check(&repository, &mut analysis, &central, given, out)?,
         Job::Tree => say(out, &format!("{}\n", report::tree(&analysis))),
         Job::Explain(wanted) => {
             let Some(text) = report::explain(&analysis, wanted) else {
@@ -1060,10 +1062,10 @@ fn execute(context: &Execution<'_>, job: &Job, out: &mut dyn Write) -> Result<u8
                 central: &central,
                 orders: &orders,
             };
-            return Ok(run_check(context.cli, &checked, *check, unit, output, out));
+            return Ok(run_check(context.cli, &checked, *check, unit, out));
         }
         #[cfg(feature = "program")]
-        Job::Release => return release_stage(&repository, &analysis, output, out),
+        Job::Release => return release_stage(&repository, &analysis, out),
         #[cfg(feature = "program")]
         Job::Build { build, unit } => {
             let at = (&repository, &analysis, &central);
@@ -1080,7 +1082,8 @@ fn execute(context: &Execution<'_>, job: &Job, out: &mut dyn Write) -> Result<u8
         }
         #[cfg(feature = "ui")]
         Job::Ui => {
-            terminal::open(&analysis, output).map_err(|source| Failure::Terminal { source })?;
+            terminal::open(&analysis, context.output)
+                .map_err(|source| Failure::Terminal { source })?;
         }
     }
 
@@ -1095,7 +1098,7 @@ fn set_up(
     central: &Central,
     options: setup::Options,
     named: &[String],
-    out: &mut dyn Write,
+    out: &mut Console<'_>,
 ) -> u8 {
     let checks = if named.is_empty() {
         setup::started(&plan::plan(analysis, central))
@@ -1134,8 +1137,7 @@ fn run_check(
     checked: &Checked<'_>,
     check: run::Check,
     unit: &RelativePath,
-    output: Output,
-    out: &mut dyn Write,
+    out: &mut Console<'_>,
 ) -> u8 {
     let Checked {
         repository,
@@ -1165,7 +1167,6 @@ fn run_check(
         env: &environment,
         root: &root,
         temp: &std::env::temp_dir(),
-        workflow: output == Output::Workflow,
         packages: run::Packages {
             repository,
             tracked: &tracked,
@@ -1182,8 +1183,7 @@ fn run_check(
 fn release_stage(
     repository: &Repository,
     analysis: &Analysis,
-    output: Output,
-    out: &mut dyn Write,
+    out: &mut Console<'_>,
 ) -> Result<u8, Failure> {
     let settings = match release::Settings::read(
         &|name| std::env::var(name).ok(),
@@ -1196,13 +1196,7 @@ fn release_stage(
         }
     };
     let records = repository.records()?;
-    Ok(release::run(
-        &analysis.versions,
-        &records,
-        &settings,
-        output == Output::Workflow,
-        out,
-    ))
+    Ok(release::run(&analysis.versions, &records, &settings, out))
 }
 
 /// The search path of the programs a call starts: the `PATH` among the
@@ -1217,22 +1211,18 @@ fn search_path(variables: &dyn Fn(&str) -> Option<String>) -> OsString {
 fn alone_call(
     cli: &Cli,
     alone: &Alone,
-    output: Output,
     variables: &dyn Fn(&str) -> Option<String>,
-    out: &mut dyn Write,
+    log: &mut Console<'_>,
 ) -> u8 {
-    let mut log = workflow::Log::new(out, output == Output::Workflow);
     let passed = match alone {
-        Alone::Unwritten(what) => match unwritten_call(what, &mut log) {
+        Alone::Unwritten(what) => match unwritten_call(what, log) {
             Ok(passed) => passed,
             Err(message) => {
                 log.error(&message);
                 return MISUSE;
             }
         },
-        Alone::Gather(Gather::Checks { declare, checks }) => {
-            gather::checks(*declare, *checks, &mut log)
-        }
+        Alone::Gather(Gather::Checks { declare, checks }) => gather::checks(*declare, *checks, log),
         Alone::Gather(Gather::Builds {
             declare,
             check,
@@ -1246,7 +1236,7 @@ fn alone_call(
                 planned,
                 pre_branch: workflow::pre_branch(variables),
             },
-            &mut log,
+            log,
         ),
         Alone::PreBranch(branch) => {
             let line = format!(
@@ -1254,14 +1244,14 @@ fn alone_call(
                  of pre-branches are not built yet, so no version is resolved, nothing is built \
                  and nothing is published."
             );
-            log.line(&workflow::notice("Pre-branch", &line));
+            log.command(&workflow::notice("Pre-branch", &line));
             if let Err(message) = workflow::summary(variables, &format!("{line}\n")) {
                 log.error(&message);
                 return FOUND;
             }
             true
         }
-        Alone::Xtask => xtask::run(&cli.repository, &search_path(variables), &mut log),
+        Alone::Xtask => xtask::run(&cli.repository, &search_path(variables), log),
     };
     if passed { OK } else { FOUND }
 }
@@ -1316,7 +1306,7 @@ fn unwritten_call(what: &Unwritten, log: &mut workflow::Log<'_>) -> Result<bool,
 fn declare(
     context: &Execution<'_>,
     pull_request: Option<&PullRequest>,
-    out: &mut dyn Write,
+    out: &mut Console<'_>,
 ) -> Result<u8, Failure> {
     let run = match declare::Run::read(context.variables) {
         Ok(run) => run,
@@ -1337,10 +1327,7 @@ fn declare(
     // read for the plan that fails still leaves the report in the log.
     let read_for_plan = read(context, &checked)
         .and_then(|(repository, central, mut analysis)| {
-            check(&repository, &mut analysis, &central, &given, context.output).map(|report| {
-                say(out, &report);
-                analysis.failed()
-            })
+            check(&repository, &mut analysis, &central, &given, out).map(|()| analysis.failed())
         })
         .and_then(|failed| {
             if failed {
@@ -1362,9 +1349,8 @@ fn declare(
     let mut plan = plan::plan(&analysis, &central);
     plan.pull_request = pull_request.map(|pull_request| pull_request.number);
     let excluded = repository.excluded_packages(&analysis);
-    let mut log = workflow::Log::new(out, context.output == Output::Workflow);
     Ok(
-        if declare::hand_on(&plan, &run, &excluded, context.variables, &mut log) {
+        if declare::hand_on(&plan, &run, &excluded, context.variables, out) {
             OK
         } else {
             FOUND
@@ -1379,7 +1365,7 @@ fn build_unit(
     (repository, analysis, central): (&Repository, &Analysis, &Central),
     which: build::Build,
     unit: &RelativePath,
-    out: &mut dyn Write,
+    out: &mut Console<'_>,
 ) -> u8 {
     let plan = plan::plan(analysis, central);
     let started = plan.units.iter().any(|planned| {
@@ -1408,7 +1394,6 @@ fn build_unit(
         root: &root,
         search_path: &search_path,
         temp: &std::env::temp_dir(),
-        workflow: context.output == Output::Workflow,
         variables: context.variables,
     };
     build::run(&settings, which, unit, out)
@@ -1422,7 +1407,7 @@ fn report_versions(
     context: &Execution<'_>,
     analysis: &Analysis,
     pull_request: Option<&PullRequest>,
-    out: &mut dyn Write,
+    out: &mut Console<'_>,
 ) -> u8 {
     say(out, &versions::report(analysis, false, pull_request));
     let markdown = versions::report(analysis, true, pull_request);
@@ -1434,14 +1419,16 @@ fn report_versions(
 }
 
 /// The whole report of phase 0, ended by a line break, with what departs from
-/// the organization's conventions among the findings.
+/// the organization's conventions among the findings. In a workflow run every
+/// finding is an annotation, a command of the tool's own; everything else of
+/// the report is text.
 fn check(
     repository: &Repository,
     analysis: &mut Analysis,
     central: &Central,
     given: &IdentityArgs,
-    output: Output,
-) -> Result<String, Failure> {
+    out: &mut Console<'_>,
+) -> Result<(), Failure> {
     let identity = repository.identity(given.name.as_deref(), given.default_branch.as_deref())?;
     let found = conformance::findings(
         &identity,
@@ -1453,25 +1440,34 @@ fn check(
     );
     let loose = analysis.tree.attach(found);
     analysis.loose.extend(loose);
+    say(
+        out,
+        &format!(
+            "{}\n\n{}\n\n{}\n\n",
+            report::configuration(analysis, central),
+            rules::report(analysis, &repository.reader(), rules::Defaults::BUILT_IN),
+            report::tree(analysis)
+        ),
+    );
     // In a run every finding is an annotation, so that it shows on the run
     // and on the pull request; elsewhere it is a line.
-    let findings = if output == Output::Workflow {
-        report::annotations(analysis)
+    let commands = report::commands(analysis);
+    if out.workflow() && !commands.is_empty() {
+        say(out, "Findings\n\n");
+        for command in &commands {
+            out.command(command);
+        }
+        say(out, "\n");
     } else {
-        report::findings(analysis)
-    };
+        say(out, &format!("{}\n\n", report::findings(analysis)));
+    }
     let mut notes = String::new();
     for note in conformance::notes(&identity) {
         notes.push_str(&report::shown(&note));
         notes.push_str("\n\n");
     }
-    Ok(format!(
-        "{}\n\n{}\n\n{}\n\n{findings}\n\n{notes}{}\n",
-        report::configuration(analysis, central),
-        rules::report(analysis, &repository.reader(), rules::Defaults::BUILT_IN),
-        report::tree(analysis),
-        report::summary(analysis)
-    ))
+    say(out, &format!("{notes}{}\n", report::summary(analysis)));
+    Ok(())
 }
 
 /// The plan as one line of JSON, for the pull request if there is one.
@@ -1529,6 +1525,10 @@ fn orders(
 }
 
 /// Why a declaration could not be read.
+///
+/// A pattern or path from the declaration is written the way
+/// [`report::shown`] writes it: a TOML string can hold a line break or
+/// another control character, and the message goes into a step's log.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum ReadError {
@@ -1537,8 +1537,9 @@ pub enum ReadError {
     Unreadable(#[from] toml::de::Error),
     /// The same pattern stands twice under `[[exclude]]`.
     #[error(
-        "{pattern} stands twice under [[exclude]]. A list can say the same thing twice, a \
-         statement cannot: of two reasons for the same file, one is untrue"
+        "{} stands twice under [[exclude]]. A list can say the same thing twice, a statement \
+         cannot: of two reasons for the same file, one is untrue",
+        report::shown(.pattern)
     )]
     DuplicateExclusion {
         /// The duplicated pattern.
@@ -1546,8 +1547,9 @@ pub enum ReadError {
     },
     /// A repository excluded a pattern rather than a path.
     #[error(
-        "{pattern} takes a whole type or name out of the check. Here a pattern may only add \
-         work, never excuse any — write the path, or pull it back in with `include`"
+        "{} takes a whole type or name out of the check. Here a pattern may only add work, \
+         never excuse any — write the path, or pull it back in with `include`",
+        report::shown(.pattern)
     )]
     WildcardExclusion {
         /// The rejected pattern.
@@ -1555,8 +1557,9 @@ pub enum ReadError {
     },
     /// A repository made an exclusion depend on the file being empty.
     #[error(
-        "{path} sets only-if-empty, which only the central list of what nobody checks may set. \
-         Here an exclusion takes its path out as it stands — leave the field out"
+        "{} sets only-if-empty, which only the central list of what nobody checks may set. \
+         Here an exclusion takes its path out as it stands — leave the field out",
+        report::shown(.path)
     )]
     ConditionalExclusion {
         /// The path of the rejected entry.

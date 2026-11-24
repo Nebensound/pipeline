@@ -284,7 +284,7 @@ pub fn diagnostics(report: &Value, root: &Path, unit: &str) -> (Vec<Diagnostic>,
 /// the unit's where it has none. A configuration that lowers the mode is a
 /// finding, and one that cannot be read ends the step.
 fn configured(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
 ) -> Option<(Map<String, Value>, PathBuf, bool)> {
     let Some(config) = configuration(paths) else {
@@ -329,7 +329,7 @@ fn configured(
 /// configuration in `folder` for the run and removed after it: what it
 /// printed, or nothing, with why written.
 fn pyright(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
     programs: &Programs,
     folder: &Path,
@@ -375,7 +375,7 @@ pub fn analysed(stdout: &[u8]) -> u64 {
 /// a finding of its own. Measured: Pyright passes over a file in a folder whose
 /// name starts with a dot, even when its configuration names it.
 fn left_out(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
     programs: &Programs,
     folder: &Path,
@@ -407,7 +407,7 @@ fn left_out(
 
 /// Every file passes Pyright in strict mode.
 pub(super) fn check(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
     programs: &Programs,
     python: &Interpreter,

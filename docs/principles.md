@@ -106,8 +106,21 @@ same rule stops and asks for the rule.
 **Why.** Exceptions pile up, and each one has to be known to every later change.
 A rule that removes the kind of problem has to be known once.
 
-**Today.** Text from the repository is escaped for the log in some places and
-not in others, each place in its own way. The YAML check drops a list of
+**Example.** Text from the repository can start a workflow command in a
+step's log: a file name or a finding that holds a line break followed by `::`,
+that starts with `::`, or that holds `##[` anywhere, and the runner reads more
+forms still. Rewriting such text at every place that prints it mirrors the
+runner's parser, and every form it misses starts a command. The rule that
+removes the kind: only the pipeline's own code writes workflow commands, and
+everything that comes from a program or from the repository is printed while
+the runner's command processing is stopped, with a random token for each
+stretch that no program is given; the tool resumes it only to write its own
+commands. Nothing is rewritten for the sake of commands. In a job that runs
+code of the repository, that code can do more than print, such as write the
+runner's files, so there the stopped stretch is a second line behind rule 2,
+not the only one.
+
+**Today.** The YAML check drops a list of
 actionlint messages, which grows with each addition GitHub makes to the
 workflow syntax.
 
@@ -188,8 +201,9 @@ yet, it says so.
 - **The action `tool`** holds logic in shell: the fingerprint and the build of
   the tool from source (rule 3). The build from source in a caller: #24. The
   fingerprint: no issue exists yet.
-- **Text from the repository in logs** is escaped place by place, and the file
-  lists of the blocks not at all (rule 5): #143.
+- **Text from the repository in logs** of the image build: `build-docker` is
+  shell and prints names and what Docker prints without a stopped stretch
+  (rule 5); with #179 it runs from the tool and through its console.
 - **The source of actionlint**, whose upstream stands still, and the growing
   list of its messages the YAML check drops (rules 4 and 5): #169.
 - **The programs the tool may start.** The rule in

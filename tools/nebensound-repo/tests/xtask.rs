@@ -72,7 +72,8 @@ fn xtask_in(root: &Path, base: &Path) -> (bool, String) {
     let mut out = Vec::new();
     let mut log = Log::new(&mut out, true);
     let passed = xtask::run(root, &search_path(base), &mut log);
-    (passed, String::from_utf8(out).unwrap())
+    drop(log);
+    (passed, support::printed(&String::from_utf8(out).unwrap()))
 }
 
 #[test]
@@ -206,8 +207,8 @@ fn the_call_runs_the_xtask_of_the_repository_it_is_given() {
         Output::Elsewhere,
     );
     assert_eq!(code, 0, "{text}");
-    // Outside a run, what the xtask annotates is a plain line.
-    assert!(text.contains("\nerror: from the xtask\n"), "{text}");
+    // What the xtask prints is text: outside a run it stands as it is.
+    assert!(text.contains("\n::error::from the xtask\n"), "{text}");
 
     fs::write(base.path().join("xtask-fails"), "").unwrap();
     let (text, code) = call_with(
@@ -216,4 +217,17 @@ fn the_call_runs_the_xtask_of_the_repository_it_is_given() {
         Output::Workflow,
     );
     assert_eq!(code, 1, "{text}");
+    // In a run it stands inside a stopped stretch, and so does the xtask's
+    // own echo of what a case printed: it starts no command. The tool's own
+    // finding stands outside.
+    let token = text
+        .lines()
+        .find_map(|line| line.strip_prefix("::stop-commands::"))
+        .unwrap();
+    let inside = text
+        .split_once(&format!("::stop-commands::{token}\n"))
+        .and_then(|(_, rest)| rest.split_once(&format!("\n::{token}::\n")))
+        .map(|(inside, _)| inside)
+        .unwrap();
+    assert!(inside.ends_with("\n::error::from the xtask"), "{text}");
 }

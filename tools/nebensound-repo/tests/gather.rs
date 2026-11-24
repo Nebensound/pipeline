@@ -15,7 +15,8 @@ fn said(gathered: impl FnOnce(&mut Log<'_>) -> bool) -> (bool, String) {
     let mut out = Vec::new();
     let mut log = Log::new(&mut out, true);
     let passed = gathered(&mut log);
-    (passed, String::from_utf8(out).unwrap())
+    drop(log);
+    (passed, support::printed(&String::from_utf8(out).unwrap()))
 }
 
 fn builds(declare: Outcome, check: Outcome, builds: Outcome, planned: &str) -> (bool, String) {

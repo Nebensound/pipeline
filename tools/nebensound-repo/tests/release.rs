@@ -23,6 +23,7 @@ use std::process::Command;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 
+use nebensound_repo::console::Console;
 use nebensound_repo::history::Tag;
 use nebensound_repo::release::{self, GitHub, Planned, Settings, What};
 use nebensound_repo::repository::{Records, Repository};
@@ -330,8 +331,13 @@ fn stage_in(git: &Git, settings: &Settings, workflow: bool) -> (String, u8) {
     assert!(!analysis.failed(), "{:?}", analysis.findings());
     let records = repository.records().expect("the records read");
     let mut out = Vec::new();
-    let code = release::run(&analysis.versions, &records, settings, workflow, &mut out);
-    (String::from_utf8(out).expect("the log is UTF-8"), code)
+    let mut console = Console::new(&mut out, workflow);
+    let code = release::run(&analysis.versions, &records, settings, &mut console);
+    let code = console.end(code);
+    (
+        support::printed(&String::from_utf8(out).expect("the log is UTF-8")),
+        code,
+    )
 }
 
 /// A folder for the summary of the run, and the file in it.
@@ -597,8 +603,10 @@ fn a_tag_of_the_version_on_another_commit_stops_everything_before_anything_is_wr
 
     assert_eq!(code, 1, "{text}");
     assert!(double.calls().is_empty(), "{:?}", double.calls());
+    // The error follows what the stage says, as every annotation of a call
+    // follows the text before it.
     assert!(
-        text.starts_with(&format!(
+        text.ends_with(&format!(
             "::error::The tag v0.0.2 stands on the commit {side}, and the history gives 0.0.2 of \
              the repository to {head}, the commit pushed. A version belongs to exactly one \
              commit, so nothing is released in this run. Delete the tag if nobody published it, \

@@ -23,6 +23,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use nebensound_repo::build::cargo_package::{artifact, encoded};
 use nebensound_repo::build::{self, Build, Context};
+use nebensound_repo::console::Console;
 use nebensound_repo::output::Output;
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::repository::Repository;
@@ -246,16 +247,17 @@ impl Fixture {
             root: &root,
             search_path: &search_path,
             temp,
-            workflow,
             variables: &read,
         };
         let mut out = Vec::new();
+        let mut console = Console::new(&mut out, workflow);
         let code = build::run(
             &context,
             Build::CargoPackage,
             &RelativePath::new(unit).unwrap(),
-            &mut out,
+            &mut console,
         );
+        let code = console.end(code);
         (code, String::from_utf8(out).unwrap())
     }
 
@@ -629,7 +631,7 @@ fn the_call_builds_only_what_the_plan_starts() {
     let (text, code) = call(&["cargo-package", "app"], Output::Workflow);
     assert_eq!(code, 1, "{text}");
     assert_eq!(
-        text,
+        support::printed(&text),
         "nothing is built: phase 0 found errors, and `check` says which\n"
     );
 }

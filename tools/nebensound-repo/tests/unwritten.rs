@@ -15,7 +15,8 @@ fn said(held: impl FnOnce(&mut Log<'_>) -> bool) -> (bool, String) {
     let mut out = Vec::new();
     let mut log = Log::new(&mut out, true);
     let passed = held(&mut log);
-    (passed, String::from_utf8(out).unwrap())
+    drop(log);
+    (passed, support::printed(&String::from_utf8(out).unwrap()))
 }
 
 fn names(list: &[&str]) -> Vec<String> {

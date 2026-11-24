@@ -26,15 +26,17 @@ use crate::setup::find;
 /// Its rules hold, but its `ignore` and `ignore-from-file` take nothing out:
 /// yamllint would skip what they name even when the file is named to it, so
 /// its own linter runs here with them set aside, file by file, the way its
-/// command line does. Every finding is written as an annotation on its line,
-/// the way yamllint's `github` format writes it, with the file name and the
-/// message escaped.
-/// A warning fails nothing, an error fails the check, as on the command line.
+/// command line does. It prints no workflow command: every finding is handed
+/// to the tool as data, one JSON object per line of the file `FINDINGS` (see
+/// [`FINDINGS`](super::FINDINGS)), and the tool writes it on its line, with
+/// the message yamllint's `github` format gives it. A warning fails nothing,
+/// an error fails the check, as on the command line.
 ///
 /// It reads the default (`DEFAULT`), the repository's configuration if it has
-/// one (`OWN`) and the list of files, each ended by a zero byte (`LIST`),
-/// from its environment.
+/// one (`OWN`), the list of files, each ended by a zero byte (`LIST`), and
+/// where its findings go (`FINDINGS`) from its environment.
 pub const YAMLLINT: &str = r#"
+import json
 import locale
 import os
 import sys
@@ -75,36 +77,24 @@ if conf.locale is not None:
 with open(os.environ["LIST"], "rb") as listing:
     files = [entry.decode() for entry in listing.read().split(b"\0") if entry]
 
-
-def data(text):
-    """The message of a workflow command: a line break would end it."""
-    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-
-
-def prop(text):
-    """A property of a workflow command, ended by `:` and `,` as well."""
-    return data(text).replace(":", "%3A").replace(",", "%2C")
-
-
-# yamllint's own `github` format, with the file name and the message escaped
-# the way the runner reads them.
+# Every finding goes to the tool as data, with the message yamllint's own
+# `github` format gives it; the tool writes it.
 worst = 0
-for path in files:
-    with open(path, "rb") as content:
-        problems = list(linter.run(content, conf, path))
-    if not problems:
-        continue
-    print(f"::group::{data(path)}")
-    for problem in problems:
-        worst = max(worst, linter.PROBLEM_LEVELS[problem.level])
-        rule = f"[{problem.rule}] " if problem.rule else ""
-        message = f"{problem.line}:{problem.column} {rule}{problem.desc}"
-        print(
-            f"::{problem.level} file={prop(path)},line={problem.line},"
-            f"col={problem.column}::{data(message)}"
-        )
-    print("::endgroup::")
-    print("")
+with open(os.environ["FINDINGS"], "a", encoding="utf-8") as found:
+    for path in files:
+        with open(path, "rb") as content:
+            problems = list(linter.run(content, conf, path))
+        for problem in problems:
+            worst = max(worst, linter.PROBLEM_LEVELS[problem.level])
+            rule = f"[{problem.rule}] " if problem.rule else ""
+            finding = {
+                "level": problem.level,
+                "file": path,
+                "line": problem.line,
+                "column": problem.column,
+                "message": f"{problem.line}:{problem.column} {rule}{problem.desc}",
+            }
+            found.write(json.dumps(finding) + "\n")
 sys.exit(1 if worst == linter.PROBLEM_LEVELS["error"] else 0)
 "#;
 
@@ -166,7 +156,7 @@ pub fn actionlint_findings(text: &str) -> Option<Vec<ActionlintFinding>> {
 }
 
 /// Runs the check; whether it found nothing.
-pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
+pub(super) fn run(session: &mut Session<'_, '_, '_>) -> bool {
     let files = session.files.clone();
     // GitHub runs a workflow from one place only: directly under
     // .github/workflows at the repository root. Dependabot, too, reads its
@@ -205,6 +195,7 @@ pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
     let Some(temp) = session.folder(|_| {
         let entries: Vec<Entry> = vec![
             ("nothing-ignored".to_owned(), Some(Vec::new())),
+            (super::FINDINGS.to_owned(), Some(Vec::new())),
             ("files".to_owned(), Some(list)),
             (
                 "yamllint.yaml".to_owned(),
@@ -245,7 +236,7 @@ pub fn is_workflow(file: &str) -> bool {
 
 /// yamllint over every file, with the repository's rules laid over the
 /// pipeline's default: see [`YAMLLINT`].
-fn yamllint_run(session: &mut Session<'_, '_>, yamllint: &Tool, temp: &Path) -> bool {
+fn yamllint_run(session: &mut Session<'_, '_, '_>, yamllint: &Tool, temp: &Path) -> bool {
     let own = OWN.iter().copied().find(|name| session.is_file(name));
     session.log.line(&match own {
         Some(own) => format!("Rules: the pipeline default, and laid over it {own}"),
@@ -258,17 +249,22 @@ fn yamllint_run(session: &mut Session<'_, '_>, yamllint: &Tool, temp: &Path) -> 
         .args(["-c", YAMLLINT])
         .env("DEFAULT", temp.join("yamllint.yaml"))
         .env("OWN", own.unwrap_or_default())
-        .env("LIST", temp.join("files"));
+        .env("LIST", temp.join("files"))
+        .env("FINDINGS", temp.join(super::FINDINGS));
     let ran = session.capture(command, "yamllint");
     session.log.lines(&ran.text);
-    ran.success
+    session.handed(&temp.join(super::FINDINGS), "yamllint") && ran.success
 }
 
 /// actionlint over the workflows: the domain validator for GitHub Actions.
 /// With `shellcheck` on the search path it also reads every `run:` script,
 /// and with `pyflakes` every Python one; whether they were found is said, since a
 /// computer without them reads fewer scripts.
-fn actionlint_run(session: &mut Session<'_, '_>, actionlint: &Tool, workflows: &[&str]) -> bool {
+fn actionlint_run(
+    session: &mut Session<'_, '_, '_>,
+    actionlint: &Tool,
+    workflows: &[&str],
+) -> bool {
     let windows = session.context.env.windows;
     for (program, name, what) in [
         ("shellcheck", "ShellCheck", "`run:` script"),
@@ -322,7 +318,7 @@ fn actionlint_run(session: &mut Session<'_, '_>, actionlint: &Tool, workflows: &
 ///
 /// A finding reads `<file>::<JSON path>: <message>`, the message naming the
 /// key; each becomes one on the file, and stays in the output as it is.
-fn schema(session: &mut Session<'_, '_>, jsonschema: &Tool, dependabot: &str) -> bool {
+fn schema(session: &mut Session<'_, '_, '_>, jsonschema: &Tool, dependabot: &str) -> bool {
     let args: Vec<OsString> = vec![
         "--builtin-schema".into(),
         "vendor.dependabot".into(),

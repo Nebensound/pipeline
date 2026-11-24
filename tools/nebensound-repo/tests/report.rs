@@ -241,6 +241,21 @@ fn a_name_that_could_forge_a_line_is_escaped() {
 }
 
 #[test]
+fn a_unit_path_that_holds_a_line_break_is_written_as_an_escape() {
+    let analysis = analysis(
+        "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.odd]\npath = \
+         \"a\\n::warning::x\"\npipeline = \"none\"\n",
+        &["README.md", "a\n::warning::x/README.md"],
+    );
+    let text = report::configuration(&analysis, &central());
+    assert!(text.contains("a\\n::warning::x"), "{text}");
+    assert!(
+        !text.lines().any(|line| line.starts_with("::warning::x")),
+        "{text}"
+    );
+}
+
+#[test]
 fn the_tree_shows_a_file_the_declaration_excludes_with_its_reason() {
     let declaration = "\
 [repo]

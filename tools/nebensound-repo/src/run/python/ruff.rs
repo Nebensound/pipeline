@@ -153,7 +153,7 @@ fn real(path: &Path) -> PathBuf {
 /// The configuration Ruff finds for the unit, in Ruff's order: its folder
 /// from the root, its file, and its settings.
 fn found(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
 ) -> Result<Option<(String, PathBuf, Table)>, ()> {
     for folder in upwards(&paths.unit) {
@@ -172,7 +172,11 @@ fn found(
 
 /// The Ruff settings a file holds, or [`None`] for a `pyproject.toml`
 /// without a `[tool.ruff]` table; a file that cannot be read is a finding.
-fn load(session: &mut Session<'_, '_>, paths: &Paths, path: &Path) -> Result<Option<Table>, ()> {
+fn load(
+    session: &mut Session<'_, '_, '_>,
+    paths: &Paths,
+    path: &Path,
+) -> Result<Option<Table>, ()> {
     let read = match fs::read_to_string(path) {
         Ok(source) => settings(path, &source),
         Err(error) => Err(error.to_string()),
@@ -188,7 +192,7 @@ fn load(session: &mut Session<'_, '_>, paths: &Paths, path: &Path) -> Result<Opt
 }
 
 /// A finding on a file of Ruff's configuration.
-fn fail(session: &mut Session<'_, '_>, paths: &Paths, path: &Path, text: &str) {
+fn fail(session: &mut Session<'_, '_, '_>, paths: &Paths, path: &Path, text: &str) {
     let name = relative(&paths.root, &real(path));
     session.log.error(Some(&name.to_string_lossy()), None, text);
 }
@@ -196,7 +200,7 @@ fn fail(session: &mut Session<'_, '_>, paths: &Paths, path: &Path, text: &str) {
 /// The chain of configurations from the one Ruff finds, each without its
 /// `extend`, which names the next one.
 fn chain(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
     mut path: PathBuf,
     mut settings: Table,
@@ -242,7 +246,10 @@ fn chain(
 
 /// Ruff's configuration for the unit, written into the check's folder: the
 /// file to hand Ruff and the folder Ruff runs in, from the root.
-pub(super) fn configure(session: &mut Session<'_, '_>, paths: &Paths) -> Option<(PathBuf, String)> {
+pub(super) fn configure(
+    session: &mut Session<'_, '_, '_>,
+    paths: &Paths,
+) -> Option<(PathBuf, String)> {
     let found = found(session, paths).ok()?;
     let (folder, own, mut chain) = match found {
         Some((folder, path, settings)) => {
@@ -334,7 +341,7 @@ pub fn from_root(root: &Path, folder: &str, filename: &str) -> String {
 /// status of at most `worst` and printed its findings as JSON, and the
 /// findings.
 fn ruff(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
     programs: &Programs,
     python: &Interpreter,
@@ -401,7 +408,7 @@ fn unusable(subcommand: &str, status: std::process::ExitStatus) -> String {
 
 /// Writes a finding of Ruff as a line and as a finding on its file.
 fn report(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
     folder: &str,
     finding: &Finding,
@@ -424,7 +431,7 @@ fn report(
 /// Every file is formatted the way Ruff writes it. A file that is not is
 /// named at its first change; one Ruff cannot read at the place it stops.
 pub(super) fn format(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
     programs: &Programs,
     python: &Interpreter,
@@ -456,7 +463,7 @@ pub(super) fn format(
 /// noqa` that takes a whole file out is held against the declaration by
 /// phase 0.
 pub(super) fn lint(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
     programs: &Programs,
     python: &Interpreter,

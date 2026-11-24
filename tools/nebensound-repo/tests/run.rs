@@ -20,6 +20,7 @@ use std::process::Command;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use nebensound_repo::Register;
+use nebensound_repo::console::Console;
 use nebensound_repo::output::Output;
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::programs::Platform;
@@ -74,6 +75,7 @@ printf '%s\n' "biome $*"
 for arg in "$@"; do
   case "$arg" in
     *quoted*) echo "::error title=parse,file=$(pwd -P)/$arg,line=1,endLine=1,col=3,endColumn=9::JSON standard does not allow single quoted strings"; exit 1 ;;
+    *noted*) echo "::notice file=$(pwd -P)/$arg::a note%0Aon two lines" ;;
   esac
 done
 exit 0
@@ -157,15 +159,15 @@ case "$3" in
     for f in $(tr '\0' ' ' < "$LIST"); do
       case "$f" in
         *styled*)
-          echo "$f:2:10 error Expected \"#00aa77\" to be \"#0a7\" (color-hex-length)"
-          echo "::error file=$f,line=2,col=10::Expected \"#00aa77\" to be \"#0a7\" (color-hex-length)"
+          echo "{\"level\":\"error\",\"file\":\"$f\",\"line\":2,\"column\":10,\"message\":\"Expected \\\"#00aa77\\\" to be \\\"#0a7\\\" (color-hex-length)\"}" >> "$FINDINGS"
           status=1 ;;
         *warned*)
-          echo "$f:1:1 warning Unexpected empty block (block-no-empty)"
-          echo "::warning file=$f,line=1,col=1::Unexpected empty block (block-no-empty)" ;;
+          echo "{\"level\":\"warning\",\"file\":\"$f\",\"line\":1,\"column\":1,\"message\":\"Unexpected empty block (block-no-empty)\"}" >> "$FINDINGS" ;;
         *missing*)
-          echo "::error file=$f::Stylelint cannot check it: Could not find \"stylelint-config-clean-order\""
+          echo "{\"level\":\"error\",\"file\":\"$f\",\"message\":\"Stylelint cannot check it: Could not find \\\"stylelint-config-clean-order\\\"\"}" >> "$FINDINGS"
           status=1 ;;
+        *malformed*) echo "{\"level\":\"loud\",\"message\":\"x\"}" >> "$FINDINGS" ;;
+        *vanished*) printf '\377\n' >> "$FINDINGS" ;;
       esac
     done
     echo "Rules: the pipeline default"
@@ -177,14 +179,12 @@ case "$3" in
     for f in $(tr '\0' ' ' < "$LIST"); do
       case "$f" in
         *invalid*)
-          echo "$f:3:4 error no-implicit-button-type: <button> is missing recommended \"type\" attribute"
-          echo "::error file=$f,line=3,col=4::no-implicit-button-type: <button> is missing recommended \"type\" attribute"
+          echo "{\"level\":\"error\",\"file\":\"$f\",\"line\":3,\"column\":4,\"message\":\"no-implicit-button-type: <button> is missing recommended \\\"type\\\" attribute\"}" >> "$FINDINGS"
           status=1 ;;
         *loose*)
-          echo "$f:2:1 warning no-trailing-whitespace: Trailing whitespace"
-          echo "::warning file=$f,line=2,col=1::no-trailing-whitespace: Trailing whitespace" ;;
+          echo "{\"level\":\"warning\",\"file\":\"$f\",\"line\":2,\"column\":1,\"message\":\"no-trailing-whitespace: Trailing whitespace\"}" >> "$FINDINGS" ;;
         *plugin*)
-          echo "::error file=$f::html-validate cannot check it: Failed to load plugin \"html-validate-angular\""
+          echo "{\"level\":\"error\",\"file\":\"$f\",\"message\":\"html-validate cannot check it: Failed to load plugin \\\"html-validate-angular\\\"\"}" >> "$FINDINGS"
           status=1 ;;
       esac
     done
@@ -209,9 +209,7 @@ status=0
 for f in $(tr '\0' ' ' < "$LIST"); do
   case "$f" in
     *duplicate*)
-      echo "::group::$f"
-      echo "::error file=$f,line=2,col=1::2:1 [key-duplicates] duplication of key \"name\" in mapping"
-      echo "::endgroup::"
+      echo "{\"level\":\"error\",\"file\":\"$f\",\"line\":2,\"column\":1,\"message\":\"2:1 [key-duplicates] duplication of key \\\"name\\\" in mapping\"}" >> "$FINDINGS"
       status=1 ;;
   esac
 done
@@ -421,7 +419,8 @@ impl Fixture {
         }
     }
 
-    fn run(&self, check: Check, files: &[&str], workflow: bool) -> (u8, String) {
+    /// What `run` writes, as it writes it.
+    fn log(&self, check: Check, files: &[&str], workflow: bool) -> (u8, String) {
         self.run_with(
             &Register::builtin().expect("the register"),
             check,
@@ -456,7 +455,6 @@ impl Fixture {
             env: &env,
             root: &root,
             temp,
-            workflow,
             packages: Packages {
                 repository: &repository,
                 tracked: &[],
@@ -470,8 +468,17 @@ impl Fixture {
             .collect();
         let refs: Vec<&RelativePath> = paths.iter().collect();
         let mut out = Vec::new();
-        let code = run::run(&context, check, &RelativePath::root(), &refs, &mut out);
+        let mut console = Console::new(&mut out, workflow);
+        let code = run::run(&context, check, &RelativePath::root(), &refs, &mut console);
+        let code = console.end(code);
         (code, String::from_utf8(out).expect("UTF-8"))
+    }
+
+    /// What `run` writes in a workflow run, without the lines that stop and
+    /// resume the runner's processing of workflow commands.
+    fn run(&self, check: Check, files: &[&str], workflow: bool) -> (u8, String) {
+        let (code, text) = self.log(check, files, workflow);
+        (code, support::printed(&text))
     }
 }
 
@@ -543,6 +550,13 @@ fn every_kind_of_json_finding_is_reported() {
     for file in files {
         fixture.file(file, "x\n");
     }
+    fixture.file("noted.jsonc", "x\n");
+    let (code, text) = fixture.run(Check::Json, &["noted.jsonc"], true);
+    assert_eq!(code, 0, "{text}");
+    has(
+        &text,
+        "::warning file=noted.jsonc::Biome: a note%0Aon two lines",
+    );
     let (code, text) = fixture.run(Check::Json, &files, true);
     assert_eq!(code, 1, "{text}");
     for line in [
@@ -552,6 +566,8 @@ fn every_kind_of_json_finding_is_reported() {
          exactly one",
         "::error title=parse,file=quoted.jsonc,line=1,endLine=1,col=3,endColumn=9::JSON standard \
          does not allow single quoted strings",
+        "::error file=quoted.jsonc,line=1,col=3::Biome parse: JSON standard does not allow single \
+         quoted strings",
         "[warn] unformatted.json",
         "::error file=unformatted.json::not formatted the way Prettier writes it",
         "::error file=unreadable.geojson::Prettier cannot read it: SyntaxError: Unexpected token \
@@ -571,7 +587,7 @@ fn every_kind_of_json_finding_is_reported() {
     );
     has(
         &text,
-        "quoted.jsonc:1:3: error[parse]: JSON standard does not allow single quoted strings",
+        "quoted.jsonc:1:3: error: Biome parse: JSON standard does not allow single quoted strings",
     );
 }
 
@@ -632,7 +648,7 @@ fn outside_a_workflow_run_every_call_of_run_opens_with_the_gate() {
     // A workflow run does not get it: the gate's log stays as it was.
     let (text, code) = call_with(Output::Workflow);
     assert_eq!(code, 0, "{text}");
-    assert_eq!(text, nothing);
+    assert_eq!(support::printed(&text), nothing);
     // Another command does not get it either.
     let (text, _) = call(&["nebensound-repo", "-C", root, "files", "json", "."]);
     assert!(!text.contains(outside), "{text}");
@@ -1005,7 +1021,6 @@ fn every_kind_of_yaml_finding_is_reported() {
     assert_eq!(code, 1, "{text}");
     for line in [
         "::error file=unformatted.yml::not formatted the way Prettier writes it",
-        "::group::duplicate.yaml",
         "::error file=duplicate.yaml,line=2,col=1::2:1 [key-duplicates] duplication of key \
          \"name\" in mapping",
         "::error file=.github/workflows/broken.yaml,line=10,col=3::\"runs-on\" section is missing \
@@ -1017,11 +1032,10 @@ fn every_kind_of_yaml_finding_is_reported() {
     ] {
         has(&text, line);
     }
-    assert!(!text.contains("not this file\n::error"), "{text}");
+    assert!(!text.contains("::error file=elsewhere.yml"), "{text}");
 
-    // Elsewhere a group is its name, and its end nothing.
+    // Elsewhere a finding is a line.
     let (_, text) = fixture.run(Check::Yaml, &["duplicate.yaml"], false);
-    has(&text, "duplicate.yaml");
     has(
         &text,
         "duplicate.yaml:2:1: error: 2:1 [key-duplicates] duplication of key \"name\" in mapping",
@@ -1400,8 +1414,12 @@ fn the_binary_runs_a_check_with_the_programs_of_the_computer() {
     let text = String::from_utf8_lossy(&output.stdout);
     assert_eq!(output.status.code(), Some(1), "{text}");
     // A workflow run's log, as `GITHUB_ACTIONS` and a pipe make it, opens
-    // with the check itself.
-    assert!(text.starts_with("2 TOML file(s) to check:\n"), "{text}");
+    // with the check itself, in a stopped stretch.
+    assert!(
+        support::printed(&text).starts_with("2 TOML file(s) to check:\n"),
+        "{text}"
+    );
+    assert!(text.starts_with("::stop-commands::"), "{text}");
     assert!(
         text.contains("::error file=unformatted.toml::does not parse"),
         "{text}"
@@ -2027,7 +2045,6 @@ fn every_kind_of_css_finding_is_reported() {
     for line in [
         "::error file=unformatted.scss::not formatted the way Prettier writes it",
         "::error file=unreadable.css::Prettier cannot read it: SyntaxError: Unexpected token (1:1)",
-        "styled.css:2:10 error Expected \"#00aa77\" to be \"#0a7\" (color-hex-length)",
         "::error file=styled.css,line=2,col=10::Expected \"#00aa77\" to be \"#0a7\" \
          (color-hex-length)",
         "::warning file=warned.css,line=1,col=1::Unexpected empty block (block-no-empty)",
@@ -2051,6 +2068,75 @@ fn every_kind_of_css_finding_is_reported() {
     has(
         &text,
         "warned.css:1:1: warning: Unexpected empty block (block-no-empty)",
+    );
+}
+
+#[test]
+fn a_finding_a_script_hands_over_that_does_not_read_fails_the_check() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.everything();
+    fixture.file("malformed.css", "a {}\n");
+    let (code, text) = fixture.run(Check::Css, &["malformed.css"], true);
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains(
+            "::error::Stylelint handed over a finding that does not read (unknown variant `loud`"
+        ),
+        "{text}"
+    );
+
+    fixture.file("vanished.css", "a {}\n");
+    let (code, text) = fixture.run(Check::Css, &["vanished.css"], true);
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains(
+            "::error::the findings of Stylelint cannot be read: stream did not contain valid \
+             UTF-8"
+        ),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_program_and_the_repository_print_only_inside_a_stopped_stretch() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.everything();
+    let files = ["a##[warning]x-unformatted.css", "styled.css"];
+    for file in files {
+        fixture.file(file, "a {}\n");
+    }
+    let (code, text) = fixture.log(Check::Css, &files, true);
+    assert_eq!(code, 1, "{text}");
+    // Every line outside a stretch is a command of the tool's own, and the
+    // annotations follow what the programs printed.
+    let mut stopped: Option<String> = None;
+    let mut outside = Vec::new();
+    for line in text.lines() {
+        match &stopped {
+            Some(token) if line == format!("::{token}::") => stopped = None,
+            Some(_) => {}
+            None => match line.strip_prefix("::stop-commands::") {
+                Some(token) => stopped = Some(token.to_owned()),
+                None => outside.push(line),
+            },
+        }
+    }
+    assert_eq!(stopped, None, "{text}");
+    assert_eq!(
+        outside,
+        [
+            "::error file=a##[warning]x-unformatted.css::not formatted the way Prettier writes it",
+            "::error file=styled.css,line=2,col=10::Expected \"#00aa77\" to be \"#0a7\" \
+             (color-hex-length)",
+        ],
+        "{text}"
+    );
+    assert_eq!(text.matches("::stop-commands::").count(), 1, "{text}");
+    assert!(
+        text.contains("\n[warn] a##[warning]x-unformatted.css\n"),
+        "{text}"
     );
 }
 
@@ -2250,8 +2336,6 @@ fn every_kind_of_html_finding_is_reported() {
     for line in [
         "::error file=unformatted.html::not formatted the way Prettier writes it",
         "::error file=unreadable.htm::Prettier cannot read it: SyntaxError: Unexpected token (1:1)",
-        "invalid.html:3:4 error no-implicit-button-type: <button> is missing recommended \"type\" \
-         attribute",
         "::error file=invalid.html,line=3,col=4::no-implicit-button-type: <button> is missing \
          recommended \"type\" attribute",
         "::warning file=loose.html,line=2,col=1::no-trailing-whitespace: Trailing whitespace",

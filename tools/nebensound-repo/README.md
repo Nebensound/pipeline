@@ -688,7 +688,23 @@ fails nothing, such as a Stylelint or html-validate warning, a Hadolint
 finding below the failure threshold or dockerfmt's warning about a setting of `.editorconfig` it
 cannot use, is a warning: `::warning` in a workflow run, `Dockerfile:3:1: warning: …` elsewhere.
 In an annotation the file name and the message are escaped the way the runner reads
-them, so a name holding `,` or `:` points at its file. Prettier names
+them, so a name holding `,` or `:` points at its file.
+
+Only the tool writes workflow commands. In a workflow run everything else it
+prints, what the programs print and every text from the repository, stands in
+a stretch in which the runner processes no command: the tool writes
+`::stop-commands::<token>` before it and `::<token>::` after it, with a token
+of 16 random bytes from the operating system for each stretch, which no
+program it starts is given and which the runner masks in the log. An
+annotation waits until the tool writes its next other command, such as the
+end of a group, or until the call ends, so that what a program printed stands
+as one stretch and its findings follow it. No program's own annotation is
+passed through: the tool reads Biome's findings off its `github` format, and
+the scripts it runs for Stylelint, html-validate and yamllint hand theirs over
+as data, one JSON object per line of a file, which the tool writes. This holds
+for every call in a workflow run, so `plan`, `files` and the other calls that
+print data print it inside such a stretch there too. Outside a workflow run
+nothing is a command, and text goes out as it is. Prettier names
 no position for a file it finds unformatted, and check-jsonschema a JSON path
 instead of a line; there the finding names the file alone.
 

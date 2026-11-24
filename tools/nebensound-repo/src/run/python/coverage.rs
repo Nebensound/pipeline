@@ -129,7 +129,11 @@ pub fn by_path(report: Report, root: &Path, unit: &Path) -> BTreeMap<String, Mea
 
 /// The data coverage.py recorded, its parts combined into one file: the
 /// file, or nothing, with why written.
-fn recorded(session: &mut Session<'_, '_>, paths: &Paths, programs: &Programs) -> Option<PathBuf> {
+fn recorded(
+    session: &mut Session<'_, '_, '_>,
+    paths: &Paths,
+    programs: &Programs,
+) -> Option<PathBuf> {
     let data = paths.temp("coverage-data");
     let name = data.file_name().map(OsString::from).unwrap_or_default();
     let mut parts: Vec<PathBuf> = fs::read_dir(&paths.temp)
@@ -172,7 +176,7 @@ fn recorded(session: &mut Session<'_, '_>, paths: &Paths, programs: &Programs) -
 
 /// Every line and branch is covered.
 pub(super) fn check(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
     programs: &Programs,
     python: &Interpreter,
@@ -250,7 +254,12 @@ pub(super) fn check(
 
 /// Whether a file holds no statement beyond its docstring, as Python's own
 /// parser reads it ([`EMPTY`]); one that cannot be read or parsed holds one.
-fn empty(session: &mut Session<'_, '_>, paths: &Paths, python: &Interpreter, file: &str) -> bool {
+fn empty(
+    session: &mut Session<'_, '_, '_>,
+    paths: &Paths,
+    python: &Interpreter,
+    file: &str,
+) -> bool {
     let search = session.context.env.search_path.clone();
     let mut asked = command(paths, &python.python, &paths.root, &search);
     asked.args(["-I", "-c", EMPTY]).arg(paths.root.join(file));

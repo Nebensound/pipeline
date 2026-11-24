@@ -89,11 +89,12 @@ fn declare(git: &Git, files: &Files, variables: &[(&str, &str)]) -> (String, u8)
         ("NEBENSOUND_DEFAULT_BRANCH", "main"),
     ];
     all.extend_from_slice(variables);
-    call_with(
+    let (text, code) = call_with(
         &["nebensound-repo", "-C", git.root(), "declare"],
         &all,
         Output::Workflow,
-    )
+    );
+    (support::printed(&text), code)
 }
 
 #[test]
@@ -305,6 +306,7 @@ fn a_number_that_is_no_pull_request_is_a_misuse() {
         &[("NEBENSOUND_PULL_REQUEST", "seven")],
         Output::Workflow,
     );
+    let text = support::printed(&text);
     assert_eq!(code, 2, "{text}");
     assert!(
         text.starts_with("NEBENSOUND_PULL_REQUEST is \"seven\""),

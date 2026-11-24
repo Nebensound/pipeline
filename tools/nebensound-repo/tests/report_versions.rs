@@ -24,11 +24,12 @@ fn repository() -> Git {
 }
 
 fn report(git: &Git, variables: &[(&str, &str)]) -> (String, u8) {
-    call_with(
+    let (text, code) = call_with(
         &["nebensound-repo", "-C", git.root(), "report-versions"],
         variables,
         Output::Workflow,
-    )
+    );
+    (support::printed(&text), code)
 }
 
 #[test]
@@ -44,13 +45,16 @@ fn the_table_goes_into_the_log_and_as_markdown_into_the_summary() {
         &[],
         Output::Workflow,
     );
-    assert_eq!(text, table);
+    assert_eq!(text, support::printed(&table));
     let (markdown, _) = call_with(
         &["nebensound-repo", "-C", git.root(), "version", "--markdown"],
         &[],
         Output::Workflow,
     );
-    assert_eq!(fs::read_to_string(&summary).unwrap(), markdown);
+    assert_eq!(
+        fs::read_to_string(&summary).unwrap(),
+        support::printed(&markdown)
+    );
 
     // For a pull request, the versions its squash merge would get.
     let (text, code) = report(
