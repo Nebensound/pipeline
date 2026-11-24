@@ -89,8 +89,9 @@ installs it through rustup.
 ## Programs
 
 Every program a check or a build calls, pinned to one version.
-`nebensound-repo setup` finds or installs the ones a repository's checks call
-(see [the tool](../tools/nebensound-repo/README.md#setting-up-the-programs)).
+`nebensound-repo setup` finds or installs the ones a repository's checks call,
+or those of the checks and builds it is named (see
+[the tool](../tools/nebensound-repo/README.md#setting-up-the-programs)).
 A program on a runtime is one package, which the runtime's installer puts in
 place together with its companions, the packages pinned beside it that are
 no command, and needs at least the version of the runtime its package states;
@@ -135,6 +136,16 @@ installed only when the runtime is missing and someone agrees.
 | `node`   | Node.js | `24.22.3` | `npm`         | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
 | `python` | Python  | `3.14.10` | `pip`         | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64` |
 
+## Images
+
+Every container image a build starts, pinned to the digest the registry states
+for its tag. It is pulled by that digest, so the tag only says which version it
+is.
+
+| Image      | Repository      | Tag       | Digest                                                                    |
+| ---------- | --------------- | --------- | ------------------------------------------------------------------------- |
+| `buildkit` | `moby/buildkit` | `v0.34.2` | `sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe` |
+
 ## Builds
 
 A build produces one kind of artifact. The kind decides which targets can take
@@ -144,17 +155,18 @@ from what they write: a unit that declares it selects them, or phase 0 fails
 A build that needs files reads them below the unit's path: a unit it builds
 holds them, or phase 0 fails (see
 [`build-without-file`](declaration.md#build-without-file)). The programs are
-what the build calls (see [Programs](#programs)).
+what the build calls (see [Programs](#programs)), the images what it starts
+(see [Images](#images)).
 
-| Build           | Produces     | Needs version writers | Needs files         | Programs |
-| --------------- | ------------ | --------------------- | ------------------- | -------- |
-| `asciidoctor`   | `site`       | none                  | none                | none     |
-| `cargo-package` | `crate`      | `cargo`               | none                | none     |
-| `cargo-release` | `executable` | none                  | none                | none     |
-| `docker`        | `container`  | none                  | `deploy/Dockerfile` | `trivy`  |
-| `esphome`       | `firmware`   | none                  | none                | none     |
-| `platformio`    | `firmware`   | none                  | none                | none     |
-| `typst`         | `document`   | none                  | none                | none     |
+| Build           | Produces     | Needs version writers | Needs files         | Programs | Images     |
+| --------------- | ------------ | --------------------- | ------------------- | -------- | ---------- |
+| `asciidoctor`   | `site`       | none                  | none                | none     | none       |
+| `cargo-package` | `crate`      | `cargo`               | none                | none     | none       |
+| `cargo-release` | `executable` | none                  | none                | none     | none       |
+| `docker`        | `container`  | none                  | `deploy/Dockerfile` | `trivy`  | `buildkit` |
+| `esphome`       | `firmware`   | none                  | none                | none     | none       |
+| `platformio`    | `firmware`   | none                  | none                | none     | none       |
+| `typst`         | `document`   | none                  | none                | none     | none       |
 
 ## Publish targets
 

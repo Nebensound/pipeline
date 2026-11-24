@@ -21,8 +21,9 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use nebensound_repo::Register;
 use nebensound_repo::build::cargo_package::{artifact, encoded};
-use nebensound_repo::build::{self, Build, Context};
+use nebensound_repo::build::{self, Build, Context, Machine};
 use nebensound_repo::console::Console;
 use nebensound_repo::output::Output;
 use nebensound_repo::path::RelativePath;
@@ -242,12 +243,19 @@ impl Fixture {
             outputs.to_string_lossy().into_owned(),
         )]);
         let read = |name: &str| variables.get(name).cloned();
+        let register = Register::builtin().unwrap();
+        let env = nebensound_repo::setup::Environment::current();
         let context = Context {
             repository: &repository,
             root: &root,
             search_path: &search_path,
             temp,
             variables: &read,
+            register: &register,
+            env: &env,
+            machine: &Machine::current(),
+            component: Some("app"),
+            version: None,
         };
         let mut out = Vec::new();
         let mut console = Console::new(&mut out, workflow);
@@ -300,7 +308,11 @@ fn has(text: &str, line: &str) {
 fn a_build_is_named_as_the_register_names_it() {
     assert_eq!(Build::of("cargo-package"), Some(Build::CargoPackage));
     assert_eq!(Build::CargoPackage.name(), "cargo-package");
-    assert_eq!(Build::of("docker"), None);
+    assert!(!Build::CargoPackage.labels_version());
+    assert_eq!(Build::of("docker"), Some(Build::Docker));
+    assert_eq!(Build::Docker.name(), "docker");
+    assert!(Build::Docker.labels_version());
+    assert_eq!(Build::of("nonsense"), None);
 }
 
 #[test]
@@ -607,9 +619,10 @@ fn the_call_builds_only_what_the_plan_starts() {
             "'lib' does not build cargo-package: the plan starts no such build there",
         ),
         (
-            vec!["docker", "app"],
+            vec!["nonsense", "app"],
             2,
-            "`build` carries out the build cargo-package; \"docker\" is not one of them",
+            "`build` carries out the builds cargo-package and docker; \"nonsense\" is not one of \
+             them",
         ),
         (
             vec!["cargo-package", "../app"],

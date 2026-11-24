@@ -1,5 +1,6 @@
 //! The central register of presets, version writers, checks, builds,
-//! targets, and the programs and runtimes the checks and builds call.
+//! targets, the programs and runtimes the checks and builds call, and the
+//! container images a build starts.
 //!
 //! It is data, not code, and it is compiled into this crate. A repository
 //! therefore never holds a copy that could fall behind: adopting a change to
@@ -12,11 +13,11 @@ use thiserror::Error;
 
 use crate::model::Publish;
 use crate::names::{
-    ArtifactKind, BuildName, CheckName, EcosystemName, Extension, PresetName, ProgramName,
-    RuntimeName, TargetName, VersionWriterName,
+    ArtifactKind, BuildName, CheckName, EcosystemName, Extension, ImageName, PresetName,
+    ProgramName, RuntimeName, TargetName, VersionWriterName,
 };
 use crate::path::RelativePath;
-use crate::programs::{Program, Runtime, at_least, download_problem, is_version};
+use crate::programs::{Digest, Program, Runtime, at_least, download_problem, is_version};
 
 /// The vocabulary as it stands in `register.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -40,6 +41,31 @@ pub struct Register {
     /// Every runtime a program runs on, pinned.
     #[serde(default)]
     pub runtime: BTreeMap<RuntimeName, Runtime>,
+    /// Every container image a build starts, pinned.
+    #[serde(default)]
+    pub image: BTreeMap<ImageName, Image>,
+}
+
+/// A container image a build starts, pinned to one version by its digest.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Image {
+    /// Its repository on the registry it comes from, such as `moby/buildkit`
+    /// on Docker Hub.
+    pub repository: String,
+    /// The tag of the version pinned.
+    pub tag: String,
+    /// The digest the registry states for the tag. The image is pulled by it,
+    /// so the tag only says which version it is.
+    pub digest: Digest,
+}
+
+impl Image {
+    /// The reference the image is pulled by: repository, tag and digest.
+    #[must_use]
+    pub fn reference(&self) -> String {
+        format!("{}:{}@{}", self.repository, self.tag, self.digest)
+    }
 }
 
 /// How an ecosystem is recognized.
@@ -140,6 +166,9 @@ pub struct Build {
     /// The programs it calls, each pinned under `[program.*]`.
     #[serde(default)]
     pub programs: Vec<ProgramName>,
+    /// The container images it starts, each pinned under `[image.*]`.
+    #[serde(default)]
+    pub images: Vec<ImageName>,
 }
 
 /// What a target takes.
@@ -364,18 +393,7 @@ impl Register {
             minimum(name, runtime, program.runtime_minimum.as_deref())?;
             companions(name, program, runtime.is_some())?;
         }
-        for (name, build) in &self.build {
-            for writer in &build.requires_version {
-                if !self.version.contains_key(writer) {
-                    return Err(dangling(name, "version writer", writer));
-                }
-            }
-            for program in &build.programs {
-                if !self.program.contains_key(program) {
-                    return Err(dangling(name, "program", program));
-                }
-            }
-        }
+        self.builds_resolved()?;
         for (name, target) in &self.target {
             if let Some(check) = &target.requires_check
                 && !self.check.contains_key(check)
@@ -416,6 +434,35 @@ impl Register {
                     if !self.target.contains_key(target) {
                         return Err(dangling(name, "target", target));
                     }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Refuses a build that names a version writer, a program or an image
+    /// the register does not define.
+    fn builds_resolved(&self) -> Result<(), RegisterError> {
+        let dangling =
+            |holder: &BuildName, kind, name: &dyn std::fmt::Display| RegisterError::Dangling {
+                holder: holder.to_string(),
+                kind,
+                name: name.to_string(),
+            };
+        for (name, build) in &self.build {
+            for writer in &build.requires_version {
+                if !self.version.contains_key(writer) {
+                    return Err(dangling(name, "version writer", writer));
+                }
+            }
+            for program in &build.programs {
+                if !self.program.contains_key(program) {
+                    return Err(dangling(name, "program", program));
+                }
+            }
+            for image in &build.images {
+                if !self.image.contains_key(image) {
+                    return Err(dangling(name, "image", image));
                 }
             }
         }
