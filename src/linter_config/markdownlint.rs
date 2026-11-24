@@ -23,8 +23,9 @@
 //! A difference by pattern is an entry of `overrides`, as markdownlint-cli2
 //! has it: its `filter` holds patterns over the path from the repository
 //! root (`*` stops at a `/`, `**` does not, a leading `!` takes a match
-//! back, a leading `./` names the root and is taken off), its `config` holds rules, and its `combine` says how they are laid:
-//! `merge` lays them over the file's own rules, `replace` takes their place.
+//! back, a leading `./` names the root and is taken off), its `config` holds
+//! rules, and its `combine` says how they are laid: `merge` lays them over
+//! the file's own rules, `replace` takes their place.
 //! The first entry whose `filter` matches a file counts for it. The
 //! pipeline's default lies beneath either way: no entry and no file takes it
 //! away. The library knows no patterns, so the tool works out the rules of

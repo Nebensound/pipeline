@@ -1182,11 +1182,11 @@ it:
 
 `filter` holds patterns over the path from the repository root, where `*` stops
 at a `/`, `**` does not, a leading `!` takes a match back, and a leading `./`
-names the root and is taken off; the first entry
-whose `filter` matches a file counts for it. `merge` lays its rules over the
-file's own, `replace` takes their place; the pipeline's default lies beneath
-either way. markdownlint's library knows no patterns, so the tool works out the
-rules of each file and hands the files in groups of the same rules.
+names the root and is taken off; the first entry whose `filter` matches a file
+counts for it. `merge` lays its rules over the file's own, `replace` takes
+their place; the pipeline's default lies beneath either way. markdownlint's
+library knows no patterns, so the tool works out the rules of each file and
+hands the files in groups of the same rules.
 
 markdownlint reads the keys of the rules in order, and where two keys cover the
 same rule, such as a tag and one of its rules, the later one counts. So the
