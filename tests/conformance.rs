@@ -14,7 +14,7 @@ use nebensound_repo::output::Output;
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::register::{BUILTIN_DEFAULTS, BUILTIN_REGISTER};
 use nebensound_repo::report;
-use support::{QUIET, analysis, call, git, repository};
+use support::{DEPENDABOT, QUIET, analysis, call, git, repository};
 
 /// Every minimum file, at the place it is written anew.
 const MINIMUM: &[(&str, &str)] = &[
@@ -23,10 +23,7 @@ const MINIMUM: &[(&str, &str)] = &[
     ("LICENSE", "All rights reserved.\n"),
     ("AGENTS.md", "# Rules\n"),
     (".github/CODEOWNERS", "* @example\n"),
-    (
-        ".github/dependabot.yml",
-        "version: 2\nupdates:\n  - package-ecosystem: github-actions\n    directory: /\n    schedule:\n      interval: weekly\n",
-    ),
+    (".github/dependabot.yml", DEPENDABOT),
     (".gitignore", "/target\n"),
     (".editorconfig", "root = true\n"),
 ];
@@ -212,7 +209,6 @@ fn every_missing_minimum_file_is_named_at_the_path_it_is_written_at() {
             "LICENSE",
             "AGENTS.md",
             ".github/CODEOWNERS",
-            ".github/dependabot.yml",
             ".gitignore",
             ".editorconfig",
         ]
@@ -227,7 +223,6 @@ fn every_place_and_name_github_honours_counts() {
             "LICENSE",
             "AGENTS.md",
             "CODEOWNERS",
-            ".github/dependabot.yml",
             ".gitignore",
             ".editorconfig",
         ][..],
@@ -236,7 +231,6 @@ fn every_place_and_name_github_honours_counts() {
             "LICENSE-MIT",
             "AGENTS.md",
             "docs/CODEOWNERS",
-            ".github/dependabot.yaml",
             ".gitignore",
             ".editorconfig",
         ],
@@ -245,7 +239,6 @@ fn every_place_and_name_github_honours_counts() {
             "COPYING.txt",
             "AGENTS.md",
             ".github/CODEOWNERS",
-            ".github/dependabot.yml",
             ".gitignore",
             ".editorconfig",
         ],
@@ -254,7 +247,6 @@ fn every_place_and_name_github_honours_counts() {
             "licence.md",
             "AGENTS.md",
             "CODEOWNERS",
-            ".github/dependabot.yml",
             ".gitignore",
             ".editorconfig",
         ],
@@ -263,7 +255,6 @@ fn every_place_and_name_github_honours_counts() {
             "UNLICENSE",
             "AGENTS.md",
             "CODEOWNERS",
-            ".github/dependabot.yml",
             ".gitignore",
             ".editorconfig",
         ],
@@ -285,13 +276,11 @@ fn a_file_elsewhere_or_under_another_name_does_not_count() {
             "docs/AGENTS.md",
             "codeowners",
             "src/CODEOWNERS",
-            "dependabot.yml",
-            ".github/dependabot.json",
             "src/.gitignore",
             ".github/.editorconfig",
         ]),
     );
-    assert_eq!(found.len(), 7, "{found:?}");
+    assert_eq!(found.len(), 6, "{found:?}");
 }
 
 #[test]
@@ -560,7 +549,10 @@ fn in_a_run_every_finding_is_an_annotation() {
         text.contains("The default branch is not checked: "),
         "{text}"
     );
-    assert!(text.contains("1 error, 7 warnings"), "{text}");
+    // The Dependabot configuration is not compared beside an error: what a
+    // declaration with errors gives could watch the wrong folders.
+    assert!(text.contains("1 error, 6 warnings"), "{text}");
+    assert!(!text.contains("stale-dependabot"), "{text}");
 
     // Without a finding there is nothing to annotate.
     let clean = repository(MINIMUM);
