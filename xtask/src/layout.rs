@@ -21,7 +21,9 @@
 //! kind, the one whose units it fails for: a list in another job leaves the
 //! units of its own kind without the step. A version writer is held the same
 //! way by the step `Version writers not written yet`, and a publish target by
-//! the step `Publish targets not written yet`. Every block brings its test
+//! the step `Publish targets not written yet`, which also counts the targets
+//! the tool's release stage carries out itself ([`IN_RELEASE`]): those have no
+//! block. Every block brings its test
 //! cases, at least one passing and one failing, and each of its steps carries
 //! only the keys a thin block needs ([`BLOCK_STEP_KEYS`]). Beside the blocks
 //! lie only the workflow's own machinery ([`MACHINERY`]), which belongs to no
@@ -63,6 +65,13 @@ const WRITERS_NOT_WRITTEN: &str = "Version writers not written yet";
 
 /// The step that fails for every publish target without a block.
 const TARGETS_NOT_WRITTEN: &str = "Publish targets not written yet";
+
+/// The publish targets the tool's call `release` carries out itself, in the
+/// job Publish, between the drafts and their publishing, and not a block in a
+/// step of its own: `release-assets` attaches the archives of the builds to
+/// the drafts, which take no file once they are published. Each is written,
+/// and has no block.
+pub const IN_RELEASE: &[&str] = &["release-assets"];
 
 /// The keys of a step that calls a block, in the form `nebensound.yml`
 /// documents for it. Any other key changes what the block does in the job:
@@ -507,6 +516,10 @@ pub fn compare(register: &str, workflow: &str, directories: &[Directory]) -> Res
             ));
         }
     }
+    let targets: BTreeSet<String> = targets
+        .into_iter()
+        .filter(|target| !IN_RELEASE.contains(&target.as_str()))
+        .collect();
     for (list, prefix, step, what) in [
         (&written, "check", NOT_WRITTEN, ""),
         (&builds, "build", NOT_WRITTEN, "the build "),

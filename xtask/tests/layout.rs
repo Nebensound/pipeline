@@ -894,6 +894,27 @@ fn a_publish_target_counted_as_written_needs_its_block() {
         found.problems,
         ["`Publish targets not written yet` counts `crates.io` as written, but it has no block"]
     );
+
+    // A target the release stage carries out itself is written without one.
+    let found = layout::compare(
+        REGISTER,
+        &workflow_targets(
+            r#"["demo"]"#,
+            "[]",
+            "[]",
+            r#"["release-assets"]"#,
+            AGREEING_STEPS,
+            "",
+        ),
+        &[
+            dir("check-demo", true, Ok(both())),
+            dir("phase0", true, Ok(Vec::new())),
+            dir("tool", true, Ok(Vec::new())),
+        ],
+    )
+    .unwrap();
+    assert_eq!(found.problems, Vec::<String>::new());
+    assert_eq!(layout::IN_RELEASE, ["release-assets"]);
 }
 
 #[test]
