@@ -208,6 +208,37 @@ fn the_rules_of_a_file_come_from_the_first_entry_of_overrides_that_matches_it() 
 }
 
 #[test]
+fn a_leading_dot_slash_of_a_pattern_names_the_root_as_markdownlint_cli2_read_it() {
+    let (handed, problems) = handed(&[(
+        ".markdownlint-cli2.jsonc",
+        "{ \"overrides\": [
+             { \"filter\": [\"./docs/**\", \"!./docs/keep.md\"], \"combine\": \"merge\",
+               \"config\": { \"MD041\": false } },
+             { \"filter\": [\"././*.md\", \"./!././notes.md\"], \"combine\": \"merge\",
+               \"config\": { \"MD001\": false } }
+           ] }",
+    )]);
+    assert!(problems.is_empty(), "{problems:?}");
+    let default = default_rules(MARKDOWNLINT);
+    let keys = |file: &str| -> Vec<String> {
+        handed
+            .rules_for(&default, file)
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect()
+    };
+
+    assert_eq!(keys("docs/a.md"), ["MD013", "MD041"]);
+    // `!./` takes a match back, as `!` does.
+    assert_eq!(keys("docs/keep.md"), ["MD013"]);
+    assert_eq!(keys("README.md"), ["MD013", "MD001"]);
+    // `./` before and after the `!` is taken off.
+    assert_eq!(keys("notes.md"), ["MD013"]);
+    // The patterns are reported as written.
+    assert_eq!(handed.overrides[0].filter, ["./docs/**", "!./docs/keep.md"]);
+}
+
+#[test]
 fn a_key_of_the_default_takes_the_value_of_the_file_in_its_place() {
     let (handed, _) = handed(&[(
         ".markdownlint.json",
@@ -239,6 +270,18 @@ fn the_options_that_are_data_are_handed_over() {
     assert_eq!(
         handed.job(&[], &[]),
         "{\"frontMatter\":\"^---$\",\"noInlineConfig\":true,\"groups\":[]}"
+    );
+}
+
+#[test]
+fn an_empty_front_matter_leaves_markdownlint_its_default() {
+    let (handed, problems) = handed(&[(".markdownlint-cli2.jsonc", "{ \"frontMatter\": \"\" }")]);
+
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(handed.front_matter, None);
+    assert_eq!(
+        handed.job(&[], &[]),
+        "{\"frontMatter\":null,\"noInlineConfig\":false,\"groups\":[]}"
     );
 }
 

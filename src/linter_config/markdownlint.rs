@@ -23,7 +23,7 @@
 //! A difference by pattern is an entry of `overrides`, as markdownlint-cli2
 //! has it: its `filter` holds patterns over the path from the repository
 //! root (`*` stops at a `/`, `**` does not, a leading `!` takes a match
-//! back), its `config` holds rules, and its `combine` says how they are laid:
+//! back, a leading `./` names the root and is taken off), its `config` holds rules, and its `combine` says how they are laid:
 //! `merge` lays them over the file's own rules, `replace` takes their place.
 //! The first entry whose `filter` matches a file counts for it. The
 //! pipeline's default lies beneath either way: no entry and no file takes it
@@ -173,7 +173,8 @@ pub struct Handed {
     /// The differences by pattern, in their order.
     pub overrides: Vec<Override>,
     /// The pattern of the front matter markdownlint skips, where the file
-    /// gives one.
+    /// gives one. Empty text gives none, as with markdownlint-cli2, which
+    /// built a pattern only of text that is not empty.
     pub front_matter: Option<String>,
     /// Whether comments in a document are read as configuration.
     pub no_inline_config: bool,
@@ -480,7 +481,9 @@ fn options(found: &mut Found<'_>, handed: &mut Handed, top: Vec<(String, Written
         match key.as_str() {
             "config" => handed.rules = found.rules(value, "config."),
             "frontMatter" => match value {
-                Written::Scalar(Value::String(pattern)) => handed.front_matter = Some(pattern),
+                Written::Scalar(Value::String(pattern)) => {
+                    handed.front_matter = Some(pattern).filter(|pattern| !pattern.is_empty());
+                }
                 _ => {
                     found.problem("`frontMatter` is not text, so it is not handed to markdownlint");
                 }
@@ -515,6 +518,25 @@ fn options(found: &mut Found<'_>, handed: &mut Handed, top: Vec<(String, Written
     }
 }
 
+/// A pattern of a `filter` as micromatch read it for markdownlint-cli2:
+/// whether a leading `!` takes a match back, and the pattern without it and
+/// without a leading `./`, which names the root, before or after the `!`.
+fn bare(pattern: &str) -> (bool, &str) {
+    let rest = from_root(pattern);
+    match rest.strip_prefix('!') {
+        Some(rest) => (true, from_root(rest)),
+        None => (false, rest),
+    }
+}
+
+/// A pattern without the `./` it starts with, however often it is written.
+fn from_root(mut pattern: &str) -> &str {
+    while let Some(rest) = pattern.strip_prefix("./") {
+        pattern = rest;
+    }
+    pattern
+}
+
 /// The patterns of a `filter`, built: a list of text that holds one at
 /// least, each a pattern that reads.
 fn patterns(value: &Value) -> Result<Override, String> {
@@ -532,10 +554,10 @@ fn patterns(value: &Value) -> Result<Override, String> {
     let mut set = GlobSetBuilder::new();
     let mut negated = Vec::new();
     for pattern in &written {
-        let glob = pattern.strip_prefix('!');
-        negated.push(glob.is_some());
+        let (taken_back, glob) = bare(pattern);
+        negated.push(taken_back);
         set.add(
-            GlobBuilder::new(glob.unwrap_or(pattern))
+            GlobBuilder::new(glob)
                 .literal_separator(true)
                 .build()
                 .map_err(unreadable)?,

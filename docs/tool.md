@@ -1155,7 +1155,8 @@ name stand in
   Every key of the rules is a rule, an alias or a tag of the pinned
   markdownlint, in any case, or `default`. `frontMatter` is a pattern of
   JavaScript; one that JavaScript does not read fails the check at its file,
-  and markdownlint skips the front matter it knows by default.
+  and markdownlint skips the front matter it knows by default. Empty text is
+  no pattern and leaves that default in place, as with markdownlint-cli2.
 - Set aside, since the check decides them itself: `globs`, `ignores` and
   `gitignore` (the files are those `files` names, and phase 0 holds `ignores`
   against the declaration, see [Exclusions](../README.md#exclusions)),
@@ -1180,7 +1181,8 @@ it:
 ```
 
 `filter` holds patterns over the path from the repository root, where `*` stops
-at a `/`, `**` does not, and a leading `!` takes a match back; the first entry
+at a `/`, `**` does not, a leading `!` takes a match back, and a leading `./`
+names the root and is taken off; the first entry
 whose `filter` matches a file counts for it. `merge` lays its rules over the
 file's own, `replace` takes their place; the pipeline's default lies beneath
 either way. markdownlint's library knows no patterns, so the tool works out the
