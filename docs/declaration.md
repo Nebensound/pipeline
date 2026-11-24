@@ -1031,11 +1031,11 @@ finding lists every difference by its key path:
   entries for one ecosystem count together, and a folder more is tolerated;
 - in every entry for the ecosystem, `schedule.interval`, the policy's group
   with its `update-types` and, where the policy sets them, its
-  `exclude-patterns`, `open-pull-requests-limit`, `commit-message.prefix` and
-  `labels`. Lists are compared without regard to order.
+  `exclude-patterns`, `open-pull-requests-limit` and `commit-message.prefix`.
+  Lists are compared without regard to order.
 
-A key the command does not set, an entry for an ecosystem it writes none for,
-and comments are not compared. `check` compares the file only when phase 0
+A key the command does not set, `labels` among them, an entry for an ecosystem
+it writes none for, and comments are not compared. `check` compares the file only when phase 0
 found no error: what a declaration with errors gives could watch the wrong
 folders.
 

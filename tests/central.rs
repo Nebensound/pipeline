@@ -15,7 +15,7 @@ fn path(value: &str) -> RelativePath {
 
 /// The smallest Dependabot policy the defaults can hold.
 const POLICY: &str = "\n[dependabot]\ninterval = \"weekly\"\nopen-pull-requests-limit = 5\n\
-                      labels = [\"dependencies\"]\ncommit-prefix = \"deps\"\n\
+                      commit-prefix = \"deps\"\n\
                       [dependabot.group]\nname = \"all\"\nupdate-types = [\"minor\", \"patch\"]\n";
 
 const REGISTER: &str = "[version]\n[check.rust]\nextensions = [\".rs\"]\n[build]\n[target]\n[preset]\n\

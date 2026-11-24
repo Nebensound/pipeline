@@ -86,7 +86,6 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: ci(deps)
-    labels: [dependencies]
   - package-ecosystem: uv
     directory: /
     schedule:
@@ -97,7 +96,6 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: deps
-    labels: [dependencies]
   - package-ecosystem: docker
     directory: /deploy
     schedule:
@@ -108,7 +106,6 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: docker(deps)
-    labels: [dependencies]
 ",
     ),
     (".github/workflows/gate.yml", CALLER),

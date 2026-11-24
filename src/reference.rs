@@ -375,7 +375,6 @@ fn dependabot(central: &Central) -> String {
                 code("update-types"),
                 codes(&group.update_types),
             ],
-            vec!["Labels".to_owned(), code("labels"), codes(&policy.labels)],
         ],
     );
     let rows: Vec<Vec<String>> = central
@@ -393,6 +392,8 @@ fn dependabot(central: &Central) -> String {
     format!(
         "{settings}\n\n\
          An update the group does not take comes alone, and so does a security update.\n\
+         The policy sets no `labels`: Dependabot then applies its own, `dependencies` and\n\
+         one for the ecosystem, and creates them where they are missing.\n\
          The commit prefix (`commit-message.prefix`) depends on the ecosystem, and some\n\
          dependencies stay out of the group (`exclude-patterns`), each raise of them a\n\
          pull request of its own:\n\n{}",

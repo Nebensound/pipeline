@@ -224,9 +224,10 @@ policy; a declaration cannot change it.
 | How often                               | `schedule.interval`        | `weekly`         |
 | Open pull requests per entry, at most   | `open-pull-requests-limit` | `5`              |
 | Together in the group `minor-and-patch` | `update-types`             | `minor`, `patch` |
-| Labels                                  | `labels`                   | `dependencies`   |
 
 An update the group does not take comes alone, and so does a security update.
+The policy sets no `labels`: Dependabot then applies its own, `dependencies` and
+one for the ecosystem, and creates them where they are missing.
 The commit prefix (`commit-message.prefix`) depends on the ecosystem, and some
 dependencies stay out of the group (`exclude-patterns`), each raise of them a
 pull request of its own:

@@ -86,8 +86,6 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: ci(deps)
-    labels:
-      - dependencies
 ";
 
 /// One call of the tool, inside this process.

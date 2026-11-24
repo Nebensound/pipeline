@@ -64,7 +64,6 @@ fn the_rust_service_preset_gives_cargo_docker_and_github_actions_with_the_policy
         assert_eq!(each.group, "minor-and-patch");
         assert_eq!(each.update_types, ["minor", "patch"]);
         assert_eq!(each.open_pull_requests_limit, 5);
-        assert_eq!(each.labels, ["dependencies"]);
     }
     assert_eq!(entry(&found, "cargo").prefix, "deps");
     assert_eq!(entry(&found, "docker").prefix, "docker(deps)");
@@ -210,6 +209,8 @@ fn one_folder_is_written_as_directory_and_several_as_directories() {
         text.starts_with("# Written by `nebensound-repo dependabot`"),
         "{text}"
     );
+    // Dependabot applies and creates its own labels only without the key.
+    assert!(!text.contains("labels"), "{text}");
 }
 
 #[test]
@@ -250,6 +251,13 @@ fn editing_any_value_of_the_policy_by_hand_is_named_by_its_key_path() {
         ["updates[0].open-pull-requests-limit is 10, and the policy sets 5"]
     );
     assert_eq!(
+        edited(
+            "open-pull-requests-limit: 5",
+            "open-pull-requests-limit: true"
+        ),
+        ["updates[0].open-pull-requests-limit is true, and the policy sets 5"]
+    );
+    assert_eq!(
         edited("prefix: deps", "prefix: chore"),
         ["updates[0].commit-message.prefix is chore, and the policy sets deps"]
     );
@@ -262,13 +270,6 @@ fn editing_any_value_of_the_policy_by_hand_is_named_by_its_key_path() {
     );
     assert_eq!(
         edited(
-            "      - dependencies\n",
-            "      - dependencies\n      - rust\n"
-        ),
-        ["updates[0].labels is [dependencies, rust], and the policy sets [dependencies]"]
-    );
-    assert_eq!(
-        edited(
             "          - Nebensound/pipeline/.github/workflows/nebensound.yml\n",
             "          - Nebensound/pipeline\n"
         ),
@@ -276,14 +277,6 @@ fn editing_any_value_of_the_policy_by_hand_is_named_by_its_key_path() {
             "updates[2].groups.minor-and-patch.exclude-patterns is [Nebensound/pipeline], and \
              the policy sets [Nebensound/pipeline/.github/workflows/nebensound.yml]"
         ]
-    );
-    assert_eq!(
-        edited("    labels:\n      - dependencies\n", ""),
-        ["updates[0].labels is missing, and the policy sets [dependencies]"]
-    );
-    assert_eq!(
-        edited("    labels:\n      - dependencies\n", "    labels: true\n"),
-        ["updates[0].labels is true, and the policy sets [dependencies]"]
     );
     assert_eq!(
         edited("    directory: /deploy\n", "    directory: /docker\n"),
@@ -297,6 +290,7 @@ fn editing_any_value_of_the_policy_by_hand_is_named_by_its_key_path() {
 
 #[test]
 fn what_the_generator_does_not_set_is_tolerated() {
+    // `labels` among it: the policy sets none, so labels added by hand stand.
     let found = entries(&analysis(RUST_SERVICE, RUST_SERVICE_FILES), &central());
     let file = yaml(
         "# By hand, and all the same.\n\
@@ -335,8 +329,7 @@ fn the_folders_of_several_entries_count_together_and_each_entry_follows_the_poli
     );
     let policy = "schedule: {interval: weekly}\n    \
                   groups: {minor-and-patch: {update-types: [minor, patch]}}\n    \
-                  open-pull-requests-limit: 5\n    commit-message: {prefix: deps}\n    \
-                  labels: [dependencies]";
+                  open-pull-requests-limit: 5\n    commit-message: {prefix: deps}";
     let file = yaml(&format!(
         "version: 2\nupdates:\n\
          \x20 - package-ecosystem: cargo\n    directory: /a\n    {policy}\n\
@@ -541,7 +534,6 @@ fn the_compiled_in_policy_is_the_one_the_defaults_hold() {
     let policy = central.dependabot();
     assert_eq!(policy.interval, "weekly");
     assert_eq!(policy.open_pull_requests_limit, 5);
-    assert_eq!(policy.labels, ["dependencies"]);
     assert_eq!(policy.group.update_types, ["minor", "patch"]);
 }
 
@@ -599,7 +591,8 @@ fn a_policy_dependabot_would_not_take_does_not_read() {
         );
     }
 
-    // Without one, or with a key it does not know.
+    // Without one, or with a key it does not know: `labels` too, which the
+    // policy leaves to Dependabot.
     let without = BUILTIN_DEFAULTS
         .split_once("[dependabot]")
         .map(|(before, _)| before.to_owned())
@@ -608,7 +601,10 @@ fn a_policy_dependabot_would_not_take_does_not_read() {
     assert!(error.to_string().contains("is missing"), "{error}");
     let error = Central::parse(
         BUILTIN_REGISTER,
-        &defaults_with("labels                   =", "label ="),
+        &defaults_with(
+            "open-pull-requests-limit = 5\n",
+            "open-pull-requests-limit = 5\nlabels = [\"dependencies\"]\n",
+        ),
     )
     .expect_err("a key the policy does not know");
     assert!(matches!(error, CentralError::Policy { .. }), "{error}");
@@ -618,7 +614,7 @@ fn a_policy_dependabot_would_not_take_does_not_read() {
         message.starts_with("the Dependabot policy in the defaults is not readable: "),
         "{message}"
     );
-    assert!(message.contains("unknown field `label`"), "{message}");
+    assert!(message.contains("unknown field `labels`"), "{message}");
     assert!(message.contains("at line "), "{message}");
     // The rest of the defaults is read as before.
     let error = Central::parse(

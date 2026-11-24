@@ -3,9 +3,10 @@
 //!
 //! The declaration names the ecosystems each unit has watched; the policy says
 //! how every one of them is watched: how often, which updates come grouped, how
-//! many pull requests stand open, with which commit prefix and which label. It
-//! is kept once, in the central defaults (`[dependabot]` in `defaults.toml`),
-//! and no repository's declaration can change it.
+//! many pull requests stand open, with which commit prefix. It sets no
+//! labels: Dependabot then applies its own and creates them where they are
+//! missing. It is kept once, in the central defaults (`[dependabot]` in
+//! `defaults.toml`), and no repository's declaration can change it.
 //!
 //! There is one entry per ecosystem, listing the folders that hold a manifest
 //! of it inside a unit that has it watched, so that the limit and the group
@@ -76,8 +77,6 @@ pub struct Policy {
     /// How many pull requests of one entry stand open at most:
     /// `open-pull-requests-limit`.
     pub open_pull_requests_limit: u32,
-    /// The labels every pull request carries: `labels`.
-    pub labels: Vec<String>,
     /// The commit prefix of an ecosystem that names none of its own:
     /// `commit-message.prefix`.
     pub commit_prefix: String,
@@ -202,8 +201,6 @@ pub struct Entry {
     pub open_pull_requests_limit: u32,
     /// `commit-message.prefix`.
     pub prefix: String,
-    /// `labels`.
-    pub labels: Vec<String>,
 }
 
 /// The entries the declaration and the policy give, in the order of the
@@ -257,7 +254,6 @@ pub fn entries(analysis: &Analysis, central: &Central) -> Vec<Entry> {
             exclude_patterns: policy.exclude_from_group(name).to_vec(),
             open_pull_requests_limit: policy.open_pull_requests_limit,
             prefix: policy.prefix(name).to_owned(),
-            labels: policy.labels.clone(),
         });
     }
     entries
@@ -336,7 +332,6 @@ fn entry_yaml(entry: &Entry) -> Yaml {
     let mut commit = Hash::new();
     commit.insert(text("prefix"), text(&entry.prefix));
     map.insert(text("commit-message"), Yaml::Hash(commit));
-    map.insert(text("labels"), texts(&entry.labels));
     Yaml::Hash(map)
 }
 
@@ -437,12 +432,6 @@ pub fn differences(entries: &[Entry], found: &Yaml) -> Vec<String> {
                 &at("commit-message.prefix"),
                 &expected["commit-message"]["prefix"],
                 &update["commit-message"]["prefix"],
-            );
-            note(
-                &mut found_differences,
-                &at("labels"),
-                &expected["labels"],
-                &update["labels"],
             );
         }
     }
