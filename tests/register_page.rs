@@ -101,7 +101,7 @@ fn the_page_names_what_the_register_says() {
             "`json`",
             "`.json`, `.jsonc`, `.geojson`",
             "`composer.lock`, `flake.lock`, `Pipfile.lock`",
-            "`biome`, `jq`, `prettier`",
+            "`prettier`",
             "none",
         ],
         &[
@@ -118,8 +118,8 @@ fn the_page_names_what_the_register_says() {
             "one package for every platform",
         ],
         &[
-            "`jq`",
-            "`1.8.1`",
+            "`hadolint`",
+            "`2.15.1`",
             "none",
             "`linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`",
         ],

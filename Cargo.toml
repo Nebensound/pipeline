@@ -43,7 +43,6 @@ include = [
   "/defaults.toml",
   "/register.toml",
   "/rules/",
-  "/run/",
   "/rust-toolchain.toml",
   "/schemas/",
   "/src/",
@@ -58,7 +57,10 @@ include = [
 # build (Windows), and the Python check reads a wheel with it. The download
 # itself goes through curl, so no HTTP or TLS library is linked. roxmltree
 # reads the report of the tests the Python check runs. schemars derives the
-# JSON Schema of the declaration.
+# JSON Schema of the declaration. jsonschema validates the Dependabot
+# configuration in the YAML check against the schema the tool compiles in;
+# without its default features it fetches no schema over HTTP or from a file,
+# so it links no HTTP or TLS library either.
 # getrandom draws the token of each stretch in which the runner of GitHub
 # Actions processes no workflow command (see `console`): the randomness of the
 # operating system, in every build. It is in the tree already through tempfile.
@@ -86,6 +88,11 @@ thiserror    = "2"
 toml         = "1"
 toml_edit    = "0.25"
 yaml-rust2   = "0.13"
+
+[dependencies.jsonschema]
+version          = "0.63"
+default-features = false
+optional         = true
 
 [dependencies.schemars]
 version          = "1"
@@ -124,6 +131,7 @@ tempfile     = "3"
 default = ["program"]
 program = [
   "dep:flate2",
+  "dep:jsonschema",
   "dep:roxmltree",
   "dep:rustix",
   "dep:schemars",

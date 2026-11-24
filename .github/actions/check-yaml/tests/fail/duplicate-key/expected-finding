@@ -1,0 +1,1 @@
+::error file=config.yaml,line=2,col=1::the key "name" stands twice in this mapping: a mapping holds each key once

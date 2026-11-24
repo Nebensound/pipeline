@@ -35,15 +35,12 @@ fn every_check_with_a_building_block_names_the_programs_it_calls() {
         ("css", &["prettier", "stylelint"][..]),
         ("dockerfile", &["dockerfmt", "hadolint"]),
         ("html", &["html-validate", "lychee", "prettier"]),
-        ("json", &["biome", "jq", "prettier"]),
+        ("json", &["prettier"]),
         ("markdown", &["lychee", "markdownlint-cli2", "prettier"]),
         ("python", &["coverage", "pyright", "ruff", "uv"]),
         ("rust", &["cargo-llvm-cov"]),
         ("toml", &["taplo"]),
-        (
-            "yaml",
-            &["actionlint", "check-jsonschema", "prettier", "yamllint"],
-        ),
+        ("yaml", &["actionlint", "prettier"]),
     ] {
         assert_eq!(
             names(&register.programs_of(&[check(name)])),
@@ -56,15 +53,11 @@ fn every_check_with_a_building_block_names_the_programs_it_calls() {
         names(&register.programs_of(&[check("yaml"), check("json"), check("python")])),
         [
             "actionlint",
-            "biome",
-            "check-jsonschema",
             "coverage",
-            "jq",
             "prettier",
             "pyright",
             "ruff",
-            "uv",
-            "yamllint"
+            "uv"
         ]
     );
 }
@@ -74,14 +67,11 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
     let register = builtin();
     for (name, version, runtime) in [
         ("actionlint", "1.7.12", None),
-        ("biome", "2.5.15", None),
         ("cargo-llvm-cov", "0.9.0", None),
-        ("check-jsonschema", "0.39.0", Some(("python", "3.11.0"))),
         ("coverage", "7.17.4", Some(("python", "3.11.0"))),
         ("dockerfmt", "1.0.0", None),
         ("hadolint", "2.15.1", None),
         ("html-validate", "11.21.1", Some(("node", "22.22.0"))),
-        ("jq", "1.8.1", None),
         ("lychee", "0.24.2", None),
         ("markdownlint-cli2", "0.23.2", Some(("node", "22.0.0"))),
         ("prettier", "3.9.6", Some(("node", "14.0.0"))),
@@ -91,7 +81,6 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
         ("taplo", "0.10.0", None),
         ("trivy", "0.76.2", None),
         ("uv", "0.13.9", None),
-        ("yamllint", "1.38.0", Some(("python", "3.10.0"))),
     ] {
         let program = &register.program[&ProgramName::new(name).expect("a name")];
         assert_eq!(program.version, version, "{name}");
@@ -113,7 +102,7 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
             assert!(download.url.contains(version), "{name} {platform}");
         }
     }
-    assert_eq!(register.program.len(), 19);
+    assert_eq!(register.program.len(), 15);
 
     // Stylelint brings the configurations the pipeline's default extends and
     // the syntax it reads SCSS with; no other program brings anything.

@@ -2,7 +2,8 @@ name: check-json
 description: >-
   The JSON check over one unit: every `.json`, `.jsonc` and `.geojson` file
   the unit holds parses and is formatted the way Prettier writes it; every
-  `composer.lock`, `flake.lock` and `Pipfile.lock` parses.
+  `composer.lock`, `flake.lock` and `Pipfile.lock` parses. Whether a file
+  parses the tool judges itself; Prettier is the one program it starts.
 
 # One input, and it is not a setting: where the unit is. It comes from the plan
 # of phase 0. The calling job checks the repository out and puts the tool on the

@@ -1,0 +1,1 @@
+::error file=config.yaml,line=3,col=7::not valid YAML: the alias "*missing" names no anchor declared before it in its document

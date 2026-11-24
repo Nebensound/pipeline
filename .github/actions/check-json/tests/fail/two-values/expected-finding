@@ -1,0 +1,1 @@
+::error file=data.json::not valid JSON: the file holds 2 values, a JSON document is exactly one

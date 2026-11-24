@@ -1,2 +1,2 @@
-::error file=data.json::not valid JSON: *
+::error file=data.json,line=2,col=10::not valid JSON: *
 ::error file=data.json::Prettier cannot read it: *

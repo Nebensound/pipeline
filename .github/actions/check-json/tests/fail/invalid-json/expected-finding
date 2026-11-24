@@ -1,1 +1,1 @@
-::error file=data.json::not valid JSON: *
+::error file=data.json,line=1,col=22::not valid JSON: key must be a string

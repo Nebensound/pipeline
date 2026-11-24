@@ -25,7 +25,7 @@ programs   = ["lychee", "markdownlint-cli2", "prettier"]
 
 [check.yaml]
 extensions = [".yml", ".yaml"]
-programs   = ["actionlint", "check-jsonschema", "prettier", "yamllint"]
+programs   = ["actionlint", "prettier"]
 
 # Lockfiles are named, never covered by the extension `.lock`: the extension is
 # shared by formats that have nothing in common. composer.lock, flake.lock and
@@ -36,7 +36,7 @@ programs   = ["actionlint", "check-jsonschema", "prettier", "yamllint"]
 [check.json]
 extensions = [".json", ".jsonc", ".geojson"]
 filenames  = ["composer.lock", "flake.lock", "Pipfile.lock"]
-programs   = ["biome", "jq", "prettier"]
+programs   = ["prettier"]
 
 [check.toml]
 extensions = [".toml"]
@@ -385,43 +385,6 @@ url        = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/acti
 digest     = "sha256:cadcf7ea4efe3a68728893813643cebe1185e5b1d4be5b96245f65c9a4d5ea41"
 executable = "actionlint.exe"
 
-# The native binary of @biomejs/biome, which npm installs as an optional
-# dependency for the platform; it needs no Node.js. The digests are the
-# `dist.integrity` the npm registry states for each package, in hexadecimal.
-[program.biome]
-version = "2.5.15"
-command = "biome"
-
-[program.biome.download.linux-x86_64]
-url        = "https://registry.npmjs.org/@biomejs/cli-linux-x64/-/cli-linux-x64-2.5.15.tgz"
-digest     = "sha512:c44e22116ff72ea9588fd185806ac5b05487e7574412951b61605f78ebf4abced69140f12b6a3f1e1ade49beea309a9c93bd1154ce8b83dea181e75c01870e90"
-executable = "package/biome"
-
-[program.biome.download.linux-aarch64]
-url        = "https://registry.npmjs.org/@biomejs/cli-linux-arm64/-/cli-linux-arm64-2.5.15.tgz"
-digest     = "sha512:5da1bb3fb79e48b6044c3dcaf60adf0749909a92d0663ca075bb317a45812408386a6efd7c602d4697d1c8d9d3bd70767d914d9c9646de75e6ec705ab74f9553"
-executable = "package/biome"
-
-[program.biome.download.macos-x86_64]
-url        = "https://registry.npmjs.org/@biomejs/cli-darwin-x64/-/cli-darwin-x64-2.5.15.tgz"
-digest     = "sha512:5792b0eb757e7d518d16116b8b30f131b19703364287c918cc9a72dc623a8136a958383b6d92bda180bd09b56041211d4e7ba9cf453911fcfc12ffb9bdd0415f"
-executable = "package/biome"
-
-[program.biome.download.macos-aarch64]
-url        = "https://registry.npmjs.org/@biomejs/cli-darwin-arm64/-/cli-darwin-arm64-2.5.15.tgz"
-digest     = "sha512:05957316127f994bd32cc61b73dc7a7a5d28d94bf9ccfedb0026328456fa7d2735822ae85e6ecf2f46b92aa309f45fbf0679184636a00ff44e48354e67a79aa6"
-executable = "package/biome"
-
-[program.biome.download.windows-x86_64]
-url        = "https://registry.npmjs.org/@biomejs/cli-win32-x64/-/cli-win32-x64-2.5.15.tgz"
-digest     = "sha512:c80ce1e14a8422657a1dccb4ce352a35f240b148680fae0505009d4c6f0c77f676c107953ff6662775d1600b3583c27d7e34c5ca5d9f0ad739141e6d8a5e3bfa"
-executable = "package/biome.exe"
-
-[program.biome.download.windows-aarch64]
-url        = "https://registry.npmjs.org/@biomejs/cli-win32-arm64/-/cli-win32-arm64-2.5.15.tgz"
-digest     = "sha512:da43cace13659bc0be46edc670ed0c7b638390204bad539436eca2f38449c960d5280038f8a8e3de33232fddfc945e8145fbe5b42e2f0769cf63d4af379d4ebe"
-executable = "package/biome.exe"
-
 # The digests GitHub states for the release assets. Called on its own, it
 # expects the subcommand first.
 [program.cargo-llvm-cov]
@@ -458,17 +421,6 @@ executable = "cargo-llvm-cov.exe"
 url        = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0/cargo-llvm-cov-aarch64-pc-windows-msvc.tar.gz"
 digest     = "sha256:da8f270851522e23e01285f99cae30d85050a215929697619ac17b73d20212db"
 executable = "cargo-llvm-cov.exe"
-
-# The digest PyPI states for the wheel; `requires_python` is ">=3.11".
-[program.check-jsonschema]
-version         = "0.39.0"
-command         = "check-jsonschema"
-runtime         = "python"
-runtime-minimum = "3.11.0"
-
-[program.check-jsonschema.download.any]
-url    = "https://files.pythonhosted.org/packages/06/e9/644e47c8b929f14cbda2b6779be047caa2098cc06f8bd7e04e8c62416cdc/check_jsonschema-0.39.0-py3-none-any.whl"
-digest = "sha256:14ce5c94871c551268ea948ffe21e9f1464dc48fb20bf9a4c13deeaaf756cf9b"
 
 # The digest PyPI states for the wheel that runs on every Python;
 # `requires_python` is ">=3.11". The python check fetches this wheel itself,
@@ -556,38 +508,6 @@ runtime-minimum = "22.22.0"
 [program.html-validate.download.any]
 url    = "https://registry.npmjs.org/html-validate/-/html-validate-11.21.1.tgz"
 digest = "sha512:c28a7dc164ad1fc860b0356fef34d93c5de2daa0152ded5e546ad2544ef603c41444ce849f5272b53b523138fb1f45118b669e482b97740ffea7ed036f032b31"
-
-# sha256sum.txt of the release; the same digests stand on the release assets.
-# It is the version the Linux runners bring, which phase 0 and the other
-# blocks still take from the runner image.
-[program.jq]
-version = "1.8.1"
-command = "jq"
-
-[program.jq.download.linux-x86_64]
-url        = "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-amd64"
-digest     = "sha256:020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d"
-executable = "jq"
-
-[program.jq.download.linux-aarch64]
-url        = "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-arm64"
-digest     = "sha256:6bc62f25981328edd3cfcfe6fe51b073f2d7e7710d7ef7fcdac28d4e384fc3d4"
-executable = "jq"
-
-[program.jq.download.macos-x86_64]
-url        = "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-macos-amd64"
-digest     = "sha256:e80dbe0d2a2597e3c11c404f03337b981d74b4a8504b70586c354b7697a7c27f"
-executable = "jq"
-
-[program.jq.download.macos-aarch64]
-url        = "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-macos-arm64"
-digest     = "sha256:a9fe3ea2f86dfc72f6728417521ec9067b343277152b114f4e98d8cb0e263603"
-executable = "jq"
-
-[program.jq.download.windows-x86_64]
-url        = "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-windows-amd64.exe"
-digest     = "sha256:23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334"
-executable = "jq.exe"
 
 # The `.sha256` files of the release; the same digests stand on the release
 # assets.
@@ -831,17 +751,6 @@ executable = "uv.exe"
 url        = "https://github.com/astral-sh/uv/releases/download/0.13.9/uv-aarch64-pc-windows-msvc.zip"
 digest     = "sha256:72eed595983a4d7d22d79f21065b0f4479cc7e5c7a89104bb410c8f47559a878"
 executable = "uv.exe"
-
-# The digest PyPI states for the wheel; `requires_python` is ">=3.10".
-[program.yamllint]
-version         = "1.38.0"
-command         = "yamllint"
-runtime         = "python"
-runtime-minimum = "3.10.0"
-
-[program.yamllint.download.any]
-url    = "https://files.pythonhosted.org/packages/05/92/aed08e68de6e6a3d7c2328ce7388072cd6affc26e2917197430b646aed02/yamllint-1.38.0-py3-none-any.whl"
-digest = "sha256:fc394a5b3be980a4062607b8fdddc0843f4fa394152b6da21722f5d59013c220"
 
 # The runtimes the programs above run on. One is installed only when it is
 # missing, or too old on the computer for a program above, and someone agrees;

@@ -1,0 +1,6 @@
+defaults: &defaults
+  adapter: postgres
+development:
+  <<: *defaults
+  database: development
+also: *defaults

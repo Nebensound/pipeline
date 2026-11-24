@@ -2097,6 +2097,25 @@ fn the_binary_checks_this_computer() {
         "{text}"
     );
 
+    // The runtimes are named in name order, whichever program needs one
+    // first: coverage.py comes before Prettier and Pyright.
+    let searched = Fixture::new();
+    let output = Command::new(env!("CARGO_BIN_EXE_nebensound-repo"))
+        .args(["setup", "--check", "python", "yaml"])
+        .current_dir(repo.path())
+        .env("PATH", only_git(&searched))
+        .env("HOME", &home)
+        .env_remove("XDG_CACHE_HOME")
+        .env_remove("GITHUB_ACTIONS")
+        .output()
+        .expect("the built binary");
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(output.status.code(), Some(1), "{text}");
+    assert!(
+        text.contains("\nRuntimes\n  node 24.22.3: missing\n  python 3.14.10: missing\n"),
+        "{text}"
+    );
+
     let output = Command::new(env!("CARGO_BIN_EXE_nebensound-repo"))
         .args(["setup", "--check"])
         .current_dir(repo.path())

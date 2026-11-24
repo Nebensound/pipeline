@@ -1,7 +1,8 @@
-# Schemas for the TOML check
+# Schemas for the TOML and the YAML check
 
-The JSON Schemas the TOML check validates against, which `nebensound-repo run
-toml` compiles in, kept here for two reasons:
+The JSON Schemas the TOML check validates against, and the one the YAML check
+holds the Dependabot configuration against, which `nebensound-repo run toml`
+and `run yaml` compile in, kept here for two reasons:
 
 - Validating against them needs no request to SchemaStore: a pull request
   must not turn red because someone else's server does not answer. (Taplo
@@ -20,6 +21,7 @@ toml` compiles in, kept here for two reasons:
 | `cargo-lints-rustdoc.json`    | the `rustdoc` lints, referenced by `cargo.json`        |
 | `quikrun.json`                | a `package.metadata` table, referenced by `cargo.json` |
 | `nebensound-declaration.json` | `.nebensound/repo.toml`; not from SchemaStore, below   |
+| `dependabot-2.0.json`         | `.github/dependabot.yml`; from another commit, below   |
 
 ## Source
 
@@ -47,6 +49,18 @@ jq --indent 2 'del(."$id") | walk(if type == "object" and has("$ref")
   then ."$ref" |= sub("^https://www.schemastore.org/"; "") else . end)' \
   "$source" > "<name>.json"
 ```
+
+## `dependabot-2.0.json`
+
+SchemaStore's `src/schemas/json/dependabot-2.0.json` at commit
+`d227d9f54eaf1a805de6c00e94c939f526a3da2f` (2026-10-22), byte for byte: the
+copy check-jsonschema 0.39.0 carried as its built-in schema
+`vendor.dependabot`, which the YAML check used before it validated the file
+itself, so that the check finds what it found then. `LICENSE` and `NOTICE` are
+the same at that commit as at the one above. Nothing is changed in it: the
+validator the tool links resolves the schema's references inside the file
+and reads its `$id` without fetching it. To take it again, take the file from
+a newer commit and update the commit and date here.
 
 ## Deviation in `cargo.json`
 

@@ -11,12 +11,14 @@
 //! The files are those `files` names for the check and the unit. The programs
 //! are those the register names for the check, found the way
 //! [`locate`](crate::setup::find::locate) finds them: the pinned copy in the
-//! tool's folder first, the one on the computer otherwise. Four of them are
+//! tool's folder first, the one on the computer otherwise. Three of them are
 //! called through their internals, so that the repository's rules are laid
-//! over the pipeline's default: html-validate, markdownlint-cli2, Stylelint
-//! and yamllint. Of those four only the pinned copy is taken, since only its
+//! over the pipeline's default: html-validate, markdownlint-cli2 and
+//! Stylelint. Of those three only the pinned copy is taken, since only its
 //! internals are known. A program that is not there fails the check and names
-//! `setup`, which installs it; `run` installs nothing.
+//! `setup`, which installs it; `run` installs nothing. What the tool can judge
+//! itself starts no program: whether a JSON or a YAML file parses, and whether
+//! a Dependabot configuration matches its schema.
 //!
 //! Every program is called with the flags that set its own ignore mechanisms
 //! aside: what is not to be checked is not in the list. Each part of a check
@@ -436,6 +438,33 @@ pub fn chunks<'f>(files: &[&'f str]) -> Vec<Vec<&'f str>> {
     chunks
 }
 
+/// The byte order mark a file may open with. It is no part of the content:
+/// RFC 8259 lets a parser of JSON pass over it, YAML allows it at the start of
+/// a stream, and the programs that read these files pass over it as well.
+const BOM: &str = "\u{feff}";
+
+/// What the tool's own parser finds wrong with a file, and where, when it
+/// says where.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Finding {
+    /// The line and the column, both from 1.
+    pub position: Option<(usize, usize)>,
+    /// What is wrong.
+    pub message: String,
+}
+
+/// A file's content as text, without the byte order mark it may open with,
+/// or the finding that it is not UTF-8, which `format` has to be.
+fn utf8<'b>(bytes: &'b [u8], format: &str) -> Result<&'b str, Finding> {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => Ok(text.strip_prefix(BOM).unwrap_or(text)),
+        Err(error) => Err(Finding {
+            position: None,
+            message: format!("not valid {format}: it is not UTF-8 ({error})"),
+        }),
+    }
+}
+
 /// The name of a file, after its last `/`.
 fn name_of(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
@@ -784,6 +813,28 @@ impl Session<'_, '_, '_> {
             }
         }
         read
+    }
+
+    /// What a file of the repository holds, or [`None`] after a finding that
+    /// says why it cannot be read.
+    fn contents(&mut self, file: &str) -> Option<Vec<u8>> {
+        match fs::read(self.context.root.join(file)) {
+            Ok(bytes) => Some(bytes),
+            Err(error) => {
+                self.log
+                    .error(Some(file), None, &format!("cannot be read: {error}"));
+                None
+            }
+        }
+    }
+
+    /// Writes what the tool's own parser found in a file, at its line and
+    /// column where it gives them.
+    fn finding(&mut self, file: &str, finding: &Finding) {
+        let line = finding.position.map(|(line, _)| line.to_string());
+        let column = finding.position.map(|(_, column)| column.to_string());
+        let position = line.as_deref().map(|line| (line, column.as_deref()));
+        self.log.error(Some(file), position, &finding.message);
     }
 
     /// Whether a path from the repository root is a file.

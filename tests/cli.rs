@@ -386,14 +386,14 @@ fn a_file_an_ignore_setting_names_is_read_from_the_repository() {
     let dir = repository(&[
         (".nebensound/repo.toml", QUIET),
         ("README.md", "# x\n"),
-        (".yamllint.yaml", "ignore-from-file: .yamlignore\n"),
+        ("ruff.toml", "extend = \"base.toml\"\n"),
     ]);
     let (text, code) = call(&["nebensound-repo", "-C", root(&dir), "check"]);
 
     assert_eq!(code, 1, "{text}");
     assert!(
-        text.contains("error[unreadable-ignore-file] at .yamllint.yaml"),
+        text.contains("error[unreadable-ignore-file] at ruff.toml"),
         "{text}"
     );
-    assert!(text.contains(".yamlignore: "), "{text}");
+    assert!(text.contains("base.toml: "), "{text}");
 }
