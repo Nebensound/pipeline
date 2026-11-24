@@ -1,10 +1,13 @@
 //! What the programs the xtask starts get: the environment they start from,
 //! and how what they print is shown.
 //!
-//! What the tool prints for a case is shown with `    | ` in front. A block
-//! announces its findings as workflow commands (`::error file=…::…`); in the
-//! gate, where the xtask itself runs as a step, those lines would otherwise
-//! become annotations for mistakes a failing case makes on purpose.
+//! What the tool prints for a case is shown with `    | ` in front, so that a
+//! reader tells it from the xtask's own lines. In the gate the xtask is a
+//! program the tool starts (`nebensound-repo xtask`), and everything it
+//! prints, what it shows of a call included, stands in a stretch in which the
+//! tool stopped the runner's processing of workflow commands: neither an
+//! annotation for a mistake a failing case makes on purpose, nor a name from a
+//! case, starts a command there.
 
 use std::ffi::OsString;
 use std::io::{self, BufRead as _, BufReader, Write};

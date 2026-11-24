@@ -343,13 +343,13 @@ pub fn patch(name: &str, dir: &str) -> String {
 }
 
 /// Runs the check; whether it found nothing.
-pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
+pub(super) fn run(session: &mut Session<'_, '_, '_>) -> bool {
     let dir = session.context.root.join(session.unit.to_string());
     steps(session, &dir).is_some()
 }
 
 /// The steps, in their order, up to the first that fails.
-fn steps(session: &mut Session<'_, '_>, dir: &Path) -> Option<()> {
+fn steps(session: &mut Session<'_, '_, '_>, dir: &Path) -> Option<()> {
     step(session, "Install the toolchain the workspace pins", |s| {
         toolchain(s, dir).then_some(())
     })?;
@@ -430,13 +430,13 @@ fn workspace(command: &[&str], without: &[String], rest: &[&str]) -> Vec<String>
 /// One step: its name opens a group of the log, which closes after it, and a
 /// step that fails says so below the group.
 pub(super) fn step<T>(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     name: &str,
-    body: impl FnOnce(&mut Session<'_, '_>) -> Option<T>,
+    body: impl FnOnce(&mut Session<'_, '_, '_>) -> Option<T>,
 ) -> Option<T> {
-    session.log.line(&format!("::group::{name}"));
+    session.log.command(&format!("::group::{name}"));
     let done = body(session);
-    session.log.line("::endgroup::");
+    session.log.command("::endgroup::");
     if done.is_none() {
         session.log.line(&format!("{name}: failed"));
     }
@@ -445,14 +445,14 @@ pub(super) fn step<T>(
 
 /// A command that starts `program` in the workspace's folder, with the
 /// computer's search path, under the rule of [`crate::toolchain`].
-fn command(session: &Session<'_, '_>, program: impl AsRef<OsStr>, dir: &Path) -> Command {
+fn command(session: &Session<'_, '_, '_>, program: impl AsRef<OsStr>, dir: &Path) -> Command {
     crate::toolchain::command(program, dir, &session.context.env.search_path)
 }
 
 /// Runs a command to its end and writes what it prints on both outputs into
 /// the log, line by line as it comes: whether it succeeded. A program that
 /// cannot be started is written as a finding and counts as failed.
-pub(super) fn stream(session: &mut Session<'_, '_>, mut command: Command, what: &str) -> bool {
+pub(super) fn stream(session: &mut Session<'_, '_, '_>, mut command: Command, what: &str) -> bool {
     let shown: Vec<String> = std::iter::once(what.to_owned())
         .chain(
             command
@@ -490,7 +490,7 @@ pub(super) fn stream(session: &mut Session<'_, '_>, mut command: Command, what: 
 
 /// Runs `program` with these arguments in the workspace's folder, its output
 /// in the log: whether it succeeded.
-fn call(session: &mut Session<'_, '_>, dir: &Path, program: &str, args: &[&str]) -> bool {
+fn call(session: &mut Session<'_, '_, '_>, dir: &Path, program: &str, args: &[&str]) -> bool {
     let mut command = command(session, program, dir);
     command.args(args);
     stream(session, command, program)
@@ -499,7 +499,7 @@ fn call(session: &mut Session<'_, '_>, dir: &Path, program: &str, args: &[&str])
 /// Runs Cargo with these arguments and variables in the workspace's folder:
 /// whether it succeeded.
 fn cargo(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     dir: &Path,
     args: &[String],
     variables: &[(&str, &str)],
@@ -511,7 +511,7 @@ fn cargo(
 
 /// The toolchain the workspace pins, with rustfmt and Clippy, installed
 /// through rustup from its `rust-toolchain.toml`.
-fn toolchain(session: &mut Session<'_, '_>, dir: &Path) -> bool {
+fn toolchain(session: &mut Session<'_, '_, '_>, dir: &Path) -> bool {
     call(session, dir, "rustup", &["toolchain", "install"])
         && call(
             session,
@@ -524,7 +524,7 @@ fn toolchain(session: &mut Session<'_, '_>, dir: &Path) -> bool {
 
 /// What `cargo metadata` says about the workspace, with all features, so that
 /// an optional path dependency is seen as well; or nothing, with why written.
-fn metadata(session: &mut Session<'_, '_>, dir: &Path) -> Option<Metadata> {
+fn metadata(session: &mut Session<'_, '_, '_>, dir: &Path) -> Option<Metadata> {
     let mut command = command(session, "cargo", dir);
     command.args([
         "metadata",
@@ -550,7 +550,7 @@ fn metadata(session: &mut Session<'_, '_>, dir: &Path) -> Option<Metadata> {
 }
 
 /// The local packages, each named with what holds for it.
-fn packages(session: &mut Session<'_, '_>, dir: &Path) -> Option<Vec<Local>> {
+fn packages(session: &mut Session<'_, '_, '_>, dir: &Path) -> Option<Vec<Local>> {
     let metadata = metadata(session, dir)?;
     let excluded: Vec<(String, String)> = session
         .context
@@ -610,7 +610,7 @@ fn packages(session: &mut Session<'_, '_>, dir: &Path) -> Option<Vec<Local>> {
 /// root file of each of its targets, with the target's edition, one call per
 /// edition, in as many calls as the command line needs.
 fn formatters(
-    session: &Session<'_, '_>,
+    session: &Session<'_, '_, '_>,
     dir: &Path,
     locals: &[Local],
     extra: &[&str],
@@ -672,7 +672,7 @@ fn formatters(
 /// out on a nightly toolchain, cannot be set aside on the command line, and
 /// phase 0 fails on every file it takes out. On a failure the differences
 /// follow, for the log.
-fn formatting(session: &mut Session<'_, '_>, dir: &Path, locals: &[Local]) -> bool {
+fn formatting(session: &mut Session<'_, '_, '_>, dir: &Path, locals: &[Local]) -> bool {
     let mut success = true;
     let mut named = String::new();
     for command in formatters(session, dir, locals, &["--files-with-diff"]) {
@@ -721,7 +721,7 @@ fn formatting(session: &mut Session<'_, '_>, dir: &Path, locals: &[Local]) -> bo
 /// claims, installed through rustup with the minimal profile. A workspace
 /// that claims none has nothing to prove here.
 fn oldest_version(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     dir: &Path,
     locals: &[Local],
     without: &[String],
@@ -764,7 +764,7 @@ fn oldest_version(
 /// `[lints.rust]` (otherwise rustc reports every such `cfg_attr` as
 /// `unexpected_cfgs`, which Clippy and rustdoc, both run with `-D warnings`
 /// here, turn into an error), and builds unchanged on its own toolchain.
-fn coverage_tools(session: &mut Session<'_, '_>, dir: &Path) -> Option<(String, Tool)> {
+fn coverage_tools(session: &mut Session<'_, '_, '_>, dir: &Path) -> Option<(String, Tool)> {
     let pinned = session
         .context
         .register
@@ -811,7 +811,7 @@ fn coverage_tools(session: &mut Session<'_, '_>, dir: &Path) -> Option<(String, 
 /// the coverage toolchain, without the files of an excluded package
 /// ([`uncounted`]).
 fn covered(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     dir: &Path,
     locals: &[Local],
     mut args: Vec<String>,
@@ -845,7 +845,7 @@ fn covered(
 /// own packaged contents, with the versions written first and every manifest
 /// and lockfile put back afterwards, byte for byte, so that what comes after
 /// sees the files as they are committed.
-fn package_test(session: &mut Session<'_, '_>, dir: &Path, locals: &[Local]) -> bool {
+fn package_test(session: &mut Session<'_, '_, '_>, dir: &Path, locals: &[Local]) -> bool {
     let repository = session.context.packages.repository;
     let saved: Vec<(String, String)> = session
         .context
@@ -909,7 +909,7 @@ fn package_test(session: &mut Session<'_, '_>, dir: &Path, locals: &[Local]) -> 
 /// named, and each copy is tested with the copies of its siblings and the
 /// other local packages patched in. A patch a copy does not need only draws a
 /// warning.
-fn verify(session: &mut Session<'_, '_>, dir: &Path, locals: &[Local]) -> bool {
+fn verify(session: &mut Session<'_, '_, '_>, dir: &Path, locals: &[Local]) -> bool {
     let packages = &session.context.packages;
     let manifests: Vec<RelativePath> = packages
         .tracked
@@ -982,7 +982,7 @@ fn verify(session: &mut Session<'_, '_>, dir: &Path, locals: &[Local]) -> bool {
 /// copied out of the workspace and tested there, with the copies of its
 /// siblings and the patches in `others` laid over crates.io.
 fn test_copies(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     dir: &Path,
     metadata: &Metadata,
     published: &[(String, String)],

@@ -311,7 +311,7 @@ pub fn unanswered(command: &str, ended: Option<ExitStatus>) -> Option<String> {
 /// A clean environment of the project's interpreter, with the locked runtime
 /// dependencies and the wheel without its own: whether it was made.
 fn install(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
     programs: &Programs,
     python: &Interpreter,
@@ -361,7 +361,7 @@ fn install(
 
 /// The wheel installs and runs.
 pub(super) fn check(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
     programs: &Programs,
     python: &Interpreter,
@@ -443,7 +443,7 @@ pub(super) fn check(
 ///
 /// When it cannot be started.
 fn said(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
     command: Command,
 ) -> std::io::Result<Option<ExitStatus>> {
@@ -457,7 +457,7 @@ fn said(
 /// The runtime dependencies as the lockfile pins them, the wheel built with
 /// the placeholder version, and `pyproject.toml` put back as committed: the
 /// wheel, or nothing, with why written.
-fn build(session: &mut Session<'_, '_>, paths: &Paths, programs: &Programs) -> Option<PathBuf> {
+fn build(session: &mut Session<'_, '_, '_>, paths: &Paths, programs: &Programs) -> Option<PathBuf> {
     let requirements = paths.temp("requirements.txt");
     let mut export = super::uv(paths, programs);
     export
@@ -517,7 +517,7 @@ fn build(session: &mut Session<'_, '_>, paths: &Paths, programs: &Programs) -> O
 /// `path` put back to `committed` afterwards: the wheel, or nothing, with why
 /// written.
 fn placed(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
     programs: &Programs,
     path: &Path,

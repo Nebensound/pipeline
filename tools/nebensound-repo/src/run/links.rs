@@ -65,7 +65,7 @@ impl Handed {
 ///
 /// The files are the ones the check covers less those `exclude_path` takes
 /// out, matched against the path from the root as phase 0 matches it.
-pub(super) fn hand_over(session: &mut Session<'_, '_>) -> Option<Handed> {
+pub(super) fn hand_over(session: &mut Session<'_, '_, '_>) -> Option<Handed> {
     let root = session.context.root;
     let config = read(session, &root.join(CONFIG), CONFIG, false)?;
     let ignore = read(session, &root.join(".lycheeignore"), ".lycheeignore", true)?;
@@ -98,7 +98,12 @@ pub(super) fn hand_over(session: &mut Session<'_, '_>) -> Option<Handed> {
 /// A file at the root as text, empty where there is none or, unless `strict`,
 /// where it is no regular file; [`None`] with a finding where it cannot be
 /// read, or where it is there but no regular file and `strict` holds.
-fn read(session: &mut Session<'_, '_>, path: &Path, name: &str, strict: bool) -> Option<String> {
+fn read(
+    session: &mut Session<'_, '_, '_>,
+    path: &Path,
+    name: &str,
+    strict: bool,
+) -> Option<String> {
     let Ok(metadata) = fs::symlink_metadata(path) else {
         return Some(String::new());
     };
@@ -237,7 +242,7 @@ fn is_space(c: char) -> bool {
 /// becomes a finding on the file that holds it, at the line and column
 /// lychee names, the file named from the repository root.
 pub(super) fn check(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     lychee: &Tool,
     handed: &Handed,
     folder: &Path,

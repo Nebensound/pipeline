@@ -113,7 +113,7 @@ process.exitCode = await main({
 "#;
 
 /// Runs the check; whether it found nothing.
-pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
+pub(super) fn run(session: &mut Session<'_, '_, '_>) -> bool {
     // A missing program is named and fails the check, and the parts whose
     // programs were found still run, so that one run reports every finding.
     let prettier = session.tool("prettier", false);
@@ -161,7 +161,7 @@ pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
 /// written. A finding reads `<file>:<line>[:<column>] error <rule>
 /// <message>`; each becomes one on its line, and stays in the output as it
 /// is.
-fn markdownlint_run(session: &mut Session<'_, '_>, markdownlint: &Tool, temp: &Path) -> bool {
+fn markdownlint_run(session: &mut Session<'_, '_, '_>, markdownlint: &Tool, temp: &Path) -> bool {
     // The pinned copy, which `Session::tool` takes only with its runtime
     // when it is installed with npm, as the register has it.
     let Some(node) = &markdownlint.runtime else {

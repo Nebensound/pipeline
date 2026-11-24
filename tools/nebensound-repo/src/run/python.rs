@@ -248,7 +248,7 @@ pub fn in_environment(dir: &Path, program: &str, windows: bool) -> PathBuf {
 }
 
 /// Runs the check; whether it found nothing.
-pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
+pub(super) fn run(session: &mut Session<'_, '_, '_>) -> bool {
     let unit = session.unit.to_string();
     let taken = excluded(
         &session.files,
@@ -300,7 +300,7 @@ pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
 }
 
 /// The steps, in their order.
-fn steps(session: &mut Session<'_, '_>, paths: &Paths, taken: &[String]) -> bool {
+fn steps(session: &mut Session<'_, '_, '_>, paths: &Paths, taken: &[String]) -> bool {
     let Some(programs) = step(session, "Find uv, Ruff, Pyright and coverage.py", |s| {
         programs(s, paths)
     }) else {
@@ -382,7 +382,7 @@ fn uv(paths: &Paths, programs: &Programs) -> Command {
 /// Runs uv with these arguments in the unit's folder, its output in the log:
 /// whether it succeeded.
 fn call_uv(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
     programs: &Programs,
     args: &[&OsStr],
@@ -401,7 +401,7 @@ fn prefixed(option: &str, path: &Path) -> std::ffi::OsString {
 
 /// What a program printed on standard output, trimmed, when it succeeded;
 /// what it printed on standard error goes into the log.
-fn printed(session: &mut Session<'_, '_>, command: Command, what: &str) -> Option<String> {
+fn printed(session: &mut Session<'_, '_, '_>, command: Command, what: &str) -> Option<String> {
     let output = session.output(command, what)?;
     session.log.lines(&String::from_utf8_lossy(&output.stderr));
     output
@@ -413,7 +413,7 @@ fn printed(session: &mut Session<'_, '_>, command: Command, what: &str) -> Optio
 /// uv, Ruff and Pyright as the register pins them and `setup` finds them,
 /// and the wheel of coverage.py, fetched into the check's folder and held to
 /// the digest the register pins.
-fn programs(session: &mut Session<'_, '_>, paths: &Paths) -> Option<Programs> {
+fn programs(session: &mut Session<'_, '_, '_>, paths: &Paths) -> Option<Programs> {
     let uv = session.tool("uv", false);
     let ruff = session.tool("ruff", false);
     let pyright = session.tool("pyright", false);
@@ -450,7 +450,7 @@ fn programs(session: &mut Session<'_, '_>, paths: &Paths) -> Option<Programs> {
 /// folder under its own name, which uv reads it by, and held to its digest;
 /// with the lowest Python it runs on and its version.
 fn coverage_wheel(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
 ) -> Option<(PathBuf, (String, String))> {
     let register = session.context.register;
@@ -494,7 +494,7 @@ fn coverage_wheel(
 /// The interpreter `.python-version` names, at the unit or at the root of
 /// its uv workspace, installed by uv, and Ruff's configuration for the unit.
 fn interpreter(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     paths: &Paths,
     programs: &Programs,
 ) -> Option<Interpreter> {
@@ -584,7 +584,7 @@ fn interpreter(
 /// The project as its lockfile pins it, with its default dependency groups,
 /// into an environment in the check's folder. A lockfile that no longer
 /// matches `pyproject.toml` fails here, as it would for anyone else.
-fn sync(session: &mut Session<'_, '_>, paths: &Paths, programs: &Programs) -> bool {
+fn sync(session: &mut Session<'_, '_, '_>, paths: &Paths, programs: &Programs) -> bool {
     if call_uv(
         session,
         paths,

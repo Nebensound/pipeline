@@ -3,14 +3,15 @@
 
 use std::ffi::OsString;
 
-use super::{Session, Tool, has_extension, is_lockfile};
+use super::{Level, Session, Tool, annotation_at, has_extension, is_lockfile};
+use crate::console;
 
 /// Biome's configuration for parsing JSONC and nothing else: formatter,
 /// assists and every lint rule switched off, and no version control read.
 pub const BIOME: &str = include_str!("../../run/biome.json");
 
 /// Runs the check; whether it found nothing.
-pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
+pub(super) fn run(session: &mut Session<'_, '_, '_>) -> bool {
     // A missing program is named and fails the check, and the parts whose
     // programs were found still run, so that one run reports every finding.
     let jq = session.tool("jq", false);
@@ -47,7 +48,7 @@ pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
 /// values; slurped, the file is the list of its values, and that list has to
 /// hold one. Every file but a `.jsonc` one; what jq writes to its standard
 /// error is the message.
-fn strict(session: &mut Session<'_, '_>, jq: &Tool, files: &[&str]) -> bool {
+fn strict(session: &mut Session<'_, '_, '_>, jq: &Tool, files: &[&str]) -> bool {
     let mut passed = true;
     for file in files.iter().filter(|file| !has_extension(file, "jsonc")) {
         let one = match session
@@ -97,7 +98,7 @@ fn strict(session: &mut Session<'_, '_>, jq: &Tool, files: &[&str]) -> bool {
 /// read. It names files by their absolute path, and a finding needs them from
 /// the repository root.
 fn commented(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     biome: &Tool,
     config: &std::path::Path,
     files: &[&str],
@@ -116,18 +117,71 @@ fn commented(
     let args = ["lint".into(), flag, "--reporter=github".into()];
     let ran = session.over(biome, &args, &commented, "Biome");
     let root = format!("{}/", session.context.root.display());
-    for line in ran.text.lines() {
-        session.log.line(&line.replace(&root, ""));
+    let text = ran.text.replace(&root, "");
+    // A line the tool writes as a finding of its own is not printed as well.
+    let mut found = Vec::new();
+    for line in text.lines() {
+        match biome_finding(line) {
+            Some(finding) => found.push(finding),
+            None => session.log.line(line),
+        }
     }
     session
         .log
         .line(&format!("{} .jsonc file(s) parsed.", commented.len()));
+    for (level, file, position, message) in found {
+        let position = position
+            .as_ref()
+            .map(|(line, column)| (line.as_str(), column.as_deref()));
+        session
+            .log
+            .annotate(&annotation_at(level, file.as_deref(), position, &message));
+    }
     ran.success
 }
 
+/// A finding of Biome, as its reporter `github` writes it: an annotation
+/// with the title, the file, and the line and column where it starts. The
+/// tool writes it as a finding of its own, since no program's annotation is
+/// passed through: its level, its file, its line and column, and its message
+/// behind `Biome` and its title. Any other line is none.
+#[must_use]
+pub fn biome_finding(line: &str) -> Option<Found> {
+    let (level, properties, message) = console::annotation(line)?;
+    let level = if level == "error" {
+        Level::Error
+    } else {
+        Level::Warning
+    };
+    let mut file = None;
+    let mut row = None;
+    let mut column = None;
+    let mut title = String::new();
+    for pair in properties.split(',') {
+        match pair.split_once('=') {
+            Some(("file", value)) => file = Some(console::unescape(value)),
+            Some(("line", value)) => row = Some(console::unescape(value)),
+            Some(("col", value)) => column = Some(console::unescape(value)),
+            Some(("title", value)) => title = format!(" {}", console::unescape(value)),
+            _ => {}
+        }
+    }
+    let message = format!("Biome{title}: {}", console::unescape(message));
+    Some((level, file, row.map(|row| (row, column)), message))
+}
+
+/// A finding read off a program: its level, its file, its line with its
+/// column, and its message.
+pub type Found = (
+    Level,
+    Option<String>,
+    Option<(String, Option<String>)>,
+    String,
+);
+
 /// Formatted the way Prettier writes it, every file but a lockfile.
 fn formatted(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     prettier: &Tool,
     ignore: &std::path::Path,
     files: &[&str],

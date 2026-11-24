@@ -17,11 +17,24 @@ fn run(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// The token `0` 32 times.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "a token is drawn with the signature `console::Draw` gives"
+)]
+fn zeros() -> Result<[u8; 16], getrandom::Error> {
+    Ok([0; 16])
+}
+
+/// The token [`zeros`] gives.
+const TOKEN: &str = "00000000000000000000000000000000";
+
 /// What a log printed, of a workflow run or not.
 fn logged(workflow: bool, write: impl FnOnce(&mut Log<'_>)) -> String {
     let mut out = Vec::new();
-    let mut log = Log::new(&mut out, workflow);
+    let mut log = Log::drawing(&mut out, workflow, zeros);
     write(&mut log);
+    drop(log);
     String::from_utf8(out).unwrap()
 }
 
@@ -152,20 +165,22 @@ fn a_notice_is_escaped_the_way_the_runner_reads_it() {
 #[test]
 fn a_log_writes_workflow_commands_in_a_run_and_plain_lines_elsewhere() {
     let write = |log: &mut Log<'_>| {
-        log.line("::group::A group");
-        log.lines("one\ntwo");
+        log.command("::group::A group");
+        log.lines("one\n::warning::two");
         log.error("broken");
         log.error_on("a/file", "broken there");
-        log.line("::endgroup::");
+        log.command("::endgroup::");
     };
     assert_eq!(
         logged(true, write),
-        "::group::A group\none\ntwo\n::error::broken\n::error file=a/file::broken there\n\
-         ::endgroup::\n"
+        format!(
+            "::group::A group\n::stop-commands::{TOKEN}\none\n::warning::two\n::{TOKEN}::\n\
+             ::error::broken\n::error file=a/file::broken there\n::endgroup::\n"
+        )
     );
     assert_eq!(
         logged(false, write),
-        "A group\none\ntwo\nerror: broken\na/file: error: broken there\n"
+        "A group\none\n::warning::two\nerror: broken\na/file: error: broken there\n"
     );
 }
 
@@ -177,7 +192,10 @@ fn a_step_is_a_group_and_says_when_it_failed() {
     });
     assert_eq!(
         text,
-        "::group::Passes\n::endgroup::\n::group::Fails\n::endgroup::\nFails: failed\n"
+        format!(
+            "::group::Passes\n::endgroup::\n::group::Fails\n::endgroup::\n::stop-commands::\
+             {TOKEN}\nFails: failed\n::{TOKEN}::\n"
+        )
     );
 }
 

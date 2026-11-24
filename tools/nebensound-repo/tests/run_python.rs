@@ -13,6 +13,8 @@
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
+mod support;
+
 use std::fs::{self, File};
 use std::io::Write as _;
 use std::os::unix::fs::PermissionsExt as _;
@@ -22,6 +24,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use nebensound_repo::Register;
+use nebensound_repo::console::Console;
 use nebensound_repo::names::ProgramName;
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::programs::{Algorithm, Digest, Platform};
@@ -365,7 +368,6 @@ impl Fixture {
             env: &env,
             root: &root,
             temp: &self.temp,
-            workflow: self.workflow,
             packages: Packages {
                 repository: &repository,
                 tracked: &tracked,
@@ -376,8 +378,16 @@ impl Fixture {
         let files: Vec<RelativePath> = self.files.iter().map(|file| path(file)).collect();
         let refs: Vec<&RelativePath> = files.iter().collect();
         let mut out = Vec::new();
-        let code = run::run(&context, Check::Python, &path(self.unit), &refs, &mut out);
-        (code, String::from_utf8(out).unwrap())
+        let mut console = Console::new(&mut out, self.workflow);
+        let code = run::run(
+            &context,
+            Check::Python,
+            &path(self.unit),
+            &refs,
+            &mut console,
+        );
+        let code = console.end(code);
+        (code, support::printed(&String::from_utf8(out).unwrap()))
     }
 }
 

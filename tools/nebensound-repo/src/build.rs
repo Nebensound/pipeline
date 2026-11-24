@@ -23,7 +23,6 @@ pub mod cargo_package;
 pub mod docker;
 
 use std::ffi::OsStr;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -113,8 +112,6 @@ pub struct Context<'a> {
     pub search_path: &'a OsStr,
     /// Where a build makes the folders it removes again.
     pub temp: &'a Path,
-    /// Whether this is a workflow run, where a finding is an annotation.
-    pub workflow: bool,
     /// The variables of the run: where the outputs of the step and its
     /// summary go, and which repository it belongs to.
     pub variables: Variables<'a>,
@@ -134,11 +131,10 @@ pub struct Context<'a> {
 
 /// Runs the build of the unit, prints what its programs print, and returns
 /// the exit code: 0 when it passed, 1 otherwise.
-pub fn run(context: &Context<'_>, build: Build, unit: &RelativePath, out: &mut dyn Write) -> u8 {
-    let mut log = Log::new(out, context.workflow);
+pub fn run(context: &Context<'_>, build: Build, unit: &RelativePath, log: &mut Log<'_>) -> u8 {
     let passed = match build {
-        Build::CargoPackage => cargo_package::run(context, unit, &mut log),
-        Build::Docker => docker::run(context, unit, &mut log),
+        Build::CargoPackage => cargo_package::run(context, unit, log),
+        Build::Docker => docker::run(context, unit, log),
     };
     u8::from(!passed)
 }

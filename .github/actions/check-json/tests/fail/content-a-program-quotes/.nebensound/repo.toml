@@ -1,0 +1,8 @@
+# A JSON file that does not parse, with `##[warning]quoted` on the line where
+# it breaks. Prettier quotes the lines around the place it cannot read, and the
+# runner reads the older form of a workflow command anywhere in a line, so the
+# quote would start a warning. What Prettier prints stands where the runner
+# processes no command: the check fails on the file and starts no command.
+[repo]
+audience = "public"
+pipeline = "none"

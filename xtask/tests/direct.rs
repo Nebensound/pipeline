@@ -128,12 +128,12 @@ case "$1" in
     elif [ -f other-writer ]; then echo '{"units":[{"kind":"component","name":"a","path":"a","checks":[],"build":"cargo-package"}],"versions":[{"kind":"component","name":"a","path":"a","version":"1.0.0","writers":["other"]}]}'
     elif [ -f unversioned ]; then echo '{"units":[{"kind":"component","name":"a","path":"a","checks":[],"build":"cargo-package"}],"versions":[{"kind":"component","name":"a","path":"a","version":null,"writers":[]}]}'
     elif [ -f planned ] || [ -f plan-unwritable ]; then echo '{"units":[{"path":".","checks":["planned"]}]}'
-    else echo '{"units":[{"path":".","checks":["json"]}]}'; fi
+    else echo '::stop-commands::t'; echo '{"units":[{"path":".","checks":["json"]}]}'; echo '::t::'; fi
     [ -f vanish-at-run ] && rm -f "$0"
     exit 0 ;;
   run)
     shift
-    git ls-files | grep -q expected-finding && { echo "the finding is committed"; exit 1; }
+    git ls-files | grep -q -e expected-finding -e forbidden-line && { echo "the finding is committed"; exit 1; }
     if [ "$1" = "--plan" ]; then echo "plan: $(cat "$2")"; shift 2; fi
     echo "run $*"
     [ -f bad ] && { echo "::error file=bad::wrong"; exit 1; }
@@ -205,6 +205,10 @@ fn repository(scene: &Scene) -> PathBuf {
             (
                 ".github/actions/check-json/tests/fail/bad/expected-finding",
                 "::error file=bad::wrong\n",
+            ),
+            (
+                ".github/actions/check-json/tests/fail/bad/forbidden-line",
+                "::warning::*\n",
             ),
         ],
     );
@@ -559,6 +563,7 @@ fn a_case_that_breaks_off_cannot_be_run() {
             name: marker.to_owned(),
             dir,
             expect: Expect::Pass,
+            forbidden: Vec::new(),
         };
         let bench = Direct {
             tool: &tool,
@@ -622,6 +627,7 @@ fn a_case_that_breaks_off_cannot_be_run() {
         name: "gone".to_owned(),
         dir: scene.path().join("gone"),
         expect: Expect::Pass,
+        forbidden: Vec::new(),
     };
     let error = cases::direct(bench, "check-json", &gone, &mut Vec::new()).unwrap_err();
     assert!(error.to_string().contains("`cp -R"), "{error}");
@@ -689,6 +695,7 @@ impl Blocks {
             name: "case".to_owned(),
             dir,
             expect,
+            forbidden: Vec::new(),
         };
         let env = xtask::process::environment(std::env::vars_os().collect());
         let bench = Direct {

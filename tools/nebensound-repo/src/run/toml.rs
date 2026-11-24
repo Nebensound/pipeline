@@ -74,7 +74,7 @@ pub const SCHEMAS: &[(&str, &str)] = &[
 const DECLARATION: &str = ".nebensound/repo.toml";
 
 /// Runs the check; whether it found nothing.
-pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
+pub(super) fn run(session: &mut Session<'_, '_, '_>) -> bool {
     let Some(taplo) = session.tool("taplo", false) else {
         return false;
     };
@@ -137,7 +137,7 @@ fn format_hint(file: &str) -> String {
 
 /// `taplo lint` over one file, against the schema assigned to it.
 fn lint(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     taplo: &Tool,
     file: &str,
     schemas: &Path,
@@ -171,7 +171,7 @@ fn lint(
 
 /// A file of the repository as text, or nothing when it cannot be read: then
 /// Taplo, which reads it next, says why.
-fn read(session: &Session<'_, '_>, file: &str) -> String {
+fn read(session: &Session<'_, '_, '_>, file: &str) -> String {
     std::fs::read(session.context.root.join(file))
         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
         .unwrap_or_default()
@@ -221,7 +221,7 @@ fn url(path: &Path) -> String {
 /// the first line of every `error:` block and every `ERROR` or `WARN` log
 /// line (twelve at most), at the first place Taplo points to. Backtraces and
 /// the like stay in the output.
-fn report(session: &mut Session<'_, '_>, file: &str, text: &str, message: &str) {
+fn report(session: &mut Session<'_, '_, '_>, file: &str, text: &str, message: &str) {
     session.log.lines(text);
     let position = text.lines().find_map(place);
     let detail: Vec<&str> = text

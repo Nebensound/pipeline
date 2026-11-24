@@ -5,7 +5,7 @@
 mod support;
 
 use support::{Scene, write};
-use xtask::cases::{self, Expect};
+use xtask::cases::{self, Expect, Read};
 
 #[test]
 fn cases_are_found_passing_first_each_kind_by_name() {
@@ -99,9 +99,9 @@ fn a_pattern_matches_a_whole_line() {
 #[test]
 fn a_run_is_judged_against_what_the_case_expects() {
     let log = ["one line".to_owned(), "::error file=a::wrong".to_owned()];
-    assert_eq!(cases::judge(&Expect::Pass, true, &log), None);
+    assert_eq!(cases::judge(&Expect::Pass, &[], true, &log), None);
     assert!(
-        cases::judge(&Expect::Pass, false, &log)
+        cases::judge(&Expect::Pass, &[], false, &log)
             .unwrap()
             .contains("meant to pass")
     );
@@ -111,18 +111,184 @@ fn a_run_is_judged_against_what_the_case_expects() {
         "other".to_owned(),
     ]);
     assert!(
-        cases::judge(&fail, true, &log)
+        cases::judge(&fail, &[], true, &log)
             .unwrap()
             .contains("lets the mistake through")
     );
     assert_eq!(
-        cases::judge(&fail, false, &log).unwrap(),
+        cases::judge(&fail, &[], false, &log).unwrap(),
         "the block fails, but without the finding the case names: no line matches `missing*`, `other`"
     );
     assert_eq!(
-        cases::judge(&Expect::Fail(vec!["one *".to_owned()]), false, &log),
+        cases::judge(&Expect::Fail(vec!["one *".to_owned()]), &[], false, &log),
         None
     );
+}
+
+#[test]
+fn a_case_may_forbid_commands() {
+    let scene = Scene::new();
+    let block = scene.path().join("check-demo");
+    write(
+        &block,
+        &[
+            (
+                "tests/pass/a/forbidden-line",
+                "# A comment.\n\n  ::warning::x*\n",
+            ),
+            ("tests/fail/b/expected-finding", "x"),
+            ("tests/fail/b/forbidden-line", "# A comment.\n##[warning]x*"),
+            ("tests/fail/c/expected-finding", "x"),
+        ],
+    );
+    let found = cases::discover(&block).unwrap();
+    let forbidden: Vec<(&str, &[String])> = found
+        .iter()
+        .map(|case| (case.name.as_str(), case.forbidden.as_slice()))
+        .collect();
+    assert_eq!(
+        forbidden,
+        [
+            ("a", &["::warning::x*".to_owned()][..]),
+            ("b", &["##[warning]x*".to_owned()][..]),
+            ("c", &[][..]),
+        ]
+    );
+
+    let scene = Scene::new();
+    write(
+        scene.path(),
+        &[("tests/pass/a/forbidden-line", "# only a comment\n")],
+    );
+    let error = cases::discover(scene.path()).unwrap_err();
+    assert!(error.to_string().contains("names no command"), "{error}");
+}
+
+#[test]
+fn the_log_is_read_the_way_the_runner_reads_it() {
+    let log: Vec<String> = [
+        "before",
+        "  ::stop-commands::t1",
+        "::warning::inside",
+        "a ##[warning]inside",
+        "::other::not the token",
+        "::error::not the token either ##[t1]",
+        "  ::T1::",
+        "after",
+        "::stop-commands-not::x",
+        "x ##[stop-commands]t2",
+        "inside again",
+        "y ##[t2] resumes",
+        "last",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    let read: Vec<Read> = cases::read(&log)
+        .into_iter()
+        .map(|(read, _)| read)
+        .collect();
+    assert_eq!(
+        read,
+        [
+            Read::Live,
+            Read::Switch,
+            Read::Stopped,
+            Read::Stopped,
+            Read::Stopped,
+            Read::Stopped,
+            Read::Switch,
+            Read::Live,
+            Read::Live,
+            Read::Switch,
+            Read::Stopped,
+            Read::Switch,
+            Read::Live,
+        ]
+    );
+    assert_eq!(
+        cases::printed(&log),
+        [
+            "before",
+            "::warning::inside",
+            "a ##[warning]inside",
+            "::other::not the token",
+            "::error::not the token either ##[t1]",
+            "after",
+            "::stop-commands-not::x",
+            "inside again",
+            "last"
+        ]
+    );
+}
+
+#[test]
+fn the_command_of_a_line_is_the_one_the_runner_reads() {
+    for (line, expected) in [
+        ("::warning::x", Some("::warning::x")),
+        ("  ::Warning::x", Some("::Warning::x")),
+        (
+            "  ::error file=a##[warning]b::m",
+            Some("::error file=a##[warning]b::m"),
+        ),
+        ("[warn] ::warning::x", None),
+        ("::no second", None),
+        ("::no second ##[warning]x", Some("##[warning]x")),
+        ("::unknown::##[warning]x", Some("##[warning]x")),
+        ("text ##[warning]x and more", Some("##[warning]x and more")),
+        ("text ##[warning file=a]x", Some("##[warning file=a]x")),
+        ("text ##[unknown]x", None),
+        ("text ##[warning", None),
+        ("plain", None),
+    ] {
+        assert_eq!(cases::command(line), expected, "{line:?}");
+    }
+}
+
+#[test]
+fn a_command_counts_only_outside_a_stopped_stretch() {
+    let log: Vec<String> = [
+        "::warning::x before",
+        "::stop-commands::t",
+        "::warning::x inside",
+        "a ##[warning]y inside",
+        "::error file=a::stopped",
+        "plain text inside",
+        "::t::",
+        "::error file=b::outside",
+        "b ##[warning]y outside",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    let forbidden = ["::warning::x*".to_owned(), "##[warning]y*".to_owned()];
+    assert_eq!(
+        cases::judge(&Expect::Pass, &forbidden, true, &log).unwrap(),
+        "the block starts a command the case forbids: `::warning::x before` (`::warning::x*`), \
+         `##[warning]y outside` (`##[warning]y*`)"
+    );
+    // The tool's own annotation on a file whose name holds the older form is
+    // the command `error`, and starts no warning.
+    let own = ["::error file=a##[warning]y.dockerfile::m".to_owned()];
+    assert_eq!(cases::judge(&Expect::Pass, &forbidden, true, &own), None);
+    assert_eq!(
+        cases::judge(&Expect::Pass, &forbidden, true, &log[1..8]),
+        None
+    );
+
+    // An annotation counts outside a stopped stretch only; any other line
+    // anywhere.
+    let stopped = Expect::Fail(vec!["::error file=a::*".to_owned()]);
+    assert!(
+        cases::judge(&stopped, &[], false, &log)
+            .unwrap()
+            .contains("no line matches `::error file=a::*`")
+    );
+    let found = Expect::Fail(vec![
+        "::error file=b::*".to_owned(),
+        "plain text*".to_owned(),
+    ]);
+    assert_eq!(cases::judge(&found, &[], false, &log), None);
+    let switch = Expect::Fail(vec!["::t::".to_owned()]);
+    assert!(cases::judge(&switch, &[], false, &log).is_some());
 }
 
 #[test]

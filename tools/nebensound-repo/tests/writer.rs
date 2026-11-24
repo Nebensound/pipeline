@@ -12,7 +12,7 @@ use std::process::{Command, Output};
 
 use nebensound_repo::plan;
 use nebensound_repo::repository::Repository;
-use nebensound_repo::writer::Order;
+use nebensound_repo::writer::{Order, WriteError};
 use support::{Git, call, central, repository};
 
 /// A workspace of two packages, `app` depending on `lib` by path, each a unit
@@ -2267,6 +2267,19 @@ fn a_manifest_that_is_no_toml_says_so() {
 
     assert_eq!(code, 1, "{text}");
     assert!(text.starts_with("thing/Cargo.toml is not TOML: "), "{text}");
+}
+
+#[test]
+fn a_line_break_in_the_path_of_a_manifest_is_written_as_an_escape() {
+    // Phase 0 refuses such a path before the writer runs (`control-character`),
+    // so the message is built here rather than reached through a call.
+    let message = WriteError::Malformed {
+        path: "a\n::warning::x/Cargo.toml".to_owned(),
+        message: "broken".to_owned(),
+    }
+    .to_string();
+
+    assert_eq!(message, "a\\n::warning::x/Cargo.toml is not TOML: broken");
 }
 
 #[test]

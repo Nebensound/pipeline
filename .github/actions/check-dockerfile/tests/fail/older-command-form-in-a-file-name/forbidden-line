@@ -1,0 +1,3 @@
+# The warning the name would start anywhere in a line, in the older form of a
+# workflow command.
+##[warning]x*

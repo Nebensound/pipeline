@@ -529,17 +529,19 @@ fn in_a_run_every_finding_is_an_annotation() {
     let text = String::from_utf8(out).expect("the output is UTF-8");
 
     assert_eq!(code, 1, "{text}");
+    // Every finding stands outside the stopped stretches, where the runner
+    // takes it as an annotation.
+    let outside = support::outside(&text);
+    let stands = |start: &str| outside.iter().any(|line| line.starts_with(start));
     // A finding at a file of the tree names that file.
     assert!(
-        text.contains(
-            "\n::error file=src/main.rs,title=uncovered-file::[uncovered-file] at src/main.rs: "
-        ),
+        stands("::error file=src/main.rs,title=uncovered-file::[uncovered-file] at src/main.rs: "),
         "{text}"
     );
     // One about the repository names none.
     assert!(
-        text.contains(
-            "\n::warning title=nonconforming-name::[nonconforming-name] the repository is named \
+        stands(
+            "::warning title=nonconforming-name::[nonconforming-name] the repository is named \
              My_Tool, and a name"
         ),
         "{text}"
@@ -547,8 +549,8 @@ fn in_a_run_every_finding_is_an_annotation() {
     // Nor does one at a file the repository does not hold: it would point
     // nowhere.
     assert!(
-        text.contains(
-            "\n::warning title=missing-minimum-file::[missing-minimum-file] at LICENSE: the \
+        stands(
+            "::warning title=missing-minimum-file::[missing-minimum-file] at LICENSE: the \
              repository holds no licence"
         ),
         "{text}"
@@ -577,7 +579,7 @@ fn in_a_run_every_finding_is_an_annotation() {
         Output::Workflow,
         &mut out,
     );
-    let text = String::from_utf8(out).expect("the output is UTF-8");
+    let text = support::printed(&String::from_utf8(out).expect("the output is UTF-8"));
     assert_eq!(code, 0, "{text}");
     assert!(text.contains("Findings\n\n  none"), "{text}");
     assert!(!text.contains("::"), "{text}");
@@ -595,12 +597,11 @@ fn an_annotation_names_the_place_in_its_file_and_escapes_what_would_end_it() {
         Finding::warning(Rule::PointlessExclusion, "odd name").at(at("docs/b,c:d.md")),
     ]);
     assert!(loose.is_empty(), "{loose:?}");
-    let text = report::annotations(&analysis);
+    let text = report::commands(&analysis).join("\n");
 
     assert_eq!(
         text,
-        "Findings\n\n\
-         ::warning title=pointless-exclusion::[pointless-exclusion] at docs: a folder\n\
+        "::warning title=pointless-exclusion::[pointless-exclusion] at docs: a folder\n\
          ::error file=docs/a.md,line=3,col=7,title=partial-package-exclusion::\
          [partial-package-exclusion] at docs/a.md:3:7: 100%25 wrong\\nhere\n\
          ::warning file=docs/b%2Cc%3Ad.md,title=pointless-exclusion::[pointless-exclusion] \

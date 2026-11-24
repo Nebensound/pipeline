@@ -5,6 +5,7 @@
 //! handle a write error a `String` cannot have.
 
 use crate::annotate::{Coverage, Node};
+use crate::console::property;
 use crate::finding::{Finding, Position, UnitName};
 use crate::names::CheckName;
 use crate::path::RelativePath;
@@ -292,27 +293,28 @@ pub fn findings(analysis: &Analysis) -> String {
 /// finding hangs at, with its line and column when the finding points at a
 /// place in it. A path the repository does not hold, such as a missing file,
 /// stays in the message, since an annotation on it would point nowhere.
+///
+/// They are commands of the tool's own, which go to the log through
+/// [`Console::command`](crate::console::Console::command).
 #[must_use]
-pub fn annotations(analysis: &Analysis) -> String {
-    let found = analysis.findings();
-    if found.is_empty() {
-        return "Findings\n\n  none".to_owned();
-    }
-    let mut lines = vec!["Findings".to_owned(), String::new()];
-    for finding in found {
-        let file = finding
-            .path
-            .as_ref()
-            .filter(|path| {
-                analysis
-                    .tree
-                    .at(path)
-                    .is_some_and(|node| node.coverage().is_some())
-            })
-            .map(|path| (path, finding.position));
-        lines.push(annotation(finding, file));
-    }
-    lines.join("\n")
+pub fn commands(analysis: &Analysis) -> Vec<String> {
+    analysis
+        .findings()
+        .into_iter()
+        .map(|finding| {
+            let file = finding
+                .path
+                .as_ref()
+                .filter(|path| {
+                    analysis
+                        .tree
+                        .at(path)
+                        .is_some_and(|node| node.coverage().is_some())
+                })
+                .map(|path| (path, finding.position));
+            annotation(finding, file)
+        })
+        .collect()
 }
 
 /// One finding as a workflow command, on the file and the place given.
@@ -350,11 +352,6 @@ pub fn annotation(finding: &Finding, file: Option<(&RelativePath, Option<Positio
 /// runner reads it.
 fn data(text: &str) -> String {
     shown(text).replace('%', "%25")
-}
-
-/// A property of a workflow command, where `:` and `,` end the value as well.
-fn property(text: &str) -> String {
-    data(text).replace(':', "%3A").replace(',', "%2C")
 }
 
 /// The summary line with the counts.

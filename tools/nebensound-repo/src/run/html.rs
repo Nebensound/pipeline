@@ -34,20 +34,21 @@ use crate::rules;
 /// configuration is resolved from where the pinned html-validate lies, so only
 /// the pinned packages are found.
 ///
-/// Every finding is a plain line and an annotation on its line: a warning
-/// fails nothing, an error fails the check. A plain line carries text from
-/// the checked file, so a line break in it is flattened, or it would start a
-/// workflow command of its own.
+/// It prints no workflow command. Every finding is handed to the tool as data,
+/// one JSON object per line of the file `FINDINGS` (see
+/// [`FINDINGS`](super::FINDINGS)), and the tool writes it, on its line: a
+/// warning fails nothing, an error fails the check.
 ///
 /// It reads where the pinned package lies (`TOOLS`), the list of files, each
-/// ended by a zero byte (`LIST`), the default (`DEFAULT`) and the page rules
-/// (`RULES`, a module it imports) from its environment.
+/// ended by a zero byte (`LIST`), the default (`DEFAULT`), the page rules
+/// (`RULES`, a module it imports) and where its findings go (`FINDINGS`) from
+/// its environment.
 pub const HTML_VALIDATE: &str = r#"
 import fs from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const { TOOLS, LIST, DEFAULT, RULES } = process.env;
+const { TOOLS, LIST, DEFAULT, RULES, FINDINGS } = process.env;
 const root = process.cwd();
 const message = (error) => (error instanceof Error ? error.message : String(error));
 // html-validate leaves a rejection unhandled beside the error it
@@ -92,19 +93,15 @@ class Resolved extends ConfigLoader {
   }
 }
 
-const escape = (value) =>
-  value.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
-const property = (value) => escape(value).replaceAll(":", "%3A").replaceAll(",", "%2C");
-// A plain log line carries text from the checked file too; a line
-// break in it would start a workflow command of its own.
-const flat = (value) => value.replace(/[\r\n]+/g, " ");
+// A finding goes to the tool as data, which writes it.
+const found = (finding) => fs.appendFileSync(FINDINGS, `${JSON.stringify(finding)}\n`);
 
 for (const name of [
   "html-validate.config.mjs", "html-validate.config.cjs", "html-validate.config.js",
   "html-validate.config.mts", "html-validate.config.cts", "html-validate.config.ts",
 ]) {
   if (fs.existsSync(name)) {
-    console.log(`::error file=${property(name)}::html-validate would read this flat configuration in place of every .htmlvalidate file, and check-html does not read it; write its rules into .htmlvalidate.json instead`);
+    found({ level: "error", file: name, message: "html-validate would read this flat configuration in place of every .htmlvalidate file, and check-html does not read it; write its rules into .htmlvalidate.json instead" });
     process.exitCode = 1;
   }
 }
@@ -117,19 +114,18 @@ for (const file of list) {
     const config = await layered.merge(resolvers, forced);
     report = await new HtmlValidate(new Resolved(config.resolve())).validateFile(file);
   } catch (error) {
-    console.log(`::error file=${property(file)}::html-validate cannot check it: ${escape(message(error))}`);
+    found({ level: "error", file, message: `html-validate cannot check it: ${message(error)}` });
     process.exitCode = 1;
     continue;
   }
-  // Every finding is an annotation on its line, named by its
-  // rule. A warning fails nothing, an error fails the check.
+  // Every finding is one on its line, named by its rule. A warning
+  // fails nothing, an error fails the check.
   for (const result of report.results) {
-    for (const found of result.messages) {
-      const kind = found.severity >= 2 ? "error" : "warning";
-      const text = `${found.ruleId}: ${found.message}`;
-      console.log(`${flat(file)}:${found.line}:${found.column} ${kind} ${flat(text)}`);
-      console.log(`::${kind} file=${property(file)},line=${found.line},col=${found.column}::${escape(text)}`);
-      if (kind === "error") {
+    for (const each of result.messages) {
+      const level = each.severity >= 2 ? "error" : "warning";
+      const text = `${each.ruleId}: ${each.message}`;
+      found({ level, file, line: each.line, column: each.column, message: text });
+      if (level === "error") {
         process.exitCode = 1;
       }
     }
@@ -341,7 +337,7 @@ export const RULES = Object.fromEntries(
 "#;
 
 /// Runs the check; whether it found nothing.
-pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
+pub(super) fn run(session: &mut Session<'_, '_, '_>) -> bool {
     // A missing program is named and fails the check, and the parts whose
     // programs were found still run, so that one run reports every finding.
     let prettier = session.tool("prettier", false);
@@ -358,6 +354,7 @@ pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
         root = rooted(path);
         let mut entries: Vec<Entry> = vec![
             ("nothing-ignored".to_owned(), Some(Vec::new())),
+            (super::FINDINGS.to_owned(), Some(Vec::new())),
             ("files".to_owned(), Some(list)),
             ("root".to_owned(), None),
             (
@@ -421,9 +418,9 @@ pub fn excluded(root: &Path) -> String {
 
 /// html-validate over the files, with the repository's configuration laid
 /// over the pipeline's default and the page rules over both: see
-/// [`HTML_VALIDATE`]. What it prints, the findings as plain lines and as
-/// annotations among them, goes into the output as it is.
-fn validate_run(session: &mut Session<'_, '_>, validate: &Tool, temp: &Path) -> bool {
+/// [`HTML_VALIDATE`]. What it prints goes into the output as it is, and the
+/// findings it hands over after it.
+fn validate_run(session: &mut Session<'_, '_, '_>, validate: &Tool, temp: &Path) -> bool {
     // The pinned copy, which `Session::tool` takes only with its runtime
     // when it is installed with npm, as the register has it.
     let Some(node) = &validate.runtime else {
@@ -444,8 +441,9 @@ fn validate_run(session: &mut Session<'_, '_>, validate: &Tool, temp: &Path) -> 
         .env("TOOLS", &validate.folder)
         .env("LIST", temp.join("files"))
         .env("DEFAULT", temp.join("html-validate.json"))
-        .env("RULES", temp.join("page-rules.mjs"));
+        .env("RULES", temp.join("page-rules.mjs"))
+        .env("FINDINGS", temp.join(super::FINDINGS));
     let ran = session.capture(command, "html-validate");
     session.log.lines(&ran.text);
-    ran.success
+    session.handed(&temp.join(super::FINDINGS), "html-validate") && ran.success
 }

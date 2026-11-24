@@ -177,23 +177,23 @@ pub fn hand_on(
     log: &mut Log<'_>,
 ) -> bool {
     let json = plan.to_json();
-    log.line("::group::The plan");
+    log.command("::group::The plan");
     log.line(&json);
-    log.line("::endgroup::");
+    log.command("::endgroup::");
     if plan.pull_request.is_some()
         && let Some(line) = audience_change(plan)
     {
-        log.line(&workflow::notice("Audience changed", &line));
+        log.command(&workflow::notice("Audience changed", &line));
         if let Err(message) = workflow::summary(variables, &format!("{line}\n")) {
             log.error(&message);
             return false;
         }
     }
-    log.line("::group::The excluded packages");
+    log.command("::group::The excluded packages");
     log.line(&packages::to_json(excluded));
-    log.line("::endgroup::");
+    log.command("::endgroup::");
     for package in excluded {
-        log.line(&workflow::notice(
+        log.command(&workflow::notice(
             "Excluded package",
             &format!(
                 "The Rust package at {} is excluded from every step of check-rust: {}",
@@ -206,15 +206,15 @@ pub fn hand_on(
     let value: Value = serde_json::from_str(&json).unwrap_or_default();
     let units = units(&value);
     let builds = builds(&value, run.pre_branch);
-    log.line("::group::The units that run a check");
+    log.command("::group::The units that run a check");
     log.lines(&format!("{units:#}"));
-    log.line("::endgroup::");
-    log.line("::group::The units that build");
+    log.command("::endgroup::");
+    log.command("::group::The units that build");
     if run.pre_branch {
         log.line("A push to a pre-branch resolves no version, so no unit builds.");
     }
     log.lines(&format!("{builds:#}"));
-    log.line("::endgroup::");
+    log.command("::endgroup::");
     match workflow::output(
         variables,
         &[

@@ -207,7 +207,7 @@ pub fn instruction(text: &str, number: &str) -> Option<String> {
 }
 
 /// Runs the check; whether it found nothing.
-pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
+pub(super) fn run(session: &mut Session<'_, '_, '_>) -> bool {
     // A missing program is named and fails the check, and the part whose
     // program was found still runs, so that one run reports every finding.
     let dockerfmt = session.tool("dockerfmt", false);
@@ -224,7 +224,7 @@ pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
 
 /// dockerfmt over every file, one call each: whether none is unformatted,
 /// unreadable or holds an instruction dockerfmt left as written.
-fn formatted(session: &mut Session<'_, '_>, dockerfmt: &Tool, files: &[String]) -> bool {
+fn formatted(session: &mut Session<'_, '_, '_>, dockerfmt: &Tool, files: &[String]) -> bool {
     let mut passed = true;
     for file in files {
         let mut command = session.command(&dockerfmt.executable, &dockerfmt.search_path);
@@ -310,7 +310,7 @@ fn formatted(session: &mut Session<'_, '_>, dockerfmt: &Tool, files: &[String]) 
 
 /// A command that starts Hadolint at the repository root, without a
 /// `HADOLINT_*` variable of this process.
-fn hadolint_command(session: &Session<'_, '_>, hadolint: &Tool) -> Command {
+fn hadolint_command(session: &Session<'_, '_, '_>, hadolint: &Tool) -> Command {
     let mut command = session.command(&hadolint.executable, &hadolint.search_path);
     without_variables(&mut command, "HADOLINT_");
     command
@@ -321,7 +321,7 @@ fn hadolint_command(session: &Session<'_, '_>, hadolint: &Tool) -> Command {
 /// `--verbose`; or nothing, with the finding written, when Hadolint cannot read
 /// the configuration or does not say how it runs.
 fn configuration(
-    session: &mut Session<'_, '_>,
+    session: &mut Session<'_, '_, '_>,
     hadolint: &Tool,
     temp: &Path,
 ) -> Option<(OsString, String, usize)> {
@@ -393,7 +393,12 @@ fn configuration(
 /// Hadolint over every file, one call each, with the repository's
 /// configuration or the empty one in `temp`: whether no finding is at or above
 /// the failure threshold.
-fn linted(session: &mut Session<'_, '_>, hadolint: &Tool, temp: &Path, files: &[String]) -> bool {
+fn linted(
+    session: &mut Session<'_, '_, '_>,
+    hadolint: &Tool,
+    temp: &Path,
+    files: &[String],
+) -> bool {
     let Some((config, threshold, formats)) = configuration(session, hadolint, temp) else {
         return false;
     };

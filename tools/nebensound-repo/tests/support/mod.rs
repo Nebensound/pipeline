@@ -221,3 +221,49 @@ impl Git {
         String::from_utf8(output.stdout).expect("git answers in UTF-8")
     }
 }
+
+/// The lines of a log of a workflow run that stand outside every stopped
+/// stretch, in order: the lines the runner reads as they are, so the only ones
+/// that can start a command. The lines that stop and resume the processing are
+/// left out.
+///
+/// # Panics
+///
+/// When the log ends inside a stretch: the tool closes every stretch it opens.
+pub fn outside(text: &str) -> Vec<&str> {
+    let mut stopped: Option<&str> = None;
+    let mut outside = Vec::new();
+    for line in text.lines() {
+        match stopped {
+            Some(token) if line == format!("::{token}::") => stopped = None,
+            Some(_) => {}
+            None => match line.strip_prefix("::stop-commands::") {
+                Some(token) => stopped = Some(token),
+                None => outside.push(line),
+            },
+        }
+    }
+    assert_eq!(stopped, None, "the log ends inside a stretch:\n{text}");
+    outside
+}
+
+/// What a log of a workflow run holds besides the lines that stop and resume
+/// the runner's processing of workflow commands: every other line, in order,
+/// each ended by a line break.
+pub fn printed(text: &str) -> String {
+    let mut stopped: Option<String> = None;
+    let mut kept = String::new();
+    for line in text.lines() {
+        match &stopped {
+            Some(token) if line == format!("::{token}::") => stopped = None,
+            None if line.starts_with("::stop-commands::") => {
+                stopped = Some(line["::stop-commands::".len()..].to_owned());
+            }
+            _ => {
+                kept.push_str(line);
+                kept.push('\n');
+            }
+        }
+    }
+    kept
+}

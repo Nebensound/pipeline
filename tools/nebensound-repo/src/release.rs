@@ -44,9 +44,10 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
 
+use crate::console::Console;
 use crate::history::Tag;
 use crate::repository::Records;
-use crate::run::{Level, annotation_at, plain};
+use crate::run::{Level, annotation_at};
 use crate::{TagVersion, UnitName, UnitVersion};
 
 pub use github::GitHub;
@@ -244,21 +245,16 @@ fn nearest(records: &Records, prefix: &str, wanted: impl Fn(TagVersion) -> bool)
 
 /// Runs the stage: decides, writes, and appends the summary.
 ///
-/// `workflow` says whether the log is that of a workflow run, where a finding
-/// is an annotation; elsewhere it is a plain line.
-///
 /// Returns the exit code: 0 when the stage did what it had to, 1 when a tag
 /// stands in the way, a call failed, or the summary could not be written.
 pub fn run(
     versions: &[UnitVersion],
     records: &Records,
     settings: &Settings,
-    workflow: bool,
-    out: &mut dyn Write,
+    out: &mut Console<'_>,
 ) -> u8 {
     let mut report = Report {
         out,
-        workflow,
         summary: String::from("### The release stage on main\n\n"),
     };
     let code = stage(versions, records, &settings.github, &mut report);
@@ -288,7 +284,7 @@ fn stage(
     versions: &[UnitVersion],
     records: &Records,
     github: &GitHub,
-    report: &mut Report<'_>,
+    report: &mut Report<'_, '_>,
 ) -> u8 {
     let name = github
         .repository
@@ -357,7 +353,7 @@ fn write(
     releases: &[(&Planned, Option<&str>)],
     records: &Records,
     github: &GitHub,
-    report: &mut Report<'_>,
+    report: &mut Report<'_, '_>,
 ) -> Result<(), String> {
     let head = &records.head;
     let existing = github.releases()?;
@@ -452,24 +448,15 @@ fn write(
 }
 
 /// Where the stage writes: the log, and the summary of the run.
-struct Report<'o> {
-    out: &'o mut dyn Write,
-    workflow: bool,
+struct Report<'o, 'c> {
+    out: &'o mut Console<'c>,
     summary: String,
 }
 
-impl Report<'_> {
-    /// A line of the log. Outside a workflow run, an annotation is written
-    /// the way a reader takes it in.
+impl Report<'_, '_> {
+    /// A line of the log, as text.
     fn line(&mut self, text: &str) {
-        // Only the end of a group is no line at all, and the stage writes
-        // none.
-        let text = if self.workflow {
-            text.to_owned()
-        } else {
-            plain(text).unwrap_or_default()
-        };
-        let _ = writeln!(self.out, "{text}");
+        self.out.line(text);
     }
 
     /// A line of the log that the summary lists as well.
@@ -480,11 +467,13 @@ impl Report<'_> {
 
     /// An error, as an annotation of the run.
     fn error(&mut self, text: &str) {
-        self.line(&annotation_at(Level::Error, None, None, text));
+        self.out
+            .annotate(&annotation_at(Level::Error, None, None, text));
     }
 
     /// A warning, as an annotation of the run.
     fn warning(&mut self, text: &str) {
-        self.line(&annotation_at(Level::Warning, None, None, text));
+        self.out
+            .annotate(&annotation_at(Level::Warning, None, None, text));
     }
 }

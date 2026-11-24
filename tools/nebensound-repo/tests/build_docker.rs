@@ -28,6 +28,7 @@ use std::time::Duration;
 use nebensound_repo::Register;
 use nebensound_repo::build::docker::{self, artifact, steers};
 use nebensound_repo::build::{self, Build, Context, Machine};
+use nebensound_repo::console::Console;
 use nebensound_repo::output::Output;
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::programs::Platform;
@@ -425,7 +426,6 @@ impl Run<'_> {
             root: &root,
             search_path: &search_path,
             temp: &self.temp,
-            workflow: self.workflow,
             variables: &read,
             register: &self.register,
             env: &env,
@@ -434,12 +434,14 @@ impl Run<'_> {
             version: self.version,
         };
         let mut out = Vec::new();
+        let mut console = Console::new(&mut out, self.workflow);
         let code = build::run(
             &context,
             Build::Docker,
             &RelativePath::new(self.unit).unwrap(),
-            &mut out,
+            &mut console,
         );
+        let code = console.end(code);
         (code, String::from_utf8(out).unwrap())
     }
 }
@@ -1363,7 +1365,7 @@ fn the_call_takes_the_version_from_the_plan_or_the_history() {
     let (text, code) = call(&["docker", "."]);
     assert_eq!(code, 1, "{text}");
     assert_eq!(
-        text,
+        support::printed(&text),
         "'.' does not build docker: the plan starts no such build there\n"
     );
 

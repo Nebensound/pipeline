@@ -967,10 +967,42 @@ Each block brings its cases beside its `action.yml`: at least one under
 `tests/pass/` and one under `tests/fail/`. A case is a folder that holds a small
 repository of its own, with its own `.nebensound/repo.toml`. A failing case also
 holds a file `expected-finding`, which names what the block must report: every
-line that is not empty and does not start with `#` must match a whole line the
-block prints, with `*` standing for any text, for example
+line that is not empty and is no comment (it starts with `#`, but not with
+`##[`) must match a whole line the block prints, with `*` standing for any
+text, for example
 `::error file=data.json::not formatted the way Prettier writes it`. That file is
 not part of the case's repository.
+
+A case of either kind may hold a file `forbidden-line`, which names commands
+the block must not start, such as a workflow command that a name or a file of
+the case's repository would start: every line that is not empty and is no
+comment is a pattern, as in `expected-finding`, that no command the runner
+would read in a line the block prints may match. Like `expected-finding`
+it is not part of the case's repository.
+
+The lines are read the way the runner of GitHub Actions reads them. The tool
+prints everything that comes from a program or from the repository while the
+runner's processing of workflow commands is stopped (see
+[the principles](docs/principles.md#5-one-rule-per-kind-of-problem)), and a
+line inside such a stretch starts nothing. So a pattern of `expected-finding`
+that starts with `::` names an annotation, and only a line outside a stopped
+stretch matches it; any other pattern matches a line wherever it stands. A
+pattern of `forbidden-line` is matched against the command the runner would
+read in a line outside a stopped stretch, from where it starts. The runner
+first reads the newer form: past white space the line starts with `::`, and a
+command it knows is named before the next `::`. Only when that names none does
+it read the older form, from the first `##[` in the line. So `::warning::x*`
+forbids the newer form and `##[warning]x*` the older one, and the tool's own
+`::error file=a##[warning]x.dockerfile::…` is the command `error` and starts no
+warning.
+The failing cases `older-command-form-in-a-file-name` and
+`colons-at-the-start-of-a-file-name` of check-dockerfile, and
+`content-a-program-quotes` of check-json, hold such a file: a name that holds
+`##[warning]x`, a name that starts with `::warning::x`, and a JSON file whose
+broken line, which Prettier quotes, holds `##[warning]quoted`. A name with a
+line break never reaches a check: phase 0 refuses it
+([`control-character`](docs/declaration.md#control-character)), and a case has
+to pass phase 0, so the tool's own tests show that refusal instead.
 
 `cargo xtask check --all` first holds the blocks, the register and
 `nebensound.yml` to each other:
@@ -1085,9 +1117,13 @@ in the gate. Beside them it gets `CI`, `GITHUB_ACTIONS` and `RUNNER_TEMP`, as in
 a workflow run. Phase 0 runs with the name `case`, the default branch `main` and
 the visibility `public`, so that a case gets no finding for any of them.
 
-What a call of the tool prints stands in the log behind a `|`, so that the
-findings of a failing case do not become annotations of the gate. What the
-xtask itself finds is an annotation.
+What a call of the tool prints stands in the log behind a `|`, so that a
+reader tells it from the xtask's own lines. In the gate the xtask is a program
+`nebensound-repo xtask` starts, so everything it prints stands in a stretch in
+which the runner processes no workflow command: neither the findings of a
+failing case nor a name from a case start a command there, and what the xtask
+itself finds is no annotation of the gate either, but a line of the log and the
+failure of the step.
 
 The cases run wherever the tool does, on Linux and macOS alike, except those of
 `build-docker`, which need an `x86_64` Linux machine with Docker (see above).

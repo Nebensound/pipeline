@@ -27,7 +27,14 @@
 //! them. In a workflow run it is an annotation of the run; elsewhere it is a
 //! line that starts with `file:line:col:`. A finding that fails nothing, such
 //! as a Hadolint finding below the failure threshold, is a warning. What the
-//! programs print stands in the output as well.
+//! programs print stands in the output as well, as text: in a workflow run it
+//! goes out while the runner processes no workflow command ([`Console`]), so
+//! neither a file's name nor what a program says about it starts one. Only
+//! the tool writes commands. A program's own annotations are never passed
+//! through: where a program reports in a form of its own, the tool reads the
+//! findings off it, and the scripts the tool runs hand theirs over as data.
+//! What a program printed stands before the findings the tool reads off it,
+//! so that each program's output is one stretch of the log.
 //!
 //! The gate decides: what counts is the result of the run on GitHub Actions.
 //! A run anywhere else comes as close to it as is sensible, and is never the
@@ -50,13 +57,16 @@ pub mod yaml;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _;
 use std::fs::{self, File};
-use std::io::{Read as _, Write};
+use std::io::Read as _;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, ExitStatus, Output, Stdio};
 
 use tempfile::TempDir;
 
 use crate::Register;
+use crate::console::Console;
+pub use crate::console::plain;
+pub(crate) use crate::console::property;
 use crate::names::ProgramName;
 use crate::packages::Excluded;
 use crate::path::RelativePath;
@@ -174,8 +184,6 @@ pub struct Context<'a> {
     /// Where `run` makes the folder of what it hands the programs, which it
     /// removes again.
     pub temp: &'a Path,
-    /// Whether this is a workflow run, where a finding is an annotation.
-    pub workflow: bool,
     /// What the Rust check reads of the repository beyond its files; the
     /// other checks read none of it.
     pub packages: Packages<'a>,
@@ -206,12 +214,9 @@ pub fn run(
     check: Check,
     unit: &RelativePath,
     files: &[&RelativePath],
-    out: &mut dyn Write,
+    out: &mut Console<'_>,
 ) -> u8 {
-    let mut log = Log {
-        out,
-        workflow: context.workflow,
-    };
+    let mut log = Log { console: out };
     let noun = check.noun();
     if files.is_empty() {
         log.line(&format!(
@@ -245,25 +250,17 @@ pub fn run(
     u8::from(!passed)
 }
 
-/// Where the output goes, and how a finding is written there.
-struct Log<'o> {
-    out: &'o mut dyn Write,
-    workflow: bool,
+/// Where the output goes, and how a finding is written there: text, such as
+/// what a program prints, inside a stopped stretch of the console, and a
+/// finding as a command of the tool's own ([`Console`]).
+struct Log<'o, 'c> {
+    console: &'o mut Console<'c>,
 }
 
-impl Log<'_> {
-    /// Writes one line. Outside a workflow run, a workflow command is written
-    /// the way a reader takes it in: see [`plain`].
+impl Log<'_, '_> {
+    /// Writes one line of text.
     fn line(&mut self, text: &str) {
-        let text = if self.workflow {
-            Some(text.to_owned())
-        } else {
-            plain(text)
-        };
-        if let Some(text) = text {
-            let _ = self.out.write_all(text.as_bytes());
-            let _ = self.out.write_all(b"\n");
-        }
+        self.console.line(text);
     }
 
     /// Writes every line of what a program printed.
@@ -273,10 +270,21 @@ impl Log<'_> {
         }
     }
 
+    /// Writes a command of the tool's own.
+    fn command(&mut self, command: &str) {
+        self.console.command(command);
+    }
+
+    /// Writes an annotation of the tool's own, once the tool writes its next
+    /// other command or the call ends ([`Console::annotate`]).
+    fn annotate(&mut self, annotation: &str) {
+        self.console.annotate(annotation);
+    }
+
     /// Writes a finding: on a file if it names one, at a line and a column
     /// if it gives them.
     fn error(&mut self, file: Option<&str>, position: Option<(&str, Option<&str>)>, message: &str) {
-        self.line(&annotation(file, position, message));
+        self.annotate(&annotation(file, position, message));
     }
 
     /// Writes a finding that fails nothing, the way [`Log::error`] writes
@@ -287,7 +295,7 @@ impl Log<'_> {
         position: Option<(&str, Option<&str>)>,
         message: &str,
     ) {
-        self.line(&annotation_at(Level::Warning, file, position, message));
+        self.annotate(&annotation_at(Level::Warning, file, position, message));
     }
 }
 
@@ -352,69 +360,37 @@ pub(crate) fn data(text: &str) -> String {
         .replace('\n', "%0A")
 }
 
-/// A property of a workflow command, where `:` and `,` end the value as well.
-pub(crate) fn property(text: &str) -> String {
-    data(text).replace(':', "%3A").replace(',', "%2C")
+/// The name of the file a script of the tool writes its findings to, in the
+/// folder of what the programs are handed: one JSON object per line, with the
+/// keys `level` (`error` or `warning`), `file`, `line` and `column` where the
+/// finding gives them, and `message`. The tool writes each as a finding of its
+/// own, after what the script printed; a line that does not read fails the
+/// check.
+pub const FINDINGS: &str = "findings";
+
+/// One finding a script of the tool hands over as data: one JSON object per
+/// line of its [`FINDINGS`] file.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Handed {
+    /// `error`, which fails the check, or `warning`, which fails nothing.
+    level: HandedLevel,
+    /// The file, from the repository root, when it is about one.
+    file: Option<String>,
+    /// The line in it, when the finding gives one.
+    line: Option<u64>,
+    /// The column in that line, when the finding gives one.
+    column: Option<u64>,
+    /// What is wrong.
+    message: String,
 }
 
-/// A line as it is written outside a workflow run.
-///
-/// An annotation (`::error`, `::warning` or `::notice`) becomes
-/// `file:line:col: error: message`, with the parts it does not give left
-/// out, its title in brackets behind the level and every escape undone. A
-/// group (`::group::name`) becomes its name, and its end nothing, [`None`].
-/// Every other line stays as it is.
-#[must_use]
-pub fn plain(line: &str) -> Option<String> {
-    if line == "::endgroup::" {
-        return None;
-    }
-    if let Some(name) = line.strip_prefix("::group::") {
-        return Some(unescape(name));
-    }
-    let Some((level, properties, message)) = command(line) else {
-        return Some(line.to_owned());
-    };
-    let mut place = Vec::new();
-    let mut title = String::new();
-    for pair in properties.split(',') {
-        match pair.split_once('=') {
-            Some(("file", value)) => place.insert(0, unescape(value)),
-            Some(("line" | "col", value)) => place.push(unescape(value)),
-            Some(("title", value)) => title = format!("[{}]", unescape(value)),
-            _ => {}
-        }
-    }
-    let message = unescape(message);
-    Some(if place.is_empty() {
-        format!("{level}{title}: {message}")
-    } else {
-        format!("{}: {level}{title}: {message}", place.join(":"))
-    })
-}
-
-/// An annotation, taken apart: its level, its properties (empty when it has
-/// none) and its message. Escaped, a property holds no `:`.
-fn command(line: &str) -> Option<(&str, &str, &str)> {
-    let rest = line.strip_prefix("::")?;
-    let level = ["error", "warning", "notice"]
-        .into_iter()
-        .find(|level| rest.starts_with(level))?;
-    let rest = &rest[level.len()..];
-    if let Some(message) = rest.strip_prefix("::") {
-        return Some((level, "", message));
-    }
-    let (properties, message) = rest.strip_prefix(' ')?.split_once("::")?;
-    (!properties.contains(':')).then_some((level, properties, message))
-}
-
-/// Undoes the escapes of a workflow command.
-fn unescape(text: &str) -> String {
-    text.replace("%0A", "\n")
-        .replace("%0D", "\r")
-        .replace("%3A", ":")
-        .replace("%2C", ",")
-        .replace("%25", "%")
+/// How much a handed finding weighs.
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum HandedLevel {
+    Error,
+    Warning,
 }
 
 /// The path from the folder `from` to `to`, both absolute and without links,
@@ -539,7 +515,7 @@ impl Ran {
 }
 
 /// One run of a check.
-struct Session<'a, 'o> {
+struct Session<'a, 'o, 'c> {
     context: &'a Context<'a>,
     /// The unit, as the plan names it.
     unit: RelativePath,
@@ -547,10 +523,10 @@ struct Session<'a, 'o> {
     files: Vec<String>,
     /// The folder of what the programs are handed, once it is made.
     temp: Option<TempDir>,
-    log: Log<'o>,
+    log: Log<'o, 'c>,
 }
 
-impl Session<'_, '_> {
+impl Session<'_, '_, '_> {
     /// Makes the folder of what the programs are handed, with the entries
     /// `entries` gives for its path in it, and returns where it is; or writes
     /// why it cannot be made.
@@ -757,6 +733,57 @@ impl Session<'_, '_> {
             all.text.push_str(&ran.text);
         }
         all
+    }
+
+    /// Writes the findings a script of the tool handed over in the file
+    /// `findings` (see [`FINDINGS`]) as findings of the tool's own: whether
+    /// every one of them read. A script prints no workflow command; what it
+    /// prints is text like any program's, and the tool writes each finding it
+    /// hands over, after that text. A line that does not read as a finding is
+    /// written as a finding of its own and fails the check.
+    fn handed(&mut self, findings: &Path, what: &str) -> bool {
+        let text = match fs::read_to_string(findings) {
+            Ok(text) => text,
+            Err(error) => {
+                self.log.error(
+                    None,
+                    None,
+                    &format!("the findings of {what} cannot be read: {error}"),
+                );
+                return false;
+            }
+        };
+        let mut read = true;
+        for line in text.lines().filter(|line| !line.is_empty()) {
+            match serde_json::from_str::<Handed>(line) {
+                Ok(finding) => {
+                    let line = finding.line.map(|line| line.to_string());
+                    let column = finding.column.map(|column| column.to_string());
+                    let position = line.as_deref().map(|line| (line, column.as_deref()));
+                    let level = match finding.level {
+                        HandedLevel::Error => Level::Error,
+                        HandedLevel::Warning => Level::Warning,
+                    };
+                    self.log.annotate(&annotation_at(
+                        level,
+                        finding.file.as_deref(),
+                        position,
+                        &finding.message,
+                    ));
+                }
+                Err(error) => {
+                    read = false;
+                    self.log.error(
+                        None,
+                        None,
+                        &format!(
+                            "{what} handed over a finding that does not read ({error}): {line}"
+                        ),
+                    );
+                }
+            }
+        }
+        read
     }
 
     /// Whether a path from the repository root is a file.
