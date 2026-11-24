@@ -1583,18 +1583,32 @@ pub enum ReadError {
     },
 }
 
-/// What the TOML reader says of a declaration that does not read, each line
-/// as [`report::shown`] writes it. The reader quotes the line it stopped at,
-/// and a control character it stopped on, such as a carriage return in a
-/// path, would otherwise reach the log as it stands, before phase 0 could
-/// refuse the path by name ([`control`]).
+/// The first words of what the TOML reader writes when it knows where it
+/// stopped: four lines of its own before the message.
+const READER_LAYOUT: &str = "TOML parse error at line ";
+
+/// What the TOML reader says of a declaration that does not read, with each
+/// control character in it written as [`report::shown`] writes it.
+///
+/// Where the reader knows where it stopped, it writes four lines of its own
+/// first: the position, a gutter, the line it stopped at and a caret under it.
+/// Those stay lines of their own. The quoted line can hold a raw carriage
+/// return, such as one in a path. Everything after them is the message, and it
+/// is written as one line: it can quote a string of the declaration as the
+/// reader decoded it, such as an unknown field or value, and a `\n` in that
+/// string is a real line break by then. Either would otherwise reach the log
+/// as it stands, before phase 0 could refuse a path by name ([`control`]).
 fn quoted(error: &toml::de::Error) -> String {
-    error
-        .to_string()
-        .split('\n')
-        .map(report::shown)
-        .collect::<Vec<_>>()
-        .join("\n")
+    let text = error.to_string();
+    let text = text.strip_suffix('\n').unwrap_or(&text);
+    let layout = if text.starts_with(READER_LAYOUT) {
+        4
+    } else {
+        0
+    };
+    let mut lines: Vec<String> = text.splitn(layout + 1, '\n').map(report::shown).collect();
+    lines.push(String::new());
+    lines.join("\n")
 }
 
 /// The edition this tool reads: the only one there is. A declaration that

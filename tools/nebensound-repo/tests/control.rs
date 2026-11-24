@@ -230,6 +230,16 @@ fn a_declaration_that_does_not_read_writes_no_control_character_of_it() {
             ),
             "a\\n::warning::forged sets only-if-empty",
         ),
+        // The reader's message quotes the value or key as it decoded it, so
+        // the `\n` of the declaration is a line break there.
+        (
+            format!("[repo]\naudience = \"{forged}\"\n"),
+            "unknown variant `a\\n::warning::forged`, expected one of",
+        ),
+        (
+            format!("[repo]\naudience = \"public\"\n\"{forged}\" = 1\n"),
+            "unknown field `a\\n::warning::forged`, expected one of",
+        ),
     ];
     for (declaration, said) in cases {
         let dir = repository(&[
@@ -245,4 +255,30 @@ fn a_declaration_that_does_not_read_writes_no_control_character_of_it() {
             "{text}"
         );
     }
+}
+
+#[test]
+fn the_reader_keeps_its_own_lines_and_writes_its_message_as_one() {
+    // Where the reader knows where it stopped, its four lines of position,
+    // gutter, quoted line and caret stay lines of their own; the message
+    // after them is one line.
+    let error =
+        nebensound_repo::Declaration::parse("[repo]\naudience = \"a\\n::warning::forged\"\n")
+            .expect_err("an unknown audience")
+            .to_string();
+    assert_eq!(
+        error,
+        "the declaration is not readable: TOML parse error at line 2, column 12\n  |\n2 | \
+         audience = \"a\\n::warning::forged\"\n  |            ^^^^^^^^^^^^^^^^^^^^^^\nunknown \
+         variant `a\\n::warning::forged`, expected one of `public`, `internal`, `customer`\n"
+    );
+    // Without a position, the reader writes the message alone.
+    let error = nebensound_repo::ReadError::Unreadable(
+        <toml::de::Error as serde::de::Error>::custom("a\n::warning::forged"),
+    )
+    .to_string();
+    assert_eq!(
+        error,
+        "the declaration is not readable: a\\n::warning::forged\n"
+    );
 }
