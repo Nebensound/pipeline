@@ -1,0 +1,2 @@
+# lychee would print the links and end without checking them.
+dump = true

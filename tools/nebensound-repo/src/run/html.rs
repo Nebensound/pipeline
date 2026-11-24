@@ -5,7 +5,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::{Entry, Session, Tool, links};
+use super::links::{self, Handed};
+use super::{Entry, Session, Tool};
 use crate::rules;
 
 /// What runs html-validate on Node.js, through its own `HtmlValidate`.
@@ -342,24 +343,19 @@ pub(super) fn run(session: &mut Session<'_, '_, '_>) -> bool {
     let prettier = session.tool("prettier", false);
     let validate = session.tool("html-validate", true);
     let lychee = session.tool("lychee", false);
-    let Some(config) = links::config(session) else {
-        return false;
-    };
+    let handed = links::hand_over(session);
     let mut list = Vec::new();
     for file in &session.files {
         list.extend_from_slice(file.as_bytes());
         list.push(0);
     }
-    let lines = links::lychee_lines(&session.files);
     let mut root = PathBuf::new();
     let Some(temp) = session.folder(|path| {
         root = rooted(path);
-        let entries: Vec<Entry> = vec![
+        let mut entries: Vec<Entry> = vec![
             ("nothing-ignored".to_owned(), Some(Vec::new())),
             (super::FINDINGS.to_owned(), Some(Vec::new())),
             ("files".to_owned(), Some(list)),
-            ("lines".to_owned(), Some(lines.into_bytes())),
-            ("lychee.toml".to_owned(), Some(config)),
             ("root".to_owned(), None),
             (
                 "lychee-rooted.toml".to_owned(),
@@ -374,6 +370,7 @@ pub(super) fn run(session: &mut Session<'_, '_, '_>) -> bool {
                 Some(PAGE_RULES.as_bytes().to_vec()),
             ),
         ];
+        entries.extend(Handed::entries(handed.as_ref()));
         entries
     }) else {
         return false;
@@ -385,15 +382,9 @@ pub(super) fn run(session: &mut Session<'_, '_, '_>) -> bool {
     let formatted = prettier
         .is_some_and(|prettier| session.prettier(&prettier, &temp.join("nothing-ignored"), &files));
     let validated = validate.is_some_and(|validate| validate_run(session, &validate, &temp));
-    let links_lead = lychee.is_some_and(|lychee| {
-        links::check(
-            session,
-            &lychee,
-            &[&temp.join("lychee.toml"), &temp.join("lychee-rooted.toml")],
-            &root,
-            &temp.join("lines"),
-            &temp.join("links.md"),
-        )
+    let site = temp.join("lychee-rooted.toml");
+    let links_lead = handed.is_some_and(|handed| {
+        lychee.is_some_and(|lychee| links::check(session, &lychee, &handed, &temp, &[&site], &root))
     });
     formatted && validated && links_lead
 }

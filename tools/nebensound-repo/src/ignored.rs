@@ -2,11 +2,12 @@
 //!
 //! A check runs over exactly the files `nebensound-repo files` names, and no
 //! check reads a tool's own way of leaving a file out, with one exception: the
-//! Markdown check runs lychee with the repository's `lychee.toml`, for its
-//! addresses and status codes, and that file's `exclude_path` comes along. Run
-//! by hand, the tools read all of them: a `.prettierignore` that takes out more
-//! than the declaration does makes a local run pass where the pipeline fails,
-//! and leaves a file out that nobody gave a reason for. So phase 0 reads these
+//! link check of the Markdown and the HTML check carries over the repository's
+//! `lychee.toml`, for its addresses and status codes, and applies its
+//! `exclude_path` ([`crate::lychee_config`]). Run by hand, the tools read all
+//! of them: a `.prettierignore` that takes out more than the declaration does
+//! makes a local run pass where the pipeline fails, and leaves a file out that
+//! nobody gave a reason for. So phase 0 reads these
 //! settings and reports every file they take out that no `[[exclude]]` entry
 //! takes out; for lychee, that also keeps its `exclude_path` from taking a
 //! listed file out in the check. A setting that takes out less is fine.
@@ -21,9 +22,9 @@
 //! - yamllint: `ignore` and `ignore-from-file` in `.yamllint`,
 //!   `.yamllint.yaml` or `.yamllint.yml` at the root, whichever yamllint reads,
 //!   or, where it sets neither, in the configuration its `extends` names.
-//! - lychee: `exclude_path` in `lychee.toml` at the root, matched against the
-//!   path from the root, the very string `run markdown` and `run html` hand
-//!   lychee.
+//! - lychee: `exclude_path` in `lychee.toml` at the root, read and matched
+//!   against the path from the root as `run markdown` and `run html` read and
+//!   match it.
 //! - Stylelint: `.stylelintignore` at the root, and `ignoreFiles` in the
 //!   configuration Stylelint reads in a folder (the first of the names it
 //!   looks for, `package.json` only where it holds a `stylelint` key),
@@ -83,6 +84,7 @@ use std::fmt::Display;
 use crate::Analysis;
 use crate::annotate::Coverage;
 use crate::finding::{Finding, Rule};
+use crate::lychee_config;
 use crate::path::RelativePath;
 use crate::register::Register;
 use crate::ruff_config::{self, Next};
@@ -201,7 +203,7 @@ enum Matcher {
         exclude: Globs,
     },
     /// Regular expressions over the path from the repository root, such as
-    /// `docs/a.md`: the string lychee matches them against in the block.
+    /// `docs/a.md`: the string the link check matches them against.
     Regex(RegexSet),
     /// Stylelint's `ignoreFiles`: globs relative to the folder of its
     /// configuration, read in order, a negated one (`!…`) taking back what
@@ -662,17 +664,10 @@ fn rustfmt(source: &str, base: &RelativePath) -> Result<Option<Matcher>, String>
         .transpose()
 }
 
-#[derive(Deserialize)]
-struct Lychee {
-    exclude_path: Option<Vec<String>>,
-}
-
+/// `exclude_path`, read the way the link check reads it.
 fn lychee(source: &str) -> Result<Option<Matcher>, String> {
-    let config: Lychee = toml::from_str(source).map_err(text)?;
-    config
-        .exclude_path
-        .map(|patterns| RegexSet::new(patterns).map(Matcher::Regex).map_err(text))
-        .transpose()
+    let table: toml::Table = toml::from_str(source).map_err(text)?;
+    Ok(lychee_config::exclude_path(&table)?.map(Matcher::Regex))
 }
 
 #[derive(Deserialize)]

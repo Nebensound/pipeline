@@ -1,0 +1,2 @@
+# A slip of the pen: lychee reads `exclude_path`.
+exclude_paths = ["^README\\.md$"]
