@@ -40,6 +40,7 @@ fn findings_for(
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
     paths_exist(resolution, tree, &mut findings);
+    findings.extend(crate::control::findings(declaration, tree));
     every_file_is_covered(annotated, &mut findings);
     every_check_finds_something(resolution, central, tree, &mut findings);
     suppressions_are_used(resolution, &mut findings);

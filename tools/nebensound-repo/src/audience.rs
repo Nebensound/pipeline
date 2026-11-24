@@ -51,8 +51,8 @@ impl fmt::Display for Visibility {
 }
 
 /// `.nebensound/repo.toml` as a path in the repository, where both findings
-/// hang.
-fn declaration_path() -> RelativePath {
+/// hang, and those of [`crate::control`] about a declared path.
+pub(crate) fn declaration_path() -> RelativePath {
     RelativePath::root().join(".nebensound").join("repo.toml")
 }
 

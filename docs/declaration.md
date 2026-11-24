@@ -307,7 +307,9 @@ So that no fact is kept twice, each lives in one of three places:
 A **path** is a path inside the repository, separated by `/`: `.` for the
 repository itself, never absolute, no `.` or `..` segment, no empty segment, no
 backslash. A trailing `/` is allowed and means nothing more. A path matches the
-file it names and everything below the folder it names.
+file it names and everything below the folder it names. Neither a path nor a
+pattern holds a control character (see
+[`control-character`](#control-character)).
 
 `[[include]]` takes a **pattern** as well, in one of two forms:
 
@@ -686,6 +688,18 @@ finding comes only from a run.
 Error. A component's `path` holds nothing Git tracks: the path is misspelt, the
 folder is empty, or its files are not added. Correct the path, add the files, or
 remove the component.
+
+### `control-character`
+
+Error. The name of a tracked file, or a path in the declaration, holds a
+control character: a character of Unicode's category `Cc`, U+0000 to U+001F
+and U+007F to U+009F, such as a line break, a tab or an escape. Git allows such
+a name, and a tool that takes names one per line, or a step output written as
+`name=value`, would misread it. There is one finding for each such file, at the
+file, and one for each such `path` of `[component.<name>]`, `[[include]]` or
+`[[exclude]]`, at the declaration, naming the field. The name is shown with the
+character written as an escape, such as `docs/a\nb.md`. Rename the file, or
+write the path without the character.
 
 ### `language-without-check`
 
