@@ -12,13 +12,18 @@
 //! Every call is made once. A request that wrote something and whose answer
 //! was lost would write twice if it were repeated, so a failed call fails the
 //! stage, and the re-run takes up what it left.
+//!
+//! An archive is uploaded the same way: curl reads the file itself, named in
+//! its configuration, to the address GitHub gives the release for its assets.
 
 use std::ffi::OsString;
 use std::io::{self, Write as _};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
 
+use crate::build::cargo_package::encoded;
 use crate::setup::find;
 
 /// What a call of the API needs: the repository and how to reach it.
@@ -48,6 +53,42 @@ pub struct Listed {
     pub tag: String,
     /// Whether it is still a draft.
     pub draft: bool,
+    /// Where its assets are uploaded to, as GitHub names it, with the
+    /// template of the query behind it.
+    pub upload: String,
+}
+
+/// A draft the stage created.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Draft {
+    /// Its number.
+    pub id: u64,
+    /// Where its assets are uploaded to, as GitHub names it.
+    pub upload: String,
+}
+
+/// An asset of a release.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Asset {
+    /// Its number.
+    pub id: u64,
+    /// The name of its file.
+    pub name: String,
+    /// Whether its upload went through: GitHub keeps an asset whose upload
+    /// broke off as well, in another state.
+    pub uploaded: bool,
+    /// Its digest as GitHub gives it, such as `sha256:<hex>`, if it gives one.
+    pub digest: Option<String>,
+}
+
+/// What a request sends.
+enum Body<'a> {
+    /// Nothing.
+    None,
+    /// JSON.
+    Json(&'a Value),
+    /// The bytes of a file, which curl reads itself.
+    File(&'a Path),
 }
 
 /// A published release, as GitHub shows it.
@@ -90,9 +131,10 @@ impl GitHub {
                 .ok_or_else(|| unexpected("GET", &path, "a list"))?;
             for entry in entries {
                 all.push(Listed {
-                    id: number(entry, "GET", &path)?,
+                    id: number(entry, "a release", "GET", &path)?,
                     tag: text(entry, "tag_name", "GET", &path)?,
                     draft: flag(entry, "draft", "GET", &path)?,
+                    upload: text(entry, "upload_url", "GET", &path)?,
                 });
             }
             if entries.len() < PAGE {
@@ -125,18 +167,19 @@ impl GitHub {
     }
 
     /// Creates a release of a tag as a draft, a full release, and returns its
-    /// number.
+    /// number and where its assets go.
     ///
     /// # Errors
     ///
-    /// Returns a sentence when the call fails or its answer holds no number.
+    /// Returns a sentence when the call fails or its answer holds no number
+    /// or no address for the assets.
     pub fn create_draft(
         &self,
         tag: &str,
         commit: &str,
         title: &str,
         notes: &str,
-    ) -> Result<u64, String> {
+    ) -> Result<Draft, String> {
         let path = "releases";
         let body = json!({
             "tag_name": tag,
@@ -147,7 +190,61 @@ impl GitHub {
             "prerelease": false,
         });
         let answer = self.call("POST", path, Some(&body))?;
-        number(&answer, "POST", path)
+        Ok(Draft {
+            id: number(&answer, "a release", "POST", path)?,
+            upload: text(&answer, "upload_url", "POST", path)?,
+        })
+    }
+
+    /// Every asset of a release, page by page.
+    ///
+    /// # Errors
+    ///
+    /// Returns a sentence when a call fails or its answer is not a list of
+    /// assets.
+    pub fn assets(&self, release: u64) -> Result<Vec<Asset>, String> {
+        let mut all = Vec::new();
+        for page in 1.. {
+            let path = format!("releases/{release}/assets?per_page={PAGE}&page={page}");
+            let answer = self.call("GET", &path, None)?;
+            let entries = answer
+                .as_array()
+                .ok_or_else(|| unexpected("GET", &path, "a list"))?;
+            for entry in entries {
+                all.push(asset(entry, "GET", &path)?);
+            }
+            if entries.len() < PAGE {
+                break;
+            }
+        }
+        Ok(all)
+    }
+
+    /// Deletes an asset of a draft.
+    ///
+    /// # Errors
+    ///
+    /// Returns a sentence when the call fails.
+    pub fn delete_asset(&self, asset: u64) -> Result<(), String> {
+        self.call("DELETE", &format!("releases/assets/{asset}"), None)
+            .map(drop)
+    }
+
+    /// Uploads a file as an asset named `name` to the address `upload` a
+    /// release gives for its assets, and returns the asset as GitHub holds it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a sentence when the call fails or its answer is no asset.
+    pub fn upload(&self, upload: &str, name: &str, file: &Path) -> Result<Asset, String> {
+        // GitHub names the address with the template of its query behind it,
+        // `{?name,label}`.
+        let address = upload
+            .split_once('{')
+            .map_or(upload, |(address, _)| address);
+        let url = format!("{address}?name={}", encoded(name));
+        let answer = self.request("POST", &url, &url, &Body::File(file))?;
+        asset(&answer, "POST", &url)
     }
 
     /// Publishes a draft as a full release, marked as the latest release or
@@ -184,9 +281,28 @@ impl GitHub {
     /// `repos/<owner>/<name>/`, or the repository itself for an empty one,
     /// with a JSON body if one is given: the answer of a call that succeeded.
     fn call(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value, String> {
+        let mut url = format!("{}/repos/{}", self.api, self.repository);
+        if !path.is_empty() {
+            url.push('/');
+            url.push_str(path);
+        }
+        let body = body.map_or(Body::None, Body::Json);
+        self.request(method, &url, path, &body)
+    }
+
+    /// One request to `url`, named `path` in what it says: the answer of a
+    /// request that succeeded, [`Value::Null`] for one that answered with
+    /// nothing, as a deletion does.
+    fn request(
+        &self,
+        method: &str,
+        url: &str,
+        path: &str,
+        body: &Body<'_>,
+    ) -> Result<Value, String> {
         let curl = find::search("curl", &self.search_path, cfg!(windows))
             .ok_or_else(|| "there is no curl on the PATH to call GitHub with".to_owned())?;
-        let config = self.config(method, path, body);
+        let config = self.config(method, url, body);
         let mut child = Command::new(curl)
             .args(["--disable", "--config", "-"])
             .stdin(Stdio::piped())
@@ -224,13 +340,16 @@ impl GitHub {
                 "GitHub refused {method} {path} with {status}: {message}"
             ));
         }
+        if answer.is_empty() {
+            return Ok(Value::Null);
+        }
         serde_json::from_str(answer).map_err(|_| unexpected(method, path, "JSON"))
     }
 
-    /// The configuration curl reads from standard input for one call. The
+    /// The configuration curl reads from standard input for one request. The
     /// address comes last: a configuration that broke off before its end
     /// names none, and curl sends nothing.
-    fn config(&self, method: &str, path: &str, body: Option<&Value>) -> String {
+    fn config(&self, method: &str, url: &str, body: &Body<'_>) -> String {
         let mut lines = vec![
             "silent".to_owned(),
             "show-error".to_owned(),
@@ -247,19 +366,28 @@ impl GitHub {
             format!("header = {}", quoted("Expect:")),
             format!("write-out = {}", quoted("\n%{http_code}")),
         ];
-        if let Some(body) = body {
-            lines.push(format!(
-                "header = {}",
-                quoted("Content-Type: application/json")
-            ));
-            lines.push(format!("data-raw = {}", quoted(&body.to_string())));
+        match body {
+            Body::None => {}
+            Body::Json(body) => {
+                lines.push(format!(
+                    "header = {}",
+                    quoted("Content-Type: application/json")
+                ));
+                lines.push(format!("data-raw = {}", quoted(&body.to_string())));
+            }
+            // `@` makes curl read the file, byte for byte.
+            Body::File(file) => {
+                lines.push(format!(
+                    "header = {}",
+                    quoted("Content-Type: application/octet-stream")
+                ));
+                lines.push(format!(
+                    "data-binary = {}",
+                    quoted(&format!("@{}", file.display()))
+                ));
+            }
         }
-        let mut url = format!("{}/repos/{}", self.api, self.repository);
-        if !path.is_empty() {
-            url.push('/');
-            url.push_str(path);
-        }
-        lines.push(format!("url = {}", quoted(&url)));
+        lines.push(format!("url = {}", quoted(url)));
         let mut config = lines.join("\n");
         config.push('\n');
         config
@@ -269,8 +397,9 @@ impl GitHub {
 /// A value of curl's configuration, in double quotes. Inside them curl reads a
 /// backslash as the start of an escape, so a backslash and a double quote are
 /// escaped, and so is a line break, which would end the line. No other control
-/// character reaches here: the body is JSON, which escapes them, and the
-/// settings refuse them ([`super::Settings::read`]).
+/// character reaches here: the body is JSON, which escapes them, the settings
+/// refuse them ([`super::Settings::read`]), and so does the stage in the name
+/// of an archive it uploads.
 fn quoted(value: &str) -> String {
     let mut quoted = String::with_capacity(value.len() + 2);
     quoted.push('"');
@@ -296,11 +425,21 @@ fn unexpected(method: &str, path: &str, what: &str) -> String {
     format!("GitHub answered {method} {path} without {what}")
 }
 
-/// A release's number in an answer.
-fn number(value: &Value, method: &str, path: &str) -> Result<u64, String> {
+/// The number of a release or an asset (`what`) in an answer.
+fn number(value: &Value, what: &str, method: &str, path: &str) -> Result<u64, String> {
     value["id"]
         .as_u64()
-        .ok_or_else(|| unexpected(method, path, "the number of a release"))
+        .ok_or_else(|| unexpected(method, path, &format!("the number of {what}")))
+}
+
+/// An asset in an answer.
+fn asset(value: &Value, method: &str, path: &str) -> Result<Asset, String> {
+    Ok(Asset {
+        id: number(value, "an asset", method, path)?,
+        name: text(value, "name", method, path)?,
+        uploaded: text(value, "state", method, path)? == "uploaded",
+        digest: value["digest"].as_str().map(ToOwned::to_owned),
+    })
 }
 
 /// A text field of an answer.

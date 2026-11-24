@@ -192,9 +192,10 @@ publish target a unit of the plan names that has no building block
 `publish-<target>` yet, the dots of the target turned into hyphens
 (`crates.io` is `publish-crates-io`), whether the commit touches the unit or
 not. It fails on the pull request, before anything is merged, rather than in
-Publish afterwards. No publish target has a building block yet, so a unit that
-publishes anywhere fails `nebensound / Check` today, and Publish only ever
-releases units with `publish = false`.
+Publish afterwards. One target is written without a block: `release-assets`,
+which the release stage carries out itself (see [Publish](#publish)). Every
+other target has no building block yet, so a unit that publishes there fails
+`nebensound / Check` today.
 
 ## Build
 
@@ -274,9 +275,11 @@ pushed commit with that version would not stand on the commit the history
 gives it, and phase 0 would report it as `conflicting-tag` in the next run.
 
 The job checks the repository out with its whole history and every tag, builds
-the tool, and calls `nebensound-repo release`, which does the rest
-([the tool](tool.md#the-release-stage)). It
-holds no other logic. The tool works in this order:
+the tool, fetches the artifacts of the run's builds with
+`actions/download-artifact`, each into a folder of its own named after it, and
+calls `nebensound-repo release --assets <that folder>`, which does the rest
+([the tool](tool.md#the-release-stage)). It holds no other logic. The tool
+works in this order:
 
 1. **Decide what to release.** Nothing is written yet. The tool reads the
    version of every unit from the history, as phase 0 does. When the tag of a
@@ -286,15 +289,28 @@ holds no other logic. The tool works in this order:
    of an older run, the unit is left out with a sentence that says so, and the
    job stays green. For each unit to release it finds the previous record: the
    tag of the unit with the highest version below the one released, on a
-   commit the pushed commit contains.
+   commit the pushed commit contains. For each unit to release that publishes
+   to `release-assets`, it holds the artifacts it was handed against what the
+   release needs: every target of the unit's build has its artifact, every
+   artifact of the build belongs to the version released and to the pushed
+   commit and is for a target of the build, and each holds exactly one plain
+   file, the archive, named for its target. Anything else fails the job here,
+   each by name, before anything is written, unless the unit's release is
+   published already: it takes no archive then. Artifacts of other units or of
+   other kinds are passed over.
 2. **Create the tags and the drafts.** For each unit, the tag on the pushed
    commit, a lightweight one, and the release as a draft, titled
    `<unit> <version>` (the repository by its name, such as `pipeline 0.4.2`),
    with notes GitHub generates against the previous record. A unit's first
    release carries one fixed sentence instead.
 3. **The publish targets**, while the releases are drafts: an immutable release
-   takes no file once it is published. No target has a building block yet, so
-   nothing happens here yet.
+   takes no file once it is published. For `release-assets`, every archive is
+   attached to the unit's draft under its own name. An asset of that name the
+   draft holds already with the same digest is kept; one with another digest,
+   or whose upload broke off, is deleted and the archive uploaded again. A
+   call that fails here fails the job, and no release is published. Every
+   other target fails `nebensound / Check` before anything is built, so no
+   unit that reaches Publish names one.
 4. **Publish the releases.** Each draft is published as a full release, and
    marked as the latest release or not in the same call: GitHub honours that
    mark only there. When the published release shows that it is not
@@ -303,9 +319,14 @@ holds no other logic. The tool works in this order:
 
 A re-run completes what an earlier attempt left undone and changes nothing
 else: a tag that stands on the pushed commit is kept, a draft the attempt left
-is taken up, and a release published already is left as it is. The tool
-writes what it did into the log, and the summary of the run lists every unit
-with its release, or the sentence why there is none.
+is taken up with the archives it holds already, and a release published
+already is left as it is. A re-run of Publish is handed the artifacts of its
+run only while they are kept: the builds keep them for 7 days, and a run can be
+re-run for longer. A published release takes no archive, so a re-run after
+that is still green and changes nothing. A draft not published yet still
+takes them, so a re-run that has to finish a draft after the artifacts expired
+fails, each archive named as missing. The tool writes what it did into the log, and the summary of
+the run lists every unit with its release, or the sentence why there is none.
 
 Tags and releases are records. Publish reads them for what records answer, the
 notes since the previous record and whether a newer one holds the commit, and
@@ -315,18 +336,22 @@ plan.
 A release published with the workflow's token starts no workflow, so a caller
 that listens to tags or releases is not started by Publish.
 
-Nothing another job wrote reaches Publish, only whether that job passed: it
-takes no job output and no artifact, reads the versions from the history
-itself, and builds the tool itself, from the source of the pipeline at the
-commit the caller pins, without the cache
+Of what another job wrote, only whether that job passed and the artifacts of
+the builds reach Publish: it takes no job output, reads the versions from the
+history itself, and builds the tool itself, from the source of the pipeline at
+the commit the caller pins, without the cache
 ([`.github/actions/tool`](../.github/actions/tool) with `cache: "false"`). Every
 job of a branch may write the cache, a job that runs code of the repository
-among them, so nothing in it is to run with a token that can write. What does
-run with that token is the tool, the Rust crates it is built from, as its
-`Cargo.lock` pins them, and the toolchain its `rust-toolchain.toml` names. It
-is built with its default features alone, which leave out the terminal
-interface (`ui`). The token goes to the one step that calls the tool, and the
-tool hands it to curl on curl's standard input, never on a command line.
+among them, so nothing in it is to run with a token that can write. The
+artifacts are the products the builds tested, and Publish takes them as data:
+the tool holds each against the version and the commit of the run and uploads
+it, and never starts one. What does run with that token is the tool, the Rust
+crates it is built from, as its `Cargo.lock` pins them, and the toolchain its
+`rust-toolchain.toml` names. It is built with its default features alone,
+which leave out the terminal interface (`ui`). Before it, the job runs
+`actions/download-artifact`, which is not handed the token. The token goes to
+the one step that calls the tool, and the tool hands it to curl on curl's
+standard input, never on a command line.
 
 ## Check names
 

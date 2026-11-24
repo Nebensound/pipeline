@@ -15,21 +15,13 @@
 # the root Cargo.toml, the rust check runs over the workspace, xtask included,
 # and Dependabot watches the one lockfile.
 #
-# This is the preset rust-binary as far as it is written: its build
-# cargo-release builds the tool for every target of the register, each on a
-# runner of its own, and starts it there. Its target release-assets has no
-# building block yet and would fail by name until it has one, so it is named
-# here when it is written. Until then nothing is published beside the
-# repository's own tags and releases.
+# The preset rust-binary: its build cargo-release builds the tool for every
+# target of the register, each on a runner of its own, and starts it there, and
+# its target release-assets attaches the archives to the repository's release
+# before it is published.
 [repo]
 audience = "public"
-
-[repo.pipeline]
-version    = ["cargo"]
-check      = ["rust"]
-build      = "cargo-release"
-publish    = false
-dependabot = ["cargo"]
+pipeline = "rust-binary"
 
 # The test cases of the building blocks. Each is a small repository of its own
 # that `cargo xtask check` hands to its block; a failing case is wrong on
