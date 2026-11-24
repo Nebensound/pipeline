@@ -591,6 +591,31 @@ fn a_default_that_does_not_read_is_named() {
 }
 
 #[test]
+fn a_default_of_markdownlint_that_holds_no_rules_is_named() {
+    for (default, why) in [
+        ("[1]", "it holds no mapping"),
+        ("{ \"extends\": 1 }", "`extends` is not text"),
+    ] {
+        let broken = Defaults {
+            markdownlint: default,
+            yamllint: YAMLLINT,
+            stylelint: STYLELINT,
+            html_validate: HTML_VALIDATE,
+            ruff: RUFF,
+        };
+
+        let text = rules_with(broken, &[]);
+
+        assert!(
+            text.contains(&format!(
+                "Markdownlint: the pipeline's default does not read: {why}"
+            )),
+            "{text}"
+        );
+    }
+}
+
+#[test]
 fn check_prints_the_rules_after_the_configuration() {
     let dir = repository(&[
         (".nebensound/repo.toml", QUIET),

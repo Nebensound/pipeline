@@ -906,7 +906,8 @@ pub fn markdownlint(default: &str, handed: &Handed, problems: &[Problem]) -> Vec
         Ok(default) => default,
         Err(error) => {
             return vec![format!(
-                "{head}Markdownlint: the pipeline's default does not read: {}",
+                "{head}{}: the pipeline's default does not read: {}",
+                program.name(),
                 shown(&error)
             )];
         }

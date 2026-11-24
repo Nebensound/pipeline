@@ -108,16 +108,16 @@ pub fn locate<'a>(
         .filter(|candidate| Some(**candidate) != file)
         .filter_map(|candidate| {
             let path = candidate.to_string();
-            let named = |list: &[String]| {
+            let listed = |list: &[String]| {
                 list.iter()
                     .any(|wanted| path == *wanted || path.ends_with(&format!("/{wanted}")))
             };
-            let why = if named(&program.configuration_not_read) {
+            let why = if listed(&program.configuration_not_read) {
                 format!(
                     "not read: the tool reads the configuration of {name} only as data, from one \
                      file at the root of the repository ({names}), and never runs this one"
                 )
-            } else if !named(&program.configuration) {
+            } else if !listed(&program.configuration) {
                 return None;
             } else if program.configuration.contains(&path) {
                 format!(

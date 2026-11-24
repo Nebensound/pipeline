@@ -1582,17 +1582,17 @@ fn the_link_check_is_handed_every_path_as_lychee_reads_it() {
 
 #[test]
 fn findings_of_markdownlint_and_lychee_are_taken_apart() {
-    let lint: markdown::Lint = serde_json::from_str(
+    let finding: markdown::Lint = serde_json::from_str(
         "{\"lineNumber\":3,\"ruleNames\":[\"MD001\",\"heading-increment\"],\
          \"ruleDescription\":\"x\",\"errorDetail\":\"d\",\"errorContext\":\"c\",\
          \"errorRange\":[7,2],\"fixInfo\":null,\"severity\":\"error\"}",
     )
     .unwrap();
     assert_eq!(
-        lint.message(),
+        finding.message(),
         "MD001/heading-increment x [d] [Context: \"c\"]"
     );
-    assert_eq!(lint.column(), Some(7));
+    assert_eq!(finding.column(), Some(7));
     let bare: markdown::Lint = serde_json::from_str(
         "{\"lineNumber\":1,\"ruleNames\":[\"MD041\"],\"ruleDescription\":\"y\",\
          \"errorRange\":[]}",

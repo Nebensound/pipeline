@@ -438,7 +438,7 @@ impl Found<'_> {
                 return None;
             }
         };
-        let filter = match patterns(filter.unwrap_or_default()) {
+        let filter = match patterns(&filter.unwrap_or_default()) {
             Ok(filter) => filter,
             Err(reason) => {
                 self.problem(&format!(
@@ -463,7 +463,7 @@ fn options(found: &mut Found<'_>, handed: &mut Handed, top: Map<String, Value>) 
             "frontMatter" => match value {
                 Value::String(pattern) => handed.front_matter = Some(pattern),
                 _ => {
-                    found.problem("`frontMatter` is not text, so it is not handed to markdownlint")
+                    found.problem("`frontMatter` is not text, so it is not handed to markdownlint");
                 }
             },
             "noInlineConfig" => match value {
@@ -482,7 +482,7 @@ fn options(found: &mut Found<'_>, handed: &mut Handed, top: Map<String, Value>) 
                         .collect();
                 }
                 _ => {
-                    found.problem("`overrides` is not a list, so it is not handed to markdownlint")
+                    found.problem("`overrides` is not a list, so it is not handed to markdownlint");
                 }
             },
             _ if SET_ASIDE.iter().any(|(name, _)| *name == key) => {}
@@ -498,7 +498,7 @@ fn options(found: &mut Found<'_>, handed: &mut Handed, top: Map<String, Value>) 
 
 /// The patterns of a `filter`, built: a list of text that holds one at
 /// least, each a pattern that reads.
-fn patterns(value: Value) -> Result<Override, String> {
+fn patterns(value: &Value) -> Result<Override, String> {
     let not = || "is not a list of patterns".to_owned();
     let written: Vec<String> = value
         .as_array()
