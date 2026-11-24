@@ -1,0 +1,15 @@
+{
+  // A pull request template begins on a second-level heading. This one rule,
+  // for the files below .github/ only, takes the place of an inline
+  // `markdownlint-disable-file MD041` directive in the template. The tool reads
+  // this one file at the root and works the pattern out itself.
+  "overrides": [
+    {
+      "filter": [".github/**"],
+      "combine": "merge",
+      "config": {
+        "MD041": false,
+      },
+    },
+  ],
+}

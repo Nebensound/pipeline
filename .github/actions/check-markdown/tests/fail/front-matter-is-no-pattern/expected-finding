@@ -1,0 +1,4 @@
+# The pattern is named at its file, and markdownlint still lints with the
+# front matter it knows by default.
+::error file=.markdownlint-cli2.jsonc::`frontMatter` is not a pattern JavaScript reads*
+::error file=README.md,line=1*::MD041/first-line-heading*

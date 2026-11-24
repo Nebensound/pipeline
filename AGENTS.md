@@ -80,10 +80,17 @@ only by the calls named beside it:
 | Code of the repository (its tests, its build scripts, the commands of the package it builds) | only executing checks and builds                                                                                 |
 
 A reading check starts no toolchain of a language and no code of the
-repository. The link check holds to that: lychee gets only the configuration
-the tool writes from the keys of `lychee.toml` it knows, and a key that would
-start a command fails by name. The other linters still read the repository's
-configuration themselves, and some of their ways load code (see
+repository. A linter never looks for its configuration: the tool reads it in one
+place, from one file per linter at the root of the repository, as data, carries
+over only the keys it knows, fails on every other key and on every file it does
+not read by name, and hands the linter what it wrote (see
+[the tool](docs/tool.md#the-configuration-of-a-linter)). markdownlint holds to
+that, and so does the link check, whose lychee gets only the configuration the
+tool writes from the keys of `lychee.toml` it knows. The other linters (Prettier,
+Stylelint, yamllint, html-validate, Hadolint, actionlint, the Dockerfile
+formatter, Ruff, Taplo's formatter and Pyright) still read the repository's
+configuration themselves or follow a file it names, and some of their ways load
+code (see
 [What does not hold yet](docs/principles.md#what-does-not-hold-yet)). uv is
 pinned in the register; rustup and Docker come from the machine, on GitHub
 Actions from the runner image.

@@ -17,7 +17,9 @@ use crate::names::{
     ProgramName, RuntimeName, TargetName, VersionWriterName,
 };
 use crate::path::RelativePath;
-use crate::programs::{Digest, Program, Runtime, at_least, download_problem, is_version};
+use crate::programs::{
+    Digest, Installer, Program, Runtime, at_least, download_problem, is_version,
+};
 
 /// The vocabulary as it stands in `register.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -474,6 +476,16 @@ impl Register {
             }
             minimum(name, runtime, program.runtime_minimum.as_deref())?;
             companions(name, program, runtime.is_some())?;
+            // A program without a command is a library, which only npm puts
+            // where a check finds it.
+            let npm = runtime.is_some_and(|(_, runtime)| runtime.installer == Installer::Npm);
+            if program.command.is_none() && !npm {
+                return Err(RegisterError::Download {
+                    holder: name.to_string(),
+                    problem: "names no command, and only a package installed with npm may be a \
+                              library",
+                });
+            }
         }
         self.builds_resolved()?;
         for (name, target) in &self.target {

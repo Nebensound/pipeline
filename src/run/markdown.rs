@@ -2,114 +2,68 @@
 //! Prettier writes it, passes Markdownlint, and its links into the repository
 //! lead somewhere.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
+use serde::Deserialize;
+
 use super::links::{self, Handed};
-use super::{Entry, Session, Tool, relative};
+use super::{Entry, Session, Tool};
+use crate::linter_config::markdownlint::{self, Handed as Rules};
+use crate::path::RelativePath;
 use crate::rules;
 
 pub use super::links::{Broken, broken, lychee_line, lychee_lines, lychee_root};
 
-/// What runs markdownlint-cli2 on Node.js, through its own `main`.
+/// What the script is handed: the files in groups of the same rules, in the
+/// folder of what the programs are handed (see [`Rules::job`]).
+const JOB: &str = "markdownlint.json";
+/// What markdownlint found, as the script writes it, in that folder.
+const RESULTS: &str = "markdownlint-results.json";
+
+/// What runs markdownlint on Node.js, through its library.
 ///
-/// The pipeline's default (`rules/markdownlint.jsonc`, compiled into this
-/// tool) lies beneath every configuration of the repository, which is laid
-/// over it rule by rule: a rule the repository does not name keeps the
-/// default's value, so its file names only what differs, and a change of the
-/// default reaches it.
+/// The library lints the files it is handed with the rules it is handed and
+/// reads nothing else: no file of configuration, no module of rules, no
+/// plugin. The tool reads the repository's configuration
+/// ([`crate::linter_config::markdownlint`]), lays it over the pipeline's
+/// default (`rules/markdownlint.jsonc`, compiled into this tool) rule by
+/// rule, works out each file's rules from the differences by pattern, and
+/// hands the files in groups of the same rules. Nothing in the configuration
+/// takes a file out: the files are those `files` names.
 ///
-/// markdownlint-cli2 gets the default as its base options, beneath everything
-/// it reads. It lays the `config` of a `.markdownlint-cli2.*` options file
-/// over what lies above it rule by rule, in every folder. A `.markdownlint.*`
-/// file, which holds rules only, it would take instead of everything above
-/// it, the default included. So the one at the root is read here the way
-/// markdownlint-cli2 reads it (`extends` included) and laid over the default,
-/// and markdownlint-cli2 is handed a view of the files in which that one is
-/// not there. One in a folder below the root still takes the place of
-/// everything above it in its folder; the reference says so.
-///
-/// Its rules hold, but nothing in it takes a file out. markdownlint-cli2
-/// would skip a named file in three ways: through `ignores` in any options
-/// file, and through a negated entry of `globs` or through `gitignore` in the
-/// options file of the folder it starts from. So every file is handed over
-/// literally (`:` in front), which `gitignore` does not reach; it starts from
-/// an empty folder (`BASE`), so the repository's options file counts as that
-/// of the repository's folder, whose `globs` play no part; and `ignores` is
-/// overridden with an empty list for every folder. What remains is the
-/// repository's rules over the default, read as markdownlint-cli2 reads them.
-///
-/// It reads where the pinned package lies (`TOOLS`), the folder it starts
-/// from (`BASE`), the list of files, each ended by a zero byte (`LIST`), and
-/// the default (`DEFAULT`) from its environment.
+/// It reads where the pinned package lies (`TOOLS`), what it is handed
+/// (`JOB`) and where it writes what markdownlint found (`RESULTS`) from its
+/// environment, and writes the results as markdownlint gives them, one object
+/// per group, for the tool to read ([`Results`]). A `frontMatter` that is no
+/// pattern JavaScript reads is not handed over: the script writes why beside
+/// the results, and markdownlint lints with the front matter it knows by
+/// default, so that one run still shows every finding.
 pub const MARKDOWNLINT: &str = r#"
 import fs from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const { TOOLS, BASE, LIST, DEFAULT } = process.env;
-const load = async (...path) =>
-  import(pathToFileURL(join(TOOLS, "node_modules", "markdownlint-cli2", ...path)).href);
-const { main } = await load("markdownlint-cli2.mjs");
-const { readConfig, extendConfig } = await load("export-markdownlint-promise.mjs");
-const { default: parsers } = await load("parsers", "parsers.mjs");
-
-// As markdownlint-cli2 reads a file that holds rules only: the
-// first of these names in a folder, `extends` resolved.
-const names = [
-  ".markdownlint.jsonc", ".markdownlint.json", ".markdownlint.yaml",
-  ".markdownlint.yml", ".markdownlint.cjs", ".markdownlint.mjs",
-];
-const rules = async (file) => {
-  if (!/\.[cm]js$/.test(file)) {
-    return readConfig(file, parsers, fs);
+const { TOOLS, JOB, RESULTS } = process.env;
+const { lint } = await import(
+  pathToFileURL(join(TOOLS, "node_modules", "markdownlint", "lib", "exports-promise.mjs")).href
+);
+const job = JSON.parse(fs.readFileSync(JOB, "utf8"));
+let frontMatter;
+let refused = null;
+if (job.frontMatter !== null) {
+  try {
+    frontMatter = new RegExp(job.frontMatter, "u");
+  } catch (error) {
+    refused = error.message;
   }
-  const config = { ...(await import(pathToFileURL(file).href)).default };
-  return config.extends ? extendConfig(config, file, parsers, fs) : config;
-};
-const atRoot = names.map((name) => join(process.cwd(), name));
-const own = atRoot.find((file) => fs.existsSync(file));
-let config = await readConfig(DEFAULT, parsers, fs);
-if (own) {
-  config = { ...config, ...(await rules(own)) };
 }
-// What lies over the default at the root, for the log; what lies
-// over it in a folder below, `nebensound-repo check` names.
-const options = [
-  ".markdownlint-cli2.jsonc", ".markdownlint-cli2.yaml",
-  ".markdownlint-cli2.cjs", ".markdownlint-cli2.mjs",
-].find((name) => fs.existsSync(join(process.cwd(), name)));
-const over = [own && basename(own), options].filter(Boolean);
-console.log(over.length === 0
-  ? "Rules: the pipeline default"
-  : `Rules: the pipeline default, and laid over it ${over.join(", then ")}`);
-// The view of the files markdownlint-cli2 is handed: the same,
-// less the file at the root that holds rules only, which is laid
-// over the default above.
-const hidden = new Set(atRoot);
-const view = {
-  ...fs,
-  promises: {
-    ...fs.promises,
-    access: (file, mode) =>
-      hidden.has(file)
-        ? Promise.reject(Object.assign(new Error(`ENOENT: ${file}`), { code: "ENOENT" }))
-        : fs.promises.access(file, mode),
-  },
-};
-const argv = fs.readFileSync(LIST, "utf8")
-  .split("\0")
-  .filter((file) => file !== "")
-  .map((file) => `:${resolve(file)}`);
-process.exitCode = await main({
-  directory: BASE,
-  argv,
-  fs: view,
-  logMessage: (message) => console.log(message),
-  logError: (message) => console.error(message),
-  optionsDefault: { config },
-  optionsOverride: { ignores: [] },
-});
+const groups = [];
+for (const { config, files } of job.groups) {
+  groups.push(await lint({ files, config, frontMatter, noInlineConfig: job.noInlineConfig }));
+}
+fs.writeFileSync(RESULTS, JSON.stringify({ frontMatter: refused, groups }));
 "#;
 
 /// Runs the check; whether it found nothing.
@@ -117,23 +71,19 @@ pub(super) fn run(session: &mut Session<'_, '_, '_>) -> bool {
     // A missing program is named and fails the check, and the parts whose
     // programs were found still run, so that one run reports every finding.
     let prettier = session.tool("prettier", false);
-    let markdownlint = session.tool("markdownlint-cli2", true);
+    let linter = session.tool(markdownlint::NAME, true);
     let lychee = session.tool("lychee", false);
     let handed = links::hand_over(session);
-    let mut list = Vec::new();
-    for file in &session.files {
-        list.extend_from_slice(file.as_bytes());
-        list.push(0);
-    }
+    let (configured, whole) = configuration(session);
+    let job = configured.job(
+        &markdownlint::default_rules(rules::MARKDOWNLINT),
+        &session.files,
+    );
     let Some(temp) = session.folder(|_| {
         let mut entries: Vec<Entry> = vec![
             ("nothing-ignored".to_owned(), Some(Vec::new())),
-            ("base".to_owned(), None),
-            ("files".to_owned(), Some(list)),
-            (
-                "markdownlint.jsonc".to_owned(),
-                Some(rules::MARKDOWNLINT.as_bytes().to_vec()),
-            ),
+            (JOB.to_owned(), Some(job.into_bytes())),
+            (RESULTS.to_owned(), Some(Vec::new())),
         ];
         entries.extend(Handed::entries(handed.as_ref()));
         entries
@@ -146,77 +96,181 @@ pub(super) fn run(session: &mut Session<'_, '_, '_>) -> bool {
     // every finding at once.
     let formatted = prettier
         .is_some_and(|prettier| session.prettier(&prettier, &temp.join("nothing-ignored"), &files));
-    let rules_hold =
-        markdownlint.is_some_and(|markdownlint| markdownlint_run(session, &markdownlint, &temp));
+    let rules_hold = linter
+        .is_some_and(|linter| markdownlint_run(session, &linter, &temp, configured.file.as_ref()));
     let root = session.context.root;
     let links_lead = handed.is_some_and(|handed| {
         lychee.is_some_and(|lychee| links::check(session, &lychee, &handed, &temp, &[], root))
     });
-    formatted && rules_hold && links_lead
+    formatted && whole && rules_hold && links_lead
 }
 
-/// Markdownlint over the files, with the repository's rules laid over the
-/// pipeline's default: see [`MARKDOWNLINT`]. It names every file from the
-/// folder it starts from, so that part is taken off again where a finding is
-/// written. A finding reads `<file>:<line>[:<column>] error <rule>
-/// <message>`; each becomes one on its line, and stays in the output as it
-/// is.
-fn markdownlint_run(session: &mut Session<'_, '_, '_>, markdownlint: &Tool, temp: &Path) -> bool {
+/// The repository's configuration of markdownlint, read the way the rules
+/// report reads it, with the lines the report shows for it, and whether it
+/// is handed over whole: every problem with it is a finding at its file, and
+/// what it is about is not handed over.
+fn configuration(session: &mut Session<'_, '_, '_>) -> (Rules, bool) {
+    let packages = &session.context.packages;
+    let files: Vec<&RelativePath> = packages.tracked.iter().collect();
+    let kept: BTreeSet<&RelativePath> = packages.kept.iter().collect();
+    let read = packages.repository.reader();
+    let (handed, problems) = markdownlint::read_in(
+        session.context.register,
+        &files,
+        &|file| kept.contains(file),
+        &read,
+    );
+    for line in rules::markdownlint(rules::MARKDOWNLINT, &handed, &problems) {
+        session.log.line(&line);
+    }
+    for problem in &problems {
+        session
+            .log
+            .error(Some(&problem.file.to_string()), None, &problem.message);
+    }
+    (handed, problems.is_empty())
+}
+
+/// markdownlint over the files, with the rules [`configuration`] gives each:
+/// see [`MARKDOWNLINT`]. What the script prints goes into the output as it
+/// is, then every finding, as a line `<file>:<line>[:<column>] <severity>
+/// <rule> <description>` the way markdownlint-cli2 prints it, and as a
+/// finding on its line. A warning fails nothing, an error fails the check.
+/// A `frontMatter` the script could not make a pattern of fails the check
+/// at `file`, the repository's file it came from.
+fn markdownlint_run(
+    session: &mut Session<'_, '_, '_>,
+    markdownlint: &Tool,
+    temp: &Path,
+    file: Option<&RelativePath>,
+) -> bool {
     // The pinned copy, which `Session::tool` takes only with its runtime
     // when it is installed with npm, as the register has it.
     let Some(node) = &markdownlint.runtime else {
         session.log.error(
             None,
             None,
-            "markdownlint-cli2 runs on Node.js, and the register gives it no runtime to run on",
+            "markdownlint runs on Node.js, and the register gives it no runtime to run on",
         );
         return false;
     };
-    // Both without links, so that the part in front of a file is the same
-    // as Node.js computes it, from the folder it starts in.
-    let base = fs::canonicalize(temp.join("base")).unwrap_or_default();
-    let prefix = format!("{}/", relative(&base, session.context.root).display());
     let mut command = session.command(node, &markdownlint.search_path);
     command
         .args(["--input-type=module", "--eval", MARKDOWNLINT])
         .env("TOOLS", &markdownlint.folder)
-        .env("BASE", &base)
-        .env("LIST", temp.join("files"))
-        .env("DEFAULT", temp.join("markdownlint.jsonc"));
-    let ran = session.capture(command, "markdownlint-cli2");
-    for line in ran.text.lines() {
-        let line = line.strip_prefix(&prefix).unwrap_or(line);
-        session.log.line(line);
-        if let Some((file, row, column, message)) = markdownlint_finding(line) {
-            session.log.error(Some(file), Some((row, column)), message);
+        .env("JOB", temp.join(JOB))
+        .env("RESULTS", temp.join(RESULTS));
+    let ran = session.capture(command, "markdownlint");
+    session.log.lines(&ran.text);
+    let results = fs::read_to_string(temp.join(RESULTS)).unwrap_or_default();
+    let results: Results = match serde_json::from_str(&results) {
+        Ok(results) => results,
+        Err(error) => {
+            session.log.error(
+                None,
+                None,
+                &format!("what markdownlint found does not read: {error}"),
+            );
+            return false;
+        }
+    };
+    let mut held = ran.success;
+    if let Some(reason) = &results.front_matter {
+        held = false;
+        session.log.error(
+            file.map(ToString::to_string).as_deref(),
+            None,
+            &format!(
+                "`frontMatter` is not a pattern JavaScript reads, so it is not handed to \
+                 markdownlint, which skips the front matter it knows by default: {reason}"
+            ),
+        );
+    }
+    for (file, found) in results.groups.iter().flatten() {
+        for lint in found {
+            let line = lint.line_number.to_string();
+            let column = lint.column().map(|column| column.to_string());
+            let message = lint.message();
+            let severity = lint.severity.as_deref().unwrap_or("error");
+            session.log.line(&format!(
+                "{file}:{line}{} {severity} {message}",
+                column
+                    .as_deref()
+                    .map(|column| format!(":{column}"))
+                    .unwrap_or_default()
+            ));
+            let position = Some((line.as_str(), column.as_deref()));
+            if severity == "warning" {
+                session.log.warning(Some(file.as_str()), position, &message);
+            } else {
+                held = false;
+                session.log.error(Some(file.as_str()), position, &message);
+            }
         }
     }
-    ran.success
+    held
 }
 
-/// A finding of markdownlint-cli2, `<file>:<line>[:<column>] error <rule>
-/// <message>`, taken apart. Of two readings the one with the shorter file
-/// name holds: `README.md:3:7` is line 3, column 7 of `README.md`, since a
-/// column is far more common than a file name that holds `:` and a number.
-#[must_use]
-pub fn markdownlint_finding(line: &str) -> Option<(&str, &str, Option<&str>, &str)> {
-    let digits = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
-    let colons: Vec<usize> = line.match_indices(':').map(|(index, _)| index).collect();
-    colons.iter().find_map(|&colon| {
-        let (file, rest) = (&line[..colon], &line[colon + 1..]);
-        if file.is_empty() {
-            return None;
+/// What the script writes: why `frontMatter` was not handed over, if it was
+/// not, and what markdownlint found, one map from file to findings per group.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Results {
+    /// Why JavaScript did not read `frontMatter` as a pattern, where it did
+    /// not.
+    pub front_matter: Option<String>,
+    /// What markdownlint found in each group.
+    pub groups: Vec<std::collections::BTreeMap<String, Vec<Lint>>>,
+}
+
+/// One finding of markdownlint, as its library gives it.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Lint {
+    /// The line, counted from 1.
+    pub line_number: u64,
+    /// The rule's names, its number first.
+    pub rule_names: Vec<String>,
+    /// What the rule asks for.
+    pub rule_description: String,
+    /// What is wrong in particular, where the rule says.
+    pub error_detail: Option<String>,
+    /// The text it is about, where the rule says.
+    pub error_context: Option<String>,
+    /// Where in the line it starts and how long it is, where the rule says.
+    pub error_range: Option<Vec<u64>>,
+    /// `error` or `warning`, as the configuration gives the rule.
+    pub severity: Option<String>,
+}
+
+impl Lint {
+    /// The column it starts at, where the rule gives one.
+    #[must_use]
+    pub fn column(&self) -> Option<u64> {
+        self.error_range
+            .as_deref()
+            .and_then(<[u64]>::first)
+            .copied()
+            .filter(|column| *column > 0)
+    }
+
+    /// What it says, the way markdownlint-cli2 writes it: the rule's names,
+    /// what it asks for, and the detail and the context where they are given.
+    #[must_use]
+    pub fn message(&self) -> String {
+        fn given(text: Option<&String>) -> Option<&str> {
+            text.map(String::as_str).filter(|text| !text.is_empty())
         }
-        let (place, message) = rest.split_once(" error ")?;
-        if message.is_empty() {
-            return None;
-        }
-        match place.split_once(':') {
-            None if digits(place) => Some((file, place, None, message)),
-            Some((row, column)) if digits(row) && digits(column) => {
-                Some((file, row, Some(column), message))
-            }
-            _ => None,
-        }
-    })
+        let detail = given(self.error_detail.as_ref())
+            .map(|detail| format!(" [{detail}]"))
+            .unwrap_or_default();
+        let context = given(self.error_context.as_ref())
+            .map(|context| format!(" [Context: \"{context}\"]"))
+            .unwrap_or_default();
+        format!(
+            "{} {}{detail}{context}",
+            self.rule_names.join("/"),
+            self.rule_description
+        )
+    }
 }

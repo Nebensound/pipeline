@@ -149,8 +149,8 @@ exit 0
 
 /// Node.js, which prints its version or runs the script it is handed the way
 /// that script would: Stylelint or html-validate, which print each finding as
-/// a plain line and as an annotation, or markdownlint-cli2, which names every
-/// file from the folder it starts in, three levels below the fixture.
+/// a plain line and as an annotation, or markdownlint, which writes what it
+/// finds for the tool to read.
 const NODE: &str = r##"#!/bin/sh
 if [ "$1" = "--version" ]; then echo v24.0.0; exit 0; fi
 echo "node $1 $2 TOOLS=$TOOLS"
@@ -193,15 +193,26 @@ case "$3" in
     done
     exit "$status" ;;
 esac
-echo "Rules: the pipeline default"
-status=0
-for f in $(tr '\0' ' ' < "$LIST"); do
+echo "job: $(cat "$JOB")"
+entries=""
+for f in $(grep -o '"[^"]*\.md"' "$JOB" | tr -d '"'); do
   case "$f" in
-    *heading*) echo "../../../repo/$f:3 error MD001/heading-increment Heading levels should only increment by one level at a time"; status=1 ;;
-    *style*) echo "../../../repo/$f:1:1 error MD003/heading-style Heading style"; status=1 ;;
+    *heading*) entry="\"$f\":[{\"lineNumber\":3,\"ruleNames\":[\"MD001\",\"heading-increment\"],\"ruleDescription\":\"Heading levels should only increment by one level at a time\",\"errorDetail\":\"Expected: h2; Actual: h3\",\"errorContext\":null,\"errorRange\":null,\"severity\":\"error\"}]" ;;
+    *style*) entry="\"$f\":[{\"lineNumber\":1,\"ruleNames\":[\"MD003\",\"heading-style\"],\"ruleDescription\":\"Heading style\",\"errorDetail\":\"\",\"errorContext\":\"# x\",\"errorRange\":[1,3]}]" ;;
+    *warned*) entry="\"$f\":[{\"lineNumber\":2,\"ruleNames\":[\"MD009\",\"no-trailing-spaces\"],\"ruleDescription\":\"Trailing spaces\",\"errorRange\":[0,1],\"severity\":\"warning\"}]" ;;
+    *) continue ;;
   esac
+  entries="${entries:+$entries,}$entry"
 done
-exit "$status"
+case "$(cat "$JOB")" in
+  *'"frontMatter":"("'*) refused='"Invalid regular expression: /(/u: Unterminated group"' ;;
+  *) refused=null ;;
+esac
+case "$entries" in
+  *unreadable*) echo "not JSON" > "$RESULTS" ;;
+  *) printf '{"frontMatter":%s,"groups":[{%s}]}' "$refused" "$entries" > "$RESULTS" ;;
+esac
+exit 0
 "##;
 
 /// The Python of yamllint's environment, which runs the linter the way the
@@ -395,10 +406,10 @@ impl Fixture {
                 "#!/bin/sh\n",
             )
             .pinned(
-                "markdownlint-cli2",
-                "0.23.2",
-                "node_modules/.bin/markdownlint-cli2",
-                "#!/bin/sh\n",
+                "markdownlint",
+                "0.41.1",
+                "node_modules/markdownlint/package.json",
+                "{}\n",
             )
             .pinned(
                 "stylelint",
@@ -453,6 +464,9 @@ impl Fixture {
         let env = self.env();
         let root = self.root();
         let repository = Repository::at(&root);
+        // Every file of the repository counts as tracked and kept, so that
+        // the Markdown check finds the files of markdownlint's configuration.
+        let all = every_file(&root);
         let context = Context {
             register,
             env: &env,
@@ -460,7 +474,8 @@ impl Fixture {
             temp,
             packages: Packages {
                 repository: &repository,
-                tracked: &[],
+                tracked: &all,
+                kept: &all,
                 excluded: &[],
                 orders: &[],
             },
@@ -483,6 +498,25 @@ impl Fixture {
         let (code, text) = self.log(check, files, workflow);
         (code, support::printed(&text))
     }
+}
+
+/// Every file below `root`, as a path from it.
+fn every_file(root: &Path) -> Vec<RelativePath> {
+    let mut found = Vec::new();
+    let mut folders = vec![root.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        for entry in fs::read_dir(&folder).expect("a folder") {
+            let path = entry.expect("an entry").path();
+            if path.is_dir() {
+                folders.push(path);
+            } else {
+                let relative = path.strip_prefix(root).expect("below the root");
+                found.push(RelativePath::new(&relative.to_string_lossy()).expect("a path"));
+            }
+        }
+    }
+    found.sort();
+    found
 }
 
 fn executable(file: &Path, script: &str) {
@@ -688,7 +722,7 @@ fn a_missing_program_fails_the_check_and_names_setup() {
     // Two programs are taken pinned only, and one pinned with npm needs its
     // runtime.
     fixture
-        .computer("markdownlint-cli2", "#!/bin/sh\n")
+        .computer("markdownlint", "#!/bin/sh\n")
         .computer("lychee", LYCHEE)
         .pinned("prettier", "3.9.6", "node_modules/.bin/prettier", PRETTIER)
         .file("README.md", "# x\n");
@@ -696,8 +730,8 @@ fn a_missing_program_fails_the_check_and_names_setup() {
     assert_eq!(code, 1, "{text}");
     has(
         &text,
-        "error: markdownlint-cli2 0.23.2 is not pinned in the tool's folder, and the check calls \
-         the internals of the pinned copy only; `nebensound-repo setup --pinned` installs it",
+        "error: markdownlint 0.41.1 is not pinned in the tool's folder, and the check calls the \
+         internals of the pinned copy only; `nebensound-repo setup --pinned` installs it",
     );
     has(
         &text,
@@ -890,12 +924,20 @@ fn markdown_files_are_formatted_follow_the_rules_and_link_somewhere() {
         .file("lychee.toml", "max_retries = 1\n");
     let (code, text) = fixture.run(Check::Markdown, &["README.md"], true);
     assert_eq!(code, 0, "{text}");
-    let folder = fixture.folder("markdownlint-cli2", "0.23.2");
+    let folder = fixture.folder("markdownlint", "0.41.1");
     has(
         &text,
         &format!("node --input-type=module --eval TOOLS={}", folder.display()),
     );
-    has(&text, "Rules: the pipeline default");
+    assert!(
+        text.contains("Markdownlint: the default, nothing laid over it"),
+        "{text}"
+    );
+    has(
+        &text,
+        "job: {\"frontMatter\":null,\"noInlineConfig\":false,\"groups\":[{\"config\":\
+         {\"MD013\":false},\"files\":[\"README.md\"]}]}",
+    );
     has(&text, "config: max_retries = 1");
     has(
         &text,
@@ -953,10 +995,12 @@ fn every_kind_of_markdown_finding_is_reported() {
     for line in [
         "::error file=unformatted.md::not formatted the way Prettier writes it",
         "heading.md:3 error MD001/heading-increment Heading levels should only increment by one \
-         level at a time",
+         level at a time [Expected: h2; Actual: h3]",
         "::error file=heading.md,line=3::MD001/heading-increment Heading levels should only \
-         increment by one level at a time",
-        "::error file=style.md,line=1,col=1::MD003/heading-style Heading style",
+         increment by one level at a time [Expected: h2; Actual: h3]",
+        "style.md:1:1 error MD003/heading-style Heading style [Context: \"# x\"]",
+        "::error file=style.md,line=1,col=1::MD003/heading-style Heading style [Context: \"# \
+         x\"]",
         "* [ERROR] <file:///x/missing.md> (at 3:11) | File not found",
         "::error file=README-broken.md,line=3,col=11::[ERROR] <file:///x/missing.md> | File not \
          found",
@@ -1323,12 +1367,12 @@ fn markdownlint_needs_a_runtime_from_the_register() {
     let _alone = alone();
     let fixture = Fixture::new();
     let source = nebensound_repo::register::BUILTIN_REGISTER;
-    let start = source.find("[program.markdownlint-cli2]").unwrap();
+    let start = source.find("[program.markdownlint]").unwrap();
     let end = source.find("[program.prettier]").unwrap();
     let native = format!(
-        "{}[program.markdownlint-cli2]\nversion = \"0.23.2\"\ncommand = \"markdownlint-cli2\"\n\n\
-         [program.markdownlint-cli2.download.linux-x86_64]\nurl = \"https://example.invalid/m\"\n\
-         digest = \"sha256:{}\"\nexecutable = \"markdownlint-cli2\"\n\n{}",
+        "{}[program.markdownlint]\nversion = \"0.41.1\"\ncommand = \"markdownlint\"\n\n\
+         [program.markdownlint.download.linux-x86_64]\nurl = \"https://example.invalid/m\"\n\
+         digest = \"sha256:{}\"\nexecutable = \"markdownlint\"\n\n{}",
         &source[..start],
         "0".repeat(64),
         &source[end..]
@@ -1336,19 +1380,121 @@ fn markdownlint_needs_a_runtime_from_the_register() {
     let register = Register::parse(&native).unwrap();
     fixture
         .everything()
-        .pinned(
-            "markdownlint-cli2",
-            "0.23.2",
-            "markdownlint-cli2",
-            "#!/bin/sh\n",
-        )
+        .pinned("markdownlint", "0.41.1", "markdownlint", "#!/bin/sh\n")
         .file("README.md", "# x\n");
     let (code, text) = fixture.run_with(&register, Check::Markdown, &["README.md"], true);
     assert_eq!(code, 1, "{text}");
     has(
         &text,
-        "::error::markdownlint-cli2 runs on Node.js, and the register gives it no runtime to run \
-         on",
+        "::error::markdownlint runs on Node.js, and the register gives it no runtime to run on",
+    );
+}
+
+#[test]
+fn markdownlint_gets_the_rules_of_each_file_and_every_problem_fails_the_check() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture
+        .everything()
+        .file("README.md", "# x\n")
+        .file(".github/PULL_REQUEST_TEMPLATE.md", "## x\n")
+        .file("warned.md", "# x\n")
+        .file(
+            ".markdownlint-cli2.jsonc",
+            "{ \"config\": { \"MD033\": false }, \"customRules\": [\"./rule.mjs\"], \
+             \"frontMatter\": \"^---$\", \"noInlineConfig\": true, \
+             \"overrides\": [{ \"filter\": [\".github/**\"], \"combine\": \"merge\", \
+             \"config\": { \"MD041\": false } }] }",
+        )
+        .file("docs/.markdownlint.mjs", "export default {};\n");
+    let files = [".github/PULL_REQUEST_TEMPLATE.md", "README.md", "warned.md"];
+    let (code, text) = fixture.run(Check::Markdown, &files, true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "job: {\"frontMatter\":\"^---$\",\"noInlineConfig\":true,\"groups\":[{\"config\":\
+         {\"MD013\":false,\"MD033\":false,\"MD041\":false},\"files\":[\".github/\
+         PULL_REQUEST_TEMPLATE.md\"]},{\"config\":{\"MD013\":false,\"MD033\":false},\
+         \"files\":[\"README.md\",\"warned.md\"]}]}",
+    );
+    // The lines of the rules report, printed by the check.
+    for line in [
+        "laid over the default rule by rule",
+        "for `.github/**`: laid over the default and the rules above, rule by rule",
+    ] {
+        assert!(
+            text.lines()
+                .any(|found| found.starts_with("      .markdownlint-cli2.jsonc")
+                    && found.ends_with(line)),
+            "{line}: {text}"
+        );
+    }
+    has(
+        &text,
+        "::error file=.markdownlint-cli2.jsonc::`customRules` is not handed to markdownlint: it \
+         names modules of rules, which would be loaded and run, and the Markdown check runs no \
+         code of the repository",
+    );
+    assert!(
+        text.contains("::error file=docs/.markdownlint.mjs::not read: "),
+        "{text}"
+    );
+    has(
+        &text,
+        "warned.md:2 warning MD009/no-trailing-spaces Trailing spaces",
+    );
+    has(
+        &text,
+        "::warning file=warned.md,line=2::MD009/no-trailing-spaces Trailing spaces",
+    );
+}
+
+#[test]
+fn a_warning_of_markdownlint_fails_nothing() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.everything().file("warned.md", "# x\n");
+    let (code, text) = fixture.run(Check::Markdown, &["warned.md"], true);
+    assert_eq!(code, 0, "{text}");
+    has(
+        &text,
+        "::warning file=warned.md,line=2::MD009/no-trailing-spaces Trailing spaces",
+    );
+}
+
+#[test]
+fn a_front_matter_javascript_does_not_read_fails_at_its_file_and_the_rest_still_runs() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture
+        .everything()
+        .file(".markdownlint-cli2.jsonc", "{ \"frontMatter\": \"(\" }")
+        .file("heading.md", "# x\n");
+    let (code, text) = fixture.run(Check::Markdown, &["heading.md"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error file=.markdownlint-cli2.jsonc::`frontMatter` is not a pattern JavaScript reads, \
+         so it is not handed to markdownlint, which skips the front matter it knows by default: \
+         Invalid regular expression: /(/u: Unterminated group",
+    );
+    has(
+        &text,
+        "::error file=heading.md,line=3::MD001/heading-increment Heading levels should only \
+         increment by one level at a time [Expected: h2; Actual: h3]",
+    );
+}
+
+#[test]
+fn what_markdownlint_found_has_to_read() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.everything().file("unreadable-heading.md", "# x\n");
+    let (code, text) = fixture.run(Check::Markdown, &["unreadable-heading.md"], true);
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains("::error::what markdownlint found does not read: "),
+        "{text}"
     );
 }
 
@@ -1463,25 +1609,24 @@ fn the_link_check_is_handed_every_path_as_lychee_reads_it() {
 
 #[test]
 fn findings_of_markdownlint_and_lychee_are_taken_apart() {
-    for (line, expected) in [
-        ("a.md:3 error MD001 x", Some(("a.md", "3", None, "MD001 x"))),
-        (
-            "a.md:3:7 error MD001 x",
-            Some(("a.md", "3", Some("7"), "MD001 x")),
-        ),
-        (
-            "a:1.md:3 error MD001 x",
-            Some(("a:1.md", "3", None, "MD001 x")),
-        ),
-        ("a.md:3:x error MD001 x", None),
-        ("a.md:3 error ", None),
-        (":3 error x", None),
-        ("a.md:x error y", None),
-        ("a.md:3 warning x", None),
-        ("no place at all", None),
-    ] {
-        assert_eq!(markdown::markdownlint_finding(line), expected, "{line:?}");
-    }
+    let finding: markdown::Lint = serde_json::from_str(
+        "{\"lineNumber\":3,\"ruleNames\":[\"MD001\",\"heading-increment\"],\
+         \"ruleDescription\":\"x\",\"errorDetail\":\"d\",\"errorContext\":\"c\",\
+         \"errorRange\":[7,2],\"fixInfo\":null,\"severity\":\"error\"}",
+    )
+    .unwrap();
+    assert_eq!(
+        finding.message(),
+        "MD001/heading-increment x [d] [Context: \"c\"]"
+    );
+    assert_eq!(finding.column(), Some(7));
+    let bare: markdown::Lint = serde_json::from_str(
+        "{\"lineNumber\":1,\"ruleNames\":[\"MD041\"],\"ruleDescription\":\"y\",\
+         \"errorRange\":[]}",
+    )
+    .unwrap();
+    assert_eq!(bare.message(), "MD041 y");
+    assert_eq!(bare.column(), None);
     let found = markdown::broken(
         "# Summary\n### Errors in a.md\n* [ERROR] <u> (at 1:2) | gone\n## Other\n* [ERROR] <v>\n\
          ### Timeouts in b.md\n* [TIMEOUT] <w> (at x:2)\n* [TIMEOUT] <w> (at 2)\n* [404] <w> (at 3:4\n",
@@ -1718,7 +1863,7 @@ fn a_missing_program_leaves_the_other_parts_of_its_check_running() {
     has(
         &text,
         "::error file=heading.md,line=3::MD001/heading-increment Heading levels should only \
-         increment by one level at a time",
+         increment by one level at a time [Expected: h2; Actual: h3]",
     );
     assert!(!text.contains("lychee --"), "{text}");
 

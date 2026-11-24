@@ -187,9 +187,10 @@ once `nebensound-repo setup` has put the programs in place. `run` installs
 nothing: it takes the pinned copy of a program first and the computer's
 otherwise, and fails with a pointer to `setup` where there is neither, while
 the parts of the check whose programs are there still run.
-html-validate, markdownlint-cli2, Stylelint and yamllint are run through their
+html-validate, markdownlint, Stylelint and yamllint are run through their
 internals, so that the repository's rules are laid over the pipeline's default,
-and of those four `run` takes only the pinned copy. What `run` hands the
+and of those four `run` takes only the pinned copy; markdownlint is a library
+with no command. What `run` hands the
 programs, its configuration for Biome, the schemas for Taplo, the pipeline's
 linter defaults and the page rules of the HTML check, is compiled into the
 tool.
@@ -314,8 +315,10 @@ Every part runs even when one before it failed, so one run shows every finding.
 
 - Formatted the way Prettier writes it, run as in `check-json`.
 - No Markdownlint finding, with the repository's rules laid over the
-  pipeline's default (see [Linter rules](#linter-rules)). Its `ignores`, a
-  negated `globs` entry and `gitignore` take nothing out.
+  pipeline's default (see [Linter rules](#linter-rules)). markdownlint's library
+  gets the files and the configuration the tool reads from one file at the
+  root, and reads nothing else. Its `ignores`, `globs` and `gitignore` take
+  nothing out.
 - Every link into the repository leads to a file and a heading that exist
   (lychee, `--offline`). Links to the outside are not checked in a pull
   request: it should not turn red because someone else's server does not
@@ -769,27 +772,42 @@ it stands to the default (see
 
 A repository whose pull request template begins on a second-level heading
 needs one Markdownlint rule changed, for that folder only. Instead of an inline
-`<!-- markdownlint-disable-file MD041 -->` in the template,
-`.github/.markdownlint-cli2.jsonc` holds the one rule:
+`<!-- markdownlint-disable-file MD041 -->` in the template, the one file of its
+Markdownlint configuration at the root, `.markdownlint-cli2.jsonc`, holds the one
+rule for the folder, as a pattern:
 
 ```jsonc
 {
-  "config": {
-    "MD041": false,
-  },
+  "overrides": [
+    {
+      "filter": [".github/**"],
+      "combine": "merge",
+      "config": {
+        "MD041": false,
+      },
+    },
+  ],
 }
 ```
 
 `MD013` stays off there and everywhere else, as the default has it. Where the
-rule is to hold in the whole repository, the same file stands at the root.
-markdownlint-cli2 lays the `config` of a `.markdownlint-cli2.jsonc` or
-`.markdownlint-cli2.yaml` over what lies above it rule by rule, in every
-folder. A `.markdownlint.*` file, which holds rules only, it takes instead of
-everything above it; the block lays the one at the root over the default all
-the same, and where the root holds both, the options file lies over it. One in
-a folder below the root still takes the place of everything above it in its
-folder, the default included, and of the `config` of a `.markdownlint-cli2.*`
-beside it, so the rules of a folder belong in its `.markdownlint-cli2.*`.
+rule is to hold in the whole repository, it stands under `config` in the same
+file. markdownlint never looks for its configuration: the tool reads the first
+of `.markdownlint-cli2.jsonc`, `.markdownlint-cli2.yaml`, `.markdownlint.jsonc`,
+`.markdownlint.json`, `.markdownlint.yaml` and `.markdownlint.yml` at the root,
+as data, and hands markdownlint the rules of each file. Another of them at the
+root, one in a folder below it and one written in JavaScript are not read, and
+fail phase 0 (`unread-configuration`) and the check, unless an `[[exclude]]`
+entry takes them out. A key the tool does not know or one that names code or
+another file, such as `customRules` or `extends`, fails the check (see
+[the configuration of a linter](docs/tool.md#the-configuration-of-a-linter)).
+A file may also switch a rule of the default off or loosen it; the rules report
+shows every difference. markdownlint is the first linter under this rule, beside
+lychee, whose `lychee.toml` the tool reads key by key. The other linters still
+find and read the repository's configuration themselves, or follow a file it
+names: Prettier, Stylelint, yamllint, html-validate, Hadolint, actionlint, the
+Dockerfile formatter, Ruff, Taplo's formatter and Pyright (see
+[what does not hold yet](docs/principles.md#what-does-not-hold-yet)).
 
 A repository that wants a comment to need no space after its `#` writes one
 option of one yamllint rule into `.yamllint.yaml` at its root:
@@ -980,8 +998,8 @@ place of its default list, Pyright's adds to its own; what those lists leave
 out (Ruff's `.venv`, `node_modules`, `dist` and the like; Pyright's
 `**/node_modules`, `**/__pycache__` and `**/.*`) is no finding, whether a
 setting names it again or not. A setting phase 0 cannot read fails as well (`unreadable-ignore-file`). A JavaScript options file of markdownlint-cli2
-(`.markdownlint-cli2.cjs` or `.mjs`) is not judged, since phase 0 cannot read it
-without running it; the block sets its `ignores` aside all the same. A setting
+(`.markdownlint-cli2.cjs` or `.mjs`) is not judged here, since phase 0 cannot read it
+without running it; it fails as a file the tool does not read (`unread-configuration`). A setting
 that switches a rule off for some files, such as yamllint's per-rule `ignore`
 or markdownlint-cli2's `overrides`, takes no file out of the tool and stays the
 repository's rule configuration. lychee's `.lycheeignore` leaves out addresses,
@@ -1153,7 +1171,7 @@ setup --pinned <name>`, the first call of a block that needs programs: it
 installs the pinned version of every program the check or build calls where it
 is missing (for `cargo-package`, none), so that the cases do not depend on which
 blocks ran before the xtask. A runtime one of those programs needs, such as the
-Node.js of Stylelint, html-validate, Prettier and markdownlint-cli2, is the one
+Node.js of Stylelint, html-validate, Prettier and markdownlint, is the one
 `nebensound-repo` finds: a pinned one in the tool's folder first, else the
 computer's, when it is new enough for the programs. On a developer's computer
 the setup goes without `--with-runtimes` and installs no runtime, so a missing

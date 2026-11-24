@@ -1,0 +1,5 @@
+{
+  // A file of rules in a folder below the root is not read: a difference for
+  // a folder belongs in the file at the root, as a pattern.
+  "MD041": false,
+}

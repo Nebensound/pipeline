@@ -1,0 +1,8 @@
+{
+  // `ignore` is no key of markdownlint-cli2 (it reads `ignores`), and
+  // `MD002` is no rule of the pinned markdownlint: both fail by name.
+  "ignore": ["drafts/**"],
+  "config": {
+    "MD002": false,
+  },
+}
