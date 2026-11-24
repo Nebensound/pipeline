@@ -6,12 +6,28 @@ name: gate
 # workflow to an exact version. This one calls the workflow at its own commit,
 # so a change to the pipeline is checked by the pipeline it changes — a broken
 # one fails its own pull request instead of everyone else's.
+#
+# Everything else is the README's caller file, and a test of the xtask holds
+# this file to it. The job grants what the planned parts of the pipeline need,
+# not only what today's jobs ask for: a called workflow never gets more than
+# its caller grants, and a job that asks for more keeps every run from
+# starting, so a permission added later would mean a change in every
+# repository, while one granted too much can be taken out later without
+# breaking a caller. Today only the job Publish asks for more than a read
+# token: `contents: write`, after a push to main.
 
 on:
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
   push:
     branches:
       - main
+      - pre
+      - pre-*
 
 permissions:
   contents: read
@@ -20,4 +36,9 @@ jobs:
   nebensound:
     uses: $/.github/workflows/nebensound.yml
     permissions:
-      contents: read
+      contents: write
+      pull-requests: read
+      id-token: write
+      packages: write
+      attestations: write
+      deployments: write

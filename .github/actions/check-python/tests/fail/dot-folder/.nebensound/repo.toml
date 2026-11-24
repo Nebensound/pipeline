@@ -1,0 +1,8 @@
+# The covered project with a stub in a folder whose name starts with a dot,
+# holding a finding of Pyright's strict mode. Measured in the gate: Pyright
+# leaves such a file out even when the check hands it over by name, and reports
+# nothing for it. The check compares how many files Pyright analysed with how
+# many it handed over, and names the file Pyright left out.
+[repo]
+audience = "public"
+pipeline = { check = ["python"], dependabot = ["uv"] }

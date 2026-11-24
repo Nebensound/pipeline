@@ -1,0 +1,8 @@
+# An unformatted Dockerfile at the root whose name starts with `::warning::x`.
+# The file list and dockerfmt's line about it print the name at the start of a
+# line, where the runner would read it as a workflow command with no line
+# break in it. Both stand where the runner processes no command; the check
+# fails on the file and starts no command.
+[repo]
+audience = "public"
+pipeline = { check = ["dockerfile"], dependabot = ["docker"] }

@@ -20,10 +20,12 @@
 //! checks and builds that have a block. Each list stands in the job of its
 //! kind, the one whose units it fails for: a list in another job leaves the
 //! units of its own kind without the step. A version writer is held the same
-//! way by the step `Version writers not written yet`. Every block brings its
-//! test cases, at least one passing and one failing. Beside the blocks lie only
-//! the workflow's own machinery ([`MACHINERY`]), which belongs to no register
-//! entry; it is called from `nebensound.yml` all the same.
+//! way by the step `Version writers not written yet`, and a publish target by
+//! the step `Publish targets not written yet`. Every block brings its test
+//! cases, at least one passing and one failing, and each of its steps carries
+//! only the keys a thin block needs ([`BLOCK_STEP_KEYS`]). Beside the blocks
+//! lie only the workflow's own machinery ([`MACHINERY`]), which belongs to no
+//! register entry; it is called from `nebensound.yml` all the same.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -40,7 +42,7 @@ use crate::cases::{self, ACTIONS, Case, Expect};
 pub const MACHINERY: &[&str] = &["phase0", "tool"];
 
 /// The register, from the repository root.
-pub const REGISTER: &str = "tools/nebensound-repo/register.toml";
+pub const REGISTER: &str = "register.toml";
 
 /// The central workflow, from the repository root.
 pub const WORKFLOW: &str = ".github/workflows/nebensound.yml";
@@ -59,11 +61,26 @@ const WRITTEN_BUILDS: &str = "WRITTEN_BUILDS";
 /// The step that fails for every version writer without a block.
 const WRITERS_NOT_WRITTEN: &str = "Version writers not written yet";
 
+/// The step that fails for every publish target without a block.
+const TARGETS_NOT_WRITTEN: &str = "Publish targets not written yet";
+
 /// The keys of a step that calls a block, in the form `nebensound.yml`
 /// documents for it. Any other key changes what the block does in the job:
 /// `continue-on-error` keeps the job green whatever the block finds,
 /// `timeout-minutes` cuts it short, `env` steers its tools.
 const CALL_KEYS: &[&str] = &["if", "name", "uses", "with"];
+
+/// The keys a step of a block may carry: what a thin block needs. Its step is
+/// either the call of the tool, a `run` with its `shell` and the block's
+/// inputs handed in through `env` rather than written into the script, or an
+/// action the block needs, a `uses` with its `with`; `name` names the step in
+/// the log, and `id` lets a later step read its outputs, as the upload reads
+/// the artifact the build names. Any other key changes what the block does in
+/// every caller's job, and no case of the block notices it, since the cases
+/// call the tool and not the block's steps: `continue-on-error` keeps the job
+/// green whatever the tool finds, and `if` or `working-directory` put a
+/// decision or a place into the block instead of the tool.
+pub const BLOCK_STEP_KEYS: &[&str] = &["name", "id", "shell", "env", "run", "uses", "with"];
 
 /// The input a step hands a check or build block: the unit's own path, so
 /// that every unit is checked and built where it lies.
@@ -146,6 +163,9 @@ pub struct Directory {
     /// be read. Without an `action.yml` it declares nothing; that is reported
     /// on its own.
     pub plan: Result<bool, Error>,
+    /// The keys each step of its `action.yml` carries, step by step. None
+    /// without an `action.yml` or when it cannot be read, which `plan` says.
+    pub steps: Vec<Vec<String>>,
     /// Its test cases.
     pub cases: Result<Vec<Case>, Error>,
 }
@@ -184,6 +204,14 @@ pub fn directories(dir: &Path) -> Result<Vec<Directory>, Error> {
         .filter(|path| path.is_dir())
         .map(|path| {
             let action = path.join("action.yml").is_file();
+            let (plan, steps) = if action {
+                match Action::load(&path) {
+                    Ok(read) => (Ok(read.takes(CALL_PLAN.0)), read.steps),
+                    Err(error) => (Err(error), Vec::new()),
+                }
+            } else {
+                (Ok(false), Vec::new())
+            };
             Directory {
                 name: path
                     .file_name()
@@ -191,11 +219,8 @@ pub fn directories(dir: &Path) -> Result<Vec<Directory>, Error> {
                     .to_string_lossy()
                     .into_owned(),
                 action,
-                plan: if action {
-                    Action::load(&path).map(|action| action.takes(CALL_PLAN.0))
-                } else {
-                    Ok(false)
-                },
+                plan,
+                steps,
                 cases: cases::discover(&path),
             }
         })
@@ -277,13 +302,15 @@ struct Calls {
     writers: Result<Vec<String>, String>,
     /// The list of written builds, or why there is none.
     builds: Result<Vec<String>, String>,
+    /// The list of written publish targets, or why there is none.
+    targets: Result<Vec<String>, String>,
     /// Every list of written checks or builds that stands outside the job of
     /// its kind, one sentence each.
     misplaced: Vec<String>,
 }
 
 /// The steps that call a block, and the lists of written checks, version
-/// writers and builds.
+/// writers, builds and publish targets.
 fn calls(workflow: &str) -> Result<Calls, Error> {
     let documents = YamlLoader::load_from_str(workflow)
         .map_err(|error| Error::new(format!("nebensound.yml is no YAML: {error}")))?;
@@ -297,6 +324,7 @@ fn calls(workflow: &str) -> Result<Calls, Error> {
     let mut written = Vec::new();
     let mut writers = Vec::new();
     let mut builds = Vec::new();
+    let mut targets = Vec::new();
     let mut misplaced = Vec::new();
     let string = |yaml: &Yaml| yaml.as_str().unwrap_or_default().to_owned();
     for (key, job) in jobs {
@@ -346,6 +374,7 @@ fn calls(workflow: &str) -> Result<Calls, Error> {
                     }
                 }
                 WRITERS_NOT_WRITTEN => writers.push(string(&env["WRITTEN"])),
+                TARGETS_NOT_WRITTEN => targets.push(string(&env["WRITTEN"])),
                 _ => {}
             }
         }
@@ -355,6 +384,7 @@ fn calls(workflow: &str) -> Result<Calls, Error> {
         written: listed(&written, NOT_WRITTEN, WRITTEN_CHECKS, "checks"),
         writers: listed(&writers, WRITERS_NOT_WRITTEN, "WRITTEN", "version writers"),
         builds: listed(&builds, NOT_WRITTEN, WRITTEN_BUILDS, "builds"),
+        targets: listed(&targets, TARGETS_NOT_WRITTEN, "WRITTEN", "publish targets"),
         misplaced,
     })
 }
@@ -397,12 +427,14 @@ pub fn compare(register: &str, workflow: &str, directories: &[Directory]) -> Res
         written,
         writers,
         builds,
+        targets,
         misplaced,
     } = calls(workflow)?;
     problems.extend(misplaced);
     let written = names_of(written, &mut problems);
     let writers = names_of(writers, &mut problems);
     let builds = names_of(builds, &mut problems);
+    let targets = names_of(targets, &mut problems);
     let names: BTreeSet<&str> = directories.iter().map(|dir| dir.name.as_str()).collect();
     let mut blocks = Vec::new();
 
@@ -442,6 +474,7 @@ pub fn compare(register: &str, workflow: &str, directories: &[Directory]) -> Res
             }
         };
         problems.extend(held(name, &entry.name, form, &dir.plan, &called));
+        problems.extend(foreign_keys(name, &dir.steps));
         if !list.contains(&entry.name) {
             problems.push(format!(
                 "`{name}` exists, but `{step}` still fails for `{}`",
@@ -478,16 +511,48 @@ pub fn compare(register: &str, workflow: &str, directories: &[Directory]) -> Res
         (&written, "check", NOT_WRITTEN, ""),
         (&builds, "build", NOT_WRITTEN, "the build "),
         (&writers, "version", WRITERS_NOT_WRITTEN, ""),
+        (&targets, "publish", TARGETS_NOT_WRITTEN, ""),
     ] {
-        problems.extend(
-            list.iter()
-                .filter(|name| !names.contains(format!("{prefix}-{name}").as_str()))
-                .map(|name| {
-                    format!("`{step}` counts {what}`{name}` as written, but it has no block")
-                }),
-        );
+        problems.extend(without_block(list, &names, prefix, step, what));
     }
     Ok(Layout { blocks, problems })
+}
+
+/// Every name a list of written ones counts that has no block, one sentence
+/// each. A block is named after its entry with the dots turned into hyphens,
+/// as a target such as `crates.io` is.
+fn without_block<'a>(
+    list: &'a BTreeSet<String>,
+    names: &'a BTreeSet<&str>,
+    prefix: &'a str,
+    step: &'a str,
+    what: &'a str,
+) -> impl Iterator<Item = String> + 'a {
+    list.iter()
+        .filter(move |name| {
+            !names.contains(format!("{prefix}-{}", name.replace('.', "-")).as_str())
+        })
+        .map(move |name| format!("`{step}` counts {what}`{name}` as written, but it has no block"))
+}
+
+/// Every step of the block `name` that carries a key outside
+/// [`BLOCK_STEP_KEYS`], one sentence each.
+fn foreign_keys<'a>(name: &'a str, steps: &'a [Vec<String>]) -> impl Iterator<Item = String> + 'a {
+    steps.iter().enumerate().filter_map(move |(index, keys)| {
+        let foreign: Vec<&str> = keys
+            .iter()
+            .map(String::as_str)
+            .filter(|key| !BLOCK_STEP_KEYS.contains(key))
+            .collect();
+        (!foreign.is_empty()).then(|| {
+            format!(
+                "step {} of `{name}` carries `{}`: a step of a block carries only `{}`",
+                index + 1,
+                foreign.join("`, `"),
+                BLOCK_STEP_KEYS.join("`, `")
+            )
+        })
+    })
 }
 
 /// What is wrong with the steps that call the block `name` of the entry

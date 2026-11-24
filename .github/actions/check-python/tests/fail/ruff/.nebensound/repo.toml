@@ -1,0 +1,5 @@
+# A string formatted with `%`, which Ruff reports (UP031) and nothing else
+# minds.
+[repo]
+audience = "public"
+pipeline = { check = ["python"], dependabot = ["uv"] }

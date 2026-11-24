@@ -13,55 +13,59 @@ and what runs on a pull request and on a push.
 | Version | `nebensound / Version`                                                                          |
 | Check   | `nebensound / Check repository`, `nebensound / Check component <name>` and `nebensound / Check` |
 | Build   | `nebensound / Build repository`, `nebensound / Build component <name>` and `nebensound / Build` |
+| Publish | `nebensound / Publish`, after a push to `main` only                                             |
 
-The workflow does not publish or deploy anything yet, and it reports versions
-without tagging or releasing them: tags and releases are records the release
-stages will write, and no version is read from them. Those phases arrive one at
-a time, each when it does something: a job that only existed to be green would
-report success for work nobody did. Until a phase is built, no job stands in for it,
+Publish is the release stage on `main`: it writes the records of the versions
+of a run, tags and releases, and no version is read from them. It publishes to
+no target yet, and nothing is deployed. Those phases arrive one at a time, each
+when it does something: a job that only existed to be green would report
+success for work nobody did. Until a phase is built, no job stands in for it,
 and this page does not describe it.
 
 ## Declare
 
 Phase 0. The job `nebensound / Declare` checks the calling repository out with
 its whole history and every branch and tag, runs the tool `nebensound-repo` on
-it and hands the result on:
+it and hands the result on. Phase 0 is one call, `nebensound-repo declare`,
+which does steps 2 to 6 below:
 
 1. The tool is built from the same commit of this repository as the workflow,
    and kept in the cache under a fingerprint of its sources, so two runs of the
-   same tool share one build, and every unit job of the run takes it from there
-   ([`.github/actions/tool`](../.github/actions/tool)).
-2. `nebensound-repo check` reads `.nebensound/repo.toml`, resolves it against
-   the register and checks it against what Git tracks, and resolves the version
-   of every unit from the history, holding the tags against it. It also holds
-   the repository's name and default branch, which the action hands in from the
-   event of the run, and the files every repository holds against the
-   organization's conventions, as warnings. It is given the visibility GitHub
-   shows for the repository, taken from the event or, where the event does not
-   carry it, from the API, and holds the declared audience against it (see
-   [Audience](declaration.md#audience)). It prints the resolved configuration,
-   the annotated tree, the findings, each as an annotation of the run, and a
-   summary line.
-   [The reference of the declaration](declaration.md) describes every field and
-   every finding.
-3. When phase 0 found no error, `nebensound-repo plan` prints the plan: every unit, with the checks
-   started for it and the build it names, and the version of every unit that
-   carries one, its current version and the version writers it selects. On a
-   pull request the plan is built the way the job Version reads it (see below):
-   each version is the one the merge would get, with `-pr.<number>` behind it.
-   The units that start at least one check go on to the Check phase, the units
-   whose build is not `null` and that the plan gives a version of this run go
-   on to the Build phase, each with the version writers it selects, and the
-   whole plan is handed on with them: a later job checks out no history, so a
-   version writer takes the versions from the plan. The plan also carries for
-   whom the repository is meant.
+   same tool share one build, and every later job of the run takes it from there
+   ([`.github/actions/tool`](../.github/actions/tool)). Publish alone builds
+   its own (see [Publish](#publish)).
+2. Phase 0, as `nebensound-repo check` runs it, reads `.nebensound/repo.toml`,
+   resolves it against the register and checks it against what Git tracks, and
+   resolves the version of every unit from the history, holding the tags against
+   it. It also holds the repository's name and default branch, which the action
+   hands in from the event of the run, and the files every repository holds
+   against the organization's conventions, as warnings. It is given the
+   visibility GitHub shows for the repository, taken from the event or, where
+   the event does not carry it, from the API, and holds the declared audience
+   against it (see [Audience](declaration.md#audience)). It prints the resolved
+   configuration, the annotated tree, the findings, each as an annotation of the
+   run, and a summary line. [The reference of the declaration](declaration.md)
+   describes every field and every finding.
+3. When phase 0 found no error, the plan is printed, as `nebensound-repo plan`
+   prints it: every unit, with the checks started for it and the build it names,
+   and the version of every unit that carries one, its current version and the
+   version writers it selects. On a pull request the plan is built the way the
+   job Version reads it (see below): each version is the one the merge would
+   get, with `-pr.<number>` behind it. The units that start at least one check
+   go on to the Check phase, the units whose build is not `null` and that the
+   plan gives a version of this run go on to the Build phase, each with the
+   version writers it selects, and the whole plan is handed on with them: a
+   later job checks out no history, so a version writer takes the versions from
+   the plan. The plan also carries for whom the repository is meant.
 4. On a pull request into `main` that changes the audience, the old and the new
    value are named in the summary of the run, as a notice and in the step
-   summary. A promotion into `release` names no change: it was named on the
-   pull request into `main`.
-5. Then every Rust package `[[exclude]]` takes out as a
-   whole (`nebensound-repo excluded-packages`) is named in the summary of the
-   run with its reason, as a notice.
+   summary.
+5. Then every Rust package `[[exclude]]` takes out as a whole
+   (`nebensound-repo excluded-packages`) is named in the summary of the run with
+   its reason, as a notice.
+6. Last the two matrices are handed on beside the plan: the units that start
+   at least one check, and the units that build in this run, each with the
+   version writers it selects. After a push to a pre-branch no unit builds.
 
 An error ends the phase here: there is no plan, no check runs, nothing is
 built, and `nebensound / Check` and `nebensound / Build` fail. A warning stops
@@ -72,36 +76,58 @@ nothing.
 The job `nebensound / Version` reports which version every unit carries. It
 writes nothing and tags nothing. It checks the repository out the way Declare
 does, with its whole history and every branch and tag, takes the tool from the
-cache Declare filled and runs `nebensound-repo version`: the text table goes
-into the log, and the same table as Markdown into the summary of the run, one
-row per unit that carries a version:
+cache Declare filled and runs `nebensound-repo report-versions`: the text
+table of `nebensound-repo version` goes into the log, and the same table as
+Markdown into the summary of the run, one row per unit that carries a version:
 
-| Column      | What it says                                                                                                                                     |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Unit, Path  | Which unit, and where it lives.                                                                                                                  |
-| Release     | `single-stage` or `two-stage`.                                                                                                                   |
-| Current     | The highest version the history gives a commit up to the commit at hand, a pre-release included; `none` before the first commit that touches it. |
-| This commit | The version of the commit at hand, `none` when the commit does not touch the unit.                                                               |
-| Waiting     | In two stages only: the commits since the last full release that touch the unit, the commit at hand included. Empty in one stage.                |
+| Column      | What it says                                                                                                             |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Unit, Path  | Which unit, and where it lives.                                                                                          |
+| Current     | The highest version the history gives a commit up to the commit at hand; `none` before the first commit that touches it. |
+| This commit | The version of the commit at hand, `none` when the commit does not touch the unit.                                       |
 
 [The reference of the declaration](declaration.md#versions) describes how each
 value is resolved. The repository always carries a version, so the table always
 has a row.
 
-On a pull request the checkout is the merge commit GitHub builds for it, and a
-merge commit touches no unit. The tool therefore reads it as the commit the
-squash merge would put on the base branch: one parent, the changes of the pull
-request, and its title and description as the message, as they stand when the
-run starts. The column is called `This pull request` there, and each version in
-it is the one that merge would get with `-pr.<number>` behind it, such as
-`0.4.2-pr.17` or `1.2.0-pre.3-pr.17`; so is the current version of a unit the
-pull request touches. It names artifacts and is never published. A pull request
-into `release` is merged with a merge commit and is read as it is.
+On a pull request the checkout is the merge commit GitHub builds for it, which
+carries a message of GitHub's and contains the commits of the branch. The tool
+therefore reads it as the commit the squash merge would put on the base
+branch: one parent, the changes of the pull request, and its title and
+description as the message, as they stand when the run starts. A merge commit
+that lands the pull request with the same title and description comes to the
+same versions. The column is called `This pull request` there, and each
+version in it is the one that merge would get with `-pr.<number>` behind it,
+such as `0.4.2-pr.17`; so is the current version of a unit the pull request
+touches. It names artifacts and is never published.
+
+On a pull request the job also holds what a release would need against the
+records. A unit the pull request gives a version that publishes to a registry,
+a target with `Dependencies by version` in
+[the register](register.md#publish-targets), is followed through what its
+package requires by path, as the version writer `cargo` follows it. Every unit
+reached that the pull request does not touch must have a tag of its current
+version; otherwise the job fails with
+[`unreleased-requirement`](declaration.md#unreleased-requirement), which names
+the way out. It runs here because this job reads the history and the tags of
+the pull request as its merge would put them on `main`, and it fails the pull
+request without holding back its checks and builds. After a push to `main`
+nothing is held to it: the merge has happened, and failing then would only
+leave `main` red. The publish blocks of the registries are not written yet, so
+such a target also fails by name in `Check` until they are.
 
 The job runs whatever Declare's result. When phase 0 finds an error, such as a
 shallow clone, there is no table: the log and the summary list every finding
 and the job fails. It waits for Declare only to take the tool from the cache.
 A cancelled run skips it.
+
+After a push to a pre-branch, `pre` or `pre-*`, the job resolves no version and
+shows no table. The tool knows no branch and reads the first-parent line of
+`HEAD` as the line of `main`, so it would give each own commit of the branch a
+full version that `main` never gives. Versions and pre-releases of pre-branches
+are not built yet, so the job says that instead, as a notice and as a line in
+the summary of the run: no version is resolved, nothing is built and nothing is
+published.
 
 ## Check
 
@@ -125,18 +151,20 @@ builds it only when the cache misses. Then its steps:
    out. Every step runs even when one before it failed, so one run shows every
    finding of the unit.
 3. **`xtask check --all`**, in the job of the repository only, and only when
-   `xtask/Cargo.toml` exists. It runs `cargo xtask check --all` from the
-   repository root with the toolchain the xtask pins (the `rust-toolchain.toml`
-   in `xtask/`, else the one in the repository root); an xtask that pins none
-   fails the step. This is where a repository's own checks run, as mandatory as
-   the register's, without a workflow or a ruleset entry of their own. The
-   xtask's code is Rust like any other, so phase 0 demands a unit that runs the
-   `rust` check over `xtask/`.
+   `xtask/Cargo.toml` exists. It runs `cargo xtask check --all`
+   (`nebensound-repo xtask`) from the repository root with the toolchain the
+   xtask pins (the `rust-toolchain.toml` in `xtask/`, else the one in the
+   repository root); an xtask that pins none fails the step. This is where a
+   repository's own checks run, as mandatory as the register's, without a
+   workflow or a ruleset entry of their own. The xtask's code is Rust like any
+   other, so phase 0 demands a unit that runs the `rust` check over `xtask/`.
 
 ### Where a failed check is found
 
 The job `nebensound / Check` only gathers: it reports that something failed and
-holds no finding. The finding is in the job of the unit that failed, in the step
+holds no finding. It checks nothing out; it takes the tool from the cache and
+calls it with what it is handed (`nebensound-repo gather` and `nebensound-repo
+unwritten`). The finding is in the job of the unit that failed, in the step
 of the check, where it is written to the log and, where the check can point at
 a file, as an annotation on it, shown on the pull request's Files tab and in
 the summary of the run.
@@ -157,12 +185,22 @@ writer belongs to a unit that carries a version, which need not run a check,
 so it is named here. The writers written today are listed in
 [the README](../README.md#version-cargo).
 
+Its third step, **Publish targets not written yet**, does the same for every
+publish target a unit of the plan names that has no building block
+`publish-<target>` yet, the dots of the target turned into hyphens
+(`crates.io` is `publish-crates-io`), whether the commit touches the unit or
+not. It fails on the pull request, before anything is merged, rather than in
+Publish afterwards. No publish target has a building block yet, so a unit that
+publishes anywhere fails `nebensound / Check` today, and Publish only ever
+releases units with `publish = false`.
+
 ## Build
 
 ### One job per unit that builds in this run
 
 Every unit whose build the plan names and that the plan gives a version of
-this run gets a job of its own, named `nebensound / Build repository` for the
+this run, in a run that is not one after a push to a pre-branch, gets a job of
+its own, named `nebensound / Build repository` for the
 repository and `nebensound / Build component <name>` for a component. The plan
 names the build of a unit that carries a version of its own and generates no
 children (see [the declaration](declaration.md#versions)), and gives a unit a
@@ -194,10 +232,93 @@ the build tests what it hands on.
 `nebensound / Build` runs after Declare, `nebensound / Check` and every build
 job, whatever their result, so it reports on every run. It fails when phase 0
 did not pass, since then nothing is known about the builds. When nothing builds
-in this run it passes with a sentence that says so, whatever Check found.
+in this run, as after a push to a pre-branch, it passes with a sentence that
+says so, whatever Check found.
 Otherwise it fails when Check did not pass, since then nothing was built, and
 when any build job did not pass, and it passes when every build the plan
 started passed.
+
+## Publish
+
+The job `nebensound / Publish` is the release stage on `main`. It runs after a
+push to `main`, and on no other event or branch, once Declare,
+`nebensound / Check` and `nebensound / Build` passed. Check is named on its
+own, since Build is green when nothing builds, whatever Check found: nothing
+is released from a tree whose checks failed. It is the only job that asks for
+`contents: write`.
+
+Every unit the history gives a version of the pushed commit, that is, every
+unit the pushed commit touches, gets its records: a tag on the pushed commit,
+named as [the declaration](declaration.md#tag-names) names a unit's records,
+and a GitHub Release of it.
+
+| Unit           | Version on `main` | The release                     |
+| -------------- | ----------------- | ------------------------------- |
+| The repository | `X.Y.Z`           | A full release, and the latest. |
+| A component    | `X.Y.Z`           | A full release, not the latest. |
+
+Every merge into `main` is a full release: a version on `main` is never a
+pre-release.
+
+A unit the commit does not touch gets nothing, also where a version writer
+writes its current version for a package that depends on it: a tag on the
+pushed commit with that version would not stand on the commit the history
+gives it, and phase 0 would report it as `conflicting-tag` in the next run.
+
+The job checks the repository out with its whole history and every tag, builds
+the tool, and calls `nebensound-repo release`, which does the rest
+([the tool](tool.md#the-release-stage)). It
+holds no other logic. The tool works in this order:
+
+1. **Decide what to release.** Nothing is written yet. The tool reads the
+   version of every unit from the history, as phase 0 does. When the tag of a
+   unit already stands on another commit, the job fails here and names it,
+   before anything is written: a version belongs to exactly one commit. When a
+   newer record of the unit already holds the pushed commit, as after a re-run
+   of an older run, the unit is left out with a sentence that says so, and the
+   job stays green. For each unit to release it finds the previous record: the
+   tag of the unit with the highest version below the one released, on a
+   commit the pushed commit contains.
+2. **Create the tags and the drafts.** For each unit, the tag on the pushed
+   commit, a lightweight one, and the release as a draft, titled
+   `<unit> <version>` (the repository by its name, such as `pipeline 0.4.2`),
+   with notes GitHub generates against the previous record. A unit's first
+   release carries one fixed sentence instead.
+3. **The publish targets**, while the releases are drafts: an immutable release
+   takes no file once it is published. No target has a building block yet, so
+   nothing happens here yet.
+4. **Publish the releases.** Each draft is published as a full release, and
+   marked as the latest release or not in the same call: GitHub honours that
+   mark only there. When the published release shows that it is not
+   immutable, because the repository has immutable releases switched off, the
+   job writes a warning and a line in the summary of the run, and goes on.
+
+A re-run completes what an earlier attempt left undone and changes nothing
+else: a tag that stands on the pushed commit is kept, a draft the attempt left
+is taken up, and a release published already is left as it is. The tool
+writes what it did into the log, and the summary of the run lists every unit
+with its release, or the sentence why there is none.
+
+Tags and releases are records. Publish reads them for what records answer, the
+notes since the previous record and whether a newer one holds the commit, and
+never for a version: the versions are resolved from the history, as for the
+plan.
+
+A release published with the workflow's token starts no workflow, so a caller
+that listens to tags or releases is not started by Publish.
+
+Nothing another job wrote reaches Publish, only whether that job passed: it
+takes no job output and no artifact, reads the versions from the history
+itself, and builds the tool itself, from the source of the pipeline at the
+commit the caller pins, without the cache
+([`.github/actions/tool`](../.github/actions/tool) with `cache: "false"`). Every
+job of a branch may write the cache, a job that runs code of the repository
+among them, so nothing in it is to run with a token that can write. What does
+run with that token is the tool, the Rust crates it is built from, as its
+`Cargo.lock` pins them, and the toolchain its `rust-toolchain.toml` names. It
+is built with its default features alone, which leave out the terminal
+interface (`ui`). The token goes to the one step that calls the tool, and the
+tool hands it to curl on curl's standard input, never on a command line.
 
 ## Check names
 
@@ -216,29 +337,81 @@ and only those: the unit jobs change with the repository, so a ruleset that
 required one would block a pull request when the unit goes away or is renamed,
 and Declare is part of what `Check` and `Build` sum up. Of the reported jobs,
 only `Check` is meant for a ruleset to require for the checks, and only `Build`
-for the builds. Further required names arrive with the phases that are not
-built yet.
+for the builds. `nebensound / Publish` runs after the merge, on `main`; on a
+pull request it is skipped, and a ruleset counts a skipped check as passed, so
+requiring it would add no signal. Further required names arrive with the phases
+that are not built yet.
 
 ## Pull request and push
 
-The caller file starts the workflow on every pull request and on every push to
-`main`:
+The caller file starts the workflow on every pull request, when it is opened,
+synchronized, reopened or edited, and on every push to `main`, `pre` and
+`pre-*`:
 
 ```yaml
 on:
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
   push:
     branches:
       - main
+      - pre
+      - pre-*
 ```
 
-Today both run the same jobs, Declare, Version, Check and Build, with the same
-steps. Only the versions depend on the event: on a pull request `Version` shows
-the version the merge would get with `-pr.<number>` behind it, and the plan
-carries the same versions, which the package test of `check-rust` and the build
-jobs write and build with. A newer run for the same branch or pull request cancels the one still
-running. The permissions are read-only: the workflow reads the repository and
-writes nothing back.
+A pull request and a push to `main` run the same jobs, Declare, Version, Check
+and Build, with the same steps, and a push to `main` runs Publish after them.
+The versions depend on the event: on a pull request `Version` shows the version
+the merge would get with `-pr.<number>` behind it, and the plan carries the
+same versions, which the package test of `check-rust` and the build jobs write
+and build with. A pull request into a pre-branch is a pull request like any
+other: it gets the checks, the version with `-pr.<number>` behind it and the
+builds, so what lands on a pre-branch was built before.
+
+A run of `edited` is a run like any other: every job runs, as after a push to
+the pull request, since a ruleset counts a skipped required check as passed. It
+starts on every change of the title or the description, from which the version
+shown is read, and when GitHub moves an open pull request onto `main` because
+the pre-branch it went into was deleted at its landing. That costs a full run
+per edit of the title or description, and the newer run cancels the one still
+going.
+
+A push to a pre-branch runs Declare and Check as a push to `main` does.
+Versions and pre-releases of pre-branches are not built yet, so `Version`
+resolves no version and says so, as a notice and as a line in the summary of
+the run, no unit builds, `Build` passes with a sentence that says so, and
+Publish does not run: nothing is published. The plan Declare hands on is the
+one a push to `main` would get, so the package test of `check-rust` writes the
+versions phase 0 reads into its own checkout, packages and puts the files back,
+as on `main`; no job reports those versions in the summary or builds with
+them.
+
+A newer push or edit of a pull request cancels its run that is still going:
+only the newest state of a pull request counts. A run after a push, to `main`
+or to a pre-branch, is never cancelled. It waits in the one queue of the
+repository until the run before it has finished, so the runs after two merges
+publish in the order of their pushes and with two different versions, and a run
+that waits is never replaced by a newer one. The workflow sets this itself, in
+its `concurrency`: a pull request's group cancels and keeps one run waiting, the
+repository's group keeps up to 100 runs waiting and cancels none, and a run
+beyond that is cancelled. GitHub gives the waiting runs their turn in the order
+in which they began to wait, and since a run may begin to wait a moment after
+it was started, it does not guarantee that order. Should two runs swap places,
+the versions stay what the history gives each commit; the older run then finds
+its commit held by the newer release and releases nothing (see
+[Publish](#publish)).
+
+The caller's job grants `contents: write`, `pull-requests: read`,
+`id-token: write`, `packages: write`, `attestations: write` and
+`deployments: write`, and only Publish asks for more than a read token,
+`contents: write`: every other job reads the repository and writes nothing
+back, and so does every job of a pull request. The caller grants what the
+planned parts need, since a permission added to it later would mean a change
+in every repository (see [Calling the workflow](calling.md#permissions)).
 
 This repository calls the workflow the same way, with one difference: its own
 caller runs the workflow at the commit under test rather than at a pinned

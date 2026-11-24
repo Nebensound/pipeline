@@ -11,14 +11,14 @@ which name, is described in [the phases](phases.md).
 ## The file
 
 ```toml
-#:schema https://raw.githubusercontent.com/Nebensound/pipeline/main/.github/actions/check-toml/schemas/nebensound-declaration.json
+#:schema https://raw.githubusercontent.com/Nebensound/pipeline/main/schemas/nebensound-declaration.json
 
 [repo]
 audience = "public"
 pipeline = "none"
 
 [component.tool]
-path       = "tools/nebensound-repo"
+path       = "tools/cli"
 pipeline   = "rust-workspace"
 versioning = "none"
 
@@ -35,7 +35,7 @@ reason = "drawn in an editor that writes it; no tool here formats it"
   key fails instead of quietly meaning nothing.
 - `[repo]` is required, and in it `audience`. Everything else is optional.
 - The `#:schema` line gives an editor the
-  [JSON Schema of the file](../.github/actions/check-toml/schemas/nebensound-declaration.json),
+  [JSON Schema of the file](../schemas/nebensound-declaration.json),
   for completion and for marking an unknown key where it is written. The
   `check-toml` building block checks the file against the same schema whether
   the line is there or not, and always against the schema of the version the
@@ -82,18 +82,41 @@ Which check covers a file is decided by its extension, compared in lowercase
 none. The register lists every check with its extensions and file names.
 
 A lockfile is assigned by its name, never by the extension `.lock`, because
-that extension is shared by formats that have nothing in common: `Cargo.lock`
-and `uv.lock` belong to `toml`, `composer.lock` and `flake.lock` to `json`, and
-`yarn.lock` and `Gemfile.lock` are in a format of their own that no check
-covers, so they stand on the list of what nobody checks. A lockfile has to
-parse; it is not formatted, since the tool that writes it decides its layout.
+that extension is shared by formats that have nothing in common: `Cargo.lock`,
+`uv.lock`, `poetry.lock` and `pdm.lock` belong to `toml`, `composer.lock`,
+`flake.lock` and `Pipfile.lock` to `json`, and `yarn.lock` and `Gemfile.lock`
+are in a format of their own that no check covers, so they stand on the list of
+what nobody checks. A lockfile has to parse; it is not formatted, since the tool
+that writes it decides its layout.
 
 A marker file that keeps an otherwise empty folder, `.gitkeep` or `.keep`,
 stands on the list of what nobody checks as long as it is empty: it needs no
 exclusion. Empty means what Git holds for it, not what lies in the working
 tree. A marker added with `git add -N` holds nothing in Git yet, so it does not
 count as empty until it is staged. A marker that holds content is a file like
-any other, and phase 0 reports it as `language-without-check`.
+any other, and phase 0 reports it as `language-without-check`. The same holds
+for `py.typed`, the empty marker of a Python package that ships its type hints;
+`.python-version`, which names the interpreter uv installs, stands on the list
+whatever it holds.
+
+`Pipfile` is TOML without an extension and belongs to `toml` by its name. It is
+no lockfile, so unlike `Pipfile.lock` it is formatted like any `.toml` file; the
+README of the pipeline says how to format it by hand. Other files a Python
+project commonly holds stay a gap on purpose: phase 0 reports each of them as
+`language-without-check` until the repository excludes it by its path, with a
+reason of its own.
+
+- `requirements.txt`, the other `requirements*.txt`, the files in a
+  `requirements/` folder and `constraints.txt`: a uv project keeps its
+  dependencies in `pyproject.toml` and `uv.lock`. A repository that keeps such a
+  list, for example one that `uv export` writes for an image, says why in its
+  exclusion. As the manifest of the ecosystem `pip`, `requirements.txt` is also
+  held to `unwatched-manifest`.
+- `.coveragerc`, `pytest.ini`, `tox.ini` and `setup.cfg`: coverage.py and
+  pytest read the same settings from `pyproject.toml`, and a second file can
+  silently take precedence over it, since both tools take the first file they
+  find and never merge. Phase 0 still reads coverage.py's `omit` in
+  `.coveragerc`, `setup.cfg` and `tox.ini`, excluded or not.
 
 ### Where a check runs
 
@@ -122,16 +145,15 @@ out, and its effect.
 
 ### `[repo]`
 
-| Field             | Type                                 | Default                        | Effect                                                                                                                                                   |
-| ----------------- | ------------------------------------ | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `audience`        | string                               | required                       | For whom the repository is meant: `"public"`, `"internal"` or `"customer"`. See [Audience](#audience).                                                   |
-| `pipeline`        | preset name or table                 | nothing is declared            | What runs for the repository beyond the base set. See [Pipeline](#pipeline).                                                                             |
-| `versioning`      | string                               | `"self"`                       | Which units around the repository carry a version. Only the values that include `self` are open to the repository. See [Versioning](#versioning).        |
-| `release`         | string                               | decided by the publish targets | `"single-stage"` or `"two-stage"`: how the unit's version reaches a full release. See [Releases](#releases).                                             |
-| `minimum-version` | version `"X.Y.Z"` or `"X.Y.Z-pre.N"` | none                           | The version the unit gets is never lower than this. See [Releases](#releases).                                                                           |
-| `feat-types`      | array of commit types                | none                           | Commit types that count like `feat` for every unit, beside `feat` itself. See [How a version is resolved](#how-a-version-is-resolved).                   |
-| `allow-unused`    | table of check → reason              | none                           | Checks of this unit's own pipeline that may find no file without failing, each with the reason why it stays. Without an entry, such a check is an error. |
-| `component`       | table                                | none                           | The pipeline a component can ask for with `pipeline = { repo = true }`. See `[repo.component]` below.                                                    |
+| Field             | Type                    | Default             | Effect                                                                                                                                                   |
+| ----------------- | ----------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `audience`        | string                  | required            | For whom the repository is meant: `"public"`, `"internal"` or `"customer"`. See [Audience](#audience).                                                   |
+| `pipeline`        | preset name or table    | nothing is declared | What runs for the repository beyond the base set. See [Pipeline](#pipeline).                                                                             |
+| `versioning`      | string                  | `"self"`            | Which units around the repository carry a version. Only the values that include `self` are open to the repository. See [Versioning](#versioning).        |
+| `minimum-version` | version `"X.Y.Z"`       | none                | The version the unit gets is never lower than this. See [Releases](#releases).                                                                           |
+| `feat-types`      | array of commit types   | none                | Commit types that count like `feat` for every unit, beside `feat` itself. See [How a version is resolved](#how-a-version-is-resolved).                   |
+| `allow-unused`    | table of check → reason | none                | Checks of this unit's own pipeline that may find no file without failing, each with the reason why it stays. Without an entry, such a check is an error. |
+| `component`       | table                   | none                | The pipeline a component can ask for with `pipeline = { repo = true }`. See `[repo.component]` below.                                                    |
 
 ### `[repo.component]`
 
@@ -151,14 +173,13 @@ or digit, and holds no `..`; it is meant to survive a Git tag, a file name, a
 shell argument and a URL without quoting. No two units may share a name,
 generated ones included.
 
-| Field             | Type                                 | Default                        | Effect                                                                                                                                                   |
-| ----------------- | ------------------------------------ | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `path`            | path                                 | required                       | Where the component lives: a folder, or a single file. It has to hold something Git tracks, otherwise `missing-path`.                                    |
-| `pipeline`        | preset name or table                 | nothing is declared            | What runs for the component beyond the base set. See [Pipeline](#pipeline).                                                                              |
-| `versioning`      | string                               | `"self"`                       | Which units around the component carry a version. See [Versioning](#versioning).                                                                         |
-| `release`         | string                               | decided by the publish targets | `"single-stage"` or `"two-stage"`: how the unit's version reaches a full release. See [Releases](#releases).                                             |
-| `minimum-version` | version `"X.Y.Z"` or `"X.Y.Z-pre.N"` | none                           | The version the unit gets is never lower than this. See [Releases](#releases).                                                                           |
-| `allow-unused`    | table of check → reason              | none                           | Checks of this unit's own pipeline that may find no file without failing, each with the reason why it stays. Without an entry, such a check is an error. |
+| Field             | Type                    | Default             | Effect                                                                                                                                                   |
+| ----------------- | ----------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `path`            | path                    | required            | Where the component lives: a folder, or a single file. It has to hold something Git tracks, otherwise `missing-path`.                                    |
+| `pipeline`        | preset name or table    | nothing is declared | What runs for the component beyond the base set. See [Pipeline](#pipeline).                                                                              |
+| `versioning`      | string                  | `"self"`            | Which units around the component carry a version. See [Versioning](#versioning).                                                                         |
+| `minimum-version` | version `"X.Y.Z"`       | none                | The version the unit gets is never lower than this. See [Releases](#releases).                                                                           |
+| `allow-unused`    | table of check → reason | none                | Checks of this unit's own pipeline that may find no file without failing, each with the reason why it stays. Without an entry, such a check is an error. |
 
 ### `pipeline`
 
@@ -183,7 +204,7 @@ set.
 | `version`    | array of version writer names    | `[]`    | The version writers that receive the unit's version as a derived copy. Phase 0 demands that the unit, or the children it generates, carries a version. Only `cargo` is written so far.                                                                                                                                                      |
 | `check`      | array of check names             | `[]`    | Checks beyond the base set. Each is in force for every file of the unit and runs in the Check phase.                                                                                                                                                                                                                                        |
 | `build`      | build name                       | none    | The build that produces the unit's artifact. The plan names it for a unit that carries a version of its own and generates no children, and that unit gets a job in the Build phase of every run that gives it a version, the runs of a commit that touches it. Phase 0 demands that `version` selects every version writer the build needs. |
-| `publish`    | `false` or array of target names | `false` | Where the artifact goes: `false` for nowhere, said out loud, or a list of targets. `publish = true` is an error, since it names no target. Nothing is published yet.                                                                                                                                                                        |
+| `publish`    | `false` or array of target names | `false` | Where the artifact goes: `false` for nowhere, said out loud, or a list of targets. `publish = true` is an error, since it names no target. A target without a building block fails `nebensound / Check` by name, and no target has one yet.                                                                                                 |
 | `dependabot` | array of ecosystem names         | `[]`    | The ecosystems Dependabot is to watch for this unit, beyond the base set. Phase 0 compares them with the manifests the unit holds. `nebensound-repo dependabot` prints the Dependabot configuration they give (see [`stale-dependabot`](#stale-dependabot)).                                                                                |
 
 ### `[[include]]`
@@ -259,11 +280,9 @@ public, but not whether a customer sees it, so the declaration says it.
   nothing is compared: `nebensound-repo check` compares only when it is given
   `--visibility`, which the job `nebensound / Declare` passes.
 - A pull request into `main` that changes the value names the old and the new
-  value in the summary of the run, as a notice and in the step summary. A pull
-  request from `main` into `release` names no change: the change was named on
-  its pull request into `main`.
+  value in the summary of the run, as a notice and in the step summary.
 - The plan carries the value as `audience` (see
-  [the tool's README](../tools/nebensound-repo/README.md#the-plan)), and
+  [the tool](tool.md#the-plan)), and
   `nebensound-repo explain` shows it for every path.
 - No rule or check uses the value yet.
 
@@ -288,7 +307,9 @@ So that no fact is kept twice, each lives in one of three places:
 A **path** is a path inside the repository, separated by `/`: `.` for the
 repository itself, never absolute, no `.` or `..` segment, no empty segment, no
 backslash. A trailing `/` is allowed and means nothing more. A path matches the
-file it names and everything below the folder it names.
+file it names and everything below the folder it names. Neither a path nor a
+pattern holds a control character (see
+[`control-character`](#control-character)).
 
 `[[include]]` takes a **pattern** as well, in one of two forms:
 
@@ -329,8 +350,8 @@ itself is included.
   ASCII letter or digit left, such as `日本.typ`, is the error
   `ungeneratable-name`.
 - A generated unit has nowhere to say anything of its own. It takes the
-  pipeline, `allow-unused`, `release` and `minimum-version` of the unit that
-  generated it, and carries a version of its own.
+  pipeline, `allow-unused` and `minimum-version` of the unit that generated
+  it, and carries a version of its own.
 - A unit that generates children leaves the building to them, also when it
   carries a version beside theirs.
 
@@ -341,55 +362,35 @@ history is the truth.
 
 ## Releases
 
-`release` says how a unit's version reaches a full release:
-
-| Value            | Meaning                                                                                                                                                                                                        |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"single-stage"` | A merge to `main` is a full release.                                                                                                                                                                           |
-| `"two-stage"`    | A merge to `main` is a pre-release `X.Y.Z-pre.N`. A pull request from `main` into the branch `release`, merged with a merge commit, makes the commit it promotes, the tip of `main`, the full release `X.Y.Z`. |
-
-- Without the field, the unit's publish targets decide.
-  [The register](register.md#publish-targets) names for every target how a
-  unit that publishes there is released: two stages for `crates.io` and
-  `private-registry`, one stage for `ghcr`, `pages` and `release-assets`. A
-  unit with several targets takes two stages if any of them does, and a unit
-  that publishes nothing takes one stage. A unit with the preset
-  `rust-library-public` is therefore released in two stages, and one with
-  `rust-service` in one.
-- A value written on the unit wins over that default.
-- Which mode holds is written down, never derived from whether the branch
-  `release` exists: a deleted branch must not turn the next merge into a full
-  release.
+A unit has one way to a full release: a merge into `main`. Every commit of the
+line of `main` that touches the unit and that the history gives a version is a
+full release of it (see [Versions](#versions)).
 
 `minimum-version` is a floor: the version a unit gets is never lower. It is how
 a person takes the step to `0.1.0` or `1.0.0`; no commit message leads to
-`1.0.0`. It is written the way a tag carries a version: three numbers, as
-`"1.0.0"`, without a leading zero or a prefix such as `v`, or a pre-release of
-them, as `"1.0.0-pre.10"`, with `pre.` and a number from 1 without a leading
-zero. Any other suffix, such as `-rc.1`, stops phase 0, as described under
+`1.0.0`. It is three numbers, as `"1.0.0"`, without a leading zero, a prefix
+such as `v` or a suffix. Anything else, a pre-release part such as `-pre.1`
+included, stops phase 0, as described under
 [When the file cannot be read](#when-the-file-cannot-be-read), and `check-toml`
-marks it at its line and column. A pre-release only means something for a unit
-released in two stages; in one stage it is the error `pre-release-minimum`
-until the unit's versions have reached its three numbers. How the value takes
-effect is described under
+marks it at its line and column. How the value takes effect is described under
 [How a version is resolved](#how-a-version-is-resolved).
 
 A repository that moves to the pipeline with releases made elsewhere sets
 `minimum-version` above the highest version it ever gave out, pre-releases
 included, so that no version is given out twice.
 
-A generated unit takes both from the unit that generated it. On a unit that
-carries no version and generates no children, neither field has a version to act
-on; phase 0 warns about each with
+A generated unit takes the field from the unit that generated it. On a unit
+that carries no version and generates no children, it has no version to act
+on; phase 0 warns about it with
 [`release-field-without-version`](#release-field-without-version).
 
-The report of phase 0 and `nebensound-repo explain` show for every unit how it
-is released and its minimum version, each with where it came from: written on
-the unit, the default of its publish targets, or inherited from the unit that
-generated it.
+The report of phase 0 and `nebensound-repo explain` show for every unit its
+minimum version, with where it came from: written on the unit, or inherited
+from the unit that generated it.
 
-Both fields take effect where the version of a commit is resolved, as described
-under [Versions](#versions). Nothing is tagged or released yet.
+The field takes effect where the version of a commit is resolved, as described
+under [Versions](#versions). The release stage on `main` writes the records of
+those versions (see [Records](#records)).
 
 ## Versions
 
@@ -397,13 +398,12 @@ The history is the truth, and no version is stored in the tree. Phase 0
 resolves for every unit that carries a version which version the commit at
 hand has, from the commits of the repository and the declarations they hold,
 and from nothing else. `nebensound-repo plan` lists them under `versions` (see
-[the tool's README](../tools/nebensound-repo/README.md#the-plan)).
+[the tool](tool.md#the-plan)).
 `nebensound-repo version` shows them as a table, with each unit's current
-version and, in two stages, the number of commits waiting for its next
-promotion, and the job `nebensound / Version` writes the same table into the
+version, and the job `nebensound / Version` writes the same table into the
 summary of every run (see [the phases](phases.md#version)).
 
-Tags and releases are records: what the release stages write down. No tag is
+Tags and releases are records: what the release stage writes down. No tag is
 read to decide a version, and a tag is never a base. Phase 0 only holds the
 records against the history (see [Records](#records)).
 
@@ -416,11 +416,13 @@ records against the history (see [Records](#records)).
 | A unit a component generates    | `<component>-<entry>-vX.Y.Z` | `<component>-<entry>-vX.Y.Z-pre.N` |
 | A unit the repository generates | `<entry>-vX.Y.Z`             | `<entry>-vX.Y.Z-pre.N`             |
 
-These are the names the release stages give a unit's records. Everything
-before `X.Y.Z` is the unit's **prefix**: `v`, `<component>-v`, and so on. The
-repository has no name, so a unit it generates is named like a component. A
-tag is read as a release strictly: three numbers without a leading zero, and
-`N` a number from 1 without a leading zero. A tag reads as the release of the
+These are the names the release stage gives a unit's records. No version the
+history gives is a pre-release yet; a tag of that form is still read as a
+record and held against the history. Everything before `X.Y.Z` is the unit's
+**prefix**: `v`, `<component>-v`, and so on. The repository has no name, so a
+unit it generates is named like a component. A tag is read as a release
+strictly: three numbers without a leading zero, and `N` a number from 1 without
+a leading zero. A tag reads as the release of the
 unit whose prefix it starts with when its version reads after it; a tag that
 reads as no unit's release is passed over. A tag that reads
 `<name>-vX.Y.Z` or `<name>-vX.Y.Z-pre.N` is the release of a unit named
@@ -429,26 +431,21 @@ of a removed component `viewer` are passed over, not taken for the
 repository's because they start with `v`.
 Because a generated unit's prefix carries its parent's name, it can meet another
 unit's prefix (a component `docs-guide` beside the entry `guide` of a component
-`docs`); phase 0 refuses that as `ungeneratable-name`, since the release stages
+`docs`); phase 0 refuses that as `ungeneratable-name`, since the release stage
 would write both units' records under the same names.
 
 ### How a version is resolved
 
-- **The line of `main`** is the first-parent line of `HEAD`. A merge into
-  `release` is the exception: the merge commit GitHub builds for the pull
-  request from `main`, or the merge itself. Below its first parent lie the
-  merges of `release`, so there the line is `HEAD` followed by the
-  first-parent line of the commit of `main` it merges. Phase 0 tells such a
-  merge by its parents: the first one lies on the first-parent line of
-  `origin/release`, the second one on that of `origin/main`.
-- **Each commit's own declaration** says where a unit lived and how it was
-  released at that commit. A unit is recognised across commits by its name.
-  Its path and its mode at a commit are those of the declaration that commit
-  holds, resolved as phase 0 resolves the one at hand: a mode left out comes
-  from the unit's publish targets, and a generated unit's path from the tree
-  the commit held. A unit that moves, or a generated unit whose folder or file
-  is renamed, therefore keeps counting the commits from before, and a switch
-  between one stage and two keeps the releases of each period.
+- **The line of `main`** is the first-parent line of `HEAD`. A merge commit on
+  it is a commit of the line like any other. The commits that only its second
+  or a later parent reaches are not on the line and count for nothing,
+  whatever their messages say.
+- **Each commit's own declaration** says where a unit lived at that commit and
+  which minimum version it had there. A unit is recognised across commits by
+  its name. Its path at a commit is that of the declaration that commit holds,
+  resolved as phase 0 resolves the one at hand: a generated unit's path comes
+  from the tree the commit held. A unit that moves, or a generated unit whose
+  folder or file is renamed, therefore keeps counting the commits from before.
 - **Which commits count for a unit**: only those whose own declaration names
   the unit and gives it a version there. A unit's count therefore starts at
   the first commit of the line whose declaration names it, from `0.0.0`. A unit
@@ -456,63 +453,44 @@ would write both units' records under the same names.
   a version; a unit that is removed and comes back goes on from where it was,
   and the commits in between do not count. The count never restarts, so no
   version is given twice. A commit without a declaration does not count. A
-  commit whose declaration cannot be read takes a unit's path and mode from
-  the nearest commit after it on the line whose declaration can be read, not
-  from the commit at hand, and counts for the units that declaration gives a
-  version. What such a commit counts for is thereby fixed once that later
-  commit exists: a later move of the unit or a later switch of its mode does
-  not count it again in a different way. Until a readable declaration follows
-  it, the declaration at hand stands in for it.
+  commit whose declaration cannot be read takes a unit's path from the nearest
+  commit after it on the line whose declaration can be read, not from the
+  commit at hand, and counts for the units that declaration gives a version.
+  What such a commit counts for is thereby fixed once that later commit
+  exists: a later move of the unit does not count it again in a different
+  way. Until a readable declaration follows it, the declaration at hand stands
+  in for it.
 - **Earlier declarations are read in their edition** (see
   [Editions](#editions)), with the tool that runs: its reader and its
   register. A declaration it cannot read falls under the rule above. A
   default of the register cannot change under the same name, since that
   would change what the declarations of old commits mean: such a change comes
   as a new name or a new edition (see [the register](register.md)).
-- **The released commits** carry the releases, not tags. Which commit is
-  released depends on how the unit was released at it:
-  - in one stage there, every commit of the line of `main` that touches the
-    unit and that the history gives a version is a full release;
-  - in two stages there, the commit a merge into `release` promotes is the
-    full release, and the touching commits of the line of `main` are its
-    pre-releases. A promoted commit is the second parent of a merge commit on
-    the first-parent line of `origin/release`, when it is a commit of the line
-    of `main`. Below the commit `release` was started on, the first-parent line
-    of `origin/release` goes on through the history of `main`; a merge there
-    brought a side branch into `main` and promoted nothing.
+- **The released commits** carry the releases, not tags: every commit of the
+  line of `main` that touches the unit and that the history gives a version is
+  a full release.
 
 - **The base** of a unit at a commit is the version of its newest released
   commit before it that `HEAD` contains, as the history shows it; `0.0.0`
   before the first.
 
 - **The current version** of a unit is the highest version the history gives
-  any commit of the line up to `HEAD`, a pre-release included, after a
-  promotion the full version. Every unit has one from the first commit that
-  touches it on. It is what the version writer `cargo` requires of a path
+  any commit of the line up to `HEAD`. Every unit has one from the first commit
+  that touches it on. It is what the version writer `cargo` requires of a path
   dependency whose unit the commit at hand does not touch, where a package
   that gets a version needs it, and it stands in the plan as `current`. On a
   pull request it carries `-pr.<number>` only when the pull request touches
   the unit: it is then the version of the pull request.
 
-- **Only the tip of `main` is promoted.** A merge into `release` whose second
-  parent is not the commit `origin/main` points at is the error
-  `stale-promotion`, both on the pull request into `release` and on the merge
-  itself, and resolves no version. The commits of `main` after an older commit
-  were given pre-releases counted from the release before; promoting the older
-  one would give their numbers out again. Promoting an older commit is not
-  supported. The check runs only at the merge: Git keeps no record of where
-  `origin/main` pointed when a merge was made, and the promoted commit, read on
-  its own, is no merge, so phase 0 there reports nothing and resolves its full
-  version. The release stage therefore runs phase 0 at the merge and resolves
-  on the promoted commit only when that passed; a run on the promoted commit
-  alone must not get past a refused merge. Read later, a refused merge that
-  was pushed past the check is taken for a promotion like any other, and the
-  base moves with it.
-
 - **A commit touches a unit** when it changes a file below the unit's path as
   that commit declares it, or `.nebensound/repo.toml`. The repository is
-  touched by every commit. Only the line of `main` counts, and a merge commit
-  touches nothing. A moved or removed file touches the unit it left as well.
+  touched by every commit. Only the line of `main` counts. What a commit
+  changes is read against its first parent, so a merge commit touches what
+  the branch it merges brings into the line, exactly as a squash commit of the
+  same changes would, and its message decides its change like any other
+  commit's. A merge that changes nothing against its first parent touches
+  only the repository. A moved or removed file touches the unit it left as
+  well.
 - **The change of a commit** follows from its message as a
   [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/). A
   message that is not a Conventional Commit counts as a patch. What a change
@@ -540,45 +518,20 @@ would write both units' records under the same names.
   declaration can, and from the declaration at hand until one follows. A
   declaration without the field reads every commit as before.
 
-- **One stage**: a commit that touches the unit is the base raised once per
-  touching commit since the base, each by its own change.
-- **Two stages**: the target is the base raised once by the highest change among
-  the touching commits since the base. A touching commit is `<target>-pre.N`,
-  `N` being its position among them, counted from 1. The commit a merge into
-  `release` promotes is `<target>`; promoted with nothing since the base, it
-  releases nothing.
+- **The version of a commit** that touches the unit is the base raised once
+  per touching commit since the base, each by its own change.
 - **`minimum-version`**: the value in force is the highest one that a touching
   commit since the base names, the commit at hand included. Lowering the value
   has no effect, and once a full release has reached it, it does nothing; there
-  is no warning for either.
-  - In one stage it lifts the step at which it comes into force, so the commits
-    after it go on from it rather than all landing on it.
-  - In two stages it lifts the target to its `X.Y.Z`. A pre-release value
-    `X.Y.Z-pre.N` also sets the number when the target is `X.Y.Z`: the commit
-    at which it comes into force is at least `-pre.N`, and every commit after
-    it gets the number of the one before plus one. With `1.0.0-pre.1` to
-    `1.0.0-pre.3` given out, a commit that sets `1.0.0-pre.10` is
-    `1.0.0-pre.10`, and the next one `1.0.0-pre.11`.
-  - In one stage, which gives out no pre-release, a pre-release value is
-    ignored once the version the commits before the commit at hand come to has
-    reached its `X.Y.Z`. Before that it is the error `pre-release-minimum`. A
-    commit at which it was the error still counts for the commits after it,
-    raised by its own change and not lifted, so writing `X.Y.Z` afterwards
-    gives `X.Y.Z`; it is no release, since the history gives it no version.
-- A commit that does not touch the unit has no version, except the promoted
-  commit of a unit released in two stages.
+  is no warning for either. It lifts the step at which it comes into force, so
+  the commits after it go on from it rather than all landing on it.
+- A commit that does not touch the unit has no version.
 
 The version is a function of the history, not of the moment: every commit on
 `main` raises on its own, so two runs on `main` at the same time come to
 different numbers without waiting for each other. No tag is read, so a commit
 comes to the same version whether any tag is set or not, and a repository
 resolves the same versions with all of its tags deleted.
-
-In two stages no tag is needed to move the base either: a commit that lands on
-`main` after a merge into `release` counts from the promoted release as soon as
-that merge exists. A release stage at a merge into `release` resolves on the
-commit it promotes, once phase 0 has passed at the merge itself (see the rule
-on promoting only the tip of `main` above).
 
 ### Records
 
@@ -598,27 +551,34 @@ A tag on a commit `HEAD` does not contain is passed over without a finding: it
 lies in history this commit does not have, such as a newer release, and what
 it records is not this commit's to judge.
 
+The release stage on `main` writes the records: after a push to `main`, every
+unit the pushed commit touches gets a lightweight tag on that commit, the
+commit the history gives its version, and a GitHub Release of it, a full
+release, since a version on `main` is never a pre-release. A unit the commit
+does not touch gets none, so every record it writes is a faithful one. See
+[the phases](phases.md#publish).
+
+What a release needs has a release already, or the pull request fails: a
+package a pull request would publish to a registry may require by path only
+units whose current version has a record, unless the pull request touches
+them. Otherwise it fails with
+[`unreleased-requirement`](#unreleased-requirement).
+
 ### What the history must hold
 
 Phase 0 reads the whole history, and every tag to hold it against that
-history. A shallow clone is the error `shallow-clone`, and a unit that is or
-was released in two stages at a commit that counts for it needs the branch
-`origin/release` (`missing-release-branch`): its full releases are the commits
-promoted there, and a deleted branch must not move a version. A merge into
-`release` is told apart only with `origin/main` as well; without it, the line
-of `main` is the first-parent line of `HEAD`. The job `nebensound / Declare`
-checks the repository out with its whole history and every branch and tag.
+history. A shallow clone is the error `shallow-clone`. The job
+`nebensound / Declare` checks the repository out with its whole history and
+every tag.
 
 Versions are resolved for `HEAD`, and every commit of the line, `HEAD`
 included, is read with the declaration it holds. The units come from
 `.nebensound/repo.toml` as it stands in the working tree. A change to the
 declaration that is not committed yet therefore reaches the units but not the
-history, and the versions mix the two: a move, a change of the release mode or a
-new `minimum-version` takes effect only in part, a unit that no commit declares
-yet has no version, and a finding such as `pre-release-minimum` stays where it
-is until the change is committed. Commit a change to the declaration before
-reading its versions with `check`, `plan`, `explain` or `ui`. In CI the checkout
-is the commit, so the two agree.
+history, and the versions mix the two: a move or a new `minimum-version` takes
+effect only in part, and a unit that no commit declares yet has no version.
+Commit a change to the declaration before reading its versions with `check`,
+`plan`, `explain` or `ui`. In CI the checkout is the commit, so the two agree.
 
 ## Editions
 
@@ -640,6 +600,11 @@ The promise of edition 1 binds from `v0.1.0` of this repository on, the first
 version meant for callers. Until then the rules of counting may still be
 corrected within edition 1.
 
+The promise covers the versions of the first-parent line of `main`. The
+versions of pre-branches join it when they are built. A push to a pre-branch
+resolves none before that (see
+[the phases](phases.md#pull-request-and-push)), so none of them can change.
+
 A tool that meets an edition it does not know stops phase 0 by name and says
 that a newer pipeline is needed, wherever the declaration that names it stands
 on the line of `main`, not only at `HEAD`. The edition is read before anything
@@ -653,7 +618,9 @@ Phase 0 reports what is wrong with a declaration as findings. Each carries a
 stable code; the wording of its message may improve, the code does not change.
 
 - An **error** fails `nebensound / Declare`, and with it `nebensound / Check`.
-  No plan is made, so no check runs.
+  No plan is made, so no check runs. The one exception is
+  [`unreleased-requirement`](#unreleased-requirement), which only the versions
+  of a pull request report: it fails `nebensound / Version`.
 - A **warning** stops nothing. It says that a statement in the declaration is
   not true, not that something is broken, or that the repository departs from
   the organization's conventions (`nonconforming-name`,
@@ -721,6 +688,18 @@ finding comes only from a run.
 Error. A component's `path` holds nothing Git tracks: the path is misspelt, the
 folder is empty, or its files are not added. Correct the path, add the files, or
 remove the component.
+
+### `control-character`
+
+Error. The name of a tracked file, or a path in the declaration, holds a
+control character: a character of Unicode's category `Cc`, U+0000 to U+001F
+and U+007F to U+009F, such as a line break, a tab or an escape. Git allows such
+a name, and a tool that takes names one per line, or a step output written as
+`name=value`, would misread it. There is one finding for each such file, at the
+file, and one for each such `path` of `[component.<name>]`, `[[include]]` or
+`[[exclude]]`, at the declaration, naming the field. The name is shown with the
+character written as an escape, such as `docs/a\nb.md`. Rename the file, or
+write the path without the character.
 
 ### `language-without-check`
 
@@ -800,12 +779,12 @@ the version writer.
 
 ### `release-field-without-version`
 
-Warning. A unit writes `release` or `minimum-version`, carries no version of its
-own and generates no children that would take the field over, so nothing ever
-reads the value. The finding stands at the field in `.nebensound/repo.toml`,
-with the line and column of its value, once for each of the two fields the unit
-writes. It is about the declaration at hand and changes no version. Give the unit
-a `versioning` value that includes `self`, or remove the field.
+Warning. A unit writes `minimum-version`, carries no version of its own and
+generates no children that would take the field over, so nothing ever reads the
+value. The finding stands at the field in `.nebensound/repo.toml`, with the
+line and column of its value. It is about the declaration at hand and changes no
+version. Give the unit a `versioning` value that includes `self`, or remove the
+field.
 
 ### `build-without-version-writer`
 
@@ -845,6 +824,22 @@ file.
 Warning. A unit has an ecosystem watched and holds no manifest of it. Remove the
 ecosystem from its `dependabot` list. An ecosystem of the base set is exempt.
 
+### `missing-lockfile`
+
+Warning. A manifest's ecosystem knows a lockfile, and Git does not track it.
+What is checked and built is then resolved anew in each run instead of being
+what was resolved and committed. The register names, per ecosystem, the
+lockfile of a manifest and where it stands (see
+[Ecosystems](register.md#ecosystems)): for a `Cargo.toml` the `Cargo.lock` in
+the root of the Cargo workspace its package belongs to, found the way Cargo
+finds it. The members of a workspace lead to the same lockfile, so it is
+reported once, at the manifest nearest the root of the repository, and the
+message names the lockfile. Commit it. A manifest that an `[[exclude]]` entry
+takes out is passed over. Taking out only the reported manifest of a workspace
+moves the finding to the next member; to silence it, take out every manifest
+that leads to the lockfile, such as the folder of the workspace. Whether a
+committed lockfile is up to date is for the check of each language.
+
 ### `unconventional-commit`
 
 Warning. A commit the version of a unit is raised by has a message that is not a
@@ -860,73 +855,12 @@ counted from, and the tags held against it, may not be there. Check
 the repository out with its whole history and its tags (`fetch-depth: 0` for
 `actions/checkout`), or run `git fetch --unshallow --tags`.
 
-### `missing-release-branch`
-
-Error. A unit is or was released in two stages, at the commit at hand or at any
-commit of the line of `main` that counts for it, and there is no branch
-`origin/release`. Its full releases are the commits promoted there, so neither
-its base nor its next version can be told, and a deleted branch must not move a
-version. Restore a deleted branch at the commit it pointed at, or create it
-where it never existed, and fetch it. A branch created anew where one was
-deleted holds none of the old promotions, so every commit after them would
-resolve again from the last full release before them. Only a unit released in
-one stage at every commit that counts for it needs no branch.
-
-### `unreleased-before-switch`
-
-Error. A unit is released in one stage at the commit at hand, and commits that
-touch it since its last full release were released in two stages at their own
-commit: the history gave them pre-releases that never became a full release.
-The finding names the newest of them. Only the tip of `main` is promoted
-([`stale-promotion`](#stale-promotion)), and the tip is the switch, so revert
-the switch, promote the tip of `main` into `release`, and switch again. The
-versions then go on from a full release. The pre-releases of the commits before
-a promoted commit were released with it and do not lead here: the promotion of
-the tip moves the base past every pre-release before it. A tag that reads as a
-pre-release does not lead here either; the history decides, and a tag is held
-against it as a record ([`conflicting-tag`](#conflicting-tag)).
-
 ### `exhausted-version`
 
 Error. A unit's version cannot be raised: the field a change raises already
 holds 18446744073709551615, the largest number a version can carry. There is
 no version after it, and wrapping round to zero would move the version
 backwards.
-
-### `pointless-release-branch`
-
-Warning. The branch `origin/release` exists, and no unit that carries a version
-is released in two stages, at the commit at hand or at any commit of the line
-of `main` before it, so nothing is or was ever promoted there. Delete the
-branch, or release a unit in two stages. Once a unit was released in two
-stages, the branch holds the commits that tell its full releases from then,
-and it is kept.
-
-### `pre-release-minimum`
-
-Error. A unit is released in one stage, and the `minimum-version` in force for
-it is a pre-release `X.Y.Z-pre.N` whose `X.Y.Z` the version of the commits
-before the commit at hand has not reached. One stage gives out no pre-release,
-so no commit could ever meet the floor. The finding names the line and column in
-`.nebensound/repo.toml` where the value is written, or where the unit's table
-starts when the value was taken away: taking it away is lowering it, which has
-no effect. Write `X.Y.Z`, or release the unit in two stages.
-
-### `stale-promotion`
-
-Error. The commit at hand merges into `release` a commit other than the one
-`origin/main` points at: an older commit of `main`, or a commit of another
-branch. Only the tip of `main` is promoted. The commits of `main` after an
-older one were already given pre-releases counted from the release before, and
-promoting the older one would give their numbers out again. The merge does not
-count as a promotion and resolves no version. The promoted commit, read on its
-own, is no merge and reports nothing, so the release stage resolves on it only
-once phase 0 has passed at the merge, and tags nothing here. Promote the tip of `main` with a pull request from `main` into
-`release`. Phase 0 tells a merge into `release` by its first parent, which lies
-on the first-parent line of `origin/release`; without `origin/main` it cannot
-tell the tip, and reports nothing. Git keeps no record of where `origin/main`
-pointed, so a refused merge pushed past the check is read later as a promotion
-like any other.
 
 ### `conflicting-tag`
 
@@ -938,14 +872,43 @@ the unit, otherwise its current version. A tag is a record and never moves a
 version, and a release of the unit could meet this one. The finding names the
 tag, its commit and the commit the history gives that version, if any. There
 are two ways out: delete the tag if nobody published it, or raise
-`minimum-version` so that the unit's versions pass it, in the mode the unit is
-released in at `HEAD`. In two stages any value above the tag's version does. In
-one stage, which gives out no pre-release, a pre-release value is the error
-[`pre-release-minimum`](#pre-release-minimum): past a tag `X.Y.Z-pre.N` write
-`X.Y.Z` or higher, and past a tag `X.Y.Z` three numbers above it. The finding
-names the value that applies. A tag on exactly the commit to which the history
-gives its version is a faithful record, and one below the unit's version stays
-unnoticed (see [Records](#records)).
+`minimum-version` so that the unit's versions pass it: past a tag
+`X.Y.Z-pre.N` write `X.Y.Z` or higher, and past a tag `X.Y.Z` three numbers
+above it. The finding names the value that applies. A tag on exactly the
+commit to which the history gives its version is a faithful record, and one
+below the unit's version stays unnoticed (see [Records](#records)).
+
+### `unreleased-requirement`
+
+Error, on a pull request only. A unit the pull request gives a version
+publishes to a target on which packages require each other by version, a
+registry (`Dependencies by version` in [the register](register.md#publish-targets)),
+and its package requires by path, followed through further path dependencies,
+a unit the pull request does not touch whose current version has no record:
+no tag `<prefix>X.Y.Z` of that version exists. The registry would be asked for
+a version that was never released. The path dependencies followed are those
+the version writer `cargo` gives a version requirement, the dependencies of
+the package's tests included (see
+[`version-cargo`](../README.md#version-cargo)).
+
+The message names the package, the required unit, the version without a
+record, and the way out: touch the required unit in the same pull request,
+with a change below its path or a change of `.nebensound/repo.toml`, so that
+it gets a new version that is released with the merge. The release stage on
+`main` releases only the units a commit touches, so this is how what a release
+needs gets a release of its own.
+
+In steady state the finding does not come up: every commit that touches a unit
+raises its version and the release stage records it. It comes up for versions
+from before the release stage ran in a repository, and after a failed run on
+`main` that nobody repaired. A unit without a target of this kind is not held
+to it, since a tag and a GitHub Release need no record of what a package
+requires.
+
+The finding comes from `nebensound-repo version` with `--pull-request` (see
+[the phases](phases.md#version)): it fails the job `nebensound / Version`,
+not `nebensound / Declare`, and checks and builds still run. On `main` the
+merge has happened already, so nothing there is held to it.
 
 ### `unexcused-ignore`
 
@@ -960,7 +923,16 @@ nothing out of a check. A `.rs` file
 that rustfmt's `ignore` takes out is excused only by an entry that takes out its
 whole package (see
 [`partial-package-exclusion`](#partial-package-exclusion)); inside a package,
-`#[rustfmt::skip]` is the means.
+`#[rustfmt::skip]` is the means. A Python file that holds `# ruff: noqa`
+without rule codes takes itself out of Ruff's linter, which honours the line in
+`check-python` as well: give the file an `[[exclude]]` entry, or switch single
+rules off instead (`# ruff: noqa: <code>`). A file that the default list of
+Ruff's or Pyright's `exclude` leaves out, such as one below `node_modules`, is
+never reported. An `include` of Ruff or Pyright is reported where it leaves
+out a file the tool reads without it, never for its default. Ruff's
+`lint.exclude` and `format.exclude` take a file out of one step alone, which
+the message names; what a Ruff configuration takes over through `extend`
+counts as its own.
 [The README](../README.md#exclusions) lists the settings phase 0 reads.
 
 ### `unreadable-ignore-file`
@@ -1074,7 +1046,8 @@ sentence that names the file and the mistake, and fails:
 
 - the file is missing, or is not a regular file;
 - the TOML does not parse;
-- a key is unknown, a required one is missing, or a value has the wrong type;
+- a key is unknown (`release` among them: a unit has one way to a full
+  release), a required one is missing, or a value has the wrong type;
 - a name, path or pattern breaks the rules above, or a reason is blank;
 - `edition` is a whole number below 1, or names an edition this tool does not
   know, which says that a newer pipeline is needed. The edition is read before
@@ -1084,8 +1057,8 @@ sentence that names the file and the mistake, and fails:
   declaration one that cannot be read (see
   [How a version is resolved](#how-a-version-is-resolved));
 - `audience` is none of `"public"`, `"internal"` and `"customer"`;
-- `release` is neither `"single-stage"` nor `"two-stage"`, or
-  `minimum-version` is neither `X.Y.Z` nor `X.Y.Z-pre.N`;
+- `minimum-version` is not `X.Y.Z`, a pre-release part such as `-pre.1`
+  included;
 - an entry of `feat-types` is not letters only, is `feat` or `fix`, or stands
   twice;
 - an `[[exclude]]` entry names a pattern, or the same path stands twice under
@@ -1095,8 +1068,8 @@ sentence that names the file and the mistake, and fails:
 
 ## Trying it locally
 
-The same tool that runs phase 0 in the workflow runs on a checkout. From
-`tools/nebensound-repo/` in a checkout of this repository:
+The same tool that runs phase 0 in the workflow runs on a checkout. From the
+root of a checkout of this repository:
 
 ```sh
 cargo run --quiet -- -C <repository> check                 # the whole report
@@ -1107,4 +1080,4 @@ cargo run --quiet -- -C <repository> excluded-packages     # the Rust packages t
 cargo run --quiet -- -C <repository> setup                 # find or install the programs its checks call
 ```
 
-[The tool's README](../tools/nebensound-repo/README.md) describes every call.
+[The tool](tool.md) describes every call.

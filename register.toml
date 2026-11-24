@@ -1,0 +1,924 @@
+# The vocabulary: which version writers, checks, builds, targets and presets
+# exist, and what a check covers. Definitions, not statements about a
+# repository — what every repository declares anyway stands beside this in
+# defaults.toml.
+#
+# Compiled in so that no repository holds a version that can fall behind.
+# Adopting a change means raising the crate.
+
+# The version writers: each receives a unit's canonical .nebensound version as a
+# derived copy. How the copy is written is the knowledge of the building block
+# version-<name>, not of this file; an entry makes the name one a pipeline may
+# select, and says in words what it writes.
+
+[version.cargo]
+copy = "the package version in the unit's Cargo.toml, written through Cargo"
+
+[version.asciidoc]
+copy = "the :revnumber: attribute in the unit's AsciiDoc source document"
+
+# A check names the programs it calls; each stands under [program.*] below,
+# pinned.
+[check.markdown]
+extensions = [".md", ".markdown"]
+programs   = ["lychee", "markdownlint-cli2", "prettier"]
+
+[check.yaml]
+extensions = [".yml", ".yaml"]
+programs   = ["actionlint", "check-jsonschema", "prettier", "yamllint"]
+
+# Lockfiles are named, never covered by the extension `.lock`: the extension is
+# shared by formats that have nothing in common. composer.lock, flake.lock and
+# Pipfile.lock are JSON; Cargo.lock, uv.lock, poetry.lock and pdm.lock are
+# TOML; yarn.lock and Gemfile.lock are in formats of their own and stand on the
+# list of types nobody checks, in defaults.toml. Pipfile is TOML without an
+# extension and no lockfile, so it is linted and formatted like a .toml file.
+[check.json]
+extensions = [".json", ".jsonc", ".geojson"]
+filenames  = ["composer.lock", "flake.lock", "Pipfile.lock"]
+programs   = ["biome", "jq", "prettier"]
+
+[check.toml]
+extensions = [".toml"]
+filenames  = ["Cargo.lock", "uv.lock", "poetry.lock", "pdm.lock", "Pipfile"]
+programs   = ["taplo"]
+
+# The toolchain, rustfmt and Clippy are the ones the workspace pins in its
+# rust-toolchain.toml, and rustup provides them; only what comes on top is
+# pinned here: cargo-llvm-cov, and the nightly toolchain coverage is measured
+# on, pinned by date, since only there does `#[coverage(off)]` take effect.
+# The tool installs both toolchains through rustup.
+[check.rust]
+extensions         = [".rs"]
+programs           = ["cargo-llvm-cov"]
+coverage-toolchain = "nightly-2026-11-14"
+
+# uv installs the interpreter the project's .python-version names and the
+# project as its uv.lock pins it; pytest and its plugins come from that lock,
+# since they have to import the project's code. Only what comes on top is
+# pinned here.
+[check.python]
+extensions = [".py", ".pyi"]
+programs   = ["coverage", "pyright", "ruff", "uv"]
+
+[check.cpp]
+extensions = [".c", ".h", ".cpp", ".hpp", ".cc", ".hh", ".cxx", ".ino"]
+
+[check.javascript]
+extensions = [".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"]
+
+[check.php]
+extensions = [".php"]
+
+[check.r]
+extensions = [".r"]
+
+[check.shell]
+extensions = [".sh", ".bash"]
+
+[check.sql]
+extensions = [".sql"]
+
+[check.qml]
+extensions = [".qml"]
+
+[check.html]
+extensions = [".html", ".htm"]
+programs   = ["html-validate", "lychee", "prettier"]
+
+# `.scss` is linted with the SCSS counterpart of the standard configuration,
+# which the program entry of Stylelint brings along.
+[check.css]
+extensions = [".css", ".scss"]
+programs   = ["prettier", "stylelint"]
+
+[check.asciidoc]
+extensions = [".adoc", ".asciidoc"]
+
+[check.typst]
+extensions = [".typ"]
+
+# The one check that cannot work from extensions: a Dockerfile has none.
+[check.dockerfile]
+extensions = [".dockerfile"]
+filenames  = ["Dockerfile", "Containerfile"]
+programs   = ["dockerfmt", "hadolint"]
+
+# A build names the version writers it needs: what it produces carries the
+# version they write, and without them it would carry whatever version the
+# sources hold. A crate takes its version from Cargo.toml, so `cargo-package`
+# needs the writer `cargo`.
+[build.cargo-package]
+produces         = "crate"
+requires-version = ["cargo"]
+
+[build.cargo-release]
+produces = "executable"
+
+# The image is scanned for vulnerabilities before it is handed on, and the
+# scanner is pinned like any program a check calls. A build names the files it
+# reads below the unit's path and fails without: the image is built from
+# deploy/Dockerfile and from nothing else. It is built by a BuildKit of its own,
+# started from the image pinned under [image.buildkit].
+[build.docker]
+produces      = "container"
+requires-file = ["deploy/Dockerfile"]
+programs      = ["trivy"]
+images        = ["buildkit"]
+
+[build.platformio]
+produces = "firmware"
+
+[build.esphome]
+produces = "firmware"
+
+[build.asciidoctor]
+produces = "site"
+
+[build.typst]
+produces = "document"
+
+# A target is a registry when the packages published there require each other
+# by version (`dependencies-by-version`): the registry resolves a requirement
+# from the versions it holds. What a package published there requires by path,
+# and a pull request does not touch, must have a release already, or the pull
+# request fails with `unreleased-requirement`. The tool knows this from here,
+# never from a target's name.
+#
+# The organization's private crate registry. The register names no host: which
+# registry that is reaches the pipeline through organization-level settings,
+# not through this repository or a calling repository.
+[target.private-registry]
+accepts                 = ["crate"]
+dependencies-by-version = true
+
+# Publishing here cannot be taken back, so it is the one target that also
+# demands the language match.
+[target."crates.io"]
+accepts                 = ["crate"]
+requires-check          = "rust"
+dependencies-by-version = true
+
+[target.release-assets]
+accepts = ["executable", "firmware", "document"]
+
+[target.ghcr]
+accepts = ["container"]
+
+[target.pages]
+accepts = ["site"]
+
+[preset.none]
+check   = []
+publish = false
+
+# The workspace side, when it needs a pipeline of its own: it runs the check and
+# watches the lockfile, and has no product to build or publish. A workspace that
+# is the product itself takes the product preset instead.
+[preset.rust-workspace]
+check      = ["rust"]
+publish    = false
+dependabot = ["cargo"]
+
+# A workspace whose packages carry versions of their own has three boundaries:
+# the workspace is checked, the package is published, and Dependabot works where
+# resolution happens — so at the workspace again.
+
+# The package side: one independently released library package inside a
+# workspace. The name refers to the Cargo package and its release boundary.
+#
+# It carries a **version of its own**, and that is the reason for the split. A
+# version is a promise to the consumer; were it shared with its siblings, every
+# release would claim a change that did not happen — and every consuming
+# repository would get a Dependabot pull request for it. Whoever waves three
+# empty bumps through waves the fourth through as well.
+#
+# No check: the workspace runs it, and it is enough that *one* containing unit
+# runs it. No dependabot: resolution happens at the root.
+[preset.rust-library-package]
+version    = ["cargo"]
+check      = []
+build      = "cargo-package"
+publish    = ["private-registry"]
+dependabot = []
+
+[preset.rust-library-public-package]
+version    = ["cargo"]
+check      = []
+build      = "cargo-package"
+publish    = ["crates.io"]
+dependabot = []
+
+# The default for a library: the organization's private registry, and nothing
+# else.
+[preset.rust-library]
+version    = ["cargo"]
+check      = ["rust"]
+build      = "cargo-package"
+publish    = ["private-registry"]
+dependabot = ["cargo"]
+
+# The same library, published where it cannot be taken back. crates.io keeps a
+# yanked version readable forever, so this is a separate preset rather than an
+# extra target on the one above: publishing publicly is a decision someone
+# makes by name, not a list that grew by one entry.
+#
+# It does not also publish to the private registry. A crate that is on
+# crates.io is resolvable from there for everyone, and a second copy would only
+# raise the question which of the two is the real one.
+[preset.rust-library-public]
+version    = ["cargo"]
+check      = ["rust"]
+build      = "cargo-package"
+publish    = ["crates.io"]
+dependabot = ["cargo"]
+
+[preset.rust-binary]
+version    = ["cargo"]
+check      = ["rust"]
+build      = "cargo-release"
+publish    = ["release-assets"]
+dependabot = ["cargo"]
+
+# A service checks its Rust sources and its Dockerfiles. The docker build
+# produces the deployable container; the release binary the rust check builds is
+# no second artifact.
+[preset.rust-service]
+version    = ["cargo"]
+check      = ["rust", "dockerfile"]
+build      = "docker"
+publish    = ["ghcr"]
+dependabot = ["cargo", "docker"]
+
+[preset.python-service]
+check      = ["python", "dockerfile"]
+build      = "docker"
+publish    = ["ghcr"]
+dependabot = ["uv", "docker"]
+
+[preset.platformio-firmware]
+check      = ["cpp"]
+build      = "platformio"
+publish    = ["release-assets"]
+dependabot = []
+
+[preset.esphome-firmware]
+check      = ["yaml"]
+build      = "esphome"
+publish    = ["release-assets"]
+dependabot = []
+
+[preset.asciidoc-site]
+version    = ["asciidoc"]
+check      = ["asciidoc"]
+build      = "asciidoctor"
+publish    = ["pages"]
+dependabot = []
+
+[preset.typst-document]
+check      = ["typst"]
+build      = "typst"
+publish    = ["release-assets"]
+dependabot = []
+
+# The package ecosystems Dependabot can watch. `manifests` names the files one
+# is recognized by in the tree — that is what phase 0 measures a present
+# manifest against to see whether it is watched.
+#
+# Where a language has several package managers, each one stands here for
+# itself; which one holds is said by the pipeline. The presets name the one the
+# organization has chosen.
+
+# Cargo.lock, not Cargo.toml: Dependabot works on the directory where
+# resolution happens. In a workspace that is the root, and a member has nothing
+# of its own — counting its Cargo.toml as a manifest would mean taking every
+# package for an ecosystem of its own.
+#
+# The lockfile of a Cargo.toml is the Cargo.lock in the root of the workspace
+# its package belongs to; phase 0 warns when Git does not track it. Its name is
+# one a check above covers: what a lockfile is, is said there, and an ecosystem
+# that names another is refused.
+[ecosystem.cargo]
+package-ecosystem = "cargo"
+manifests         = ["Cargo.lock"]
+lockfile          = { manifest = "Cargo.toml", name = "Cargo.lock", stands = "cargo-workspace-root" }
+
+[ecosystem.uv]
+package-ecosystem = "uv"
+manifests         = ["uv.lock"]
+
+[ecosystem.pip]
+package-ecosystem = "pip"
+manifests         = ["requirements.txt"]
+
+[ecosystem.npm]
+package-ecosystem = "npm"
+manifests         = ["package-lock.json"]
+
+[ecosystem.docker]
+package-ecosystem = "docker"
+manifests         = ["Dockerfile", "Containerfile"]
+
+[ecosystem.github-actions]
+package-ecosystem = "github-actions"
+manifests         = []
+
+# The container images a build starts, each pinned by the digest the registry
+# states for its tag; it is pulled by that digest, so the tag only says which
+# version it is.
+
+# The digest Docker Hub states for moby/buildkit:v0.34.2.
+[image.buildkit]
+repository = "moby/buildkit"
+tag        = "v0.34.2"
+digest     = "sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe"
+
+# The programs the checks and builds call, each pinned to the version its
+# building block installs, and where that version comes from on each platform:
+# a build per operating system and architecture, or, for a program on a
+# runtime, its one package, which the runtime's installer puts in place. Every
+# download carries the digest its publisher states for it, in the release data
+# named beside it; a download with another digest is refused.
+# `nebensound-repo setup` reads this.
+#
+# A platform without an entry has no pinned build: there only the computer's
+# copy can be used. The default mode of `nebensound-repo setup` takes it from the
+# `PATH`; `nebensound-repo setup --pinned` fails for the program.
+#
+# A program on a runtime names the lowest version of the runtime it runs on
+# (`runtime-minimum`), as its package states it: `requires_python` on PyPI,
+# `engines.node` on npm. A runtime on the computer below it counts as missing.
+
+# actionlint_1.7.12_checksums.txt of the release; the same digests stand on
+# the release assets.
+[program.actionlint]
+version = "1.7.12"
+command = "actionlint"
+
+[program.actionlint.download.linux-x86_64]
+url        = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz"
+digest     = "sha256:8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+executable = "actionlint"
+
+[program.actionlint.download.linux-aarch64]
+url        = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_arm64.tar.gz"
+digest     = "sha256:325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6"
+executable = "actionlint"
+
+[program.actionlint.download.macos-x86_64]
+url        = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_darwin_amd64.tar.gz"
+digest     = "sha256:5b44c3bc2255115c9b69e30efc0fecdf498fdb63c5d58e17084fd5f16324c644"
+executable = "actionlint"
+
+[program.actionlint.download.macos-aarch64]
+url        = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_darwin_arm64.tar.gz"
+digest     = "sha256:aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f"
+executable = "actionlint"
+
+[program.actionlint.download.windows-x86_64]
+url        = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_windows_amd64.zip"
+digest     = "sha256:6e7241b51e6817ea6a047693d8e6fed13b31819c9a0dd6c5a726e1592d22f6e9"
+executable = "actionlint.exe"
+
+[program.actionlint.download.windows-aarch64]
+url        = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_windows_arm64.zip"
+digest     = "sha256:cadcf7ea4efe3a68728893813643cebe1185e5b1d4be5b96245f65c9a4d5ea41"
+executable = "actionlint.exe"
+
+# The native binary of @biomejs/biome, which npm installs as an optional
+# dependency for the platform; it needs no Node.js. The digests are the
+# `dist.integrity` the npm registry states for each package, in hexadecimal.
+[program.biome]
+version = "2.5.15"
+command = "biome"
+
+[program.biome.download.linux-x86_64]
+url        = "https://registry.npmjs.org/@biomejs/cli-linux-x64/-/cli-linux-x64-2.5.15.tgz"
+digest     = "sha512:c44e22116ff72ea9588fd185806ac5b05487e7574412951b61605f78ebf4abced69140f12b6a3f1e1ade49beea309a9c93bd1154ce8b83dea181e75c01870e90"
+executable = "package/biome"
+
+[program.biome.download.linux-aarch64]
+url        = "https://registry.npmjs.org/@biomejs/cli-linux-arm64/-/cli-linux-arm64-2.5.15.tgz"
+digest     = "sha512:5da1bb3fb79e48b6044c3dcaf60adf0749909a92d0663ca075bb317a45812408386a6efd7c602d4697d1c8d9d3bd70767d914d9c9646de75e6ec705ab74f9553"
+executable = "package/biome"
+
+[program.biome.download.macos-x86_64]
+url        = "https://registry.npmjs.org/@biomejs/cli-darwin-x64/-/cli-darwin-x64-2.5.15.tgz"
+digest     = "sha512:5792b0eb757e7d518d16116b8b30f131b19703364287c918cc9a72dc623a8136a958383b6d92bda180bd09b56041211d4e7ba9cf453911fcfc12ffb9bdd0415f"
+executable = "package/biome"
+
+[program.biome.download.macos-aarch64]
+url        = "https://registry.npmjs.org/@biomejs/cli-darwin-arm64/-/cli-darwin-arm64-2.5.15.tgz"
+digest     = "sha512:05957316127f994bd32cc61b73dc7a7a5d28d94bf9ccfedb0026328456fa7d2735822ae85e6ecf2f46b92aa309f45fbf0679184636a00ff44e48354e67a79aa6"
+executable = "package/biome"
+
+[program.biome.download.windows-x86_64]
+url        = "https://registry.npmjs.org/@biomejs/cli-win32-x64/-/cli-win32-x64-2.5.15.tgz"
+digest     = "sha512:c80ce1e14a8422657a1dccb4ce352a35f240b148680fae0505009d4c6f0c77f676c107953ff6662775d1600b3583c27d7e34c5ca5d9f0ad739141e6d8a5e3bfa"
+executable = "package/biome.exe"
+
+[program.biome.download.windows-aarch64]
+url        = "https://registry.npmjs.org/@biomejs/cli-win32-arm64/-/cli-win32-arm64-2.5.15.tgz"
+digest     = "sha512:da43cace13659bc0be46edc670ed0c7b638390204bad539436eca2f38449c960d5280038f8a8e3de33232fddfc945e8145fbe5b42e2f0769cf63d4af379d4ebe"
+executable = "package/biome.exe"
+
+# The digests GitHub states for the release assets. Called on its own, it
+# expects the subcommand first.
+[program.cargo-llvm-cov]
+version      = "0.9.0"
+command      = "cargo-llvm-cov"
+version-args = ["llvm-cov", "--version"]
+
+[program.cargo-llvm-cov.download.linux-x86_64]
+url        = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0/cargo-llvm-cov-x86_64-unknown-linux-gnu.tar.gz"
+digest     = "sha256:b068f7c98841aacb9c4f382b4a0c184ae82f49b56a32d442b429b2961c73be15"
+executable = "cargo-llvm-cov"
+
+[program.cargo-llvm-cov.download.linux-aarch64]
+url        = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0/cargo-llvm-cov-aarch64-unknown-linux-gnu.tar.gz"
+digest     = "sha256:9af53b273e50d01d8bde8785de8541f6738cc4375248cd7683aec8b5768b9d21"
+executable = "cargo-llvm-cov"
+
+[program.cargo-llvm-cov.download.macos-x86_64]
+url        = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0/cargo-llvm-cov-x86_64-apple-darwin.tar.gz"
+digest     = "sha256:4595bc9310b009913570514eb0ff7c3aba74902562578038f1700d611783fdc2"
+executable = "cargo-llvm-cov"
+
+[program.cargo-llvm-cov.download.macos-aarch64]
+url        = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0/cargo-llvm-cov-aarch64-apple-darwin.tar.gz"
+digest     = "sha256:1bbf5dc8ad82e0f6ff0eb923aa6a691c760adb60f797cdcb454e204b9399c4f0"
+executable = "cargo-llvm-cov"
+
+[program.cargo-llvm-cov.download.windows-x86_64]
+url        = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0/cargo-llvm-cov-x86_64-pc-windows-msvc.tar.gz"
+digest     = "sha256:49494b25effe07cc15d22b7f791cd874f8f789d96cdb4e395b06bfcdfa77f852"
+executable = "cargo-llvm-cov.exe"
+
+[program.cargo-llvm-cov.download.windows-aarch64]
+url        = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0/cargo-llvm-cov-aarch64-pc-windows-msvc.tar.gz"
+digest     = "sha256:da8f270851522e23e01285f99cae30d85050a215929697619ac17b73d20212db"
+executable = "cargo-llvm-cov.exe"
+
+# The digest PyPI states for the wheel; `requires_python` is ">=3.11".
+[program.check-jsonschema]
+version         = "0.39.0"
+command         = "check-jsonschema"
+runtime         = "python"
+runtime-minimum = "3.11.0"
+
+[program.check-jsonschema.download.any]
+url    = "https://files.pythonhosted.org/packages/06/e9/644e47c8b929f14cbda2b6779be047caa2098cc06f8bd7e04e8c62416cdc/check_jsonschema-0.39.0-py3-none-any.whl"
+digest = "sha256:14ce5c94871c551268ea948ffe21e9f1464dc48fb20bf9a4c13deeaaf756cf9b"
+
+# The digest PyPI states for the wheel that runs on every Python;
+# `requires_python` is ">=3.11". The python check fetches this wheel itself,
+# holds it to the digest and lays it over the project's environment, so the
+# project's Python has to be 3.11 or later.
+[program.coverage]
+version         = "7.17.4"
+command         = "coverage"
+runtime         = "python"
+runtime-minimum = "3.11.0"
+
+[program.coverage.download.any]
+url    = "https://files.pythonhosted.org/packages/fb/b5/3039295337fcda9dfcaf6d4d294246c4400587d8f4a23b29b001c5cea588/coverage-7.17.4-py3-none-any.whl"
+digest = "sha256:0f9547c30aeef70904ede391f4cb43d2ddd0a0d2d8fb4a96c75cc422f64afaac"
+
+# dockerfmt ships only MD5 files; these are the SHA-256 digests GitHub states
+# for the release assets, which match them. The Linux builds are the glibc ones
+# check-dockerfile installs. There is no build for Windows. It names its version
+# through a subcommand.
+[program.dockerfmt]
+version      = "1.0.0"
+command      = "dockerfmt"
+version-args = ["version"]
+
+[program.dockerfmt.download.linux-x86_64]
+url        = "https://github.com/reteps/dockerfmt/releases/download/v1.0.0/dockerfmt-v1.0.0-linux-amd64.tar.gz"
+digest     = "sha256:da0cd8bbb3f1b6cdbe0bc16d4e762ffb2351a69eb259d84a7ddc35bcf156e1f7"
+executable = "dockerfmt"
+
+[program.dockerfmt.download.linux-aarch64]
+url        = "https://github.com/reteps/dockerfmt/releases/download/v1.0.0/dockerfmt-v1.0.0-linux-arm64.tar.gz"
+digest     = "sha256:fb361d10597b998766c72db47c4a70350832860571bb772a8b8cfc780377b7c9"
+executable = "dockerfmt"
+
+[program.dockerfmt.download.macos-x86_64]
+url        = "https://github.com/reteps/dockerfmt/releases/download/v1.0.0/dockerfmt-v1.0.0-darwin-amd64.tar.gz"
+digest     = "sha256:a0d6dc8d1b9bbb65a54b4070a18c33396896b325639e7a4baf11fb90f2a7d972"
+executable = "dockerfmt"
+
+[program.dockerfmt.download.macos-aarch64]
+url        = "https://github.com/reteps/dockerfmt/releases/download/v1.0.0/dockerfmt-v1.0.0-darwin-arm64.tar.gz"
+digest     = "sha256:69239cf26188c206def08f2b9867da63af53336224f58faf05eb4df3562e5467"
+executable = "dockerfmt"
+
+# checksums.sha256 of the release; the same digests stand on the release
+# assets. Each build is the program itself, not an archive. There is no build
+# for Windows on ARM.
+[program.hadolint]
+version = "2.15.1"
+command = "hadolint"
+
+[program.hadolint.download.linux-x86_64]
+url        = "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64"
+digest     = "sha256:c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507"
+executable = "hadolint"
+
+[program.hadolint.download.linux-aarch64]
+url        = "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-arm64"
+digest     = "sha256:f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd3510aca35b344b5d"
+executable = "hadolint"
+
+[program.hadolint.download.macos-x86_64]
+url        = "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-macos-x86_64"
+digest     = "sha256:ffe9bb18b23d5ed1eae50237aecdbb523d016e96da0bd4e7aa432040acfc3fde"
+executable = "hadolint"
+
+[program.hadolint.download.macos-aarch64]
+url        = "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-macos-arm64"
+digest     = "sha256:5c09f3213f8e40406abe048233d985eebef336d4a6a20021be47fadb6cf480a2"
+executable = "hadolint"
+
+[program.hadolint.download.windows-x86_64]
+url        = "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-windows-x86_64.exe"
+digest     = "sha256:01d927294962b5387f9ead4f18679158452be4f17c765ad0bdffe5264b9c7b0a"
+executable = "hadolint.exe"
+
+# The npm registry's `dist.integrity`, in hexadecimal; `engines.node` is
+# "^22.22.0 || >= 24.8.0". It names its version as `html-validate-<version>`.
+[program.html-validate]
+version         = "11.21.1"
+command         = "html-validate"
+runtime         = "node"
+runtime-minimum = "22.22.0"
+
+[program.html-validate.download.any]
+url    = "https://registry.npmjs.org/html-validate/-/html-validate-11.21.1.tgz"
+digest = "sha512:c28a7dc164ad1fc860b0356fef34d93c5de2daa0152ded5e546ad2544ef603c41444ce849f5272b53b523138fb1f45118b669e482b97740ffea7ed036f032b31"
+
+# sha256sum.txt of the release; the same digests stand on the release assets.
+# It is the version the Linux runners bring, which phase 0 and the other
+# blocks still take from the runner image.
+[program.jq]
+version = "1.8.1"
+command = "jq"
+
+[program.jq.download.linux-x86_64]
+url        = "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-amd64"
+digest     = "sha256:020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d"
+executable = "jq"
+
+[program.jq.download.linux-aarch64]
+url        = "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-arm64"
+digest     = "sha256:6bc62f25981328edd3cfcfe6fe51b073f2d7e7710d7ef7fcdac28d4e384fc3d4"
+executable = "jq"
+
+[program.jq.download.macos-x86_64]
+url        = "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-macos-amd64"
+digest     = "sha256:e80dbe0d2a2597e3c11c404f03337b981d74b4a8504b70586c354b7697a7c27f"
+executable = "jq"
+
+[program.jq.download.macos-aarch64]
+url        = "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-macos-arm64"
+digest     = "sha256:a9fe3ea2f86dfc72f6728417521ec9067b343277152b114f4e98d8cb0e263603"
+executable = "jq"
+
+[program.jq.download.windows-x86_64]
+url        = "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-windows-amd64.exe"
+digest     = "sha256:23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334"
+executable = "jq.exe"
+
+# The `.sha256` files of the release; the same digests stand on the release
+# assets.
+[program.lychee]
+version = "0.24.2"
+command = "lychee"
+
+[program.lychee.download.linux-x86_64]
+url        = "https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-gnu.tar.gz"
+digest     = "sha256:1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a"
+executable = "lychee-x86_64-unknown-linux-gnu/lychee"
+
+[program.lychee.download.linux-aarch64]
+url        = "https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-aarch64-unknown-linux-gnu.tar.gz"
+digest     = "sha256:91a7bd65685da41b90ccb9bc867a3d649a7818042dae04ff405e55a25bddee4c"
+executable = "lychee-aarch64-unknown-linux-gnu/lychee"
+
+[program.lychee.download.macos-x86_64]
+url        = "https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-apple-darwin.tar.gz"
+digest     = "sha256:887503a9cff667d322b8d0892b40bf49976eb9507af8483220a3706cdad55978"
+executable = "lychee-x86_64-apple-darwin/lychee"
+
+[program.lychee.download.macos-aarch64]
+url        = "https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-aarch64-apple-darwin.tar.gz"
+digest     = "sha256:c9d3740ea2d891854d37116c9fba840f37b6e7c89d330e7db84ac333631c4977"
+executable = "lychee-aarch64-apple-darwin/lychee"
+
+[program.lychee.download.windows-x86_64]
+url        = "https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-pc-windows-msvc.zip"
+digest     = "sha256:32975d1493ee1a975d6bb41e4fb56fe419cb442ded628bb772ba2e614acfacad"
+executable = "lychee-x86_64-pc-windows-msvc/lychee.exe"
+
+# The npm registry's `dist.integrity`, in hexadecimal; `engines.node` is
+# ">=22". The package names its version in the first line of its help; it has
+# no flag for the version alone.
+[program.markdownlint-cli2]
+version         = "0.23.2"
+command         = "markdownlint-cli2"
+version-args    = ["--help"]
+runtime         = "node"
+runtime-minimum = "22.0.0"
+
+[program.markdownlint-cli2.download.any]
+url    = "https://registry.npmjs.org/markdownlint-cli2/-/markdownlint-cli2-0.23.2.tgz"
+digest = "sha512:79485c9e44a9cd4468fe8e21b52a9cecb3c3b3380e393927854e1e63fb0f1ef3022f19d3098b1cbf5830d7f8ecfe27666993e2b2ff4409510839172596a8d353"
+
+# The npm registry's `dist.integrity`, in hexadecimal; `engines.node` is
+# ">=14".
+[program.prettier]
+version         = "3.9.6"
+command         = "prettier"
+runtime         = "node"
+runtime-minimum = "14.0.0"
+
+[program.prettier.download.any]
+url    = "https://registry.npmjs.org/prettier/-/prettier-3.9.6.tgz"
+digest = "sha512:3a9374cf355d89a880871a6eba3e5e7e9212e2c63d8fb6d8eae4799a78f9c8fcc691d92334a4897944e13dbeb4270dbd42e019800e28fbf881e3d90589a057ea"
+
+# The npm registry's `dist.integrity`, in hexadecimal; `engines.node` is
+# ">=14". The package holds everything it runs.
+[program.pyright]
+version         = "1.1.414"
+command         = "pyright"
+runtime         = "node"
+runtime-minimum = "14.0.0"
+
+[program.pyright.download.any]
+url    = "https://registry.npmjs.org/pyright/-/pyright-1.1.414.tgz"
+digest = "sha512:14f6596f9d637a90d7e1e3fb4c460378d16d984dd683092411c269bc7dff426512b23d04032dcb5eefb10784ff1560de8edb179427c5affadb5858f0bb0b97c3"
+
+# The digests GitHub states for the release assets, the same as the `.sha256`
+# file beside each.
+[program.ruff]
+version = "0.17.6"
+command = "ruff"
+
+[program.ruff.download.linux-x86_64]
+url        = "https://github.com/astral-sh/ruff/releases/download/0.17.6/ruff-x86_64-unknown-linux-gnu.tar.gz"
+digest     = "sha256:94b33791f48cd54ab35ad673a443a5c001d3e6d87effeaba9899070b700d45f3"
+executable = "ruff-x86_64-unknown-linux-gnu/ruff"
+
+[program.ruff.download.linux-aarch64]
+url        = "https://github.com/astral-sh/ruff/releases/download/0.17.6/ruff-aarch64-unknown-linux-gnu.tar.gz"
+digest     = "sha256:d4eea36ee6228f6c6bbcf0aea4ebf66fe0e595eedc6cffe628d7b8ba3623390f"
+executable = "ruff-aarch64-unknown-linux-gnu/ruff"
+
+[program.ruff.download.macos-x86_64]
+url        = "https://github.com/astral-sh/ruff/releases/download/0.17.6/ruff-x86_64-apple-darwin.tar.gz"
+digest     = "sha256:5e554db9c2663e1b84911446cab0a9fd4aa6d9a14dc751a4869d2f92209dcb70"
+executable = "ruff-x86_64-apple-darwin/ruff"
+
+[program.ruff.download.macos-aarch64]
+url        = "https://github.com/astral-sh/ruff/releases/download/0.17.6/ruff-aarch64-apple-darwin.tar.gz"
+digest     = "sha256:72a886253072cd1bb6a5978a33a5a7add848ee315a8b0f1589f164a11c26328d"
+executable = "ruff-aarch64-apple-darwin/ruff"
+
+[program.ruff.download.windows-x86_64]
+url        = "https://github.com/astral-sh/ruff/releases/download/0.17.6/ruff-x86_64-pc-windows-msvc.zip"
+digest     = "sha256:00c5d5793d308e8575b16b7303527110dd49bd02d46db0a8668b0eefdca14c2e"
+executable = "ruff.exe"
+
+[program.ruff.download.windows-aarch64]
+url        = "https://github.com/astral-sh/ruff/releases/download/0.17.6/ruff-aarch64-pc-windows-msvc.zip"
+digest     = "sha256:fdb5146498cd30b7af288c8becab610a30aa7d300d899927347f49e99766dd85"
+executable = "ruff.exe"
+
+# The npm registry's `dist.integrity`, in hexadecimal; `engines.node` is
+# "^22.22.2 || ^24.15.0 || >=26.0.0". Its companions are no commands: the
+# configurations the pipeline's default extends, and the syntax it reads SCSS
+# with, installed beside it so that the default finds them, each with the
+# registry's digest as well.
+[program.stylelint]
+version         = "18.0.0"
+command         = "stylelint"
+runtime         = "node"
+runtime-minimum = "22.22.2"
+
+[program.stylelint.download.any]
+url    = "https://registry.npmjs.org/stylelint/-/stylelint-18.0.0.tgz"
+digest = "sha512:908d741ac1d742fb07fc072495565d420c03bb1b478be03e875523cddee1f4b0dfddee634222d09161653eda729d7dc4ea85561c6d70a3dbfa74bd0cafe9e748"
+
+[[program.stylelint.companion]]
+name    = "stylelint-config-standard"
+version = "41.0.0"
+url     = "https://registry.npmjs.org/stylelint-config-standard/-/stylelint-config-standard-41.0.0.tgz"
+digest  = "sha512:10922f30e30046278138b870db2ccdec1695162218d84c7c0a46d76a1c4fead4192b8d7e37c395528e7b52fc7d893afceb687eb61a83a031fbbd06deb61d6bca"
+
+[[program.stylelint.companion]]
+name    = "stylelint-config-standard-scss"
+version = "18.0.0"
+url     = "https://registry.npmjs.org/stylelint-config-standard-scss/-/stylelint-config-standard-scss-18.0.0.tgz"
+digest  = "sha512:7f33c62680c64cd86dcd875db8ac10845d541019ef069f7d811b3c6b6628fea1e73180603b261d1e2a8c0c1fa262d9843861ae1d0cc620bd3e31621998a51cae"
+
+[[program.stylelint.companion]]
+name    = "postcss-scss"
+version = "4.0.9"
+url     = "https://registry.npmjs.org/postcss-scss/-/postcss-scss-4.0.9.tgz"
+digest  = "sha512:02328e7a2c008ad2ff317c505b60e5893dbc10aba4bef6c45b1dcb06624844df0a7c11996d14f13585b4912aa2d423a24d9e7b9d9f4d5b4e92eaec7ffcdd5cf4"
+
+# Taplo publishes no digests, and GitHub states none for these assets, which
+# are older than its digests. The Linux ones are those check-toml has pinned
+# since it was written; the others were taken the same way, from the assets as
+# fetched once.
+[program.taplo]
+version = "0.10.0"
+command = "taplo"
+
+[program.taplo.download.linux-x86_64]
+url        = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-x86_64.gz"
+digest     = "sha256:8fe196b894ccf9072f98d4e1013a180306e17d244830b03986ee5e8eabeb6156"
+executable = "taplo"
+
+[program.taplo.download.linux-aarch64]
+url        = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-aarch64.gz"
+digest     = "sha256:033681d01eec8376c3fd38fa3703c79316f5e14bb013d859943b60a07bccdcc3"
+executable = "taplo"
+
+[program.taplo.download.macos-x86_64]
+url        = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-darwin-x86_64.gz"
+digest     = "sha256:898122cde3a0b1cd1cbc2d52d3624f23338218c91b5ddb71518236a4c2c10ef2"
+executable = "taplo"
+
+[program.taplo.download.macos-aarch64]
+url        = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-darwin-aarch64.gz"
+digest     = "sha256:713734314c3e71894b9e77513c5349835eefbd52908445a0d73b0c7dc469347d"
+executable = "taplo"
+
+[program.taplo.download.windows-x86_64]
+url        = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-windows-x86_64.gz"
+digest     = "sha256:550fdc955343f8a196447a05346ecf8827e391726e4ded577bb00a0a36cf220c"
+executable = "taplo.exe"
+
+[program.taplo.download.windows-aarch64]
+url        = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-windows-aarch64.gz"
+digest     = "sha256:c16a9a1248bdd746fde657b0196bfc47c8bede1e50ae73b7d9d33088a6682180"
+executable = "taplo.exe"
+
+# trivy_0.76.2_checksums.txt of the release; the same digests stand on the
+# release assets. There is no build for Windows on ARM.
+[program.trivy]
+version = "0.76.2"
+command = "trivy"
+
+[program.trivy.download.linux-x86_64]
+url        = "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz"
+digest     = "sha256:bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf"
+executable = "trivy"
+
+[program.trivy.download.linux-aarch64]
+url        = "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-ARM64.tar.gz"
+digest     = "sha256:ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3"
+executable = "trivy"
+
+[program.trivy.download.macos-x86_64]
+url        = "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_macOS-64bit.tar.gz"
+digest     = "sha256:e08bb9ea449ecf66c6bfb03cbb8697c503ff33d35fc585c9747e3eaeb7ed4c7b"
+executable = "trivy"
+
+[program.trivy.download.macos-aarch64]
+url        = "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_macOS-ARM64.tar.gz"
+digest     = "sha256:ae7ea358326960406b703c77b2ac490190797d80b306b5b50c2a27221da0a5b8"
+executable = "trivy"
+
+[program.trivy.download.windows-x86_64]
+url        = "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_windows-64bit.zip"
+digest     = "sha256:691f737a7e5566a673c3a74dab9160552ec32101e953b659e5c77443d16dddb6"
+executable = "trivy.exe"
+
+# The digests GitHub states for the release assets, the same as the `.sha256`
+# file beside each.
+[program.uv]
+version = "0.13.9"
+command = "uv"
+
+[program.uv.download.linux-x86_64]
+url        = "https://github.com/astral-sh/uv/releases/download/0.13.9/uv-x86_64-unknown-linux-gnu.tar.gz"
+digest     = "sha256:a7fbaff2b9a271d85c1bdb540941090fd1ce011797b4abeb48e4dcd39c2471d5"
+executable = "uv-x86_64-unknown-linux-gnu/uv"
+
+[program.uv.download.linux-aarch64]
+url        = "https://github.com/astral-sh/uv/releases/download/0.13.9/uv-aarch64-unknown-linux-gnu.tar.gz"
+digest     = "sha256:0797542018e541a9288855df555c8077eed06f7a47d206362030480e8ecc9f3d"
+executable = "uv-aarch64-unknown-linux-gnu/uv"
+
+[program.uv.download.macos-x86_64]
+url        = "https://github.com/astral-sh/uv/releases/download/0.13.9/uv-x86_64-apple-darwin.tar.gz"
+digest     = "sha256:617a3211261b0fc739562f0071aa34e9739797c510208ede8e2977c30903d041"
+executable = "uv-x86_64-apple-darwin/uv"
+
+[program.uv.download.macos-aarch64]
+url        = "https://github.com/astral-sh/uv/releases/download/0.13.9/uv-aarch64-apple-darwin.tar.gz"
+digest     = "sha256:5aeca67f2283f75235de40d0bd9c0a5bbc5fce23b6d48b3bf9fa1b2db08382ca"
+executable = "uv-aarch64-apple-darwin/uv"
+
+[program.uv.download.windows-x86_64]
+url        = "https://github.com/astral-sh/uv/releases/download/0.13.9/uv-x86_64-pc-windows-msvc.zip"
+digest     = "sha256:edd61f7f5728a56cc62455386661860bdfc7bab65872f39b0c25bdcc1d8e1beb"
+executable = "uv.exe"
+
+[program.uv.download.windows-aarch64]
+url        = "https://github.com/astral-sh/uv/releases/download/0.13.9/uv-aarch64-pc-windows-msvc.zip"
+digest     = "sha256:72eed595983a4d7d22d79f21065b0f4479cc7e5c7a89104bb410c8f47559a878"
+executable = "uv.exe"
+
+# The digest PyPI states for the wheel; `requires_python` is ">=3.10".
+[program.yamllint]
+version         = "1.38.0"
+command         = "yamllint"
+runtime         = "python"
+runtime-minimum = "3.10.0"
+
+[program.yamllint.download.any]
+url    = "https://files.pythonhosted.org/packages/05/92/aed08e68de6e6a3d7c2328ce7388072cd6affc26e2917197430b646aed02/yamllint-1.38.0-py3-none-any.whl"
+digest = "sha256:fc394a5b3be980a4062607b8fdddc0843f4fa394152b6da21722f5d59013c220"
+
+# The runtimes the programs above run on. One is installed only when it is
+# missing, or too old on the computer for a program above, and someone agrees;
+# a runtime on the computer that can run the programs is used as it is.
+
+# The newest Node.js 24, the major version the blocks set up; SHASUMS256.txt of
+# the release.
+[runtime.node]
+title     = "Node.js"
+version   = "24.22.3"
+commands  = ["node"]
+installer = "npm"
+
+[runtime.node.download.linux-x86_64]
+url        = "https://nodejs.org/dist/v24.22.3/node-v24.22.3-linux-x64.tar.gz"
+digest     = "sha256:061ec3e3062115705b56b51fa9cc330ab50d34b6969387d4e4b1a50c6809acc2"
+executable = "node-v24.22.3-linux-x64/bin/node"
+
+[runtime.node.download.linux-aarch64]
+url        = "https://nodejs.org/dist/v24.22.3/node-v24.22.3-linux-arm64.tar.gz"
+digest     = "sha256:261af2af250dfd7e9f25cf151d1b2713a0adf8f10a9ad116c4947f68627affe8"
+executable = "node-v24.22.3-linux-arm64/bin/node"
+
+[runtime.node.download.macos-x86_64]
+url        = "https://nodejs.org/dist/v24.22.3/node-v24.22.3-darwin-x64.tar.gz"
+digest     = "sha256:977614af0504c81045e7fd85596dbca0e5f951b96681516dadafedcca8c447f7"
+executable = "node-v24.22.3-darwin-x64/bin/node"
+
+[runtime.node.download.macos-aarch64]
+url        = "https://nodejs.org/dist/v24.22.3/node-v24.22.3-darwin-arm64.tar.gz"
+digest     = "sha256:ff6e17d4874b76d272212b908cc020d6e815fba5a6c7eaaa06add725840307fd"
+executable = "node-v24.22.3-darwin-arm64/bin/node"
+
+[runtime.node.download.windows-x86_64]
+url        = "https://nodejs.org/dist/v24.22.3/node-v24.22.3-win-x64.zip"
+digest     = "sha256:e612af99f626ab415ea225af6bce5c971feb448cb5cae250bb1c3fa50c5f7d9f"
+executable = "node-v24.22.3-win-x64/node.exe"
+
+[runtime.node.download.windows-aarch64]
+url        = "https://nodejs.org/dist/v24.22.3/node-v24.22.3-win-arm64.zip"
+digest     = "sha256:b3cc74a295b39d4f273271e96f58c06dd2b35757ca12abec64c7d0598b434f14"
+executable = "node-v24.22.3-win-arm64/node.exe"
+
+# CPython 3.14, the minor version the Linux runners bring, as the portable
+# builds of python-build-standalone; SHA256SUMS of the release.
+[runtime.python]
+title     = "Python"
+version   = "3.14.10"
+commands  = ["python3", "python"]
+installer = "pip"
+
+[runtime.python.download.linux-x86_64]
+url        = "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.14.10%2B20261110-x86_64-unknown-linux-gnu-install_only.tar.gz"
+digest     = "sha256:3fe0d7c0538eb5d190c34582992d26230532551355cbd789fabc6591621cfc07"
+executable = "python/bin/python3"
+
+[runtime.python.download.linux-aarch64]
+url        = "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.14.10%2B20261110-aarch64-unknown-linux-gnu-install_only.tar.gz"
+digest     = "sha256:e59f83159984a55e719bb3805a0b2b5b281f645769222218084b78b92eedc07f"
+executable = "python/bin/python3"
+
+[runtime.python.download.macos-x86_64]
+url        = "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.14.10%2B20261110-x86_64-apple-darwin-install_only.tar.gz"
+digest     = "sha256:f6c82fcf867b4aaadd373ac97699ad95fbb9c96f9ecf9b25775943aa5458b87f"
+executable = "python/bin/python3"
+
+[runtime.python.download.macos-aarch64]
+url        = "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.14.10%2B20261110-aarch64-apple-darwin-install_only.tar.gz"
+digest     = "sha256:42031ed5f0d38777335252c8c77d64708c8010dd67c128246bdec25000672666"
+executable = "python/bin/python3"
+
+[runtime.python.download.windows-x86_64]
+url        = "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.14.10%2B20261110-x86_64-pc-windows-msvc-install_only.tar.gz"
+digest     = "sha256:b9bee0a6f590914a495a8305701951e543b4475bb620d11661b49052b990456b"
+executable = "python/python.exe"
+
+[runtime.python.download.windows-aarch64]
+url        = "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.14.10%2B20261110-aarch64-pc-windows-msvc-install_only.tar.gz"
+digest     = "sha256:d1a855c3debb8c66e2ad684373f807d35ce9a2b5abf9241a846a8054d8ff2bdf"
+executable = "python/python.exe"

@@ -1,0 +1,4 @@
+# A page with a link to a file that is not there.
+[repo]
+audience = "public"
+pipeline = { check = ["html"] }

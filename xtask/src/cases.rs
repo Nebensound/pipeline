@@ -3,34 +3,96 @@
 //! A block's cases lie beside its `action.yml`: `tests/pass/<case>/` and
 //! `tests/fail/<case>/`. Each case is a small repository of its own, with its
 //! own `.nebensound/repo.toml`. To run one, the xtask copies it into a fresh
-//! Git repository and runs phase 0 on it the way `Declare` does. A check block
-//! then runs once for every unit the plan starts the block's check for, the
-//! way a unit job does, and gets the plan as well when it takes one. A version
-//! writer's block runs once with the plan, provided a unit of the plan selects
-//! the writer. A build block runs once for every unit the plan starts the
-//! build for and gives a version of the run, the way a build job does: after
-//! the blocks of the version writers the unit selects, each with the plan, and
-//! only when they passed; it gets the plan as well when it takes one. A
-//! passing case passes when the block succeeds everywhere. A failing case
-//! passes when the block fails and every line of its [`FINDING`] file matches
-//! a line the block printed.
+//! Git repository.
+//!
+//! Every block's work is carried out by the tool ([`FROM_THE_TOOL`]), so a
+//! case runs through the tool itself ([`direct`]), on every system: before the
+//! cases of a check or a build the programs the register names for it are set
+//! up ([`set_up`]), and for each case phase 0 runs with `nebensound-repo check`
+//! and `plan`, the way `Declare` does. Then a check runs `nebensound-repo run`
+//! once for every unit the plan starts the check for, as a workflow run calls
+//! it, with the plan when the block takes one. A version writer runs
+//! `nebensound-repo write-versions` once with the plan, provided a unit of the
+//! plan selects the writer. A build runs `nebensound-repo build` once for every
+//! unit the plan starts the build for and gives a version of the run, after the
+//! version writers the unit selects, each through the tool with the plan, and
+//! only when they passed. A passing case passes when every call succeeds. A
+//! failing case passes when one fails and every line of its [`FINDING`] file
+//! matches a line the tool printed. Either kind fails when a line the tool
+//! printed starts a command its [`FORBIDDEN`] file names.
+//!
+//! The lines are read the way the runner of GitHub Actions reads them
+//! ([`read`]): a line inside a stretch in which the tool stopped the
+//! processing of workflow commands starts none, so an annotation a case
+//! expects has to stand outside such a stretch, and a line a case forbids
+//! counts only outside one.
 
-use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use tempfile::TempDir;
 
 use crate::action::Action;
-use crate::runner::{Host, Job, Place};
-use crate::{Error, say};
+use crate::{Error, process, say};
+
+/// The blocks whose work the tool carries out: the checks `nebensound-repo
+/// run` carries out, the builds `nebensound-repo build` carries out and the
+/// version writer `nebensound-repo write-versions` is. Their steps set up the
+/// programs and call the tool, so nothing of their work is left in them: their
+/// cases run through the tool itself, on every system ([`direct`]). Today that
+/// is every block; the cases of a block not named here cannot run.
+pub const FROM_THE_TOOL: &[&str] = &[
+    "build-cargo-package",
+    "build-docker",
+    "check-css",
+    "check-dockerfile",
+    "check-html",
+    "check-json",
+    "check-markdown",
+    "check-python",
+    "check-rust",
+    "check-toml",
+    "check-yaml",
+    "version-cargo",
+];
+
+/// The call of the tool that writes the versions of a version writer whose
+/// block runs from the tool, without the plan it is handed.
+fn writer_call(writer: &str) -> Result<&'static [&'static str], Error> {
+    match writer {
+        "cargo" => Ok(&["write-versions"]),
+        other => Err(Error::new(format!(
+            "the tool writes no versions for the version writer `{other}`, so a build that selects \
+             it cannot run from the tool"
+        ))),
+    }
+}
+
+/// What a case is told when phase 0 fails on it.
+const PHASE0_FAILS: &str =
+    "phase 0 fails on the case, so the block never runs; a case has to pass phase 0";
 
 /// The file in a failing case that names the findings the block must report.
 /// It is not copied into the case's repository.
 ///
-/// Each line that is not empty and does not start with `#` must match a whole
-/// line the block printed, where `*` stands for any text.
+/// Each line that is not empty and is no comment (it starts with `#`, but not
+/// with `##[`) must match a whole line the block printed, where `*` stands for
+/// any text.
 pub const FINDING: &str = "expected-finding";
+
+/// The file in a case, passing or failing, that names commands no line the
+/// block prints may start, such as a workflow command that text from the
+/// case's repository would start. It is not copied into the case's
+/// repository either.
+///
+/// Each line that is no comment is a pattern, as in [`FINDING`], that no
+/// command the runner reads in a line outside a stopped stretch may match,
+/// taken from where the command starts ([`command`]): `::warning::x*` for the
+/// newer form, `##[warning]x*` for the older one.
+pub const FORBIDDEN: &str = "forbidden-line";
 
 /// Where the building blocks lie, from the repository root.
 pub const ACTIONS: &str = ".github/actions";
@@ -40,15 +102,6 @@ pub const ACTIONS: &str = ".github/actions";
 /// gate never sees them. Counting them would fail the layout locally where
 /// the gate passes.
 pub const LEFT_BEHIND: &[&str] = &[".DS_Store"];
-
-/// The steps of a block the xtask does not run, each with why: the block, the
-/// step's name and the reason. Each of them has to be a step of its block.
-pub const SKIPPED: &[(&str, &str, &str)] = &[(
-    "check-rust",
-    "Make room on the runner",
-    "it deletes software of the machine it runs on with sudo; on a developer's machine that \
-     software is theirs",
-)];
 
 /// What a case expects of its block.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -68,6 +121,9 @@ pub struct Case {
     pub dir: PathBuf,
     /// What it expects.
     pub expect: Expect,
+    /// The patterns of the commands the block must not start (see
+    /// [`FORBIDDEN`]); empty when it names none.
+    pub forbidden: Vec<String>,
 }
 
 impl Case {
@@ -88,7 +144,8 @@ impl Case {
 /// # Errors
 ///
 /// When an entry under `tests/pass/` or `tests/fail/` is no case: not a
-/// directory, a failing case without its findings, a passing case with some.
+/// directory, a failing case without its findings, a passing case with some,
+/// or a case whose [`FORBIDDEN`] file names no command.
 pub fn discover(block: &Path) -> Result<Vec<Case>, Error> {
     let mut cases = Vec::new();
     for (kind, failing) in [("pass", false), ("fail", true)] {
@@ -137,13 +194,7 @@ fn case(dir: PathBuf, failing: bool) -> Result<Case, Error> {
             )));
         }
         (true, finding) => {
-            let patterns: Vec<String> = finding
-                .unwrap_or_default()
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty() && !line.starts_with('#'))
-                .map(str::to_owned)
-                .collect();
+            let patterns = patterns(&finding.unwrap_or_default());
             if patterns.is_empty() {
                 return Err(Error::new(format!(
                     "the failing case {} names no finding: its {FINDING} has to name at least \
@@ -154,7 +205,171 @@ fn case(dir: PathBuf, failing: bool) -> Result<Case, Error> {
             Expect::Fail(patterns)
         }
     };
-    Ok(Case { name, dir, expect })
+    let forbidden = match fs::read_to_string(dir.join(FORBIDDEN)) {
+        Ok(text) => {
+            let forbidden = patterns(&text);
+            if forbidden.is_empty() {
+                return Err(Error::new(format!(
+                    "the case {} holds {FORBIDDEN}, and it names no command",
+                    dir.display()
+                )));
+            }
+            forbidden
+        }
+        Err(_) => Vec::new(),
+    };
+    Ok(Case {
+        name,
+        dir,
+        expect,
+        forbidden,
+    })
+}
+
+/// The patterns of a [`FINDING`] or [`FORBIDDEN`] file: every line that is not
+/// empty and is no comment, without white space at either end. A comment
+/// starts with `#`, but not with `##[`, which starts the older form of a
+/// workflow command.
+fn patterns(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && (!line.starts_with('#') || line.starts_with("##[")))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// How the runner of GitHub Actions takes a line of a step's log.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Read {
+    /// It stops or resumes the processing of workflow commands.
+    Switch,
+    /// It stands inside a stopped stretch and starts nothing.
+    Stopped,
+    /// It is read as it is: it may start a command.
+    Live,
+}
+
+/// The workflow commands the runner of GitHub Actions knows in every step,
+/// `stop-commands` among them. A name it does not know starts no command, and
+/// the runner compares names without regard to case.
+pub const COMMANDS: &[&str] = &[
+    "add-mask",
+    "add-matcher",
+    "add-path",
+    "debug",
+    "echo",
+    "endgroup",
+    "error",
+    "group",
+    "notice",
+    "remove-matcher",
+    "save-state",
+    "set-env",
+    "set-output",
+    "stop-commands",
+    "warning",
+];
+
+/// A command the runner reads in a line: its name, its data, and the line
+/// from where the command starts.
+struct Parsed<'l> {
+    name: &'l str,
+    data: &'l str,
+    text: &'l str,
+}
+
+/// The command the runner reads in a line when the names `known` accepts are
+/// commands, the way it parses one. First the newer form: past white space
+/// the line starts with `::`, another `::` follows, and the name runs to the
+/// first space before it. Only when that reads no known name, the older form:
+/// from the first `##[` in the line, a `]` follows, and the name runs to the
+/// first space before it.
+fn parse<'l>(line: &'l str, known: &dyn Fn(&str) -> bool) -> Option<Parsed<'l>> {
+    let newer = line.trim_start();
+    if let Some((info, data)) = newer
+        .strip_prefix("::")
+        .and_then(|rest| rest.split_once("::"))
+    {
+        let name = info.split(' ').next().unwrap_or_default();
+        if known(name) {
+            return Some(Parsed {
+                name,
+                data,
+                text: newer,
+            });
+        }
+    }
+    let older = &line[line.find("##[")?..];
+    let (info, data) = older[3..].split_once(']')?;
+    let name = info.split(' ').next().unwrap_or_default();
+    known(name).then_some(Parsed {
+        name,
+        data,
+        text: older,
+    })
+}
+
+/// Whether `name` is one of the [`COMMANDS`].
+fn known(name: &str) -> bool {
+    COMMANDS
+        .iter()
+        .any(|command| command.eq_ignore_ascii_case(name))
+}
+
+/// Every line of a log, with how the runner takes it.
+///
+/// A line that reads as the command `stop-commands` (see [`command`]) stops
+/// the processing of workflow commands, with its data as the token. While it
+/// is stopped, the token is a command name as well; a line that reads as that
+/// command resumes the processing, and every other line starts nothing.
+#[must_use]
+pub fn read(log: &[String]) -> Vec<(Read, &str)> {
+    let mut stopped: Option<String> = None;
+    log.iter()
+        .map(|line| {
+            let read = if let Some(token) = &stopped {
+                let is_token = |name: &str| name.eq_ignore_ascii_case(token);
+                let names = |name: &str| known(name) || is_token(name);
+                if parse(line, &names).is_some_and(|parsed| is_token(parsed.name)) {
+                    stopped = None;
+                    Read::Switch
+                } else {
+                    Read::Stopped
+                }
+            } else if let Some(parsed) = parse(line, &known)
+                .filter(|parsed| parsed.name.eq_ignore_ascii_case("stop-commands"))
+            {
+                stopped = Some(parsed.data.to_owned());
+                Read::Switch
+            } else {
+                Read::Live
+            };
+            (read, line.as_str())
+        })
+        .collect()
+}
+
+/// The command the runner reads in a line outside a stopped stretch, from
+/// where it starts; [`None`] when the line starts none. In the newer form it
+/// starts at the `::` the line starts with past white space, and in the older
+/// form, which the runner reads only when the newer one names no known
+/// command ([`COMMANDS`]), at the first `##[`. So a line read in the newer
+/// form is read in no other: `::error file=a##[warning]b::m` is the command
+/// `error`, and its `##[warning]` starts nothing.
+#[must_use]
+pub fn command(line: &str) -> Option<&str> {
+    parse(line, &known).map(|parsed| parsed.text)
+}
+
+/// What a log holds besides the lines that stop and resume the processing of
+/// workflow commands: every line as it was printed, in order.
+#[must_use]
+pub fn printed(log: &[String]) -> Vec<&str> {
+    read(log)
+        .into_iter()
+        .filter(|(read, _)| *read != Read::Switch)
+        .map(|(_, line)| line)
+        .collect()
 }
 
 /// Whether a line matches a pattern of a [`FINDING`] file: the whole line,
@@ -179,10 +394,39 @@ pub fn matches(pattern: &str, line: &str) -> bool {
     rest.ends_with(last)
 }
 
-/// Judges a run against what the case expects: nothing when it went as
-/// expected, else what went wrong.
+/// Judges a run against what the case expects and the commands it forbids
+/// (see [`FORBIDDEN`]): nothing when it went as expected, else what went
+/// wrong.
+///
+/// The log is read as the runner reads it ([`read`]). A pattern of a
+/// [`FINDING`] file that starts with `::` names an annotation, which has to
+/// stand outside a stopped stretch to take effect; any other pattern may match
+/// a line anywhere. A forbidden command counts only outside a stopped stretch.
 #[must_use]
-pub fn judge(expect: &Expect, success: bool, log: &[String]) -> Option<String> {
+pub fn judge(
+    expect: &Expect,
+    forbidden: &[String],
+    success: bool,
+    log: &[String],
+) -> Option<String> {
+    let read = read(log);
+    let started: Vec<String> = read
+        .iter()
+        .filter(|(read, _)| *read == Read::Live)
+        .filter_map(|(_, line)| command(line))
+        .filter_map(|command| {
+            forbidden
+                .iter()
+                .find(|pattern| matches(pattern, command))
+                .map(|pattern| format!("`{command}` (`{pattern}`)"))
+        })
+        .collect();
+    if !started.is_empty() {
+        return Some(format!(
+            "the block starts a command the case forbids: {}",
+            started.join(", ")
+        ));
+    }
     match expect {
         Expect::Pass if success => None,
         Expect::Pass => Some("the block fails on a case that is meant to pass".to_owned()),
@@ -193,7 +437,16 @@ pub fn judge(expect: &Expect, success: bool, log: &[String]) -> Option<String> {
         Expect::Fail(patterns) => {
             let missing: Vec<&str> = patterns
                 .iter()
-                .filter(|pattern| !log.iter().any(|line| matches(pattern, line)))
+                .filter(|pattern| {
+                    !read.iter().any(|(read, line)| {
+                        let counts = match read {
+                            Read::Live => true,
+                            Read::Stopped => !pattern.starts_with("::"),
+                            Read::Switch => false,
+                        };
+                        counts && matches(pattern, line)
+                    })
+                })
                 .map(String::as_str)
                 .collect();
             if missing.is_empty() {
@@ -316,146 +569,195 @@ enum Kind<'a> {
     Build(&'a str),
 }
 
-/// One run of a block: the version writers that run before it, each with the
-/// plan, and the inputs it gets.
-struct Call {
-    writers: Vec<String>,
-    inputs: BTreeMap<String, String>,
+/// What a block is, by the category in front of its name.
+fn kind(block: &str) -> Result<Kind<'_>, Error> {
+    if let Some(check) = block.strip_prefix("check-") {
+        Ok(Kind::Check(check))
+    } else if let Some(writer) = block.strip_prefix("version-") {
+        Ok(Kind::Version(writer))
+    } else if let Some(build) = block.strip_prefix("build-") {
+        Ok(Kind::Build(build))
+    } else {
+        Err(Error::new(format!(
+            "`{block}` is no check, version writer or build, and the xtask runs the cases of \
+             those only"
+        )))
+    }
 }
 
-/// Where one case runs.
+/// Where the cases of a block that runs from the tool run.
 #[derive(Clone, Copy, Debug)]
-pub struct Bench<'a> {
-    /// The machine.
-    pub host: &'a Host,
-    /// What the job holds before the case: the tool on the PATH.
-    pub job: &'a Job,
+pub struct Direct<'a> {
+    /// The tool of this commit.
+    pub tool: &'a Path,
     /// The root of this repository, where the blocks lie.
     pub root: &'a Path,
+    /// The environment every call of the tool starts from (see
+    /// [`process::environment`]).
+    pub env: &'a [(OsString, OsString)],
+    /// The git that makes the repository of a case.
+    pub git: &'a OsString,
     /// Where each case gets a directory of its own.
     pub scratch: &'a Path,
+    /// Whether [`set_up`] may install a runtime that is missing or too old,
+    /// with `--with-runtimes`: in a run on GitHub Actions only ([`on_github`]),
+    /// never on a developer's computer.
+    pub with_runtimes: bool,
 }
 
-/// Runs the block `block` against one case: nothing when it went as expected,
-/// else what went wrong. Everything the run prints is folded into a group.
+/// Whether the environment `env` is that of a run on GitHub Actions, which
+/// sets `GITHUB_ACTIONS` to `true` for every step.
+#[must_use]
+pub fn on_github(env: &[(OsString, OsString)]) -> bool {
+    env.iter()
+        .any(|(name, value)| name == "GITHUB_ACTIONS" && value == "true")
+}
+
+/// Sets up the programs of the check or build of the block `block`, whose
+/// work the tool carries out, before its cases run: `nebensound-repo setup
+/// --pinned <name>` on the repository at `root`, the call a block that needs
+/// programs makes first. It installs the pinned version of every program the
+/// register names for the check or build where it is missing; for a build
+/// that calls none, such as `cargo-package`, it installs nothing. So the cases
+/// do not depend on which blocks ran before them.
+///
+/// A runtime one of those programs needs is the computer's when it is new
+/// enough. On a developer's computer the call goes without `--with-runtimes`,
+/// so no runtime is installed unless someone agrees. In a run on GitHub
+/// Actions ([`Direct::with_runtimes`]) it goes with `--with-runtimes`, as the
+/// block's call does, so that a runtime the runner image lacks or carries too
+/// old is installed in the version the register pins, and the cases do not
+/// depend on the image. Nothing when it went well, else what went wrong. What
+/// the tool prints is folded into a group.
+pub fn set_up(bench: Direct<'_>, root: &Path, block: &str, out: &mut dyn Write) -> Option<String> {
+    // A version writer calls no program of the register: what it runs is the
+    // tool alone.
+    let name = block
+        .strip_prefix("check-")
+        .or_else(|| block.strip_prefix("build-"))?;
+    say(out, &format!("::group::{block}, the programs it calls\n"));
+    let args: &[&str] = if bench.with_runtimes {
+        &["setup", "--pinned", "--with-runtimes", name]
+    } else {
+        &["setup", "--pinned", name]
+    };
+    let done = tool(bench, (root, bench.scratch), args, out);
+    say(out, "::endgroup::\n");
+    match done {
+        Ok((true, _)) => None,
+        Ok((false, _)) => Some(format!(
+            "`nebensound-repo {}` failed, so its cases run with the programs that are there",
+            args.join(" ")
+        )),
+        Err(error) => Some(format!("the programs it calls cannot be set up: {error}")),
+    }
+}
+
+/// Runs the case of the block `block`, whose work the tool carries out,
+/// through the tool: nothing when it went as expected, else what went wrong.
+/// Everything the run prints is folded into a group.
+///
+/// Phase 0 runs as `Declare` runs it on GitHub, with the name, default branch
+/// and visibility a case declares for: `check`, and `plan` for the units.
+/// Then the tool does what the block's step calls it for, as a workflow run
+/// calls it, so that the findings are annotations: `run` checks every unit
+/// the plan starts the check for; `write-versions` writes the versions of the
+/// plan; `build` builds every unit the plan starts the build for, after the
+/// version writers it selects. A check or build block that takes the plan
+/// gets it with `--plan`, as its step in `nebensound.yml` hands it to the
+/// block; a version writer always does. The tool gets it in a file beside the
+/// case. What the tool prints is shown with `    | ` in front, as a step's
+/// output is.
 ///
 /// # Errors
 ///
 /// When the case cannot be run at all.
-pub fn run(
-    bench: Bench<'_>,
+pub fn direct(
+    bench: Direct<'_>,
     block: &str,
     case: &Case,
     out: &mut dyn Write,
 ) -> Result<Option<String>, Error> {
     say(out, &format!("::group::{block}, {}\n", case.label()));
-    let verdict = attempt(bench, block, case, out);
+    let verdict = through_the_tool(bench, block, case, out);
     say(out, "::endgroup::\n");
     verdict
 }
 
-fn attempt(
-    bench: Bench<'_>,
+fn through_the_tool(
+    bench: Direct<'_>,
     block: &str,
     case: &Case,
     out: &mut dyn Write,
 ) -> Result<Option<String>, Error> {
-    let kind = if let Some(check) = block.strip_prefix("check-") {
-        Kind::Check(check)
-    } else if let Some(writer) = block.strip_prefix("version-") {
-        Kind::Version(writer)
-    } else if let Some(build) = block.strip_prefix("build-") {
-        Kind::Build(build)
-    } else {
-        return Err(Error::new(format!(
-            "`{block}` is no check, version writer or build, and the xtask runs the cases of \
-             those only"
-        )));
-    };
-    let temp = tempfile::tempdir_in(bench.scratch).map_err(|error| {
+    let kind = kind(block)?;
+    let planned = Action::load(&bench.root.join(ACTIONS).join(block))?.takes("plan");
+    let (temp, workspace) = fresh(bench.scratch, bench.git, case)?;
+    let runner = temp.path().join("runner");
+    let phase0 = [
+        "check",
+        "--name=case",
+        "--default-branch=main",
+        "--visibility=public",
+    ];
+    if !tool(bench, (&workspace, &runner), &phase0, out)?.0 {
+        return Ok(Some(PHASE0_FAILS.to_owned()));
+    }
+    // The tool writes the plan as text, which in a workflow run stands in a
+    // stopped stretch: the plan is what it printed, without the lines that
+    // stop and resume the processing.
+    let plan = printed(&tool(bench, (&workspace, &runner), &["plan"], out)?.1).join("\n");
+    let file = temp.path().join("plan.json");
+    fs::write(&file, &plan).map_err(|error| {
         Error::new(format!(
-            "cannot make a directory for the case in {}: {error}",
-            bench.scratch.display()
+            "cannot write the plan to {}: {error}",
+            file.display()
         ))
     })?;
-    let workspace = temp.path().join("workspace");
-    let runner = temp.path().join("runner");
-    prepare(bench.host, &case.dir, &workspace, &runner)?;
-    let place = Place {
-        workspace: &workspace,
-        temp: &runner,
-    };
-    let mut job = bench.job.clone();
-
-    let phase0 = bench.host.run(
-        &mut job,
-        &bench.root.join(ACTIONS).join("phase0"),
-        &BTreeMap::new(),
-        place,
-        &[],
-        out,
-    )?;
-    if !phase0.success {
-        return Ok(Some(
-            "phase 0 fails on the case, so the block never runs; a case has to pass phase 0"
-                .to_owned(),
-        ));
-    }
-    let plan = phase0.outputs.get("plan").cloned().unwrap_or_default();
-    let dir = bench.root.join(ACTIONS).join(block);
-    let calls = match calls(&kind, &plan, &dir)? {
-        Ok(calls) => calls,
+    let with_plan = ["--plan".to_owned(), file.to_string_lossy().into_owned()];
+    let runs = match tool_runs(&kind, &plan, planned, &with_plan)? {
+        Ok(runs) => runs,
         Err(never) => return Ok(Some(never)),
     };
-
-    let skip: Vec<&str> = SKIPPED
-        .iter()
-        .filter(|(name, _, _)| *name == block)
-        .map(|(_, step, _)| *step)
-        .collect();
     let mut success = true;
     let mut log = Vec::new();
-    let mut runs = |dir: &Path, inputs: &BTreeMap<String, String>, skip: &[&str]| {
-        let outcome = bench.host.run(&mut job, dir, inputs, place, skip, out)?;
-        log.extend(outcome.log);
-        Ok::<bool, Error>(outcome.success)
-    };
-    for call in calls {
-        // The writers first, each with the plan; the block only when every
+    for (writers, call) in runs {
+        // The writers first, each with the plan; the call only when every
         // one of them passed, as a build step after a step that failed is
         // skipped.
         let mut written = true;
-        for writer in &call.writers {
-            let writer = bench.root.join(ACTIONS).join(format!("version-{writer}"));
-            let inputs = BTreeMap::from([("plan".to_owned(), plan.clone())]);
-            written &= runs(&writer, &inputs, &[])?;
+        for writer in &writers {
+            let mut args: Vec<&str> = writer_call(writer)?.to_vec();
+            args.extend(with_plan.iter().map(String::as_str));
+            let (passed, lines) = tool(bench, (&workspace, &runner), &args, out)?;
+            written &= passed;
+            log.extend(lines);
         }
-        success &= written && runs(&dir, &call.inputs, &skip)?;
+        if !written {
+            success = false;
+            continue;
+        }
+        let args: Vec<&str> = call.iter().map(String::as_str).collect();
+        let (passed, lines) = tool(bench, (&workspace, &runner), &args, out)?;
+        success &= passed;
+        log.extend(lines);
     }
-    Ok(judge(&case.expect, success, &log))
+    Ok(judge(&case.expect, &case.forbidden, success, &log))
 }
 
-/// The runs of a block of `kind` in `dir` the plan of phase 0 asks for, or
-/// why the block never runs.
-fn calls(kind: &Kind<'_>, plan: &str, dir: &Path) -> Result<Result<Vec<Call>, String>, Error> {
-    let alone = |inputs| Call {
-        writers: Vec::new(),
-        inputs,
-    };
-    // A check or build block gets the plan beside the unit's path when it
-    // takes one, as its step in nebensound.yml hands it over; the layout check
-    // holds the step to exactly that.
-    let planned = match kind {
-        Kind::Version(_) => false,
-        Kind::Check(_) | Kind::Build(_) => Action::load(dir)?.takes("plan"),
-    };
-    let unit = |path: String| {
-        let mut inputs = BTreeMap::from([("working-directory".to_owned(), path)]);
-        if planned {
-            inputs.insert("plan".to_owned(), plan.to_owned());
-        }
-        inputs
-    };
+/// One run of the tool for a case: the version writers before it, then the
+/// arguments of the call itself.
+type ToolRun = (Vec<String>, Vec<String>);
+
+/// The runs of the tool a block of `kind` asks for on the plan of phase 0,
+/// each with the version writers before it and the call itself, or why the
+/// block never runs. `with_plan` hands the tool the plan.
+fn tool_runs(
+    kind: &Kind<'_>,
+    plan: &str,
+    planned: bool,
+    with_plan: &[String],
+) -> Result<Result<Vec<ToolRun>, String>, Error> {
     Ok(Ok(match *kind {
         Kind::Check(check) => {
             let units = units(plan, check)?;
@@ -464,7 +766,19 @@ fn calls(kind: &Kind<'_>, plan: &str, dir: &Path) -> Result<Result<Vec<Call>, St
                     "no unit of the case starts the check `{check}`, so the block never runs"
                 )));
             }
-            units.into_iter().map(|path| alone(unit(path))).collect()
+            let mut call = vec!["run".to_owned()];
+            if planned {
+                call.extend(with_plan.iter().cloned());
+            }
+            call.extend([check.to_owned(), "--".to_owned()]);
+            units
+                .into_iter()
+                .map(|unit| {
+                    let mut args = call.clone();
+                    args.push(unit);
+                    (Vec::new(), args)
+                })
+                .collect()
         }
         Kind::Version(writer) => {
             if writers(plan, writer)?.is_empty() {
@@ -473,10 +787,12 @@ fn calls(kind: &Kind<'_>, plan: &str, dir: &Path) -> Result<Result<Vec<Call>, St
                      never runs"
                 )));
             }
-            vec![alone(BTreeMap::from([(
-                "plan".to_owned(),
-                plan.to_owned(),
-            )]))]
+            let mut args: Vec<String> = writer_call(writer)?
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect();
+            args.extend(with_plan.iter().cloned());
+            vec![(Vec::new(), args)]
         }
         Kind::Build(build) => {
             let units = builds(plan, build)?;
@@ -486,25 +802,73 @@ fn calls(kind: &Kind<'_>, plan: &str, dir: &Path) -> Result<Result<Vec<Call>, St
                      the block never runs"
                 )));
             }
+            let mut call = vec!["build".to_owned()];
+            if planned {
+                call.extend(with_plan.iter().cloned());
+            }
+            call.extend([build.to_owned(), "--".to_owned()]);
             units
                 .into_iter()
-                .map(|built| Call {
-                    writers: built.writers,
-                    inputs: unit(built.path),
+                .map(|built| {
+                    let mut args = call.clone();
+                    args.push(built.path);
+                    (built.writers, args)
                 })
                 .collect()
         }
     }))
 }
 
+/// One call of the tool on the repository `workspace`, in the environment of
+/// a workflow run whose temporary folder (`RUNNER_TEMP`) is `temp`, the
+/// case's own, so that what a build leaves there for the step after it goes
+/// with the case: whether it succeeded, and every line it printed.
+fn tool(
+    bench: Direct<'_>,
+    (workspace, temp): (&Path, &Path),
+    args: &[&str],
+    out: &mut dyn Write,
+) -> Result<(bool, Vec<String>), Error> {
+    say(out, &format!("  > nebensound-repo {}\n", args.join(" ")));
+    let mut command = Command::new(bench.tool);
+    command
+        .arg("-C")
+        .arg(workspace)
+        .args(args)
+        .env_clear()
+        .envs(bench.env.iter().map(|(name, value)| (name, value)))
+        .env("CI", "true")
+        .env("GITHUB_ACTIONS", "true")
+        .env("RUNNER_TEMP", temp)
+        .current_dir(workspace);
+    process::stream(command, out)
+}
+
+/// A directory of its own for a case, in `scratch`, and in it the case as a
+/// fresh Git repository, with everything but its [`FINDING`] and
+/// [`FORBIDDEN`] committed, and the directory the tool takes for
+/// `RUNNER_TEMP`. The directory goes when what is returned is dropped.
+fn fresh(scratch: &Path, git: &OsString, case: &Case) -> Result<(TempDir, PathBuf), Error> {
+    let temp = tempfile::tempdir_in(scratch).map_err(|error| {
+        Error::new(format!(
+            "cannot make a directory for the case in {}: {error}",
+            scratch.display()
+        ))
+    })?;
+    let workspace = temp.path().join("workspace");
+    prepare(git, &case.dir, &workspace, &temp.path().join("runner"))?;
+    Ok((temp, workspace))
+}
+
 /// Copies a case into a fresh Git repository, with everything but its
-/// [`FINDING`] committed, and makes the directory its steps write to.
-fn prepare(host: &Host, case: &Path, workspace: &Path, runner: &Path) -> Result<(), Error> {
+/// [`FINDING`] and [`FORBIDDEN`] committed, and makes the directory the tool
+/// takes for `RUNNER_TEMP`.
+fn prepare(git: &OsString, case: &Path, workspace: &Path, runner: &Path) -> Result<(), Error> {
     let os = |text: &str| OsString::from(text);
     let git = |args: &[&str]| {
         let mut all = vec![os("-C"), workspace.into()];
         all.extend(args.iter().map(|arg| os(arg)));
-        (host.git.clone(), all)
+        (git.clone(), all)
     };
     let steps = [
         (os("mkdir"), vec![os("-p"), workspace.into(), runner.into()]),
@@ -513,7 +877,14 @@ fn prepare(host: &Host, case: &Path, workspace: &Path, runner: &Path) -> Result<
             vec![os("-R"), case.join(".").into(), workspace.into()],
         ),
         git(&["-c", "init.defaultBranch=main", "init", "--quiet"]),
-        git(&["add", "--all", "--", ".", &format!(":(exclude){FINDING}")]),
+        git(&[
+            "add",
+            "--all",
+            "--",
+            ".",
+            &format!(":(exclude){FINDING}"),
+            &format!(":(exclude){FORBIDDEN}"),
+        ]),
         git(&[
             "-c",
             "user.name=xtask",

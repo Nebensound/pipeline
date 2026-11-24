@@ -3,14 +3,29 @@ description: >-
   Puts the tool `nebensound-repo` on the PATH of the calling job: restored from
   the cache when this exact tool was built before, built from source otherwise.
 
-# No inputs. The tool comes from the same commit as this file. GitHub fetches
-# the whole repository when it resolves an action, so the source lies three
-# levels up and needs no credentials.
+# The tool comes from the same commit as this file. GitHub fetches the whole
+# repository when it resolves an action, so the source lies three levels up, at
+# the root, where the tool's package is, and needs no credentials.
 #
 # Phase 0 fills the cache, so a later job of the same run finds it there and
 # builds nothing: `Declare` runs phase 0 with it, and every unit job asks it
 # which files a check covers. A job builds the tool itself only when the cache
 # misses.
+#
+# A job that holds a token that can write builds it itself, always, and leaves
+# the cache alone: every job of a branch may write the cache, a job that runs
+# code of the repository among them, and nothing such a job could have left
+# there is to run with that token.
+
+inputs:
+  cache:
+    description: >-
+      Whether the tool may come from the cache and its build go into it.
+      "false" for a job that holds a token that can write: it then builds the
+      tool from source, and the cache is neither read nor written. Only "true"
+      lets the cache in, so any other value builds from source as well.
+    required: false
+    default: "true"
 
 outputs:
   path:
@@ -20,17 +35,25 @@ outputs:
 runs:
   using: composite
   steps:
-    # The key is the content of the tool, not a version: the tool carries none,
-    # and two commits that leave it untouched share one build.
+    # The key is the content of the tool, not a version: a build from source
+    # carries none, and two commits that leave the tool untouched share one
+    # build. The tool's package is the root of the repository, so the content
+    # is everything there but the folders the build never reads: the building
+    # blocks and the workflows, the documents, the tests, the xtask's code and
+    # Cargo's output. A file that is not one of these counts, so that nothing
+    # the build reads can be left out of the key.
     - name: Identify the tool
       id: tool
       shell: bash
       run: |
         set -euo pipefail
-        source_dir="$(cd "$GITHUB_ACTION_PATH/../../../tools/nebensound-repo" && pwd)"
+        source_dir="$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)"
         fingerprint="$(
           cd "$source_dir"
-          find . -type f -not -path './target/*' -print0 \
+          find . \
+            \( -path ./.git -o -path ./.github -o -path ./docs -o -path ./tests \
+            -o -path ./xtask/src -o -path ./xtask/tests -o -path ./target \) -prune \
+            -o -type f -print0 \
             | LC_ALL=C sort -z \
             | xargs -0 sha256sum \
             | sha256sum \
@@ -44,6 +67,7 @@ runs:
 
     - name: Look for a build of exactly this tool
       id: cache
+      if: inputs.cache == 'true'
       uses: actions/cache/restore@v6
       with:
         path: ${{ steps.tool.outputs.home }}
@@ -52,7 +76,8 @@ runs:
     # With the default features alone, which make the program: the interface
     # is not among them, and a log needs no terminal library. The toolchain is
     # the one the tool pins, taken from its own rust-toolchain.toml rather than
-    # repeated here.
+    # repeated here. The tool is the workspace's one default member, so the
+    # xtask is not built with it.
     - name: Build the tool
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
@@ -69,7 +94,7 @@ runs:
     # Several unit jobs can miss at once; the first to finish keeps its build,
     # and the others are told the key is taken, which fails nothing.
     - name: Keep the build for the next job
-      if: steps.cache.outputs.cache-hit != 'true'
+      if: inputs.cache == 'true' && steps.cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v6
       with:
         path: ${{ steps.tool.outputs.home }}

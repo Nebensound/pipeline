@@ -1,0 +1,4 @@
+# A page without a description.
+[repo]
+audience = "public"
+pipeline = { check = ["html"] }

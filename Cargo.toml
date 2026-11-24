@@ -1,0 +1,220 @@
+# The tool `nebensound-repo`: what reads, resolves and checks a repository's
+# `.nebensound/repo.toml`, for the tasks of that repository. It is the package
+# at the root of the repository, so that the repository unit is the tool: the
+# version writer cargo writes the repository's version into this manifest, and
+# the program carries the version of the pipeline it belongs to.
+#
+# One package, a library and the program: one name, one version. What builds on
+# it as a library switches the default features off and gets neither the
+# downloads of `setup` nor the JSON Schema.
+#
+# No manifest carries a `version`: versions come from the history.
+
+# One workspace, one lockfile: the tool and the xtask of this repository. A
+# Cargo command at the root without `--package` or `--workspace` builds the
+# tool alone. The test cases of the building blocks are Cargo projects of their
+# own, each judged as a repository of its own; everything below
+# `.github/actions` stays out of this workspace, so that Cargo, run inside a
+# case, finds the case and not this workspace.
+[workspace]
+members         = ["xtask"]
+default-members = ["."]
+exclude         = [".github/actions"]
+
+[package]
+name         = "nebensound-repo"
+description  = "Reads a repository, runs phase 0 on it and shows the result."
+edition      = "2024"
+rust-version = "1.98"
+license      = "EUPL-1.2"
+repository   = "https://github.com/Nebensound/pipeline"
+readme       = "docs/tool.md"
+
+# Not published. Whoever needs the tool gets it through the composite action; a
+# second distribution channel would be a second version that can fall behind.
+publish = false
+
+# The crate `cargo package` builds holds the tool and nothing else of the
+# repository: the files the program is built from and its tests. It leaves out
+# the tests that hold this repository's documents in line with the tool: they
+# read files outside the package (docs/, the building blocks), so they are
+# tests of the source.
+include = [
+  "/defaults.toml",
+  "/register.toml",
+  "/rules/",
+  "/run/",
+  "/rust-toolchain.toml",
+  "/schemas/",
+  "/src/",
+  "/tests/",
+  "!/tests/declaration.rs",
+  "!/tests/presets.rs",
+  "!/tests/register_page.rs",
+]
+
+# What `setup` needs to put a pinned program in place: sha2 holds a download
+# against its digest, flate2 and tar unpack a .gz or .tar.gz build, zip a .zip
+# build (Windows), and the Python check reads a wheel with it. The download
+# itself goes through curl, so no HTTP or TLS library is linked. roxmltree
+# reads the report of the tests the Python check runs. schemars derives the
+# JSON Schema of the declaration.
+# getrandom draws the token of each stretch in which the runner of GitHub
+# Actions processes no workflow command (see `console`): the randomness of the
+# operating system, in every build. It is in the tree already through tempfile.
+# tempfile makes the folder `run` hands the programs their files in, and
+# removes it again. rustix (Unix only, and already in the tree through
+# tempfile) stops a command of the Python check's smoke test together with the
+# process group it leads. All of them serve the program alone and come with the
+# feature `program`.
+[dependencies]
+clap         = { version = "4", features = ["derive"] }
+flate2       = { version = "1", optional = true }
+getrandom    = "0.4"
+globset      = "0.4"
+ignore       = "0.4"
+jsonc-parser = { version = "0.34", features = ["serde"] }
+ratatui      = { version = "0.30", optional = true }
+regex        = "1"
+roxmltree    = { version = "0.21", optional = true }
+serde        = { version = "1", features = ["derive"] }
+serde_json   = "1"
+sha2         = { version = "0.10", optional = true }
+tar          = { version = "0.4", default-features = false, optional = true }
+tempfile     = { version = "3", optional = true }
+thiserror    = "2"
+toml         = "1"
+toml_edit    = "0.25"
+yaml-rust2   = "0.13"
+
+[dependencies.schemars]
+version          = "1"
+default-features = false
+features         = ["derive", "std"]
+optional         = true
+
+# Version 8 has advisories against the extraction `setup` calls, and their
+# fixes came with 9.0.0 and 9.0.5; the requirement starts at the version the
+# lock was checked with. Version 9 adds zeroize and getrandom, and nix on macOS
+# and the BSDs, with no feature to leave them out. zip is built on every
+# platform and not only for Windows, because the Python check reads every wheel
+# with it.
+[dependencies.zip]
+version          = "9.8.2"
+default-features = false
+features         = ["deflate-flate2"]
+optional         = true
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["process"], optional = true }
+
+[dev-dependencies]
+portable-pty = "0.9"
+tempfile     = "3"
+
+# `program` is what only the program needs: the downloading and unpacking of
+# `setup`, the programs `run` starts, and the JSON Schema while the call
+# `schema` exists. It is on by default, so that building and installing the
+# tool take no flag.
+#
+# The interface is opt-in. The composite action builds without it, so a run of
+# phase 0 compiles no terminal library; `--features ui` adds the `ui` call for
+# walking the tree by hand.
+[features]
+default = ["program"]
+program = [
+  "dep:flate2",
+  "dep:roxmltree",
+  "dep:rustix",
+  "dep:schemars",
+  "dep:sha2",
+  "dep:tar",
+  "dep:tempfile",
+  "dep:zip",
+]
+ui = ["dep:ratatui"]
+
+[[bin]]
+name              = "nebensound-repo"
+path              = "src/main.rs"
+required-features = ["program"]
+
+# What only exists with the program or the interface is only built with it.
+[[test]]
+name              = "declaration"
+required-features = ["program"]
+
+[[test]]
+name              = "schema"
+required-features = ["program"]
+
+[[test]]
+name              = "run"
+required-features = ["program"]
+
+[[test]]
+name              = "run_rust"
+required-features = ["program"]
+
+[[test]]
+name              = "run_python"
+required-features = ["program"]
+
+[[test]]
+name              = "setup"
+required-features = ["program"]
+
+[[test]]
+name              = "release"
+required-features = ["program"]
+
+[[test]]
+name              = "build"
+required-features = ["program"]
+
+[[test]]
+name              = "build_docker"
+required-features = ["program"]
+
+[[test]]
+name              = "declare"
+required-features = ["program"]
+
+[[test]]
+name              = "gather"
+required-features = ["program"]
+
+[[test]]
+name              = "report_versions"
+required-features = ["program"]
+
+[[test]]
+name              = "unwritten"
+required-features = ["program"]
+
+[[test]]
+name              = "workflow"
+required-features = ["program"]
+
+[[test]]
+name              = "xtask"
+required-features = ["program"]
+
+[[test]]
+name              = "ui"
+required-features = ["ui"]
+
+[[test]]
+name              = "pty"
+required-features = ["program", "ui"]
+
+[lints.rust]
+missing_docs    = "deny"
+unsafe_code     = "forbid"
+unexpected_cfgs = "deny"
+
+[lints.clippy]
+all         = { level = "deny", priority = -1 }
+pedantic    = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"

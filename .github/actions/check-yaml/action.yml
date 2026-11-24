@@ -6,13 +6,19 @@ description: >-
   configuration among them matches the Dependabot schema.
 
 # One input, and it is not a setting: where the unit is. It comes from the plan
-# of phase 0. The files are the ones `nebensound-repo files` names for the check
-# and the unit: what Git tracks below that path with an extension the register
-# gives the check, less what an `[[exclude]]` entry of the declaration takes
-# out. A file nobody committed is not judged, a committed one is not missed, and
-# no ignore mechanism of a tool takes one out. The calling job checks the
-# repository out and puts the tool on the PATH first (the action `tool`); every
-# step runs at the repository root.
+# of phase 0. The calling job checks the repository out and puts the tool on the
+# PATH first (the action `tool`); every step runs at the repository root.
+#
+# The check itself is the tool's: `nebensound-repo run yaml` takes the files
+# `nebensound-repo files` names for the check and the unit (what Git tracks
+# below that path with an extension or a file name the register gives the
+# check, less what an `[[exclude]]` entry of the declaration takes out), starts
+# the programs the register pins for the check with the flags that set their
+# own ignore mechanisms aside, and reports every finding with its file, and its
+# line and column where the program gives them, as an annotation of the run. A
+# file nobody committed is not judged, a committed one is not missed, and no
+# ignore mechanism of a program takes one out. It runs the same way on a
+# developer's computer; the reference says what each program is handed.
 
 inputs:
   working-directory:
@@ -22,290 +28,17 @@ inputs:
 runs:
   using: composite
   steps:
-    # Paths stay relative to the repository root, and every step runs there:
-    # that is where the repository keeps its configuration, and where an
-    # annotation has to point.
-    - name: Find the YAML files
-      id: files
+    # The pinned version of every program the check calls, and a runtime one
+    # of them needs where the runner has none that is new enough: the register
+    # is the only place their versions stand, here as on a developer's
+    # computer. They go into the tool's folder in the cache directory, outside
+    # the checkout, so that nothing of them ends up in the tree being checked.
+    - name: Set up the programs of the YAML check
+      shell: bash
+      run: nebensound-repo setup --pinned --with-runtimes yaml
+
+    - name: Every YAML file passes the check
       shell: bash
       env:
         UNIT: ${{ inputs.working-directory }}
-      run: |
-        set -euo pipefail
-        list="$RUNNER_TEMP/check-yaml-files"
-        workflows="$RUNNER_TEMP/check-yaml-workflows"
-        # The tool writes a refusal where the list would go: into the log
-        # with it, or the step fails without saying why.
-        if ! nebensound-repo files -z -- yaml "$UNIT" > "$list"; then
-          cat "$list" >&2
-          exit 1
-        fi
-        count="$(tr -cd '\0' < "$list" | wc -c)"
-        # GitHub runs a workflow from one place only: directly under
-        # .github/workflows at the repository root. Only those are workflows.
-        : > "$workflows"
-        while IFS= read -r -d '' file; do
-          if [[ "$file" =~ ^\.github/workflows/[^/]+\.ya?ml$ ]]; then
-            printf '%s\0' "$file" >> "$workflows"
-          fi
-        done < "$list"
-        workflow_count="$(tr -cd '\0' < "$workflows" | wc -c)"
-        # Dependabot, too, reads its configuration from one place only:
-        # .github at the repository root.
-        dependabot=""
-        while IFS= read -r -d '' file; do
-          if [[ "$file" =~ ^\.github/dependabot\.ya?ml$ ]]; then
-            dependabot="$file"
-          fi
-        done < "$list"
-        {
-          echo "count=$count"
-          echo "list=$list"
-          echo "workflow-count=$workflow_count"
-          echo "workflows=$workflows"
-          echo "dependabot=$dependabot"
-        } >> "$GITHUB_OUTPUT"
-        if [ "$count" -eq 0 ]; then
-          echo "No YAML file below '$UNIT'; there is nothing to check."
-        else
-          echo "$count YAML file(s) to check, $workflow_count of them workflow(s):"
-          tr '\0' '\n' < "$list"
-        fi
-        if [ -n "$dependabot" ]; then
-          echo "Dependabot configuration: $dependabot"
-        fi
-
-    # Pinned, installed outside the checkout so that nothing of it ends up in
-    # the tree being checked.
-    - name: Set up Node.js
-      if: steps.files.outputs.count != '0'
-      uses: actions/setup-node@v7
-      with:
-        node-version: 24
-
-    # yamllint runs on the Python the runner image brings; the package itself
-    # is pinned.
-    - name: Install Prettier and yamllint
-      id: tools
-      if: steps.files.outputs.count != '0'
-      shell: bash
-      run: |
-        set -euo pipefail
-        npm install --prefix "$RUNNER_TEMP/check-yaml-tools" --no-save --no-package-lock \
-          --ignore-scripts --no-fund --no-audit prettier@3.9.6
-        python3 -m pip install --disable-pip-version-check --no-cache-dir --quiet \
-          --target "$RUNNER_TEMP/check-yaml-tools/python" yamllint==1.38.0
-
-    # actionlint is built from its tagged source: `go install` checks the
-    # module against the Go checksum database, which pins the content and not
-    # only the name of the version.
-    - name: Set up Go
-      if: steps.files.outputs.workflow-count != '0'
-      uses: actions/setup-go@v7
-      with:
-        go-version: "1.26"
-        cache: false
-
-    - name: Install actionlint
-      id: actionlint
-      if: steps.files.outputs.workflow-count != '0'
-      shell: bash
-      run: |
-        set -euo pipefail
-        GOBIN="$RUNNER_TEMP/check-yaml-tools/bin" \
-          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
-        "$RUNNER_TEMP/check-yaml-tools/bin/actionlint" -version
-
-    # check-jsonschema brings the Dependabot schema with it, so the
-    # validation sends no request. Like yamllint, it runs on the Python the
-    # runner image brings; the package itself is pinned.
-    - name: Install check-jsonschema
-      id: jsonschema
-      if: steps.files.outputs.dependabot != ''
-      shell: bash
-      run: |
-        set -euo pipefail
-        python3 -m pip install --disable-pip-version-check --no-cache-dir --quiet \
-          --target "$RUNNER_TEMP/check-yaml-tools/jsonschema" check-jsonschema==0.39.0
-
-    # The four checks below each run even when one before them failed, so a
-    # single run reports every finding at once.
-
-    # Prettier reads the repository's own configuration, so a repository
-    # decides how it formats. It reads no ignore file: by default it would
-    # read `.prettierignore` and `.gitignore` and silently pass what they
-    # name, so it is handed an empty one instead, and it leaves out no
-    # node_modules either. Its configuration could still pass a whole file
-    # unchecked, through `requirePragma` (a file without `@format`),
-    # `checkIgnorePragma` (a file with `@noformat`) or a range (`rangeStart`,
-    # `rangeEnd`) that leaves the file out, `overrides` included; the flags set
-    # all of them aside, since the command line wins over the configuration.
-    # What is not to be checked is not in the list.
-    - name: Every YAML file is formatted
-      if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
-      shell: bash
-      env:
-        LIST: ${{ steps.files.outputs.list }}
-      run: |
-        set -euo pipefail
-        status=0
-        # Without colours: on GitHub Actions Prettier colours `warn` and
-        # `error`, and the lines below would no longer match.
-        : > "$RUNNER_TEMP/check-yaml-nothing-ignored"
-        xargs -0 "$RUNNER_TEMP/check-yaml-tools/node_modules/.bin/prettier" --check --no-color \
-          --with-node-modules --ignore-path "$RUNNER_TEMP/check-yaml-nothing-ignored" \
-          --no-require-pragma --no-check-ignore-pragma \
-          --range-start=0 --range-end=Infinity \
-          -- < "$LIST" \
-          > "$RUNNER_TEMP/check-yaml-prettier" 2>&1 || status=$?
-        # Prettier names an unformatted file as `[warn] <file>` and one it
-        # cannot parse as `[error] <file>: <message>`; each becomes an
-        # annotation on its file and stays in the log as it is.
-        property() {
-          local value="$1"
-          value="${value//'%'/'%25'}"
-          value="${value//':'/'%3A'}"
-          value="${value//','/'%2C'}"
-          printf '%s' "$value"
-        }
-        while IFS= read -r line; do
-          echo "$line"
-          if [[ "$line" =~ ^\[warn\]\ (.+)$ ]] && [ -f "${BASH_REMATCH[1]}" ]; then
-            echo "::error file=$(property "${BASH_REMATCH[1]}")::not formatted the way Prettier writes it"
-          elif [[ "$line" =~ ^\[error\]\ ([^:]+):\ (.+)$ ]] && [ -f "${BASH_REMATCH[1]}" ]; then
-            echo "::error file=$(property "${BASH_REMATCH[1]}")::Prettier cannot read it: ${BASH_REMATCH[2]}"
-          fi
-        done < "$RUNNER_TEMP/check-yaml-prettier"
-        exit "$status"
-
-    # The pipeline's default (`tools/nebensound-repo/rules/yamllint.yaml`, from
-    # the same commit as this file) lies beneath the repository's own yamllint
-    # configuration at its root, which is laid over it rule by rule, the way
-    # yamllint lays a configuration over the one its `extends` names: a rule the
-    # repository does not name keeps the default's value, and an option it does
-    # not name keeps the default's option of that rule. So its file names only
-    # what differs, and a change of the default reaches it. What its own
-    # `extends` names comes along with it, over the default as well.
-    #
-    # Its rules hold, but its `ignore` and `ignore-from-file` take nothing out:
-    # yamllint would skip what they name even when the file is named to it, so
-    # its own linter runs here with them set aside, file by file, the way its
-    # command line does.
-    - name: Every YAML file passes yamllint
-      if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
-      shell: bash
-      env:
-        LIST: ${{ steps.files.outputs.list }}
-      run: |
-        set -euo pipefail
-        own=""
-        for name in .yamllint .yamllint.yaml .yamllint.yml; do
-          if [ -f "$name" ]; then
-            own="$name"
-            break
-          fi
-        done
-        if [ -n "$own" ]; then
-          echo "Rules: the pipeline default, and laid over it $own"
-        else
-          echo "Rules: the pipeline default"
-        fi
-        # Every finding is written as an annotation on its line. A warning
-        # fails nothing, an error fails the step, as on the command line.
-        DEFAULT="$GITHUB_ACTION_PATH/../../../tools/nebensound-repo/rules/yamllint.yaml" OWN="$own" \
-          PYTHONPATH="$RUNNER_TEMP/check-yaml-tools/python" python3 -c '
-        import locale
-        import os
-        import sys
-
-        from yamllint import cli, linter
-        from yamllint.config import YamlLintConfig, YamlLintConfigError
-
-
-        class Layered(YamlLintConfig):
-            """A configuration laid over a base the way yamllint lays one over
-            the configuration its `extends` names: after its own `extends` is
-            read, before the rules are checked."""
-
-            def __init__(self, file, base):
-                self.base = base
-                super().__init__(file=file)
-
-            def parse(self, raw_content):
-                super().parse(raw_content)
-                try:
-                    self.extend(self.base)
-                except Exception as error:
-                    raise YamlLintConfigError(f"invalid config: {error}") from error
-
-
-        config = os.environ["DEFAULT"]
-        try:
-            conf = YamlLintConfig(file=config)
-            if os.environ["OWN"]:
-                config = os.environ["OWN"]
-                conf = Layered(config, conf)
-        except YamlLintConfigError as error:
-            sys.exit(f"{config}: {error}")
-        # Both `ignore` and `ignore-from-file` end up here.
-        conf.ignore = None
-        if conf.locale is not None:
-            locale.setlocale(locale.LC_ALL, conf.locale)
-        with open(os.environ["LIST"], "rb") as listing:
-            files = [entry.decode() for entry in listing.read().split(b"\0") if entry]
-        worst = 0
-        for path in files:
-            with open(path, "rb") as content:
-                problems = linter.run(content, conf, path)
-            worst = max(worst, cli.show_problems(problems, path, "github", False))
-        sys.exit(1 if worst == linter.PROBLEM_LEVELS["error"] else 0)
-        '
-
-    # The domain validator for GitHub Actions. With ShellCheck on the
-    # runner it also reads every `run:` script.
-    #
-    # Two of its messages are taken out, and only for a `uses:` that begins
-    # with `$/`: actionlint 1.7.12 does not know that form yet and reports it
-    # as an invalid reference. `$/` is how this repository reaches its own
-    # building blocks at the commit that is running, so the finding would be
-    # wrong in every workflow here. Every other finding on the same line and
-    # every other malformed `uses:` is still reported. The two patterns go once
-    # actionlint knows the form.
-    - name: Every workflow passes actionlint
-      if: ${{ !cancelled() && steps.actionlint.outcome == 'success' }}
-      shell: bash
-      env:
-        WORKFLOWS: ${{ steps.files.outputs.workflows }}
-      run: |
-        set -euo pipefail
-        xargs -0 "$RUNNER_TEMP/check-yaml-tools/bin/actionlint" \
-          -ignore '^specifying action "\$/[^"]+" in invalid format because ref is missing' \
-          -ignore '^reusable workflow call "\$/[^"]+" at "uses" is not following the format' \
-          -format '{{range $err := .}}::error file={{$err.Filepath}},line={{$err.Line}},col={{$err.Column}}::{{$err.Message}} [{{$err.Kind}}]\n{{end}}' \
-          -- < "$WORKFLOWS"
-
-    # Without this step, a mistake in the Dependabot configuration shows only
-    # after the merge, when Dependabot itself fails to read the file. The
-    # schema brings it into the pull request: an unknown key, a missing one, a
-    # value of the wrong kind.
-    - name: The Dependabot configuration matches its schema
-      if: ${{ !cancelled() && steps.jsonschema.outcome == 'success' }}
-      shell: bash
-      env:
-        DEPENDABOT: ${{ steps.files.outputs.dependabot }}
-      run: |
-        set -euo pipefail
-        status=0
-        PYTHONPATH="$RUNNER_TEMP/check-yaml-tools/jsonschema" \
-          python3 -m check_jsonschema --builtin-schema vendor.dependabot --color never \
-          -- "$DEPENDABOT" > "$RUNNER_TEMP/check-yaml-dependabot" 2>&1 || status=$?
-        # A finding reads `<file>::<JSON path>: <message>`, the message naming
-        # the key; each becomes an annotation on the file and stays in the log
-        # as it is.
-        while IFS= read -r line; do
-          echo "$line"
-          if [[ "$line" =~ ^\ +(.+)::(\$[^:]*):\ (.+)$ ]] && [ "${BASH_REMATCH[1]}" = "$DEPENDABOT" ]; then
-            echo "::error file=$DEPENDABOT::${BASH_REMATCH[2]}: ${BASH_REMATCH[3]}"
-          fi
-        done < "$RUNNER_TEMP/check-yaml-dependabot"
-        exit "$status"
+      run: nebensound-repo run yaml -- "$UNIT"

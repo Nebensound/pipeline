@@ -6,9 +6,7 @@
 version: 2
 updates:
   - package-ecosystem: cargo
-    directories:
-      - /tools/nebensound-repo
-      - /xtask
+    directory: /
     schedule:
       interval: weekly
     groups:

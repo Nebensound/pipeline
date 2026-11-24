@@ -1,0 +1,5 @@
+# A test that expects another greeting than the one the code gives, with
+# pytest's header hidden, so that the report's paths start at the unit.
+[repo]
+audience = "public"
+pipeline = { check = ["python"], dependabot = ["uv"] }

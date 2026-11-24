@@ -6,6 +6,47 @@ declaration. Every repository that calls it runs its code, so a change here
 changes what every caller runs. These rules apply to every change, whoever or
 whatever writes it.
 
+## Principles
+
+Every change is held against these six rules.
+[The principles](docs/principles.md) give the reason for each, the trust model,
+and what does not hold yet. Where a rule below or a page of the reference
+describes something else, it describes the state of today, and that page names
+the issue that changes it, or says that none exists yet.
+
+1. **A simple flow.** A preparing job reads the declaration, decides which jobs
+   start and hands on the matrix for that. Every job runs the tool itself and
+   works out what it needs from the repository at the commit of the run; no plan
+   is handed from job to job. The checks run as a matrix of the same call: one
+   job for all checks that only read the repository's files, and one job for
+   each check that runs code of the repository. What can be put together is
+   put together. Adding a check does not add a special path to the workflow.
+2. **Reading and executing are kept apart.** A reading check runs only programs
+   of the pipeline on the repository's files, with configuration that is data.
+   An executing check runs code of the repository: build scripts, tests, an
+   image build. The two never share a job. Only "passed" or "failed" crosses
+   from one job to another.
+3. **All logic is Rust, in the tool, and tested.** A step of a workflow or of an
+   action is one call of the tool. No logic in shell, in YAML expressions or in
+   embedded scripts, beyond what a program that is a library needs to be
+   called. Python only where nothing else is possible.
+4. **External programs are the exception and are started from the tool.** What
+   can sensibly be done in Rust inside the tool is done there. An external
+   program is a standard tool: very widely used and maintained. Every external
+   program, action and package stands in one list, with its exact version and
+   a digest, in a form an automatic updater reads. For the language's own
+   toolchain the installer's verification counts as the digest.
+5. **One rule per kind of problem.** A case that was not thought of is answered
+   by a rule that removes its kind, not by a special case on top. A pull
+   request that adds a second exception to the same rule stops and asks for
+   the rule.
+6. **Secrets and write permissions reach only what has been merged.** No job
+   that runs code of the repository gets a secret or a token that can write,
+   and no step that holds a secret or such a token compiles or starts code of
+   the repository. A check cannot protect its result against the code it
+   checks; the review of the change does that. Annotations are a reading aid,
+   not proof.
+
 ## Building blocks
 
 - A building block performs **one step** and is named after its register entry
@@ -26,8 +67,26 @@ whatever writes it.
 
 The commands of `nebensound-repo` are limited to the tasks of a repository. The
 tool has no external subcommands and never starts a program because a
-subcommand's name matched it: the programs it starts are those of the register,
-Git, curl and Cargo.
+subcommand's name matched it. Each program it starts is one of these, started
+only by the calls named beside it:
+
+| What                                                                                         | Who may start it                                                                                                 |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Git, curl                                                                                    | every call of the tool                                                                                           |
+| A program of the register                                                                    | only the check or build the register names it for                                                                |
+| The Rust toolchain that rustup provides (rustup, Cargo, rustc, rustfmt)                      | only the check for Rust and a build of Rust (and `nebensound-repo xtask`, which runs the repository's own xtask) |
+| The Python that uv provides                                                                  | only the check for Python                                                                                        |
+| Docker with its Buildx                                                                       | only the image build                                                                                             |
+| Code of the repository (its tests, its build scripts, the commands of the package it builds) | only executing checks and builds                                                                                 |
+
+A reading check starts no toolchain of a language and no code of the
+repository. The link check holds to that: lychee gets only the configuration
+the tool writes from the keys of `lychee.toml` it knows, and a key that would
+start a command fails by name. The other linters still read the repository's
+configuration themselves, and some of their ways load code (see
+[What does not hold yet](docs/principles.md#what-does-not-hold-yet)). uv is
+pinned in the register; rustup and Docker come from the machine, on GitHub
+Actions from the runner image.
 
 ## Workflows and actions
 
@@ -44,6 +103,13 @@ Git, curl and Cargo.
   messages, commit messages, issues and pull requests.
 - Nothing private is named: no private repository, no internal host, no
   internal document. The repository is public, and so is its history.
+
+## Titles of pull requests
+
+The title of a pull request names, as its scope, the check or the part it
+changes: `fix(rust): …`, `feat(python)!: …`. The notes of a release are
+generated from the titles, and they are what a caller reads when its pin is
+raised.
 
 ## Merging
 
@@ -66,5 +132,3 @@ once all four hold:
    inside the issue's scope are not decisions: the pull request lists them and
    the review covers them. A pull request that needs a decision waits until
    its issue is amended.
-
-Merging into `release` is reserved for the maintainers.

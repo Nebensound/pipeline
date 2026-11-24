@@ -1,0 +1,1 @@
+::error file=src/sample/cli.py,line=9,col=12::Pyright reportReturnType: *

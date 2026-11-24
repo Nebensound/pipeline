@@ -5,8 +5,10 @@
 # of `Check repository`, as it does for every repository with an xtask. Its
 # `setup` task calls `nebensound-repo setup` for this repository.
 #
-# A workspace of its own and not a member of the tool's: Cargo resolves the xtask
-# from here, and nothing in it is built or published.
+# A member of the workspace at the root, beside the tool, with the one lockfile
+# there; not a default member, so a Cargo command at the root without
+# `--package` or `--workspace` leaves it alone. Nothing in it is built for a
+# release or published.
 [package]
 name         = "xtask"
 description  = "Runs the building blocks of the pipeline against their test cases."

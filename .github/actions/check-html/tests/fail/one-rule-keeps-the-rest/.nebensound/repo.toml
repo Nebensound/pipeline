@@ -1,0 +1,5 @@
+# The repository allows a style attribute and leaves every other rule of the
+# default as it is, so a button without a type still fails.
+[repo]
+audience = "public"
+pipeline = { check = ["html"] }

@@ -53,6 +53,7 @@ fn case(expect: Expect) -> Case {
         name: "a".to_owned(),
         dir: "a".into(),
         expect,
+        forbidden: Vec::new(),
     }
 }
 
@@ -62,8 +63,16 @@ fn dir(name: &str, action: bool, cases: Result<Vec<Case>, Error>) -> Directory {
         name: name.to_owned(),
         action,
         plan: Ok(false),
+        steps: Vec::new(),
         cases,
     }
+}
+
+/// The keys of steps, each step's as written.
+fn steps(keys: &[&[&str]]) -> Vec<Vec<String>> {
+    keys.iter()
+        .map(|step| step.iter().map(|key| (*key).to_owned()).collect())
+        .collect()
 }
 
 /// A block with both kinds of cases whose action.yml declares the input
@@ -97,8 +106,20 @@ fn workflow_jobs(
     steps: &str,
     building: &str,
 ) -> String {
+    workflow_targets(written, writers, builds, "[]", steps, building)
+}
+
+/// The same with a list of written publish targets.
+fn workflow_targets(
+    written: &str,
+    writers: &str,
+    builds: &str,
+    targets: &str,
+    steps: &str,
+    building: &str,
+) -> String {
     format!(
-        "jobs:\n  declare:\n    steps:\n      - uses: $/.github/actions/tool\n      - uses: actions/checkout@v7\n      - run: echo\n  units:\n    strategy:\n      matrix:\n        include: ${{{{ fromJSON(needs.declare.outputs.units) }}}}\n    steps:\n      - name: Not written yet\n        env:\n          WRITTEN_CHECKS: '{written}'\n{}      - name: Version writers not written yet\n        env:\n          WRITTEN: '{writers}'\n  builds:\n    strategy:\n      matrix:\n        include: ${{{{ fromJSON(needs.declare.outputs.builds) }}}}\n    steps:\n      - name: Not written yet\n        env:\n          WRITTEN_BUILDS: '{builds}'\n{}",
+        "jobs:\n  declare:\n    steps:\n      - uses: $/.github/actions/tool\n      - uses: actions/checkout@v7\n      - run: echo\n  units:\n    strategy:\n      matrix:\n        include: ${{{{ fromJSON(needs.declare.outputs.units) }}}}\n    steps:\n      - name: Not written yet\n        env:\n          WRITTEN_CHECKS: '{written}'\n{}      - name: Version writers not written yet\n        env:\n          WRITTEN: '{writers}'\n      - name: Publish targets not written yet\n        env:\n          WRITTEN: '{targets}'\n  builds:\n    strategy:\n      matrix:\n        include: ${{{{ fromJSON(needs.declare.outputs.builds) }}}}\n    steps:\n      - name: Not written yet\n        env:\n          WRITTEN_BUILDS: '{builds}'\n{}",
         support::indent(steps, 6),
         support::indent(building, 6)
     )
@@ -133,6 +154,63 @@ fn agreeing_parts_find_nothing() {
     .unwrap();
     assert_eq!(found.problems, Vec::<String>::new());
     assert_eq!(found.blocks, ["check-demo"]);
+}
+
+#[test]
+fn a_step_of_a_block_carries_only_what_a_thin_block_needs() {
+    let compare = |block: Directory, tool: Directory| {
+        layout::compare(
+            REGISTER,
+            &workflow(r#"["demo"]"#, AGREEING_STEPS),
+            &[block, dir("phase0", true, Ok(Vec::new())), tool],
+        )
+        .unwrap()
+        .problems
+    };
+    // The call of the tool and an action the block needs, with every key
+    // they need.
+    let thin = steps(&[
+        &["name", "id", "shell", "env", "run"],
+        &["name", "uses", "with"],
+    ]);
+    assert_eq!(
+        layout::BLOCK_STEP_KEYS,
+        ["name", "id", "shell", "env", "run", "uses", "with"]
+    );
+    // The workflow's machinery is no block, and is not held to the list.
+    let machinery = Directory {
+        steps: steps(&[&["if", "working-directory", "shell", "run"]]),
+        ..dir("tool", true, Ok(Vec::new()))
+    };
+    let block = |keys: Vec<Vec<String>>| Directory {
+        steps: keys,
+        ..dir("check-demo", true, Ok(both()))
+    };
+    assert_eq!(
+        compare(block(thin.clone()), machinery),
+        Vec::<String>::new()
+    );
+
+    // Any other key is named with its step, whatever else the step carries.
+    let mut loose = thin;
+    loose.extend(steps(&[
+        &["shell", "run", "continue-on-error"],
+        &["if", "uses", "working-directory"],
+    ]));
+    let allowed = "`name`, `id`, `shell`, `env`, `run`, `uses`, `with`";
+    assert_eq!(
+        compare(block(loose), dir("tool", true, Ok(Vec::new()))),
+        [
+            format!(
+                "step 3 of `check-demo` carries `continue-on-error`: a step of a block carries \
+                 only {allowed}"
+            ),
+            format!(
+                "step 4 of `check-demo` carries `if`, `working-directory`: a step of a block \
+                 carries only {allowed}"
+            ),
+        ]
+    );
 }
 
 #[test]
@@ -652,7 +730,7 @@ fn a_block_called_from_the_job_of_another_kind_is_named() {
     // A job without a matrix, or one that is no text.
     for matrix in ["", "    strategy:\n      matrix:\n        include: [1]\n"] {
         let workflow = format!(
-            "jobs:\n  units:\n    strategy:\n      matrix:\n        include: {units}\n    steps:\n      - name: Not written yet\n        env:\n          WRITTEN_CHECKS: '[]'\n      - name: Version writers not written yet\n        env:\n          WRITTEN: '[\"cargo\"]'\n  builds:\n{matrix}    steps:\n      - name: Not written yet\n        env:\n          WRITTEN_BUILDS: '[]'\n{}",
+            "jobs:\n  units:\n    strategy:\n      matrix:\n        include: {units}\n    steps:\n      - name: Not written yet\n        env:\n          WRITTEN_CHECKS: '[]'\n      - name: Version writers not written yet\n        env:\n          WRITTEN: '[\"cargo\"]'\n      - name: Publish targets not written yet\n        env:\n          WRITTEN: '[]'\n  builds:\n{matrix}    steps:\n      - name: Not written yet\n        env:\n          WRITTEN_BUILDS: '[]'\n{}",
             support::indent(WRITER_STEP, 6)
         );
         let found = layout::compare(
@@ -779,6 +857,46 @@ fn every_disagreement_is_named() {
 }
 
 #[test]
+fn a_publish_target_counted_as_written_needs_its_block() {
+    // No target has a block yet, so the list is empty and agrees.
+    let found = layout::compare(
+        REGISTER,
+        &workflow_targets(r#"["demo"]"#, "[]", "[]", "[]", AGREEING_STEPS, ""),
+        &[
+            dir("check-demo", true, Ok(both())),
+            dir("phase0", true, Ok(Vec::new())),
+            dir("tool", true, Ok(Vec::new())),
+        ],
+    )
+    .unwrap();
+    assert_eq!(found.problems, Vec::<String>::new());
+
+    // A target counted as written without its block, under the name its block
+    // would have: the dot of `crates.io` turned into a hyphen.
+    let found = layout::compare(
+        REGISTER,
+        &workflow_targets(
+            r#"["demo"]"#,
+            "[]",
+            "[]",
+            r#"["crates.io"]"#,
+            AGREEING_STEPS,
+            "",
+        ),
+        &[
+            dir("check-demo", true, Ok(both())),
+            dir("phase0", true, Ok(Vec::new())),
+            dir("tool", true, Ok(Vec::new())),
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        found.problems,
+        ["`Publish targets not written yet` counts `crates.io` as written, but it has no block"]
+    );
+}
+
+#[test]
 fn entries_that_share_a_block_name_are_named() {
     let found = layout::compare(
         "[target.\"a.b\"]\naccepts = []\n[target.a-b]\naccepts = []\n",
@@ -798,6 +916,7 @@ fn the_lists_of_written_blocks_have_to_be_there_once_and_readable() {
     let builds_twice = "- name: Not written yet\n  env:\n    WRITTEN_BUILDS: '[]'\n";
     let neither = "jobs:\n  a:\n    steps:\n      - name: Not written yet\n        env:\n          OTHER: '[]'\n";
     let writers_twice = "- name: Version writers not written yet\n  env:\n    WRITTEN: '[]'\n";
+    let targets_twice = "- name: Publish targets not written yet\n  env:\n    WRITTEN: '[]'\n";
     for (workflow, message) in [
         (
             "jobs:\n  a:\n    steps: []\n".to_owned(),
@@ -826,6 +945,18 @@ fn the_lists_of_written_blocks_have_to_be_there_once_and_readable() {
         (
             workflow("[]", writers_twice),
             "has 2 steps named `Version writers not written yet`",
+        ),
+        (
+            "jobs:\n  a:\n    steps: []\n".to_owned(),
+            "has 0 steps named `Publish targets not written yet` that list the written publish targets in `WRITTEN`",
+        ),
+        (
+            workflow("[]", targets_twice),
+            "has 2 steps named `Publish targets not written yet`",
+        ),
+        (
+            workflow_targets("[]", "[]", "[]", "not json", "", ""),
+            "the list of written publish targets in `Publish targets not written yet` is no JSON list of names",
         ),
         (
             workflow("not json", ""),
@@ -890,7 +1021,7 @@ fn every_directory_is_listed_with_its_cases() {
             ),
             (
                 "check-d/action.yml",
-                "inputs:\n  working-directory:\n    required: true\nruns:\n  using: composite\n  steps: []\n",
+                "inputs:\n  working-directory:\n    required: true\nruns:\n  using: composite\n  steps:\n    - name: call\n      continue-on-error: true\n      run: x\n",
             ),
             ("a file", ""),
         ],
@@ -916,6 +1047,17 @@ fn every_directory_is_listed_with_its_cases() {
             // GitHub reads input names without regard to case.
             ("check-c", true, 0, Ok(true)),
             ("check-d", true, 0, Ok(false)),
+        ]
+    );
+    // The keys of each step, as written; none where nothing could be read.
+    let keys: Vec<&Vec<Vec<String>>> = found.iter().map(|dir| &dir.steps).collect();
+    assert_eq!(
+        keys,
+        [
+            &Vec::<Vec<String>>::new(),
+            &Vec::new(),
+            &Vec::new(),
+            &steps(&[&["name", "continue-on-error", "run"]]),
         ]
     );
 }

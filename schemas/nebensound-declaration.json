@@ -1,0 +1,446 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "definitions": {
+    "Audience": {
+      "description": "For whom a repository is meant: which layer of rules holds for it.\n\nWritten down rather than read off GitHub: GitHub knows whether a\nrepository is public, not whether a customer sees it.",
+      "oneOf": [
+        {
+          "const": "public",
+          "description": "Open source of the organization: the repository is public.",
+          "type": "string"
+        },
+        {
+          "const": "internal",
+          "description": "Private, for the organization alone.",
+          "type": "string"
+        },
+        {
+          "const": "customer",
+          "description": "Private, and a customer can see it. For rules it includes everything\nthat holds for `internal`.",
+          "type": "string"
+        }
+      ]
+    },
+    "BuildName": {
+      "description": "A valid build name: lowercase letters, digits, '-' and '.', starting and ending on a letter or digit, without '..'.",
+      "pattern": "^[a-z0-9](?:(?:\\.?[a-z0-9-])*\\.?[a-z0-9])?$",
+      "type": "string"
+    },
+    "CheckName": {
+      "description": "A valid check name: lowercase letters, digits, '-' and '.', starting and ending on a letter or digit, without '..'.",
+      "pattern": "^[a-z0-9](?:(?:\\.?[a-z0-9-])*\\.?[a-z0-9])?$",
+      "type": "string"
+    },
+    "CommitType": {
+      "description": "A commit type as a Conventional Commit writes it before the colon: letters only, compared without regard to case. Neither feat nor fix.",
+      "not": {
+        "pattern": "^(?:[Ff][Ee][Aa][Tt]|[Ff][Ii][Xx])$"
+      },
+      "pattern": "^[A-Za-z]+$",
+      "type": "string"
+    },
+    "Component": {
+      "additionalProperties": false,
+      "description": "A part of the repository that is a unit of its own.",
+      "properties": {
+        "allow-unused": {
+          "additionalProperties": false,
+          "description": "Checks that may find nothing without failing, each with its reason.",
+          "patternProperties": {
+            "^[a-z0-9](?:(?:\\.?[a-z0-9-])*\\.?[a-z0-9])?$": {
+              "$ref": "#/definitions/Reason"
+            }
+          },
+          "type": "object"
+        },
+        "minimum-version": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Version"
+            }
+          ],
+          "description": "The version it gets is never lower than this, as `X.Y.Z`."
+        },
+        "path": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RelativePath"
+            }
+          ],
+          "description": "Where it lives. May name a single file when exactly that file is the\nunit."
+        },
+        "pipeline": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Pipeline"
+            }
+          ],
+          "description": "What runs for it."
+        },
+        "versioning": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Versioning"
+            }
+          ],
+          "description": "Which units around it carry a version."
+        }
+      },
+      "required": ["path"],
+      "type": "object"
+    },
+    "ComponentDefaults": {
+      "additionalProperties": false,
+      "description": "What `[repo.component]` offers. Only a pipeline, and only on request.",
+      "properties": {
+        "pipeline": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Pipeline"
+            }
+          ],
+          "description": "The pipeline a component receives when it asks for it."
+        }
+      },
+      "type": "object"
+    },
+    "EcosystemName": {
+      "description": "A valid ecosystem name: lowercase letters, digits, '-' and '.', starting and ending on a letter or digit, without '..'.",
+      "pattern": "^[a-z0-9](?:(?:\\.?[a-z0-9-])*\\.?[a-z0-9])?$",
+      "type": "string"
+    },
+    "Edition": {
+      "description": "How a commit that holds the declaration is read: with which reader, with which meaning of the register's names and with which rules of counting. 1 when it is left out, and 1 is the only edition there is.",
+      "maximum": 1,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "Exclusion": {
+      "additionalProperties": false,
+      "description": "An entry that takes something out of the check.\n\nTwo fields instead of a key against a value: the entry names something and\njustifies it, and both belong visibly named. Being a table also keeps it\nopen — were a third field ever to arrive, the shape would not have to be\nrebuilt for it.",
+      "properties": {
+        "path": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RelativePath"
+            }
+          ],
+          "description": "What it applies to.\n\nIn a repository's own file only a concrete path, so that is what the\nschema of that file allows; the central defaults may name a pattern."
+        },
+        "reason": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Reason"
+            }
+          ],
+          "description": "Why nobody looks."
+        }
+      },
+      "required": ["path", "reason"],
+      "type": "object"
+    },
+    "ExplicitPipeline": {
+      "additionalProperties": false,
+      "description": "A pipeline written out rather than named.",
+      "properties": {
+        "build": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BuildName"
+            }
+          ],
+          "description": "The build that produces the artifact.\n\nIt runs in every run that gives the unit a version, the run of a\ncommit that touches the unit; a run that does not builds nothing for\nit."
+        },
+        "check": {
+          "description": "Checks beyond the base set every repository runs.",
+          "items": {
+            "$ref": "#/definitions/CheckName"
+          },
+          "type": "array"
+        },
+        "dependabot": {
+          "description": "The ecosystems Dependabot watches for this unit.\n\nA list, because a unit can have several — a service has its language\necosystem and its container.",
+          "items": {
+            "$ref": "#/definitions/EcosystemName"
+          },
+          "type": "array"
+        },
+        "publish": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Publish"
+            }
+          ],
+          "description": "Where the artifact goes."
+        },
+        "version": {
+          "description": "The version writers that receive the unit's version as a derived copy.\n\nA list, like `check`: one unit can carry more than one copy.",
+          "items": {
+            "$ref": "#/definitions/VersionWriterName"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "FeatTypes": {
+      "description": "Commit types that count like feat in this repository, beside feat itself. Each commit is read with the list its own declaration holds.",
+      "items": {
+        "$ref": "#/definitions/CommitType"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "Inclusion": {
+      "additionalProperties": false,
+      "description": "An entry that pulls something back into the check.\n\nThe reason is optional here: adding work is harmless and does not have to\njustify itself. The same table shape all the same, so that both directions\nlook alike and an entry can carry one more field later.",
+      "properties": {
+        "path": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Pattern"
+            }
+          ],
+          "description": "What it applies to."
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Reason"
+            }
+          ],
+          "description": "Why, if anyone wrote it down."
+        }
+      },
+      "required": ["path"],
+      "type": "object"
+    },
+    "Pattern": {
+      "anyOf": [
+        {
+          "pattern": "^\\*\\.[a-z0-9](?:(?:\\.?[a-z0-9-])*\\.?[a-z0-9])?$"
+        },
+        {
+          "pattern": "^\\*\\*/[^/\\x00-\\x1F\\x7F-\\x9F]+$"
+        },
+        {
+          "pattern": "^(?:\\.|(?:[^/\\\\.\\x00-\\x1F\\x7F-\\x9F][^/\\\\\\x00-\\x1F\\x7F-\\x9F]*|\\.[^/\\\\.\\x00-\\x1F\\x7F-\\x9F][^/\\\\\\x00-\\x1F\\x7F-\\x9F]*|\\.\\.[^/\\\\\\x00-\\x1F\\x7F-\\x9F]+)(?:/(?:[^/\\\\.\\x00-\\x1F\\x7F-\\x9F][^/\\\\\\x00-\\x1F\\x7F-\\x9F]*|\\.[^/\\\\.\\x00-\\x1F\\x7F-\\x9F][^/\\\\\\x00-\\x1F\\x7F-\\x9F]*|\\.\\.[^/\\\\\\x00-\\x1F\\x7F-\\x9F]+))*/?)$"
+        }
+      ],
+      "description": "A path inside the repository, a type ('*.png') or a name anywhere ('**/LICENSE'), without a control character.",
+      "type": "string"
+    },
+    "Pipeline": {
+      "description": "What runs for a unit: a preset name, `{ repo = true }` for what `[repo.component]` offers, or the table written out.",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/PresetName"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "repo": {
+              "const": true
+            }
+          },
+          "required": ["repo"],
+          "type": "object"
+        },
+        {
+          "$ref": "#/definitions/ExplicitPipeline"
+        }
+      ]
+    },
+    "PresetName": {
+      "description": "A valid preset name: lowercase letters, digits, '-' and '.', starting and ending on a letter or digit, without '..'.",
+      "pattern": "^[a-z0-9](?:(?:\\.?[a-z0-9-])*\\.?[a-z0-9])?$",
+      "type": "string"
+    },
+    "Publish": {
+      "description": "Where the artifact goes: `false` for nowhere, said out loud, or a list of targets from the central register.",
+      "oneOf": [
+        {
+          "const": false
+        },
+        {
+          "items": {
+            "$ref": "#/definitions/TargetName"
+          },
+          "type": "array"
+        }
+      ]
+    },
+    "Reason": {
+      "description": "Why, in words. It must say something: a blank reason is an error.",
+      "pattern": "\\S",
+      "type": "string"
+    },
+    "RelativePath": {
+      "description": "A path inside the repository, separated by '/': '.' for the repository itself, never absolute, no '.' or '..' segment, no control character.",
+      "pattern": "^(?:\\.|(?:[^/\\\\.\\x00-\\x1F\\x7F-\\x9F][^/\\\\\\x00-\\x1F\\x7F-\\x9F]*|\\.[^/\\\\.\\x00-\\x1F\\x7F-\\x9F][^/\\\\\\x00-\\x1F\\x7F-\\x9F]*|\\.\\.[^/\\\\\\x00-\\x1F\\x7F-\\x9F]+)(?:/(?:[^/\\\\.\\x00-\\x1F\\x7F-\\x9F][^/\\\\\\x00-\\x1F\\x7F-\\x9F]*|\\.[^/\\\\.\\x00-\\x1F\\x7F-\\x9F][^/\\\\\\x00-\\x1F\\x7F-\\x9F]*|\\.\\.[^/\\\\\\x00-\\x1F\\x7F-\\x9F]+))*/?)$",
+      "type": "string"
+    },
+    "Repo": {
+      "additionalProperties": false,
+      "description": "The repository as a unit.",
+      "properties": {
+        "allow-unused": {
+          "additionalProperties": false,
+          "description": "Checks that may find nothing without failing, each with its reason.",
+          "patternProperties": {
+            "^[a-z0-9](?:(?:\\.?[a-z0-9-])*\\.?[a-z0-9])?$": {
+              "$ref": "#/definitions/Reason"
+            }
+          },
+          "type": "object"
+        },
+        "audience": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Audience"
+            }
+          ],
+          "description": "For whom the repository is meant. Phase 0 demands it in the\ndeclaration of the commit at hand; a declaration of an earlier commit\nis read without it, since it takes no part in resolving versions."
+        },
+        "component": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ComponentDefaults"
+            }
+          ],
+          "description": "The default a component can ask for with `pipeline.repo = true`."
+        },
+        "feat-types": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/FeatTypes"
+            }
+          ],
+          "description": "Commit types that count like `feat` in this repository, beside `feat`\nitself. Each commit is read with the list its own declaration holds."
+        },
+        "minimum-version": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Version"
+            }
+          ],
+          "description": "The version it gets is never lower than this, as `X.Y.Z`."
+        },
+        "pipeline": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Pipeline"
+            }
+          ],
+          "description": "What runs for it."
+        },
+        "versioning": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Versioning"
+            }
+          ],
+          "description": "Which units around it carry a version."
+        }
+      },
+      "type": "object"
+    },
+    "TargetName": {
+      "description": "A valid target name: lowercase letters, digits, '-' and '.', starting and ending on a letter or digit, without '..'.",
+      "pattern": "^[a-z0-9](?:(?:\\.?[a-z0-9-])*\\.?[a-z0-9])?$",
+      "type": "string"
+    },
+    "Version": {
+      "description": "A version as X.Y.Z: three numbers without a leading zero, a prefix or a suffix.",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$",
+      "type": "string"
+    },
+    "VersionWriterName": {
+      "description": "A valid version writer name: lowercase letters, digits, '-' and '.', starting and ending on a letter or digit, without '..'.",
+      "pattern": "^[a-z0-9](?:(?:\\.?[a-z0-9-])*\\.?[a-z0-9])?$",
+      "type": "string"
+    },
+    "Versioning": {
+      "description": "Which units around a declaring unit carry a version.\n\nEvery value names the whole effect rather than half of it, so that reading\none tells you whether the declaring unit itself is included.",
+      "oneOf": [
+        {
+          "const": "self",
+          "description": "Only this unit.",
+          "type": "string"
+        },
+        {
+          "const": "self-and-child-folders",
+          "description": "This unit and each folder directly below it.",
+          "type": "string"
+        },
+        {
+          "const": "self-and-child-files",
+          "description": "This unit and each file directly below it.",
+          "type": "string"
+        },
+        {
+          "const": "child-folders",
+          "description": "Only the folders directly below it.",
+          "type": "string"
+        },
+        {
+          "const": "child-files",
+          "description": "Only the files directly below it.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "None of them; only units written out separately carry a version.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "description": "The contents of `.nebensound/repo.toml`.",
+  "properties": {
+    "component": {
+      "additionalProperties": false,
+      "description": "Components, keyed by the name that also becomes their tag prefix.",
+      "patternProperties": {
+        "^[a-z0-9](?:(?:\\.?[a-z0-9-])*\\.?[a-z0-9])?$": {
+          "$ref": "#/definitions/Component"
+        }
+      },
+      "type": "object"
+    },
+    "edition": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Edition"
+        }
+      ],
+      "description": "How a commit that holds this declaration is read. `1` when it is left\nout, and `1` is the only edition there is."
+    },
+    "exclude": {
+      "description": "What falls out of the coverage check, each with its reason.\n\nIn the declaration of a repository only concrete paths are allowed here:\na pattern would excuse a whole class of files, and extensions are\ndecided by the central list.",
+      "items": {
+        "$ref": "#/definitions/Exclusion"
+      },
+      "type": "array"
+    },
+    "include": {
+      "description": "What is pulled back into the check — paths and patterns.",
+      "items": {
+        "$ref": "#/definitions/Inclusion"
+      },
+      "type": "array"
+    },
+    "repo": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/Repo"
+        }
+      ],
+      "description": "The repository itself, which is a unit like any other.\n\nIt is required: a file without it would not be a statement, and the\npoint of demanding the file everywhere is to tell \"nothing is published\nhere\" apart from \"nobody ever set this up\"."
+    }
+  },
+  "required": ["repo"],
+  "title": "Nebensound repository declaration",
+  "type": "object"
+}

@@ -1,0 +1,7 @@
+# Two pages that carry a title, a description, one h1 and alternative text
+# (empty for an image that only decorates), linked to each other by a file and
+# an id, with a link from the root of the site and one to the outside, neither
+# checked; beside them a fragment, which is no page and needs none of that.
+[repo]
+audience = "public"
+pipeline = { check = ["html"] }

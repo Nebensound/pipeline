@@ -1,0 +1,2 @@
+::error::Pyright analysed 4 of the 5 file(s) check-python handed it; each one it left out is named
+::error file=.typings/extra.pyi::Pyright did not analyse it, although check-python handed it over by name*

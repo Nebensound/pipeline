@@ -1,0 +1,16 @@
+# Two units, each with an HTML fragment that is a shell script as well: run as
+# one, it removes the other unit's fragment. `preprocess` in lychee.toml would
+# have lychee run every file it reads with `sh`, and the units are checked one
+# after the other, so whichever ran first, the other unit's finding would then
+# be missing.
+[repo]
+audience = "public"
+pipeline = "none"
+
+[component.a]
+path     = "a"
+pipeline = { check = ["html"] }
+
+[component.b]
+path     = "b"
+pipeline = { check = ["html"] }

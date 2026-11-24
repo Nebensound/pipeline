@@ -1,0 +1,5 @@
+# The key fails by name, and nothing was started: both fragments are still
+# there, so Prettier still finds each of them unformatted.
+::error file=lychee.toml::`preprocess` is not handed to lychee: it makes lychee start a command for every file it reads*
+::error file=a/part.html::not formatted the way Prettier writes it
+::error file=b/part.html::not formatted the way Prettier writes it

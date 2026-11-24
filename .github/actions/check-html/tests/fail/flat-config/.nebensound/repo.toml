@@ -1,0 +1,8 @@
+# A flat configuration of html-validate, which the block does not read.
+[repo]
+audience = "public"
+pipeline = { check = ["html"] }
+
+[[exclude]]
+path   = "html-validate.config.mjs"
+reason = "the configuration under test; JavaScript, which no check of the case covers"

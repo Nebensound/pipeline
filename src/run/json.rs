@@ -1,0 +1,201 @@
+//! The JSON check: every `.json`, `.jsonc` and `.geojson` file parses and is
+//! formatted the way Prettier writes it; every JSON lockfile parses.
+
+use std::ffi::OsString;
+
+use super::{Level, Session, Tool, annotation_at, has_extension, is_lockfile};
+use crate::console;
+
+/// Biome's configuration for parsing JSONC and nothing else: formatter,
+/// assists and every lint rule switched off, and no version control read.
+pub const BIOME: &str = include_str!("../../run/biome.json");
+
+/// Runs the check; whether it found nothing.
+pub(super) fn run(session: &mut Session<'_, '_, '_>) -> bool {
+    // A missing program is named and fails the check, and the parts whose
+    // programs were found still run, so that one run reports every finding.
+    let jq = session.tool("jq", false);
+    let biome = session.tool("biome", false);
+    let prettier = session.tool("prettier", false);
+    let Some(temp) = session.folder(|_| {
+        vec![
+            ("nothing-ignored".to_owned(), Some(Vec::new())),
+            ("biome".to_owned(), None),
+            (
+                "biome/biome.json".to_owned(),
+                Some(BIOME.as_bytes().to_vec()),
+            ),
+        ]
+    }) else {
+        return false;
+    };
+    let files = session.files.clone();
+    let files: Vec<&str> = files.iter().map(String::as_str).collect();
+    // Each part runs even when one before it failed, so that one run reports
+    // every broken and every unformatted file at once.
+    let parsed = jq.is_some_and(|jq| strict(session, &jq, &files));
+    let commented =
+        biome.is_some_and(|biome| commented(session, &biome, &temp.join("biome"), &files));
+    let formatted = prettier.is_some_and(|prettier| {
+        formatted(session, &prettier, &temp.join("nothing-ignored"), &files)
+    });
+    parsed && commented && formatted
+}
+
+/// Strict JSON: no comments, no trailing commas, and exactly one document.
+/// Prettier would accept the first two and so cannot be the judge of
+/// validity. `jq empty` would also pass an empty file and a file holding two
+/// values; slurped, the file is the list of its values, and that list has to
+/// hold one. Every file but a `.jsonc` one; what jq writes to its standard
+/// error is the message.
+fn strict(session: &mut Session<'_, '_, '_>, jq: &Tool, files: &[&str]) -> bool {
+    let mut passed = true;
+    for file in files.iter().filter(|file| !has_extension(file, "jsonc")) {
+        let one = match session
+            .command(&jq.executable, &jq.search_path)
+            .args(["--exit-status", "--slurp", "length == 1", file])
+            .output()
+        {
+            Ok(output) => output,
+            Err(error) => {
+                session
+                    .log
+                    .error(None, None, &format!("jq cannot be started: {error}"));
+                return false;
+            }
+        };
+        let message = match one.status.code() {
+            Some(0) => continue,
+            Some(1) => {
+                let count = session
+                    .command(&jq.executable, &jq.search_path)
+                    .args(["--slurp", "length", file])
+                    .output()
+                    .map(|output| output.stdout)
+                    .unwrap_or_default();
+                format!(
+                    "not valid JSON: the file holds {} values, a JSON document is exactly one",
+                    String::from_utf8_lossy(&count).trim_end()
+                )
+            }
+            _ => format!(
+                "not valid JSON: {}",
+                String::from_utf8_lossy(&one.stderr).trim_end_matches('\n')
+            ),
+        };
+        session.log.error(Some(file), None, &message);
+        passed = false;
+    }
+    passed
+}
+
+/// Strict JSONC as jsonc.org defines it: JSON plus `//` and `/* */`
+/// comments, and trailing commas, which the specification lets a parser
+/// accept and which Prettier writes into every multi-line `.jsonc` file.
+/// Prettier's own parser would also take unquoted keys, single quotes,
+/// hexadecimal numbers and NaN. Biome is used as a parser only, with the
+/// configuration in `config`; a repository's own Biome configuration is not
+/// read. It names files by their absolute path, and a finding needs them from
+/// the repository root.
+fn commented(
+    session: &mut Session<'_, '_, '_>,
+    biome: &Tool,
+    config: &std::path::Path,
+    files: &[&str],
+) -> bool {
+    let commented: Vec<&str> = files
+        .iter()
+        .copied()
+        .filter(|file| has_extension(file, "jsonc"))
+        .collect();
+    if commented.is_empty() {
+        session.log.line("No .jsonc file to parse.");
+        return true;
+    }
+    let mut flag = OsString::from("--config-path=");
+    flag.push(config);
+    let args = ["lint".into(), flag, "--reporter=github".into()];
+    let ran = session.over(biome, &args, &commented, "Biome");
+    let root = format!("{}/", session.context.root.display());
+    let text = ran.text.replace(&root, "");
+    // A line the tool writes as a finding of its own is not printed as well.
+    let mut found = Vec::new();
+    for line in text.lines() {
+        match biome_finding(line) {
+            Some(finding) => found.push(finding),
+            None => session.log.line(line),
+        }
+    }
+    session
+        .log
+        .line(&format!("{} .jsonc file(s) parsed.", commented.len()));
+    for (level, file, position, message) in found {
+        let position = position
+            .as_ref()
+            .map(|(line, column)| (line.as_str(), column.as_deref()));
+        session
+            .log
+            .annotate(&annotation_at(level, file.as_deref(), position, &message));
+    }
+    ran.success
+}
+
+/// A finding of Biome, as its reporter `github` writes it: an annotation
+/// with the title, the file, and the line and column where it starts. The
+/// tool writes it as a finding of its own, since no program's annotation is
+/// passed through: its level, its file, its line and column, and its message
+/// behind `Biome` and its title. Any other line is none.
+#[must_use]
+pub fn biome_finding(line: &str) -> Option<Found> {
+    let (level, properties, message) = console::annotation(line)?;
+    let level = if level == "error" {
+        Level::Error
+    } else {
+        Level::Warning
+    };
+    let mut file = None;
+    let mut row = None;
+    let mut column = None;
+    let mut title = String::new();
+    for pair in properties.split(',') {
+        match pair.split_once('=') {
+            Some(("file", value)) => file = Some(console::unescape(value)),
+            Some(("line", value)) => row = Some(console::unescape(value)),
+            Some(("col", value)) => column = Some(console::unescape(value)),
+            Some(("title", value)) => title = format!(" {}", console::unescape(value)),
+            _ => {}
+        }
+    }
+    let message = format!("Biome{title}: {}", console::unescape(message));
+    Some((level, file, row.map(|row| (row, column)), message))
+}
+
+/// A finding read off a program: its level, its file, its line with its
+/// column, and its message.
+pub type Found = (
+    Level,
+    Option<String>,
+    Option<(String, Option<String>)>,
+    String,
+);
+
+/// Formatted the way Prettier writes it, every file but a lockfile.
+fn formatted(
+    session: &mut Session<'_, '_, '_>,
+    prettier: &Tool,
+    ignore: &std::path::Path,
+    files: &[&str],
+) -> bool {
+    let formatted: Vec<&str> = files
+        .iter()
+        .copied()
+        .filter(|file| !is_lockfile(file))
+        .collect();
+    if formatted.is_empty() {
+        session
+            .log
+            .line("No file to format-check: lockfiles are parsed, not formatted.");
+        return true;
+    }
+    session.prettier(prettier, ignore, &formatted)
+}
