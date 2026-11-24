@@ -27,9 +27,8 @@ use regex::RegexSet;
 use toml::{Table, Value};
 
 /// The keys the link check carries over as they are: which addresses it
-/// leaves out or remaps, which answers it accepts, how a link into a folder
-/// or without an extension is resolved, how requests are made, and how
-/// lychee prints. The command line of the check sets `offline`,
+/// leaves out, which answers it accepts, how a link into a folder or without
+/// an extension is resolved, how requests are made, and how lychee prints. The command line of the check sets `offline`,
 /// `include_fragments`, `hidden`, `no_ignore`, `no_progress` and `format`
 /// itself, and lychee lets its command line win over a configuration, so the
 /// repository's value of these changes nothing.
@@ -72,7 +71,6 @@ pub const CARRIED: &[&str] = &[
     "no_ignore",
     "no_progress",
     "offline",
-    "remap",
     "require_https",
     "retry_wait_time",
     "scheme",
@@ -129,6 +127,11 @@ pub const REFUSED: &[(&str, &str)] = &[
         "preprocess",
         "makes lychee start a command for every file it reads, and the link check starts no \
          program of the repository",
+    ),
+    (
+        "remap",
+        "makes lychee check another address in place of a link, which it does not check \
+         offline",
     ),
     (
         "root_dir",

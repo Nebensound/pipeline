@@ -314,14 +314,16 @@ Every part runs even when one before it failed, so one run shows every finding.
   `lychee.toml` at the root key by key and writes the configuration lychee
   gets, carrying over the keys it knows as plain settings. A key that would
   make lychee start a command (`preprocess`), end or pass without checking
-  (`dump`, `dump_inputs`, `generate`, `skip_missing`, `base_url`), read or
+  (`dump`, `dump_inputs`, `generate`, `skip_missing`), send a link to an
+  address the offline check does not check (`base_url`, `remap`), read or
   write another file (`cache`, `cookie_jar`, `exclude_file`, `files_from`,
   `glob_ignore_case`, `output`, `root_dir`) or ask a web archive (`suggest`)
   fails the check by name, and so does a key the tool does not know; the
-  other parts of the check still run. The keys that choose and rewrite
-  addresses (`exclude`, `scheme`, `remap`) are carried over, so they can still
-  leave a link into the repository unchecked, such as one `remap` turns into a
-  web address. The tool reads `.lycheeignore` at the root as well and adds its
+  other parts of the check still run. The keys that choose which addresses
+  are checked (`exclude`, `include`, `scheme`) are carried over as the
+  repository's stated choice of what it leaves out, so they can still leave a
+  link into the repository unchecked, as an `[[exclude]]` entry leaves a file
+  out. The tool reads `.lycheeignore` at the root as well and adds its
   patterns to `exclude`, and starts lychee in a folder of its own, where it
   finds no `.lycheeignore` to read. It hands
   lychee every file as an absolute path and takes out itself what

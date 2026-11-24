@@ -50,10 +50,12 @@ unit. The job of the repository also runs `cargo xtask check --all` there.
 The link check of the Markdown and the HTML check hands lychee only the
 configuration the tool writes from the keys of `lychee.toml` it knows, and
 reads `.lycheeignore` itself: no key can make lychee start a command, end
-without checking or read another file. The keys that choose and rewrite
-addresses (`exclude`, `scheme`, `remap`) and `.lycheeignore` are carried
-over, so they can still leave a link into the repository unchecked. The other
-linters still find and read the repository's configuration themselves.
+without checking, send a link to an address it does not check, or read
+another file. The keys that choose which addresses are checked (`exclude`,
+`include`, `scheme`) and `.lycheeignore` are carried over as the repository's
+stated choice of what it leaves out, so they can still leave a link into the
+repository unchecked. The other linters still find and read the repository's
+configuration themselves.
 
 ## 3. All logic is Rust, in the tool, and tested
 

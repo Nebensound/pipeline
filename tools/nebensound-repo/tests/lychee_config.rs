@@ -20,7 +20,7 @@ fn every_key_is_carried_over_refused_or_applied_by_the_tool_once() {
     assert!(!CARRIED.contains(&EXCLUDE_PATH));
     assert!(!refused.contains(&EXCLUDE_PATH));
     // The keys lychee 0.24.2 reads from its configuration file, the version
-    // the register pins: 46 carried over, 14 refused, and `exclude_path`.
+    // the register pins: 45 carried over, 15 refused, and `exclude_path`.
     assert_eq!(CARRIED.len() + refused.len() + 1, 61);
 }
 
@@ -63,6 +63,26 @@ fn every_reason_is_named() {
             "`exclude` is not a list of text",
         ]
     );
+}
+
+#[test]
+fn a_key_that_sends_a_link_elsewhere_is_refused_like_base_url() {
+    // Both let a link into the repository pass as an address the offline
+    // check does not check.
+    for (config, reason) in [
+        (
+            "base_url = 'https://example.com/'\n",
+            "`base_url` is not handed to lychee: it makes lychee resolve the links of a file \
+             against another address, which it does not check offline",
+        ),
+        (
+            "remap = ['^file://.* https://example.com/']\n",
+            "`remap` is not handed to lychee: it makes lychee check another address in place of \
+             a link, which it does not check offline",
+        ),
+    ] {
+        assert_eq!(hand_over(config, "").unwrap_err(), [reason]);
+    }
 }
 
 #[test]
