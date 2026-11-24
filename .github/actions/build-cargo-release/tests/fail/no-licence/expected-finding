@@ -1,0 +1,2 @@
+# The binary is built and started, and the archive is not written.
+::error::Neither '.' nor a folder above it holds a licence, a file whose name starts with LICENSE, LICENCE or COPYING, to put beside the binary.

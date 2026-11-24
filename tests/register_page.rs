@@ -138,6 +138,7 @@ fn the_page_names_what_the_register_says() {
             "`deploy/Dockerfile`",
             "`trivy`",
             "`buildkit`",
+            "none",
         ],
         &[
             "`buildkit`",
@@ -149,6 +150,7 @@ fn the_page_names_what_the_register_says() {
             "`cargo-package`",
             "`crate`",
             "`cargo`",
+            "none",
             "none",
             "none",
             "none",

@@ -1,0 +1,5 @@
+# A workspace with two binary packages and none of its own: the version writer
+# cargo, which runs before the build in the same job, already finds no package
+# at the unit's path to give the version to, so nothing is built. The build
+# refuses such a workspace by name as well.
+the repository selects the version writer cargo, and Cargo.toml has no [package] with a name: there is no package to give the version to

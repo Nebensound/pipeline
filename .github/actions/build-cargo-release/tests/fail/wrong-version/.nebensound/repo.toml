@@ -1,0 +1,5 @@
+# A binary that prints a version of its own instead of the one the writer
+# wrote into its manifest.
+[repo]
+audience = "public"
+pipeline = "rust-binary"

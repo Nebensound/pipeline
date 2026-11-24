@@ -1,0 +1,2 @@
+# The build names both binaries and builds neither.
+::error::The package case of '.' has 2 binaries (case, other), and cargo-release builds exactly one.

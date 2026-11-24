@@ -152,17 +152,19 @@ A build that needs files reads them below the unit's path: a unit it builds
 holds them, or phase 0 fails (see
 [`build-without-file`](declaration.md#build-without-file)). The programs are
 what the build calls (see [Programs](#programs)), the images what it starts
-(see [Images](#images)).
+(see [Images](#images)). A build with targets builds once per target, each
+in a job of its own on the runner named beside it (see
+[the Build phase](phases.md#build)).
 
-| Build           | Produces     | Needs version writers | Needs files         | Programs | Images     |
-| --------------- | ------------ | --------------------- | ------------------- | -------- | ---------- |
-| `asciidoctor`   | `site`       | none                  | none                | none     | none       |
-| `cargo-package` | `crate`      | `cargo`               | none                | none     | none       |
-| `cargo-release` | `executable` | none                  | none                | none     | none       |
-| `docker`        | `container`  | none                  | `deploy/Dockerfile` | `trivy`  | `buildkit` |
-| `esphome`       | `firmware`   | none                  | none                | none     | none       |
-| `platformio`    | `firmware`   | none                  | none                | none     | none       |
-| `typst`         | `document`   | none                  | none                | none     | none       |
+| Build           | Produces     | Needs version writers | Needs files         | Programs | Images     | Targets                                                                                                                             |
+| --------------- | ------------ | --------------------- | ------------------- | -------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `asciidoctor`   | `site`       | none                  | none                | none     | none       | none                                                                                                                                |
+| `cargo-package` | `crate`      | `cargo`               | none                | none     | none       | none                                                                                                                                |
+| `cargo-release` | `executable` | `cargo`               | none                | none     | none       | `aarch64-apple-darwin` on `macos-latest`, `x86_64-apple-darwin` on `macos-26-intel`, `x86_64-unknown-linux-musl` on `ubuntu-latest` |
+| `docker`        | `container`  | none                  | `deploy/Dockerfile` | `trivy`  | `buildkit` | none                                                                                                                                |
+| `esphome`       | `firmware`   | none                  | none                | none     | none       | none                                                                                                                                |
+| `platformio`    | `firmware`   | none                  | none                | none     | none       | none                                                                                                                                |
+| `typst`         | `document`   | none                  | none                | none     | none       | none                                                                                                                                |
 
 ## Publish targets
 

@@ -93,6 +93,17 @@ pub fn artifact(path: &str, version: &str, commit: &str) -> String {
     format!("crate-{}@{version}@{commit}", encoded(path))
 }
 
+/// The SHA-256 of these bytes, in small hexadecimal digits, as `sha256sum`
+/// prints it.
+#[must_use]
+pub fn sha256(bytes: &[u8]) -> String {
+    let mut hex = String::new();
+    for byte in Sha256::digest(bytes) {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
+
 /// The package of the unit, as the build carries it from step to step.
 struct Found {
     name: String,
@@ -149,7 +160,7 @@ fn command(context: &Context<'_>, program: &str, dir: &Path) -> Command {
 
 /// Runs `program` with these arguments in `dir`, its output in the log:
 /// whether it succeeded.
-fn call(
+pub(super) fn call(
     context: &Context<'_>,
     log: &mut Log<'_>,
     dir: &Path,
@@ -163,7 +174,12 @@ fn call(
 
 /// What `cargo metadata` says with these arguments, or nothing, with why
 /// written.
-fn metadata(context: &Context<'_>, dir: &Path, extra: &str, log: &mut Log<'_>) -> Option<Metadata> {
+pub(super) fn metadata(
+    context: &Context<'_>,
+    dir: &Path,
+    extra: &str,
+    log: &mut Log<'_>,
+) -> Option<Metadata> {
     let mut command = command(context, "cargo", dir);
     command.args(["metadata", "--locked", "--format-version", "1", extra]);
     let printed = log.capture(command, "cargo metadata")?;
@@ -265,12 +281,7 @@ fn pack(
     let shown = found.crate_file.display();
     match fs::read(&found.crate_file) {
         Ok(bytes) => {
-            let digest = Sha256::digest(&bytes);
-            let mut hex = String::new();
-            for byte in digest {
-                let _ = write!(hex, "{byte:02x}");
-            }
-            log.line(&format!("{hex}  {shown}"));
+            log.line(&format!("{}  {shown}", sha256(&bytes)));
             true
         }
         Err(error) => {

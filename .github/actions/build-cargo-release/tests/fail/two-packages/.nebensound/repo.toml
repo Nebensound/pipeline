@@ -1,0 +1,5 @@
+# A workspace without a package of its own, with two packages that each have a
+# binary: there is no one binary to hand on.
+[repo]
+audience = "public"
+pipeline = "rust-binary"

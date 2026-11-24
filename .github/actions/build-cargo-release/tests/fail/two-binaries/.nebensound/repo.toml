@@ -1,0 +1,4 @@
+# A package with two binaries: there is no one binary to hand on.
+[repo]
+audience = "public"
+pipeline = "rust-binary"
