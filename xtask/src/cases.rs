@@ -626,8 +626,8 @@ fn tool(
 
 /// A directory of its own for a case, in `scratch`, and in it the case as a
 /// fresh Git repository, with everything but its [`FINDING`] committed, and
-/// the directory the tool takes for `RUNNER_TEMP`. The directory goes when what is returned
-/// is dropped.
+/// the directory the tool takes for `RUNNER_TEMP`. The directory goes when
+/// what is returned is dropped.
 fn fresh(scratch: &Path, git: &OsString, case: &Case) -> Result<(TempDir, PathBuf), Error> {
     let temp = tempfile::tempdir_in(scratch).map_err(|error| {
         Error::new(format!(
