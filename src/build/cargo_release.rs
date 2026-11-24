@@ -67,24 +67,14 @@ pub fn artifact(path: &str, version: &str, commit: &str, target: &str) -> String
     format!("executable-{}@{version}@{commit}@{target}", encoded(path))
 }
 
-/// The processor and the operating system of a target, as
-/// `std::env::consts::ARCH` and `std::env::consts::OS` name those of a
-/// machine: the first part of its name, and `linux` for a Linux target or
-/// `macos` for an Apple one. [`None`] for a target of any other system.
-#[must_use]
-pub fn platform(target: &str) -> Option<(&str, &str)> {
-    let arch = target.split('-').next().unwrap_or_default();
-    if target.ends_with("-apple-darwin") {
-        Some((arch, "macos"))
-    } else if target.split('-').any(|part| part == "linux") {
-        Some((arch, "linux"))
-    } else {
-        None
-    }
-}
+pub use crate::register::platform;
 
 /// The one target among `targets` whose platform is the machine's, or why
 /// there is none.
+///
+/// The register refuses two targets of one platform when it is read
+/// ([`crate::register::Build::targets`]), so more than one is only possible
+/// for targets that come from elsewhere.
 ///
 /// # Errors
 ///

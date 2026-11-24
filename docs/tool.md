@@ -484,9 +484,12 @@ own on that runner. The tool builds for the one target whose processor and
 operating system are those of the machine it runs on: the first part of the
 target's name, and Linux for a target with `linux` in its name or macOS for
 one that ends in `-apple-darwin`. Only a machine of the target's platform can
-start the binary it built. The version is the unit's version of the run,
-taken from `--plan <file>`, as the block hands in the plan Declare printed,
-or, without it, resolved from the history as `plan` resolves it. Its steps,
+start the binary it built. The register holds that rule when it is read: it
+refuses a target of any other platform, two targets of one platform, targets
+on a build that builds once, and `cargo-release` without targets. The version
+is the unit's version of the run, taken from `--plan <file>`, as the block
+hands in the plan Declare printed, or, without it, resolved from the history
+as `plan` resolves it. Its steps,
 each in a group of the log, up to the first that fails:
 
 1. The target of this machine, named in the log; a machine the register lists

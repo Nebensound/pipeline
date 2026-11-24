@@ -174,8 +174,75 @@ pub struct Build {
     /// and tested on. A build with targets builds once per target, each in a
     /// job of its own on that runner; one without builds once. They are no
     /// publish targets (`[target.*]`).
+    ///
+    /// Only a build of [`TARGETED_BUILDS`] lists targets, and it lists at
+    /// least one. Each target is for a platform [`platform`] knows, and no two
+    /// are for the same one, so that a machine has at most one target to
+    /// build.
     #[serde(default)]
     pub targets: BTreeMap<String, String>,
+}
+
+/// The builds that read their targets and build once for each: the others
+/// build once, so a target listed for them would only repeat that build.
+pub const TARGETED_BUILDS: &[&str] = &["cargo-release"];
+
+/// The processor and the operating system of a target, as
+/// `std::env::consts::ARCH` and `std::env::consts::OS` name those of a
+/// machine: the first part of its name, and `linux` for a Linux target or
+/// `macos` for an Apple one. [`None`] for a target of any other system.
+#[must_use]
+pub fn platform(target: &str) -> Option<(&str, &str)> {
+    let arch = target.split('-').next().unwrap_or_default();
+    if target.ends_with("-apple-darwin") {
+        Some((arch, "macos"))
+    } else if target.split('-').any(|part| part == "linux") {
+        Some((arch, "linux"))
+    } else {
+        None
+    }
+}
+
+/// Refuses targets on a build that does not read them, a build that reads
+/// them and lists none, a target of a platform [`platform`] does not know,
+/// and two targets of one platform.
+fn targets(name: &BuildName, build: &Build) -> Result<(), RegisterError> {
+    let refused = |problem: String| RegisterError::Targets {
+        holder: name.to_string(),
+        problem,
+    };
+    let targeted = TARGETED_BUILDS.contains(&name.as_str());
+    if !targeted {
+        return if build.targets.is_empty() {
+            Ok(())
+        } else {
+            Err(refused(
+                "lists targets, and only a build that builds once for each target lists any"
+                    .to_owned(),
+            ))
+        };
+    }
+    if build.targets.is_empty() {
+        return Err(refused(
+            "builds once for each of its targets, and lists none".to_owned(),
+        ));
+    }
+    let mut seen: BTreeMap<(&str, &str), &str> = BTreeMap::new();
+    for target in build.targets.keys() {
+        let Some(this) = platform(target) else {
+            return Err(refused(format!(
+                "lists the target {target:?}, which is for neither Linux nor macOS"
+            )));
+        };
+        if let Some(other) = seen.insert(this, target) {
+            return Err(refused(format!(
+                "lists the targets {other:?} and {target:?}, both for {} on {}, so a machine of \
+                 that platform could not tell which to build",
+                this.1, this.0
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// What a target takes.
@@ -253,6 +320,14 @@ pub enum RegisterError {
     #[error("{holder} {problem}")]
     Minimum {
         /// The program.
+        holder: String,
+        /// What does not fit.
+        problem: String,
+    },
+    /// A build's targets do not fit it: see [`Build::targets`].
+    #[error("the build {holder} {problem}")]
+    Targets {
+        /// The build.
         holder: String,
         /// What does not fit.
         problem: String,
@@ -448,7 +523,7 @@ impl Register {
     }
 
     /// Refuses a build that names a version writer, a program or an image
-    /// the register does not define.
+    /// the register does not define, and one whose targets do not fit it.
     fn builds_resolved(&self) -> Result<(), RegisterError> {
         let dangling =
             |holder: &BuildName, kind, name: &dyn std::fmt::Display| RegisterError::Dangling {
@@ -472,6 +547,7 @@ impl Register {
                     return Err(dangling(name, "image", image));
                 }
             }
+            targets(name, build)?;
         }
         Ok(())
     }
