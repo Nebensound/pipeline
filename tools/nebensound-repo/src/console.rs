@@ -308,16 +308,27 @@ pub fn annotation(line: &str) -> Option<(&str, &str, &str)> {
 /// A property of a workflow command, such as the `file=` of an annotation,
 /// in the runner's own escaping: `%`, a carriage return and a line break,
 /// which would end the command's line, as `%25`, `%0D` and `%0A`, and `:` and
-/// `,`, which end a value, as `%3A` and `%2C`. The runner undoes these, so a
-/// file is named as it stands and the annotation sits on it.
+/// `,`, which end a value, as `%3A` and `%2C`. The runner undoes these, so
+/// nothing in a name ends the property, starts another one or ends the
+/// command, and a name with a line break reaches the runner as it stands.
 ///
-/// The runner has no escape for any other control character, such as a tab
-/// or an escape character. Such a character cannot end the line, so no
-/// command starts from it, but the tool writes no control character from the
-/// repository into a line of its own: it is written as [`shown`] writes it
-/// (`\t`, `\u{1b}`). An annotation on such a file then names no file, and its
-/// message still names it; phase 0 refuses a tracked name that holds one
-/// (`control-character`).
+/// Three kinds of name do not reach it as they stand, and no command starts
+/// from any of them:
+///
+/// - A name that starts with `=`: the runner splits `file==a` at the first
+///   `=` and skips the empty part, so the annotation sits on `a`.
+/// - A name that ends in white space, when `file=` is the last property: the
+///   runner trims the property list, so the annotation sits on the name
+///   without it, another file or none.
+/// - A name that holds a control character other than a carriage return or a
+///   line break, such as a tab or an escape character: the runner has no
+///   escape for it, and the tool writes no control character from the
+///   repository into a line of its own, so it is written as [`shown`] writes
+///   it (`\t`, `\u{1b}`) and the annotation sits on no file. Phase 0 refuses
+///   a tracked name that holds one (`control-character`).
+///
+/// The message of a finding of phase 0 names the file as well; the message
+/// of a check's finding names it only where the program's message does.
 #[must_use]
 pub fn property(text: &str) -> String {
     let mut written = String::with_capacity(text.len());
