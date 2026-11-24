@@ -1,0 +1,8 @@
+[repo]
+audience = "public"
+pipeline = "none"
+
+# No check covers the file; the link check reads it all the same.
+[[exclude]]
+path   = ".lycheeignore"
+reason = "addresses the link check leaves out, read by the tool and handed to lychee"
