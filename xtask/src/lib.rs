@@ -47,8 +47,10 @@ check --all   Holds the building blocks, the register and nebensound.yml to
               in tests/pass/ and tests/fail/, through the tool of this
               commit, on every system. Every block's work is carried out by
               the tool: the checks css, dockerfile, html, json, markdown,
-              python, rust, toml, yaml, the builds cargo-package and docker
-              and the version writer cargo. For a check or a build,
+              python, rust, toml, yaml, the builds cargo-package,
+              cargo-release and docker and the version writer cargo. A build
+              with targets builds for the one of this machine. For a check or
+              a build,
               `nebensound-repo setup --pinned <name>` first sets up the
               programs the register names for it, and a runtime one of them
               needs is taken from the computer. In a run on GitHub Actions the

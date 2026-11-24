@@ -122,7 +122,8 @@ as a table in the summary of the run), one job per unit that runs a check
 (`nebensound / Check repository`, `nebensound / Check component <name>`),
 `nebensound / Check`, which sums the units up, one job per unit that builds
 and has a version of the run, that is, one the commit touches
-(`nebensound / Build repository`, `nebensound / Build component <name>`), and
+(`nebensound / Build repository`, `nebensound / Build component <name>`), for a
+build with targets one per target with the target behind the name, and
 `nebensound / Build`, which sums the builds up. After a push to `main`,
 `nebensound / Publish` tags and releases every unit with a version of the run
 (see [the phases](docs/phases.md#publish)). A ruleset requires
@@ -138,12 +139,14 @@ is running, so a change to the pipeline is checked by the pipeline it changes.
 The tool `nebensound-repo` is the package at the root of this repository, and
 the xtask the other member of its one Cargo workspace, so the repository unit is
 the tool and its version the tool's: its declaration selects the version writer
-`cargo`, the Rust check over the workspace and Dependabot for Cargo, the parts
-of the preset `rust-binary` that have a building block. Its tags `vX.Y.Z` are
-the only ones, and its Build phase has nothing to build until the build of that
-preset has a building block. Every merge to `main` touches the repository and
-is released in full, as `vX.Y.Z`, the latest release, with nothing attached.
-The build `cargo-package` is held to its test cases instead.
+`cargo`, the Rust check over the workspace, the build `cargo-release` and
+Dependabot for Cargo, the parts of the preset `rust-binary` that have a
+building block. Its tags `vX.Y.Z` are the only ones. Every pull request and
+every push to `main` builds the tool for each target of `cargo-release`, and
+each binary has to print the version of the run. Every merge to `main` touches
+the repository and is released in full, as `vX.Y.Z`, the latest release, with
+nothing attached yet. The build `cargo-package` is held to its test cases
+instead.
 
 ## Building blocks
 
@@ -153,7 +156,8 @@ extension the register gives that check, less what an `[[exclude]]` entry of
 the declaration takes out. A file nobody committed is not judged, and a
 committed one is not missed. Each finding is an annotation on its file. A
 version writer writes the versions of the plan, and a build block builds one
-unit (see [`build-cargo-package`](#build-cargo-package) and
+unit (see [`build-cargo-package`](#build-cargo-package),
+[`build-cargo-release`](#build-cargo-release) and
 [`build-docker`](#build-docker)).
 
 The unit job gets the tool the same way `Declare` does, from the cache phase 0
@@ -636,6 +640,53 @@ starts no `cargo-package` build for.
 Nothing is cached: the artifact is built from nothing in every run, so that
 nothing a pull request left in a cache reaches it.
 
+### `build-cargo-release`
+
+[`.github/actions/build-cargo-release`](.github/actions/build-cargo-release) is
+the build `cargo-release`. It builds the one binary of one unit for one target
+and runs in the job of that target, after `version-cargo` has written the
+version of the run into the manifest; it gets the plan to read the unit's
+version of the run from it. [The register](docs/register.md#builds) lists the
+targets, each with the runner it is built on: `x86_64-unknown-linux-musl` on
+`ubuntu-latest`, `aarch64-apple-darwin` on `macos-latest` and
+`x86_64-apple-darwin` on `macos-26-intel`, GitHub's Intel image of macOS, which
+GitHub ends in 2027; what happens to that target then is ruled when it comes.
+Declare gives each target a job of its own on its runner, named after the unit
+with the target behind it, such as `nebensound / Build repository
+(x86_64-unknown-linux-musl)`, and `nebensound / Build` gathers them. The build
+is one call of the tool, `nebensound-repo build --plan <file> cargo-release
+<unit>`, which runs each of the steps below in a group of the log, up to the
+first that fails, and names the artifact and the file as outputs of its step;
+the block's second step hands the file on with `actions/upload-artifact` (see
+[the tool](docs/tool.md#running-a-build)). The tool refuses a unit the plan
+starts no `cargo-release` build for.
+
+- The target is the one of the register whose platform is the machine's: the
+  block takes no target, and a machine the register lists none for is refused
+  by name. Linux is linked statically against musl, so that the binary runs on
+  every runner image whatever C library it carries.
+- The toolchain is the one the workspace pins in its `rust-toolchain.toml`,
+  with the target added to it.
+- The package is the one whose `Cargo.toml` stands at the unit's path, and it
+  has exactly one binary. A workspace without a package of its own there, or a
+  package with no binary or with several, fails and names them.
+- `cargo build --release --locked` builds that binary for the target, with the
+  package's default features.
+- The binary is started with `--version` and has to end within 30 seconds,
+  with success, and print the version of the run, on a pull request with
+  `-pr.<number>` behind it.
+- The archive `<binary>-<target>.tar.gz` holds the binary and the licence of
+  the unit: the files whose names start with `LICENSE`, `LICENCE` or `COPYING`
+  in the first folder from the unit's own up to the repository root that holds
+  one. Without a licence the build fails. The same files give the same bytes.
+- The archive is uploaded as an artifact of the run named
+  `executable-<path>@<version>@<sha>@<target>`, the path percent-encoded as for
+  a crate. It holds exactly that file. A second attempt of the same job
+  replaces it.
+
+Nothing is cached, for the same reason as for a crate. Attaching the archives
+to a release is not built yet.
+
 ### `build-docker`
 
 [`.github/actions/build-docker`](.github/actions/build-docker) is the build
@@ -1085,8 +1136,9 @@ Then it runs every block against its cases, each copied into a fresh Git
 repository. The work of every block runs from the tool (`check-css`,
 `check-dockerfile`, `check-html`, `check-json`, `check-markdown`,
 `check-python`, `check-rust`, `check-toml`, `check-yaml`, `version-cargo`,
-`build-cargo-package`, `build-docker`), and its steps hold nothing of it, so
-the cases run through the tool itself: the xtask builds the tool of this commit
+`build-cargo-package`, `build-cargo-release`, `build-docker`), and its steps
+hold nothing of it, so the cases run through the tool itself: the xtask builds
+the tool of this commit
 with Cargo, runs phase 0 on the case with `nebensound-repo check` and `plan`, as
 `Declare` does, and calls the tool as the block's step does, in the environment of a
 workflow run, so that the findings are annotations; its temporary folder
@@ -1099,9 +1151,13 @@ the run, after the version writers the unit selects, each through the tool, and
 only when they passed. A version writer gets the plan, and a check or a build
 that takes it, as `check-rust` does, gets it as its step in `nebensound.yml`
 hands it: the xtask hands it to the tool with `--plan`, in a file beside the
-case. The cases of `check-rust` and `build-cargo-package` install the toolchains
-a case needs through rustup, and those of `check-python` the interpreter a case
-pins through uv, as the check and the build do in a run. The cases of
+case. The cases of `check-rust`, `build-cargo-package` and
+`build-cargo-release` install the toolchains a case needs through rustup, and
+those of `check-python` the interpreter a case pins through uv, as the check and
+the build do in a run. The cases of `build-cargo-release` build for the one
+target of the register that is the machine's own, and add it to the toolchain:
+in the gate `x86_64-unknown-linux-musl`; a machine the register lists no target
+for refuses the build by name and the cases fail. The cases of
 `build-docker` build, start and scan their images with the machine's Docker
 and its Buildx, as the build does in a run: they need an `x86_64` Linux machine
 with a running Docker daemon, as the gate's runner is; elsewhere the tool
@@ -1149,7 +1205,9 @@ itself finds is no annotation of the gate either, but a line of the log and the
 failure of the step.
 
 The cases run wherever the tool does, on Linux and macOS alike, except those of
-`build-docker`, which need an `x86_64` Linux machine with Docker (see above).
+`build-docker`, which need an `x86_64` Linux machine with Docker, and those of
+`build-cargo-release`, which need a machine the register lists a target for
+(see above).
 
 `cargo xtask setup` calls `nebensound-repo setup` for this repository with the
 tool of this commit, built from the package at the root of this repository
@@ -1163,9 +1221,10 @@ The cases are
 taken out of this repository's own checks with `[[exclude]]` and a reason in
 [`.nebensound/repo.toml`](.nebensound/repo.toml). A case of `check-rust` is a
 whole Cargo package, the only way Rust code can be excluded, and so is a case
-of `build-cargo-package`. None of them belongs to the Cargo workspace at the
-root: its manifest excludes everything below `.github/actions`, so Cargo run
-inside a case finds the case and not that workspace.
+of `build-cargo-package` or `build-cargo-release`. None of them belongs to the
+Cargo workspace at the root: its manifest excludes everything below
+`.github/actions`, so Cargo run inside a case finds the case and not that
+workspace.
 
 ## Licence
 

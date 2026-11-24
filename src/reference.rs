@@ -268,6 +268,7 @@ fn builds(register: &Register) -> String {
                 codes(&build.requires_file),
                 codes(&build.programs),
                 codes(&build.images),
+                targets_of(&build.targets),
             ]
         })
         .collect();
@@ -281,7 +282,9 @@ fn builds(register: &Register) -> String {
          holds them, or phase 0 fails (see\n\
          [`build-without-file`](declaration.md#build-without-file)). The programs are\n\
          what the build calls (see [Programs](#programs)), the images what it starts\n\
-         (see [Images](#images)).",
+         (see [Images](#images)). A build with targets builds once per target, each\n\
+         in a job of its own on the runner named beside it (see\n\
+         [the Build phase](phases.md#build)).",
         &[
             "Build",
             "Produces",
@@ -289,6 +292,7 @@ fn builds(register: &Register) -> String {
             "Needs files",
             "Programs",
             "Images",
+            "Targets",
         ],
         &rows,
     )
@@ -502,6 +506,19 @@ fn codes<T: Display>(names: &[T]) -> String {
         return none();
     }
     names.iter().map(code).collect::<Vec<_>>().join(", ")
+}
+
+/// The targets of a build, each as code with the runner it is built on, or
+/// that there are none.
+fn targets_of(targets: &std::collections::BTreeMap<String, String>) -> String {
+    if targets.is_empty() {
+        return none();
+    }
+    targets
+        .iter()
+        .map(|(target, runner)| format!("{} on {}", code(target), code(runner)))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// An empty cell, said out loud.

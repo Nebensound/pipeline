@@ -1,0 +1,4 @@
+# A package with a library and no binary: there is nothing to hand on.
+[repo]
+audience = "public"
+pipeline = "rust-binary"

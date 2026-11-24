@@ -77,13 +77,14 @@ settings that come as files, such as a rustup override on the checkout or
 Cargo's configuration files, which the tool does not neutralise.
 
 **Today.** The checks for CSS, Dockerfiles, HTML, JSON, Markdown, Python,
-Rust, TOML and YAML, the builds `cargo-package` and `docker` and the version
-writer `cargo` are thin blocks that call the tool. Phase 0, the release stage in
-`Publish` and every other step of `nebensound.yml` are one call of the tool
-each; a test of the xtask holds every step to that. The Python check runs Python
-in three places, each because only the interpreter can answer: whether pytest
-imports, whether a file holds a statement, and whether a package of the wheel
-imports. The action `tool`, which every job runs, is still shell.
+Rust, TOML and YAML, the builds `cargo-package`, `cargo-release` and `docker`
+and the version writer `cargo` are thin blocks that call the tool. Phase 0, the
+release stage in `Publish` and every other step of `nebensound.yml` are one
+call of the tool each; a test of the xtask holds every step to that. The Python
+check runs Python in three places, each because only the interpreter can
+answer: whether pytest imports, whether a file holds a statement, and whether a
+package of the wheel imports. The action `tool`, which every job runs, is still
+shell.
 
 ## 4. External programs are the exception and are started from the tool
 
@@ -163,7 +164,7 @@ its jobs `contents: read`, and one job asks for more:
 | `Version`                             | read                                           | No. The tool reads the history.                                                                                                     |
 | `Check repository`, `Check component` | read                                           | Yes: `check-rust`, `check-python` and `cargo xtask check --all`.                                                                    |
 | `Check`                               | read                                           | No. It takes the tool from the cache, gathers results and reads the plan.                                                           |
-| `Build repository`, `Build component` | read                                           | Yes: the builds compile the code and build images.                                                                                  |
+| `Build repository`, `Build component` | read                                           | Yes: the builds compile the code, start what they built and build images, a build with targets in one job per target.               |
 | `Build`                               | read                                           | No. It takes the tool from the cache and gathers results.                                                                           |
 | `Publish`                             | `contents: write`, after a push to `main` only | No. It builds the tool from the pipeline's source and runs it, with Git and curl; it starts nothing of the repository.              |
 

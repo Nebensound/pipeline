@@ -7,13 +7,13 @@ and what runs on a pull request and on a push.
 
 ## What is built
 
-| Phase   | Jobs                                                                                            |
-| ------- | ----------------------------------------------------------------------------------------------- |
-| Declare | `nebensound / Declare`                                                                          |
-| Version | `nebensound / Version`                                                                          |
-| Check   | `nebensound / Check repository`, `nebensound / Check component <name>` and `nebensound / Check` |
-| Build   | `nebensound / Build repository`, `nebensound / Build component <name>` and `nebensound / Build` |
-| Publish | `nebensound / Publish`, after a push to `main` only                                             |
+| Phase   | Jobs                                                                                                                                                        |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Declare | `nebensound / Declare`                                                                                                                                      |
+| Version | `nebensound / Version`                                                                                                                                      |
+| Check   | `nebensound / Check repository`, `nebensound / Check component <name>` and `nebensound / Check`                                                             |
+| Build   | `nebensound / Build repository`, `nebensound / Build component <name>`, each with `(<target>)` behind it for a build with targets, and `nebensound / Build` |
+| Publish | `nebensound / Publish`, after a push to `main` only                                                                                                         |
 
 Publish is the release stage on `main`: it writes the records of the versions
 of a run, tags and releases, and no version is read from them. It publishes to
@@ -64,8 +64,10 @@ which does steps 2 to 6 below:
    (`nebensound-repo excluded-packages`) is named in the summary of the run with
    its reason, as a notice.
 6. Last the two matrices are handed on beside the plan: the units that start
-   at least one check, and the units that build in this run, each with the
-   version writers it selects. After a push to a pre-branch no unit builds.
+   at least one check, and the builds of this run, each with the version
+   writers its unit selects, the name of its job and its runner. A build whose
+   register entry lists targets stands once per target, on the runner the
+   register names for it. After a push to a pre-branch no unit builds.
 
 An error ends the phase here: there is no plan, no check runs, nothing is
 built, and `nebensound / Check` and `nebensound / Build` fail. A warning stops
@@ -201,9 +203,15 @@ releases units with `publish = false`.
 Every unit whose build the plan names and that the plan gives a version of
 this run, in a run that is not one after a push to a pre-branch, gets a job of
 its own, named `nebensound / Build repository` for the
-repository and `nebensound / Build component <name>` for a component. The plan
-names the build of a unit that carries a version of its own and generates no
-children (see [the declaration](declaration.md#versions)), and gives a unit a
+repository and `nebensound / Build component <name>` for a component, on
+`ubuntu-latest`. A build whose register entry lists targets, such as
+`cargo-release`, gets one job per target instead, on the runner the register
+names for that target, with the target behind the name:
+`nebensound / Build repository (x86_64-unknown-linux-musl)`. Each of them
+builds for the target of the machine it runs on, and `nebensound / Build`
+gathers them all. The plan names the build of a unit that carries a version of
+its own and generates no children (see
+[the declaration](declaration.md#versions)), and gives a unit a
 version of the run when the commit touches it. A unit the commit does not touch
 has no new artifact to hand on and gets no build job, also where a version
 writer writes its current version for a package that depends on it. A
@@ -213,15 +221,15 @@ tool from the cache Declare filled, and runs its steps:
 
 1. **Not written yet.** It fails, by name, when the unit's build has no
    building block yet, so that a pull request says what is missing. The builds
-   written today are listed in [the README](../README.md#build-cargo-package).
+   written today are listed in [the README](../README.md#building-blocks).
 2. **One step per version writer** the unit selects, each the building block
    `version-<writer>` with the plan, so that the manifest carries the version
    of the run. A version writer without a building block has already failed
    `nebensound / Check`, so no build starts without its version.
 3. **The build**, the building block `build-<name>` over the unit's path, with
-   the plan where the build labels what it builds with the unit's version, as
-   `build-docker` does. It builds the artifact once, tests the artifact itself
-   and uploads it as an artifact of the run.
+   the plan where the build takes the unit's version of the run, as
+   `build-docker` and `build-cargo-release` do. It builds the artifact once,
+   tests the artifact itself and uploads it as an artifact of the run.
 
 A step does not run after one that failed: an artifact built from versions that
 were not written would be the wrong one. Tests of the source belong to Check;
