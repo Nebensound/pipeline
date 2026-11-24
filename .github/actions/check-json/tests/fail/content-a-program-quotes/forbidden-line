@@ -1,4 +1,3 @@
-# The warning Prettier's quote of the broken line would start. A line that
-# starts with `#` is a comment, so the pattern starts with `*`, which also
-# stands for nothing.
-*##[warning]quoted*
+# The warning Prettier's quote of the broken line would start, in the older
+# form of a workflow command.
+##[warning]quoted*

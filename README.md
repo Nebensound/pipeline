@@ -940,16 +940,16 @@ Each block brings its cases beside its `action.yml`: at least one under
 `tests/pass/` and one under `tests/fail/`. A case is a folder that holds a small
 repository of its own, with its own `.nebensound/repo.toml`. A failing case also
 holds a file `expected-finding`, which names what the block must report: every
-line that is not empty and does not start with `#` must match a whole line the
-block prints, with `*` standing for any text, for example
+line that is not empty and is no comment (it starts with `#`, but not with
+`##[`) must match a whole line the block prints, with `*` standing for any text, for example
 `::error file=data.json::not formatted the way Prettier writes it`. That file is
 not part of the case's repository.
 
 A case of either kind may hold a file `forbidden-line`, which names commands
 the block must not start, such as a workflow command that a name or a file of
-the case's repository would start: every line that is not empty and does not
-start with `#` is a pattern, as in `expected-finding`, that no command the
-runner would read in a line the block prints may match. Like `expected-finding`
+the case's repository would start: every line that is not empty and is no
+comment is a pattern, as in `expected-finding`, that no command the runner
+would read in a line the block prints may match. Like `expected-finding`
 it is not part of the case's repository.
 
 The lines are read the way the runner of GitHub Actions reads them. The tool
@@ -960,10 +960,13 @@ line inside such a stretch starts nothing. So a pattern of `expected-finding`
 that starts with `::` names an annotation, and only a line outside a stopped
 stretch matches it; any other pattern matches a line wherever it stands. A
 pattern of `forbidden-line` is matched against the command the runner would
-read in a line outside a stopped stretch: from the `::` the line starts with
-once white space in front is passed over, or else from the first `##[` in it.
-A line that starts with `#` is a comment, so a pattern for the older form starts
-with `*`, as in `*##[warning]x*`.
+read in a line outside a stopped stretch, from where it starts. The runner
+first reads the newer form: past white space the line starts with `::`, and a
+command it knows is named before the next `::`. Only when that names none does
+it read the older form, from the first `##[` in the line. So `::warning::x*`
+forbids the newer form and `##[warning]x*` the older one, and the tool's own
+`::error file=a##[warning]x.dockerfile::…` is the command `error` and starts no
+warning.
 The failing cases `line-break-in-a-file-name`,
 `older-command-form-in-a-file-name` and `colons-at-the-start-of-a-file-name` of
 check-dockerfile, and `content-a-program-quotes` of check-json, hold such a

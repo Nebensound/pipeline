@@ -88,8 +88,9 @@ const PHASE0_FAILS: &str =
 /// The file in a failing case that names the findings the block must report.
 /// It is not copied into the case's repository.
 ///
-/// Each line that is not empty and does not start with `#` must match a whole
-/// line the block printed, where `*` stands for any text.
+/// Each line that is not empty and is no comment (it starts with `#`, but not
+/// with `##[`) must match a whole line the block printed, where `*` stands for
+/// any text.
 pub const FINDING: &str = "expected-finding";
 
 /// The file in a case, passing or failing, that names commands no line the
@@ -97,12 +98,10 @@ pub const FINDING: &str = "expected-finding";
 /// case's repository would start. It is not copied into the case's
 /// repository either.
 ///
-/// Each line that is not empty and does not start with `#` is a pattern, as in
-/// [`FINDING`], that the command the runner would read in a line ([`read`])
-/// must not match: from the `::` a line starts with once white space in front
-/// is passed over, or else from the first `##[` in it. Since a line that starts
-/// with `#` is a comment, a pattern for the older form starts with `*`, which
-/// also stands for nothing: `*##[warning]x*`.
+/// Each line that is no comment is a pattern, as in [`FINDING`], that no
+/// command the runner reads in a line outside a stopped stretch may match,
+/// taken from where the command starts ([`command`]): `::warning::x*` for the
+/// newer form, `##[warning]x*` for the older one.
 pub const FORBIDDEN: &str = "forbidden-line";
 
 /// Where the building blocks lie, from the repository root.
@@ -238,11 +237,13 @@ fn case(dir: PathBuf, failing: bool) -> Result<Case, Error> {
 }
 
 /// The patterns of a [`FINDING`] or [`FORBIDDEN`] file: every line that is not
-/// empty and does not start with `#`, without white space at either end.
+/// empty and is no comment, without white space at either end. A comment
+/// starts with `#`, but not with `##[`, which starts the older form of a
+/// workflow command.
 fn patterns(text: &str) -> Vec<String> {
     text.lines()
         .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .filter(|line| !line.is_empty() && (!line.starts_with('#') || line.starts_with("##[")))
         .map(str::to_owned)
         .collect()
 }
@@ -258,33 +259,97 @@ pub enum Read {
     Live,
 }
 
+/// The workflow commands the runner of GitHub Actions knows in every step,
+/// `stop-commands` among them. A name it does not know starts no command, and
+/// the runner compares names without regard to case.
+pub const COMMANDS: &[&str] = &[
+    "add-mask",
+    "add-matcher",
+    "add-path",
+    "debug",
+    "echo",
+    "endgroup",
+    "error",
+    "group",
+    "notice",
+    "remove-matcher",
+    "save-state",
+    "set-env",
+    "set-output",
+    "stop-commands",
+    "warning",
+];
+
+/// A command the runner reads in a line: its name, its data, and the line
+/// from where the command starts.
+struct Parsed<'l> {
+    name: &'l str,
+    data: &'l str,
+    text: &'l str,
+}
+
+/// The command the runner reads in a line when the names `known` accepts are
+/// commands, the way it parses one. First the newer form: past white space
+/// the line starts with `::`, another `::` follows, and the name runs to the
+/// first space before it. Only when that reads no known name, the older form:
+/// from the first `##[` in the line, a `]` follows, and the name runs to the
+/// first space before it.
+fn parse<'l>(line: &'l str, known: &dyn Fn(&str) -> bool) -> Option<Parsed<'l>> {
+    let newer = line.trim_start();
+    if let Some((info, data)) = newer
+        .strip_prefix("::")
+        .and_then(|rest| rest.split_once("::"))
+    {
+        let name = info.split(' ').next().unwrap_or_default();
+        if known(name) {
+            return Some(Parsed {
+                name,
+                data,
+                text: newer,
+            });
+        }
+    }
+    let older = &line[line.find("##[")?..];
+    let (info, data) = older[3..].split_once(']')?;
+    let name = info.split(' ').next().unwrap_or_default();
+    known(name).then_some(Parsed {
+        name,
+        data,
+        text: older,
+    })
+}
+
+/// Whether `name` is one of the [`COMMANDS`].
+fn known(name: &str) -> bool {
+    COMMANDS
+        .iter()
+        .any(|command| command.eq_ignore_ascii_case(name))
+}
+
 /// Every line of a log, with how the runner takes it.
 ///
-/// `::stop-commands::<token>` at the start of a line, past white space, or
-/// `##[stop-commands]<token>` anywhere in one stops the processing of
-/// workflow commands; then nothing takes effect until a line starts with
-/// `::<token>::` past white space or holds `##[<token>]` anywhere, which
-/// resumes it.
+/// A line that reads as the command `stop-commands` (see [`command`]) stops
+/// the processing of workflow commands, with its data as the token. While it
+/// is stopped, the token is a command name as well; a line that reads as that
+/// command resumes the processing, and every other line starts nothing.
 #[must_use]
 pub fn read(log: &[String]) -> Vec<(Read, &str)> {
     let mut stopped: Option<String> = None;
     log.iter()
         .map(|line| {
-            let text = line.trim_start();
             let read = if let Some(token) = &stopped {
-                if text.starts_with(&format!("::{token}::"))
-                    || line.contains(&format!("##[{token}]"))
-                {
+                let is_token = |name: &str| name.eq_ignore_ascii_case(token);
+                let names = |name: &str| known(name) || is_token(name);
+                if parse(line, &names).is_some_and(|parsed| is_token(parsed.name)) {
                     stopped = None;
                     Read::Switch
                 } else {
                     Read::Stopped
                 }
-            } else if let Some(token) = text
-                .strip_prefix("::stop-commands::")
-                .or_else(|| line.split_once("##[stop-commands]").map(|(_, token)| token))
+            } else if let Some(parsed) = parse(line, &known)
+                .filter(|parsed| parsed.name.eq_ignore_ascii_case("stop-commands"))
             {
-                stopped = Some(token.to_owned());
+                stopped = Some(parsed.data.to_owned());
                 Read::Switch
             } else {
                 Read::Live
@@ -294,19 +359,16 @@ pub fn read(log: &[String]) -> Vec<(Read, &str)> {
         .collect()
 }
 
-/// The command the runner reads in a line outside a stopped stretch: from the
-/// `::` the line starts with past white space, when another `::` follows it,
-/// or else from the first `##[` in it; [`None`] when it reads none.
+/// The command the runner reads in a line outside a stopped stretch, from
+/// where it starts; [`None`] when the line starts none. In the newer form it
+/// starts at the `::` the line starts with past white space, and in the older
+/// form, which the runner reads only when the newer one names no known
+/// command ([`COMMANDS`]), at the first `##[`. So a line read in the newer
+/// form is read in no other: `::error file=a##[warning]b::m` is the command
+/// `error`, and its `##[warning]` starts nothing.
 #[must_use]
 pub fn command(line: &str) -> Option<&str> {
-    let text = line.trim_start();
-    if text
-        .strip_prefix("::")
-        .is_some_and(|rest| rest.contains("::"))
-    {
-        return Some(text);
-    }
-    line.find("##[").map(|start| &line[start..])
+    parse(line, &known).map(|parsed| parsed.text)
 }
 
 /// What a log holds besides the lines that stop and resume the processing of

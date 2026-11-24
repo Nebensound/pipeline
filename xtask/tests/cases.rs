@@ -141,7 +141,7 @@ fn a_case_may_forbid_commands() {
                 "# A comment.\n\n  ::warning::x*\n",
             ),
             ("tests/fail/b/expected-finding", "x"),
-            ("tests/fail/b/forbidden-line", "*##[warning]x*"),
+            ("tests/fail/b/forbidden-line", "# A comment.\n##[warning]x*"),
             ("tests/fail/c/expected-finding", "x"),
         ],
     );
@@ -154,7 +154,7 @@ fn a_case_may_forbid_commands() {
         forbidden,
         [
             ("a", &["::warning::x*".to_owned()][..]),
-            ("b", &["*##[warning]x*".to_owned()][..]),
+            ("b", &["##[warning]x*".to_owned()][..]),
             ("c", &[][..]),
         ]
     );
@@ -176,8 +176,10 @@ fn the_log_is_read_the_way_the_runner_reads_it() {
         "::warning::inside",
         "a ##[warning]inside",
         "::other::not the token",
-        "  ::t1::",
+        "::error::not the token either ##[t1]",
+        "  ::T1::",
         "after",
+        "::stop-commands-not::x",
         "x ##[stop-commands]t2",
         "inside again",
         "y ##[t2] resumes",
@@ -197,7 +199,9 @@ fn the_log_is_read_the_way_the_runner_reads_it() {
             Read::Stopped,
             Read::Stopped,
             Read::Stopped,
+            Read::Stopped,
             Read::Switch,
+            Read::Live,
             Read::Live,
             Read::Switch,
             Read::Stopped,
@@ -212,7 +216,9 @@ fn the_log_is_read_the_way_the_runner_reads_it() {
             "::warning::inside",
             "a ##[warning]inside",
             "::other::not the token",
+            "::error::not the token either ##[t1]",
             "after",
+            "::stop-commands-not::x",
             "inside again",
             "last"
         ]
@@ -223,6 +229,7 @@ fn the_log_is_read_the_way_the_runner_reads_it() {
 fn the_command_of_a_line_is_the_one_the_runner_reads() {
     for (line, expected) in [
         ("::warning::x", Some("::warning::x")),
+        ("  ::Warning::x", Some("::Warning::x")),
         (
             "  ::error file=a##[warning]b::m",
             Some("::error file=a##[warning]b::m"),
@@ -230,7 +237,11 @@ fn the_command_of_a_line_is_the_one_the_runner_reads() {
         ("[warn] ::warning::x", None),
         ("::no second", None),
         ("::no second ##[warning]x", Some("##[warning]x")),
+        ("::unknown::##[warning]x", Some("##[warning]x")),
         ("text ##[warning]x and more", Some("##[warning]x and more")),
+        ("text ##[warning file=a]x", Some("##[warning file=a]x")),
+        ("text ##[unknown]x", None),
+        ("text ##[warning", None),
         ("plain", None),
     ] {
         assert_eq!(cases::command(line), expected, "{line:?}");
@@ -252,12 +263,16 @@ fn a_command_counts_only_outside_a_stopped_stretch() {
     ]
     .map(str::to_owned)
     .to_vec();
-    let forbidden = ["::warning::x*".to_owned(), "*##[warning]y*".to_owned()];
+    let forbidden = ["::warning::x*".to_owned(), "##[warning]y*".to_owned()];
     assert_eq!(
         cases::judge(&Expect::Pass, &forbidden, true, &log).unwrap(),
         "the block starts a command the case forbids: `::warning::x before` (`::warning::x*`), \
-         `##[warning]y outside` (`*##[warning]y*`)"
+         `##[warning]y outside` (`##[warning]y*`)"
     );
+    // The tool's own annotation on a file whose name holds the older form is
+    // the command `error`, and starts no warning.
+    let own = ["::error file=a##[warning]y.dockerfile::m".to_owned()];
+    assert_eq!(cases::judge(&Expect::Pass, &forbidden, true, &own), None);
     assert_eq!(
         cases::judge(&Expect::Pass, &forbidden, true, &log[1..8]),
         None
