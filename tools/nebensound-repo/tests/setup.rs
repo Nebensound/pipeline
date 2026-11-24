@@ -2077,6 +2077,8 @@ fn the_binary_checks_this_computer() {
         .env("PATH", only_git(&fixture))
         .env("HOME", &home)
         .env_remove("XDG_CACHE_HOME")
+        // What the binary says about this computer, not a run's log.
+        .env_remove("GITHUB_ACTIONS")
         .output()
         .expect("the built binary");
 
@@ -2101,6 +2103,8 @@ fn the_binary_checks_this_computer() {
         .env("PATH", only_git(&Fixture::new()))
         .env_remove("HOME")
         .env_remove("XDG_CACHE_HOME")
+        // What the binary says about this computer, not a run's log.
+        .env_remove("GITHUB_ACTIONS")
         .output()
         .expect("the built binary");
     let text = String::from_utf8_lossy(&output.stdout);
@@ -2141,6 +2145,8 @@ fn the_programs_do_not_depend_on_the_history() {
         .env("PATH", only_git(&fixture))
         .env("HOME", &home)
         .env_remove("XDG_CACHE_HOME")
+        // What the binary says about this computer, not a run's log.
+        .env_remove("GITHUB_ACTIONS")
         .output()
         .expect("the built binary");
     let text = String::from_utf8_lossy(&output.stdout);
