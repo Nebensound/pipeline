@@ -547,10 +547,12 @@ kind as the one for the Rust toolchain: every such program runs without the
 variables of the computer whose names start with `DOCKER_`, `BUILDX_`,
 `BUILDKIT_` or `TRIVY_`, and without `SOURCE_DATE_EPOCH`, which Buildx hands
 the build. Kept are `DOCKER_HOST`, `DOCKER_CONTEXT`, `DOCKER_CONFIG`,
-`DOCKER_CERT_PATH`, `DOCKER_TLS` and `DOCKER_TLS_VERIFY`, which only say where
-the daemon and Docker's own files are and how to reach the daemon. So no setting that comes as a variable, such as
-`DOCKER_DEFAULT_PLATFORM`, `BUILDX_GIT_LABELS` or `TRIVY_SKIP_DIRS`, changes
-what the build hands on or what the scan finds. Settings that come as files
+`DOCKER_CERT_PATH`, `DOCKER_TLS`, `DOCKER_TLS_VERIFY`, `DOCKER_API_VERSION` and
+`BUILDX_CONFIG`, which only say where the daemon and the files of Docker and
+Buildx are and how to reach the daemon; the build names the builder it starts,
+so no builder chosen in Buildx's files is used. So no setting that comes as a
+variable, such as `DOCKER_DEFAULT_PLATFORM`, `BUILDX_GIT_LABELS` or
+`TRIVY_SKIP_DIRS`, changes what the build hands on or what the scan finds. Settings that come as files
 still apply, and the tool does not hunt them down: Docker's `config.json`,
 which can hand a build proxies, and the daemon's own configuration. A hosted
 runner has neither, so they are ways a local result can differ from the

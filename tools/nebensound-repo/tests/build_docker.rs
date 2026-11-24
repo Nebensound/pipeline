@@ -482,8 +482,17 @@ fn the_variables_that_steer_docker_buildx_buildkit_and_trivy_are_taken_out() {
     ] {
         assert!(steers(OsStr::new(name)), "{name}");
     }
+    // Where the daemon and the files of Docker and Buildx are, and how to
+    // reach the daemon.
     for name in docker::KEPT.iter().copied().chain([
+        "DOCKER_HOST",
+        "DOCKER_CONTEXT",
+        "DOCKER_CONFIG",
+        "DOCKER_CERT_PATH",
         "DOCKER_TLS",
+        "DOCKER_TLS_VERIFY",
+        "DOCKER_API_VERSION",
+        "BUILDX_CONFIG",
         "PATH",
         "HOME",
         "DOCKER",

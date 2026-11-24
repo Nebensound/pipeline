@@ -91,8 +91,12 @@ use crate::setup::find;
 use crate::workflow::{self, Log};
 
 /// The variables that start like those that steer Docker and are kept all
-/// the same: they say where the daemon and Docker's own files are and how to
-/// reach the daemon, not what a build does.
+/// the same: they say where the daemon and the files of Docker and Buildx are
+/// and how to reach the daemon, not what a build does. `BUILDX_CONFIG` is
+/// where Buildx keeps its own files, as `DOCKER_CONFIG` is for Docker (the
+/// build names its builder, so no builder chosen there is used), and
+/// `DOCKER_API_VERSION` the version of the API the client speaks to the
+/// daemon.
 pub const KEPT: &[&str] = &[
     "DOCKER_HOST",
     "DOCKER_CONTEXT",
@@ -100,6 +104,8 @@ pub const KEPT: &[&str] = &[
     "DOCKER_CERT_PATH",
     "DOCKER_TLS",
     "DOCKER_TLS_VERIFY",
+    "DOCKER_API_VERSION",
+    "BUILDX_CONFIG",
 ];
 
 /// Whether a variable of this process steers Docker, Buildx, `BuildKit` or
