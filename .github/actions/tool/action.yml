@@ -62,7 +62,7 @@ runs:
         {
           echo "source=$source_dir"
           echo "home=$RUNNER_TEMP/nebensound-repo"
-          echo "key=nebensound-repo-$RUNNER_OS-${ImageOS:-}-$RUNNER_ARCH-$fingerprint"
+          echo "key=nebensound-repo-$RUNNER_OS-$RUNNER_ARCH-$fingerprint"
         } >> "$GITHUB_OUTPUT"
 
     - name: Look for a build of exactly this tool

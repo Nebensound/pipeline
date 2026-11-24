@@ -576,7 +576,7 @@ fn a_build_with_targets_builds_once_per_target_on_its_runner() {
         json!([
             entry("aarch64-apple-darwin", "macos-latest"),
             entry("x86_64-apple-darwin", "macos-26-intel"),
-            entry("x86_64-unknown-linux-musl", "ubuntu-22.04"),
+            entry("x86_64-unknown-linux-musl", "ubuntu-latest"),
             // A build the register does not know lists no targets either.
             {"kind": "component", "name": "a", "path": "a", "checks": [], "build": "unknown",
              "writers": [], "job": "Build component a", "runs-on": "ubuntu-latest"}
