@@ -1,3 +1,12 @@
+# A configuration of markdownlint in JavaScript that would switch every rule
+# off if it were loaded. Phase 0 names such a file as not read wherever no
+# exclusion takes it out; here one has to, since no check of the case covers
+# JavaScript. The check runs with the pipeline's default, so the README still
+# fails the rule the module would switch off: markdownlint never loaded it.
 [repo]
 audience = "public"
 pipeline = "none"
+
+[[exclude]]
+path   = ".markdownlint-cli2.mjs"
+reason = "the configuration under test; JavaScript, which no check of the case covers"

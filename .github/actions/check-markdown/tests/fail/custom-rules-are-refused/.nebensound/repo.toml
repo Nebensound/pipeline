@@ -1,3 +1,9 @@
+# An options file that names a module of rules. The check refuses the key by
+# name, and the module is never loaded.
 [repo]
 audience = "public"
 pipeline = "none"
+
+[[exclude]]
+path   = "rule.mjs"
+reason = "the module of rules under test; JavaScript, which no check of the case covers"

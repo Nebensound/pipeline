@@ -1,3 +1,11 @@
+# A file of rules in a folder below the root. Phase 0 names such a file as
+# not read wherever no exclusion takes it out; here one does, so that the
+# block runs. Either way the check does not read it: the guide in the folder
+# still fails the rule the file would switch off.
 [repo]
 audience = "public"
 pipeline = "none"
+
+[[exclude]]
+path   = "docs/.markdownlint.jsonc"
+reason = "the file of rules under test, which phase 0 would name as not read"

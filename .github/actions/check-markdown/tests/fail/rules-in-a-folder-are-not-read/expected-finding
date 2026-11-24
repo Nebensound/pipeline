@@ -1,2 +1,3 @@
-::error file=docs/.markdownlint.jsonc::not read: *and from no folder below it; a difference for a folder belongs in that file, as a pattern
+# The file in the folder is not read: the rule it would switch off still
+# fails there.
 ::error file=docs/guide.md,line=1*::MD041/first-line-heading*

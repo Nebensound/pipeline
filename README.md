@@ -744,9 +744,9 @@ of `.markdownlint-cli2.jsonc`, `.markdownlint-cli2.yaml`, `.markdownlint.jsonc`,
 `.markdownlint.json`, `.markdownlint.yaml` and `.markdownlint.yml` at the root,
 as data, and hands markdownlint the rules of each file. Another of them at the
 root, one in a folder below it and one written in JavaScript are not read, and
-fail phase 0 (`unread-configuration`) and the check; so does a key the tool does
-not know or one that names code or another file, such as `customRules` or
-`extends` (see
+fail phase 0 (`unread-configuration`) and the check, unless an `[[exclude]]`
+entry takes them out. A key the tool does not know or one that names code or
+another file, such as `customRules` or `extends`, fails the check (see
 [the configuration of a linter](docs/tool.md#the-configuration-of-a-linter)).
 A file may also switch a rule of the default off or loosen it; the rules report
 shows every difference. markdownlint is the first linter under this rule, beside
