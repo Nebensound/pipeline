@@ -552,11 +552,11 @@ the build. Kept are `DOCKER_HOST`, `DOCKER_CONTEXT`, `DOCKER_CONFIG`,
 Buildx are and how to reach the daemon; the build names the builder it starts,
 so no builder chosen in Buildx's files is used. So no setting that comes as a
 variable, such as `DOCKER_DEFAULT_PLATFORM`, `BUILDX_GIT_LABELS` or
-`TRIVY_SKIP_DIRS`, changes what the build hands on or what the scan finds. Settings that come as files
-still apply, and the tool does not hunt them down: Docker's `config.json`,
-which can hand a build proxies, and the daemon's own configuration. A hosted
-runner has neither, so they are ways a local result can differ from the
-gate's, which is the one that counts.
+`TRIVY_SKIP_DIRS`, changes what the build hands on or what the scan finds.
+Settings that come as files still apply, and the tool does not hunt them down:
+Docker's `config.json`, which can hand a build proxies, and the daemon's own
+configuration. A hosted runner has neither, so they are ways a local result can
+differ from the gate's, which is the one that counts.
 
 ## The files of a check
 
