@@ -93,7 +93,7 @@ right for this repository; raise the pin to use the key. See
 
 ## Changing one linter rule
 
-A repository's own Markdownlint or yamllint configuration is laid over the
+A repository's own Markdownlint configuration is laid over the
 pipeline's default rule by rule, so it names only the rule it wants different;
 nothing of the default has to be repeated. [Linter rules](../README.md#linter-rules)
 in the README states how, with an example of a one-rule configuration file.
@@ -111,7 +111,8 @@ the smaller way and works in the check:
 ```
 
 `<!-- markdownlint-disable MD033 -->` and `<!-- markdownlint-enable MD033 -->`
-switch a rule off and on again around a stretch of a file, and yamllint reads a
-comment such as `# yamllint disable-line rule:truthy`. What takes a file out of
-a check is a different matter: only an `[[exclude]]` entry does that (see
+switch a rule off and on again around a stretch of a file. The YAML check has
+no rules of a linter to switch off: what it judges beyond Prettier's format is
+whether the file is valid YAML. What takes a file out of a check is a
+different matter: only an `[[exclude]]` entry does that (see
 [Exclusions](../README.md#exclusions)).

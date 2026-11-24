@@ -48,6 +48,13 @@
 //!
 //! The other linters still read their configuration themselves (see
 //! `docs/principles.md`).
+//!
+//! Phase 0 names through [`findings`] one more kind of file that is not
+//! read: the configuration of a program that no check starts any more
+//! ([`crate::unread`]), such as a `.yamllint`. Such a program has left the
+//! register, so its files cannot stand under `configuration-not-read`, which
+//! names the files of a program the pipeline runs. Nothing runs that would
+//! follow them, so each is a warning, not an error.
 
 pub mod markdownlint;
 
@@ -313,7 +320,9 @@ pub fn locate<'a>(
 /// does not read, for every program the register names files of its
 /// configuration for: each one an error of phase 0
 /// ([`Rule::UnreadConfiguration`]), since the linter would follow it
-/// wherever it runs by hand, and the check never does.
+/// wherever it runs by hand, and the check never does. After them, each
+/// configuration of a program that no check starts any more, a warning
+/// ([`crate::unread::findings`]).
 #[must_use]
 pub fn findings(analysis: &Analysis, register: &Register) -> Vec<Finding> {
     let nodes = analysis.tree.files();
@@ -324,10 +333,12 @@ pub fn findings(analysis: &Analysis, register: &Register) -> Vec<Finding> {
         .map(|(node, _)| &node.path)
         .collect();
     let kept = |file: &RelativePath| !excluded.contains(file);
-    register
+    let mut found: Vec<Finding> = register
         .program
         .iter()
         .flat_map(|(name, program)| locate(&files, &kept, name, program).unread)
         .map(|unread| Finding::error(Rule::UnreadConfiguration, unread.why).at(unread.file))
-        .collect()
+        .collect();
+    found.extend(crate::unread::findings(analysis));
+    found
 }

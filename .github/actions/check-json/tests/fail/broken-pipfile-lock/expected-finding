@@ -1,1 +1,1 @@
-::error file=Pipfile.lock::not valid JSON: *
+::error file=Pipfile.lock,line=27,col=9::not valid JSON: key must be a string

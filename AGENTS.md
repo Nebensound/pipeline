@@ -87,8 +87,8 @@ not read by name, and hands the linter what it wrote (see
 [the tool](docs/tool.md#the-configuration-of-a-linter)). markdownlint holds to
 that, and so does the link check, whose lychee gets only the configuration the
 tool writes from the keys of `lychee.toml` it knows. The other linters (Prettier,
-Stylelint, yamllint, html-validate, Hadolint, actionlint, the Dockerfile
-formatter, Ruff, Taplo's formatter and Pyright) still read the repository's
+Stylelint, html-validate, Hadolint, actionlint, the Dockerfile formatter, Ruff,
+Taplo's formatter and Pyright) still read the repository's
 configuration themselves or follow a file it names, and some of their ways load
 code (see
 [What does not hold yet](docs/principles.md#what-does-not-hold-yet)). uv is

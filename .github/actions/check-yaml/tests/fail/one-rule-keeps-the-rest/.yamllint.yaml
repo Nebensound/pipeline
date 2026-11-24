@@ -1,4 +1,0 @@
-# One rule differs from the pipeline default; every other rule still holds.
-rules:
-  comments:
-    require-starting-space: false

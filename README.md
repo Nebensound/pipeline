@@ -187,11 +187,13 @@ once `nebensound-repo setup` has put the programs in place. `run` installs
 nothing: it takes the pinned copy of a program first and the computer's
 otherwise, and fails with a pointer to `setup` where there is neither, while
 the parts of the check whose programs are there still run.
-html-validate, markdownlint, Stylelint and yamllint are run through their
-internals, so that the repository's rules are laid over the pipeline's default,
-and of those four `run` takes only the pinned copy; markdownlint is a library
-with no command. What `run` hands the
-programs, its configuration for Biome, the schemas for Taplo, the pipeline's
+html-validate, markdownlint and Stylelint are run through their internals, so
+that the repository's rules are laid over the pipeline's default, and of those
+three `run` takes only the pinned copy; markdownlint is a library with no
+command. Whether a JSON or a YAML file parses, and whether the Dependabot
+configuration matches its schema, the tool judges itself and starts no program
+for it. What `run` hands the programs, the schemas for Taplo and for the
+Dependabot configuration, the pipeline's
 linter defaults and the page rules of the HTML check, is compiled into the
 tool.
 
@@ -290,15 +292,17 @@ part runs even when one before it failed, so one run shows every finding.
 `.json`, `.jsonc` and `.geojson` file of the unit, and every `composer.lock`,
 `flake.lock` and `Pipfile.lock`:
 
-- `.json` and `.geojson` are strict JSON, exactly one value per file, judged by
-  `jq`.
+- `.json` and `.geojson` are strict JSON, exactly one value per file. The tool
+  judges it itself, with the JSON parser it links (`serde_json`), and names
+  the line and column where a file stops being JSON. A byte order mark at the
+  start is passed over.
 - `.jsonc` is strict JSONC as [jsonc.org](https://jsonc.org) defines it: JSON
-  plus comments, trailing commas allowed. Biome judges it as a parser only, with
-  the tool's own configuration
-  ([`run/biome.json`](run/biome.json)) and no lint rule;
-  a repository's Biome configuration is not read.
+  plus comments, trailing commas allowed, exactly one value per file. The tool
+  judges it with the JSONC parser it links (`jsonc-parser`), which refuses what
+  JSON5 would add: unquoted keys, single quotes, missing commas, hexadecimal
+  numbers, `NaN`, `Infinity`. It reports the first place a file breaks.
 - `composer.lock`, `flake.lock` and `Pipfile.lock` are strict JSON like
-  `.json`, judged by `jq`, but not format-checked: the tool that writes them
+  `.json`, but not format-checked: the tool that writes them
   decides their layout (Composer and pipenv indent with four spaces). Every file
   of the check whose name ends in `.lock` is such a lockfile, as the register
   gives `json` no other.
@@ -524,9 +528,15 @@ first key or table of `.nebensound/repo.toml`:
 [`.github/actions/check-yaml`](.github/actions/check-yaml) checks every `.yml` and `.yaml` file of the unit:
 
 - Formatted the way Prettier writes it, run as in `check-json`.
-- No yamllint finding, with the repository's rules laid over the pipeline's
-  default (see [Linter rules](#linter-rules)). Its `ignore` and
-  `ignore-from-file` take nothing out.
+- Valid YAML, judged by the tool with the YAML parser it links (`yaml-rust2`):
+  the first error that stops the parser, such as a syntax error or an alias
+  that names no anchor declared before it in its document, and every key that
+  a mapping holds twice, each at its line and column. Keys are compared by
+  their text, so `1` and `"1"` are the same key; the merge key `<<` may stand
+  more than once. The pipeline reads no configuration of yamllint any more:
+  phase 0 names a `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at the root
+  as unread (see
+  [`unread-configuration`](docs/declaration.md#unread-configuration)).
 - Every workflow directly under `.github/workflows` passes actionlint, with
   ShellCheck reading every `run:` script and pyflakes every Python one where
   they are on the search path, as ShellCheck is on GitHub's Linux runners; the
@@ -536,9 +546,13 @@ first key or table of `.nebensound/repo.toml`:
   the key `queue` of a `concurrency` section, which GitHub documents; `run`
   drops the message about that one key, and every other unknown key of the
   section is still a finding.
-- `.github/dependabot.yml` matches the Dependabot schema (`check-jsonschema`,
-  pinned, with the schema it brings along). An unknown key fails the check
-  with the file and the key named, instead of surfacing only after the merge.
+- `.github/dependabot.yml` matches the Dependabot schema, which the tool
+  compiles in ([`schemas/dependabot-2.0.json`](schemas/dependabot-2.0.json),
+  from SchemaStore) and validates against itself, without a request. Merge keys
+  `<<` are applied first, as YAML 1.1 defines them, so a mapping brought in
+  with `<<` counts as part of the mapping that merges it. An unknown
+  key fails the check with the file and the path of the key named, instead of
+  surfacing only after the merge.
 
 ### `version-cargo`
 
@@ -751,12 +765,10 @@ them (see
 
 ### Linter rules
 
-Markdownlint, yamllint, Stylelint and html-validate run with a default of the
+Markdownlint, Stylelint and html-validate run with a default of the
 pipeline:
 [`rules/markdownlint.jsonc`](rules/markdownlint.jsonc)
 (`MD013` off, since Prettier does not wrap prose),
-[`rules/yamllint.yaml`](rules/yamllint.yaml)
-(yamllint's defaults, less what contradicts Prettier or GitHub Actions),
 [`rules/stylelint.yaml`](rules/stylelint.yaml)
 (`stylelint-config-standard`, for `.scss` `stylelint-config-standard-scss`) and
 [`rules/html-validate.json`](rules/html-validate.json)
@@ -805,26 +817,9 @@ A file may also switch a rule of the default off or loosen it; the rules report
 shows every difference. markdownlint is the first linter under this rule, beside
 lychee, whose `lychee.toml` the tool reads key by key. The other linters still
 find and read the repository's configuration themselves, or follow a file it
-names: Prettier, Stylelint, yamllint, html-validate, Hadolint, actionlint, the
+names: Prettier, Stylelint, html-validate, Hadolint, actionlint, the
 Dockerfile formatter, Ruff, Taplo's formatter and Pyright (see
 [what does not hold yet](docs/principles.md#what-does-not-hold-yet)).
-
-A repository that wants a comment to need no space after its `#` writes one
-option of one yamllint rule into `.yamllint.yaml` at its root:
-
-```yaml
-rules:
-  comments:
-    require-starting-space: false
-```
-
-yamllint lays it over the default the way it lays a configuration over the one
-its `extends` names: the default's other option of that rule, one space before
-a comment, stays, and so does every other rule, such as `line-length` off. An
-`extends` in the repository's file brings what it names along, over the
-default as well: `extends: default` brings back yamllint's own line length.
-yamllint reads one configuration, at the root (`.yamllint`, `.yamllint.yaml`
-or `.yamllint.yml`).
 
 Stylelint reads, for each stylesheet, the configuration nearest to it: the
 first of the names it looks for (`package.json` with a `stylelint` key,
@@ -922,7 +917,6 @@ does. A setting that takes out less is fine. Phase 0 reads:
 | Prettier          | `.prettierignore` at the root                                                                            |
 | Taplo             | `include` and `exclude` in `.taplo.toml` or `taplo.toml` at the root                                     |
 | markdownlint-cli2 | `ignores` in `.markdownlint-cli2.jsonc` or `.markdownlint-cli2.yaml`, in every folder                    |
-| yamllint          | `ignore` and `ignore-from-file` in `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at root              |
 | lychee            | `exclude_path` in `lychee.toml` at the root                                                              |
 | Pyright           | `include`, `ignore`, `exclude` in `pyrightconfig.json` or `[tool.pyright]`, in every folder              |
 | coverage.py       | `omit` in `.coveragerc`, `.coveragerc.toml`, `setup.cfg`, `tox.ini` or `pyproject.toml`, in every folder |
@@ -942,9 +936,7 @@ that takes out nothing but lockfiles the register names, such as a
 `.prettierignore` naming `composer.lock` or an `exclude` naming `Cargo.lock`,
 takes nothing out of a check: no block hands a lockfile to Prettier, and Taplo
 lints without its configuration. One that takes out another file as well is
-reported at that file only. Where
-yamllint's file sets neither `ignore` nor `ignore-from-file`, phase 0 reads them
-in the file its `extends` names, as yamllint does. rustfmt's `ignore` is read in
+reported at that file only. rustfmt's `ignore` is read in
 every folder, relative to that folder, since which configuration rustfmt applies
 to a file depends on where it runs; a `.rs` file it takes out cannot be excused
 by an `[[exclude]]` entry of its own, only by one that takes out its whole
@@ -1000,8 +992,8 @@ out (Ruff's `.venv`, `node_modules`, `dist` and the like; Pyright's
 setting names it again or not. A setting phase 0 cannot read fails as well (`unreadable-ignore-file`). A JavaScript options file of markdownlint-cli2
 (`.markdownlint-cli2.cjs` or `.mjs`) is not judged here, since phase 0 cannot read it
 without running it; it fails as a file the tool does not read (`unread-configuration`). A setting
-that switches a rule off for some files, such as yamllint's per-rule `ignore`
-or markdownlint-cli2's `overrides`, takes no file out of the tool and stays the
+that switches a rule off for some files, such as markdownlint-cli2's
+`overrides`, takes no file out of the tool and stays the
 repository's rule configuration. lychee's `.lycheeignore` leaves out addresses,
 not files, so phase 0 does not judge it. dockerfmt and Hadolint have no setting
 that takes a file out: `# dockerfmt-ignore` leaves one instruction as written,

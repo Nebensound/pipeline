@@ -1,8 +1,8 @@
 //! The rules a repository sets differently from the pipeline's default.
 //!
-//! Four programs of the checks read a rule configuration that the pipeline
-//! gives a default for: Markdownlint in the Markdown check, yamllint in the
-//! YAML check, Stylelint in the CSS check and html-validate in the HTML check.
+//! Three programs of the checks read a rule configuration that the pipeline
+//! gives a default for: Markdownlint in the Markdown check, Stylelint in the
+//! CSS check and html-validate in the HTML check.
 //! `run` lays the repository's own configuration over that default rule by
 //! rule, so the repository's file names only what differs, and a change of the
 //! default reaches every repository that did not name the rule. The defaults
@@ -17,9 +17,6 @@
 //!   with its differences by pattern, and every file of its configuration
 //!   the check does not read, and every key it does not hand over, each
 //!   with why. The check prints the same lines ([`markdownlint`]).
-//! - yamllint: `rules` in `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at
-//!   the root, whichever yamllint reads. yamllint reads it with `PyYAML`, as
-//!   YAML 1.1, so a plain `yes`, `no`, `on` or `off` in it is a boolean.
 //! - Stylelint: `rules` in the configuration nearest to a file the css check
 //!   covers, the first of the names Stylelint looks for in that file's folder
 //!   or in the nearest folder above it (`package.json` only where it holds a
@@ -32,7 +29,7 @@
 //!   it; one in a folder that says `root: true` lies over the default alone.
 //!
 //! The two of them are shown only where their check covers a file, and so is
-//! Ruff, the fifth program with a default, whose `check-python` lays the
+//! Ruff, the fourth program with a default, whose `check-python` lays the
 //! repository's configuration over it through Ruff's `extend`: the module
 //! `ruff` within this one says what is read of it and how.
 //!
@@ -51,10 +48,8 @@ use std::collections::BTreeSet;
 use crate::Analysis;
 use crate::annotate::Coverage;
 use crate::path::RelativePath;
-use serde_json::{Map, Number, Value};
-use yaml_rust2::parser::{MarkedEventReceiver, Parser};
-use yaml_rust2::scanner::{Marker, TScalarStyle};
-use yaml_rust2::{Event, Yaml, YamlLoader};
+use serde_json::{Number, Value};
+use yaml_rust2::{Yaml, YamlLoader};
 
 use crate::ignored::{Read, folder};
 use crate::linter_config::markdownlint::{Combine, Handed, Problem, Rules};
@@ -64,9 +59,6 @@ use crate::report::{column, shown};
 
 /// The pipeline's default for Markdownlint, as `run markdown` hands it over.
 pub const MARKDOWNLINT: &str = include_str!("../rules/markdownlint.jsonc");
-
-/// The pipeline's default for yamllint, as `run yaml` hands it over.
-pub const YAMLLINT: &str = include_str!("../rules/yamllint.yaml");
 
 /// The pipeline's default for Stylelint, as `run css` hands it over.
 pub const STYLELINT: &str = include_str!("../rules/stylelint.yaml");
@@ -82,8 +74,6 @@ pub const RUFF: &str = include_str!("../rules/ruff.toml");
 pub struct Defaults<'a> {
     /// The default for Markdownlint, in JSONC.
     pub markdownlint: &'a str,
-    /// The default for yamllint, in YAML.
-    pub yamllint: &'a str,
     /// The default for Stylelint, in YAML.
     pub stylelint: &'a str,
     /// The default for html-validate, in JSON.
@@ -97,7 +87,6 @@ impl Defaults<'static> {
     /// linters.
     pub const BUILT_IN: Self = Self {
         markdownlint: MARKDOWNLINT,
-        yamllint: YAMLLINT,
         stylelint: STYLELINT,
         html_validate: HTML_VALIDATE,
         ruff: RUFF,
@@ -205,9 +194,6 @@ const MARKDOWNLINT_NAMES: &[(&[&str], &[&str])] = &[
     (&["MD060", "table-column-style"], &["table"]),
 ];
 
-/// The configuration files of yamllint, in the order it looks for them.
-const YAMLLINT_FILES: &[&str] = &[".yamllint", ".yamllint.yaml", ".yamllint.yml"];
-
 /// The configuration files of Stylelint in a folder, in the order its
 /// `cosmiconfig` looks for them.
 const STYLELINT_FILES: &[&str] = &[
@@ -247,7 +233,6 @@ const HTML_VALIDATE_FILES: &[&str] = &[
 #[derive(Debug, Clone, Copy)]
 enum Program {
     Markdownlint,
-    Yamllint,
     Stylelint,
     HtmlValidate,
 }
@@ -257,7 +242,6 @@ impl Program {
     fn check(self) -> &'static str {
         match self {
             Self::Markdownlint => "markdown",
-            Self::Yamllint => "yaml",
             Self::Stylelint => "css",
             Self::HtmlValidate => "html",
         }
@@ -267,7 +251,6 @@ impl Program {
     fn name(self) -> &'static str {
         match self {
             Self::Markdownlint => "Markdownlint",
-            Self::Yamllint => "yamllint",
             Self::Stylelint => "Stylelint",
             Self::HtmlValidate => "html-validate",
         }
@@ -277,7 +260,6 @@ impl Program {
     fn default(self, text: &str) -> Result<Config, String> {
         match self {
             Self::Markdownlint => config(linter_config::parse(Format::Jsonc, text)?),
-            Self::Yamllint => yamllint(text),
             Self::Stylelint => rules_of(parse(Format::Yaml, text)?),
             Self::HtmlValidate => rules_of(parse(Format::Jsonc, text)?),
         }
@@ -305,19 +287,6 @@ impl Program {
                 }
                 standing(defaults.first().copied().flatten(), |under| value == under)
             }
-            // yamllint lays the options of a rule over those of the rule
-            // beneath, where both are on.
-            Self::Yamllint => standing(get(&default.rules, rule), |under| {
-                let base = enabled(under);
-                let over = match (enabled(value), base.clone()) {
-                    (Value::Object(own), Value::Object(mut under)) => {
-                        under.extend(own);
-                        Value::Object(under)
-                    }
-                    (own, _) => own,
-                };
-                over == base
-            }),
             // Both take a rule's value as a whole.
             Self::Stylelint | Self::HtmlValidate => {
                 standing(get(&default.rules, rule), |under| value == under)
@@ -330,10 +299,10 @@ impl Program {
         const UNNAMED: &str = "the pipeline's file does not name it";
         match (self, &default.extends) {
             (Self::Markdownlint, _) => format!("{UNNAMED}; Markdownlint's own default holds"),
-            (Self::Yamllint | Self::Stylelint | Self::HtmlValidate, Some(extends)) => {
+            (Self::Stylelint | Self::HtmlValidate, Some(extends)) => {
                 format!("{UNNAMED}; what its `extends: {extends}` sets holds")
             }
-            (Self::Yamllint | Self::Stylelint | Self::HtmlValidate, None) => {
+            (Self::Stylelint | Self::HtmlValidate, None) => {
                 format!("{UNNAMED}, so it is off")
             }
         }
@@ -392,16 +361,6 @@ fn standing(default: Option<&Value>, same: impl FnOnce(&Value) -> bool) -> Stand
     }
 }
 
-/// yamllint's words for a rule switched on or off, as the values it reads
-/// them as.
-fn enabled(value: &Value) -> Value {
-    match value.as_str() {
-        Some("enable") => Value::Object(Map::new()),
-        Some("disable") => Value::Bool(false),
-        _ => value.clone(),
-    }
-}
-
 /// How a value stands to the default.
 enum Stand {
     /// The default gives the rule the same value.
@@ -434,7 +393,7 @@ pub(crate) enum Format {
 }
 
 /// The programs look for their files by exact name, so the ending is matched
-/// exactly too; `.yamllint` has none and is YAML.
+/// exactly too; a name without one, such as `.stylelintrc`, is YAML.
 pub(crate) fn format(file: &RelativePath) -> Format {
     let name = file.file_name().unwrap_or_default();
     match name.rsplit_once('.').map(|(_, ending)| ending) {
@@ -460,56 +419,6 @@ pub(crate) fn parse(format: Format, source: &str) -> Result<Value, String> {
             Ok(documents.first().map_or(Value::Null, json))
         }
     }
-}
-
-/// The words `PyYAML` reads as a boolean in a plain scalar, under YAML 1.1,
-/// each with the word YAML 1.2 writes for it.
-const YAML_1_1_BOOLEANS: &[(&str, &str)] = &[
-    ("yes", "true"),
-    ("Yes", "true"),
-    ("YES", "true"),
-    ("on", "true"),
-    ("On", "true"),
-    ("ON", "true"),
-    ("no", "false"),
-    ("No", "false"),
-    ("NO", "false"),
-    ("off", "false"),
-    ("Off", "false"),
-    ("OFF", "false"),
-];
-
-/// A loader that reads a plain scalar as YAML 1.1 does where 1.2 differs in a
-/// boolean, and hands everything else on as it stands. A quoted scalar stays
-/// text, as in `PyYAML`.
-struct Yaml11(YamlLoader);
-
-impl MarkedEventReceiver for Yaml11 {
-    fn on_event(&mut self, event: Event, mark: Marker) {
-        let event = match event {
-            Event::Scalar(word, TScalarStyle::Plain, anchor, None) => {
-                let word = YAML_1_1_BOOLEANS
-                    .iter()
-                    .find(|(old, _)| *old == word)
-                    .map_or(word, |(_, new)| (*new).to_owned());
-                Event::Scalar(word, TScalarStyle::Plain, anchor, None)
-            }
-            other => other,
-        };
-        self.0.on_event(event, mark);
-    }
-}
-
-/// The value a configuration of yamllint holds, read as `PyYAML` reads it.
-fn parse_yaml_1_1(source: &str) -> Result<Value, String> {
-    let mut loader = Yaml11(YamlLoader::default());
-    Parser::new_from_str(source)
-        .load(&mut loader, true)
-        .map_err(text)?;
-    // The loader keeps an error of its own, such as a key written twice, to
-    // itself; read as it stands, the source names it.
-    YamlLoader::load_from_str(source).map_err(text)?;
-    Ok(loader.0.documents().first().map_or(Value::Null, json))
 }
 
 /// A YAML value as the JSON value it stands for. A key that is not text is
@@ -594,20 +503,6 @@ fn rules_of(value: Value) -> Result<Config, String> {
     Ok(Config { extends, rules })
 }
 
-/// The rules of a configuration of yamllint: its `rules`, beside `extends`.
-fn yamllint(source: &str) -> Result<Config, String> {
-    let Value::Object(mut top) = parse_yaml_1_1(source)? else {
-        return Err(NO_MAPPING.to_owned());
-    };
-    let extends = extends(top.remove("extends"))?;
-    let rules = match top.remove("rules") {
-        None => Rules::new(),
-        Some(Value::Object(rules)) => rules.into_iter().collect(),
-        Some(_) => return Err("`rules` is not a mapping".to_owned()),
-    };
-    Ok(Config { extends, rules })
-}
-
 /// Where a file's rules stand.
 #[derive(Clone, Copy)]
 enum Place {
@@ -622,7 +517,6 @@ enum Place {
 /// How a file's rules are read.
 #[derive(Clone, Copy)]
 enum Kind {
-    Yamllint,
     /// Stylelint's own file, or the `stylelint` key of `package.json`.
     Stylelint,
     StylelintPackage,
@@ -655,7 +549,6 @@ impl Layer {
         }
         let source = read(&self.file)?;
         match self.kind {
-            Kind::Yamllint => yamllint(&source),
             Kind::Stylelint | Kind::HtmlValidate => rules_of(parse(format, &source)?),
             Kind::StylelintPackage => rules_of(
                 parse(format, &source)?
@@ -666,32 +559,6 @@ impl Layer {
         }
         .map(Some)
     }
-}
-
-/// The first of these names in the folder.
-fn first<'a>(
-    files: &[&'a RelativePath],
-    dir: &RelativePath,
-    names: &[&str],
-) -> Option<&'a RelativePath> {
-    names.iter().find_map(|name| {
-        files
-            .iter()
-            .find(|file| file.file_name() == Some(name) && folder(file) == *dir)
-            .copied()
-    })
-}
-
-/// The configuration yamllint reads at the root.
-fn yamllint_layers(files: &[&RelativePath]) -> Vec<Layer> {
-    first(files, &RelativePath::root(), YAMLLINT_FILES)
-        .map(|file| Layer {
-            file: file.clone(),
-            place: Place::Over,
-            kind: Kind::Yamllint,
-        })
-        .into_iter()
-        .collect()
 }
 
 /// A file of a folder, the name of which may hold a folder of its own, such
@@ -1007,12 +874,6 @@ pub fn report(
         read,
     );
     lines.extend(markdownlint(defaults.markdownlint, &handed, &problems));
-    lines.extend(section(
-        Program::Yamllint,
-        defaults.yamllint,
-        &yamllint_layers(&files),
-        read,
-    ));
     let styled = covered(Program::Stylelint);
     if !styled.is_empty() {
         lines.extend(section(

@@ -395,111 +395,6 @@ fn markdownlint_options_that_do_not_read_are_reported() {
 }
 
 #[test]
-fn yamllint_takes_out_what_its_ignore_names() {
-    for source in ["ignore: |\n  sub/\n", "ignore:\n  - sub/\n"] {
-        let found = found(&excusing(".yamllint"), &with(&[(".yamllint", source)]));
-        assert_eq!(summary(&found), ["unexcused-ignore sub/x.yml"], "{source}");
-        assert!(
-            found[0].message.contains("yamllint"),
-            "{}",
-            found[0].message
-        );
-    }
-}
-
-#[test]
-fn yamllint_reads_the_files_its_ignore_from_file_names() {
-    let found = found(
-        &excusing(".yamllint"),
-        &with(&[
-            (".yamllint", "ignore-from-file: [.gitignore]\n"),
-            (".gitignore", "*.yml\n"),
-        ]),
-    );
-
-    assert_eq!(summary(&found), ["unexcused-ignore sub/x.yml"]);
-}
-
-#[test]
-fn yamllint_reads_the_ignore_of_the_configuration_it_extends() {
-    let found = found(
-        &excusing(".yamllint"),
-        &with(&[
-            (".yamllint", "extends: ci/yamllint-base\n"),
-            ("ci/yamllint-base", "extends: ci/yamllint-root\n"),
-            ("ci/yamllint-root", "extends: relaxed\nignore: sub/\n"),
-        ]),
-    );
-
-    assert_eq!(summary(&found), ["unexcused-ignore sub/x.yml"]);
-}
-
-#[test]
-fn yamllint_keeps_its_own_ignore_over_the_one_it_extends() {
-    let found = found(
-        &excusing(".yamllint"),
-        &with(&[
-            (".yamllint", "extends: base\nignore: docs/\n"),
-            ("base", "ignore: \"*\"\n"),
-        ]),
-    );
-
-    assert!(found.is_empty(), "{found:?}");
-}
-
-#[test]
-fn yamllint_without_ignore_or_a_file_it_extends_takes_nothing_out() {
-    for source in ["rules: {}\n", "extends: default\n", "extends: relaxed\n"] {
-        let found = found(QUIET, &with(&[(".yamllint", source)]));
-        assert!(found.is_empty(), "{source}: {found:?}");
-    }
-}
-
-#[test]
-fn yamllint_reads_the_first_file_it_would_read() {
-    let found = found(
-        QUIET,
-        &with(&[
-            (".yamllint.yaml", "extends: default\n"),
-            (".yamllint.yml", "ignore: \"*\"\n"),
-        ]),
-    );
-
-    assert!(found.is_empty(), "{found:?}");
-}
-
-#[test]
-fn a_yamllint_configuration_that_does_not_read_is_reported() {
-    for source in [
-        "ignore: [\n",
-        "ignore: 3\n",
-        "ignore: a\nignore-from-file: b\n",
-        "ignore-from-file: missing\n",
-        "ignore-from-file: 3\n",
-        "ignore-from-file: /etc/passwd\n",
-        "extends: 3\n",
-        "extends: missing\n",
-        "extends: /etc/yamllint\n",
-        "extends: .yamllint.yaml\n",
-        "extends: ci/a\n",
-    ] {
-        let found = found(
-            QUIET,
-            &with(&[
-                (".yamllint.yaml", source),
-                ("ci/a", "extends: ci/b\n"),
-                ("ci/b", "ignore: [\n"),
-            ]),
-        );
-        assert_eq!(
-            summary(&found),
-            ["unreadable-ignore-file .yamllint.yaml"],
-            "{source}"
-        );
-    }
-}
-
-#[test]
 fn lychee_takes_out_what_its_exclude_path_matches() {
     let found = found(
         QUIET,
@@ -553,13 +448,13 @@ fn lychee_matches_the_path_from_the_root_as_the_block_hands_it_over() {
 #[cfg(unix)]
 #[test]
 fn a_setting_is_not_read_through_a_linked_folder() {
-    // `ignore-from-file` names a path the pull request chooses. Through a
+    // Ruff's `extend` names a path the pull request chooses. Through a
     // linked folder it would reach a file outside the checkout, and its text
     // would end up in the log.
-    let outside = directory(&[("file", "TOKEN=abc{def\n")]);
+    let outside = directory(&[("file.toml", "TOKEN=abc{def\n")]);
     let dir = repository(&[
         (".nebensound/repo.toml", QUIET),
-        (".yamllint.yaml", "ignore-from-file: lnk/file\n"),
+        ("ruff.toml", "extend = \"lnk/file.toml\"\n"),
         ("a.yml", "a: 1\n"),
     ]);
     std::os::unix::fs::symlink(outside.path(), dir.path().join("lnk")).expect("a link");
@@ -570,7 +465,7 @@ fn a_setting_is_not_read_through_a_linked_folder() {
 
     assert_eq!(code, 1, "{text}");
     assert!(
-        text.contains("error[unreadable-ignore-file] at .yamllint.yaml: "),
+        text.contains("error[unreadable-ignore-file] at ruff.toml: "),
         "{text}"
     );
     assert!(text.contains("behind a link, or is one"), "{text}");
@@ -584,7 +479,6 @@ fn settings_below_the_root_are_not_read_except_markdownlint_and_rustfmt() {
         &with(&[
             ("sub/.prettierignore", "*\n"),
             ("sub/taplo.toml", "exclude = [\"**\"]\n"),
-            ("sub/.yamllint", "ignore: \"*\"\n"),
             ("sub/lychee.toml", "exclude_path = [\".\"]\n"),
         ]),
     );
@@ -698,7 +592,6 @@ fn every_tool_names_the_checks_it_reads() {
     );
     assert_eq!(Tool::Taplo.checks(), ["toml"]);
     assert_eq!(Tool::Markdownlint.checks(), ["markdown"]);
-    assert_eq!(Tool::Yamllint.checks(), ["yaml"]);
     assert_eq!(Tool::Lychee.checks(), ["html", "markdown"]);
     assert_eq!(Tool::Lychee.name(), "lychee");
     assert_eq!(Tool::Rustfmt.checks(), ["rust"]);

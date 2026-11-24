@@ -38,17 +38,17 @@ programs `run` starts, and the JSON Schema of `schema`. Building and installing
 the tool take no flag. What builds on the library alone switches the default
 features off and compiles none of it.
 
-`rules/` holds the defaults that the CSS, HTML, Markdown and YAML checks and
+`rules/` holds the defaults that the CSS, HTML and Markdown checks and
 `check-python` lay a repository's own linter configuration over. The tool
-compiles the ones of Stylelint, html-validate, Markdownlint and yamllint in,
+compiles the ones of Stylelint, html-validate and Markdownlint in,
 both to hand them to the linters in `run` and to show how a repository's rules
 stand to them ([The rules](#the-rules)), so both speak of the same files, and a
 change to one of them is a change to the tool, which builds it again. The
 default of Ruff is compiled in the same way, for the Python check of `run` and
 to show it. What else `run` hands the programs
-is compiled in as well: `run/biome.json`, the configuration that makes Biome a
-parser of JSONC and nothing else, `schemas/`, the JSON Schemas the TOML check
-assigns ([their README](../schemas/README.md)), and the page rules of the HTML
+is compiled in as well: `schemas/`, the JSON Schemas the TOML check assigns and
+the one the YAML check holds the Dependabot configuration against
+([their README](../schemas/README.md)), and the page rules of the HTML
 check, html-validate rules in JavaScript that stand in `src/run/html.rs` as
 text.
 
@@ -681,7 +681,7 @@ and so is a repository with errors, for the same reason it gets no plan.
 
 Phase 0 also holds the tools' own ways of leaving a file out against the
 declaration — `.prettierignore`, `include` and `exclude` in `taplo.toml`,
-`ignores` of markdownlint-cli2, `ignore` of yamllint, `exclude_path` of lychee,
+`ignores` of markdownlint-cli2, `exclude_path` of lychee,
 `ignore` of rustfmt, `include`, `ignore` and `exclude` of Pyright, `omit` of
 coverage.py, `exclude`, `extend-exclude`, `include`, `lint.exclude` and
 `format.exclude` of Ruff, through its `extend` as well, a Python file's
@@ -769,9 +769,9 @@ or the repository has errors. A version that differs from the pinned one is
 said and stops nothing.
 
 Not every program has a build for every platform: on Windows there is none of
-`dockerfmt`, and on Windows on ARM none of `hadolint`, `jq`, `lychee` and
-`trivy`. There the default mode uses the computer's copy, which then has to be
-on the `PATH`, and `--pinned` cannot install them: it says so for each and
+`dockerfmt`, and on Windows on ARM none of `hadolint`, `lychee` and `trivy`.
+There the default mode uses the computer's copy, which then has to be on the
+`PATH`, and `--pinned` cannot install them: it says so for each and
 exits with `1`, even when the computer has them.
 
 ### The folder
@@ -843,16 +843,18 @@ found as [for the other calls](#for-the-other-calls), with the flags that set
 their own ignore mechanisms aside, at the repository root, where the
 repository keeps their configuration. It installs nothing: a program that is
 neither pinned nor on the computer fails the check and names `setup`, and the
-parts of the check whose programs are there still run. Four
+parts of the check whose programs are there still run. Three
 programs are run through their internals, so that the repository's rules are
 laid over the pipeline's default ([The rules](#the-rules)): html-validate,
-markdownlint, a library with no command, and Stylelint on Node.js and yamllint
-on the Python of its own environment. Of those four only the pinned copy is
-taken, since only its internals are known, and the check fails with a pointer
-to `setup --pinned` otherwise. markdownlint gets the files and, for each group
-of files with the same rules, the configuration the tool reads
-([The configuration of a linter](#the-configuration-of-a-linter)), and reads
-nothing else. Stylelint
+markdownlint, a library with no command, and Stylelint, on Node.js. Of those
+three only the pinned copy is taken, since only its internals are known, and
+the check fails with a pointer to `setup --pinned` otherwise. markdownlint gets
+the files and, for each group of files with the same rules, the configuration
+the tool reads ([The configuration of a linter](#the-configuration-of-a-linter)),
+and reads nothing else. What the tool judges itself starts no program: whether
+a JSON, JSONC or YAML file parses, which a missing program never keeps from
+running, and whether the Dependabot configuration matches the schema compiled
+in. Stylelint
 gets, for each stylesheet, the configuration nearest to it as the last of what
 its configuration extends, after the default, with `ignoreFiles` set aside and
 an empty ignore file in place of `.stylelintignore`, and finds only the pinned
@@ -911,17 +913,17 @@ program it starts is given and which the runner masks in the log. An
 annotation waits until the tool writes its next other command, such as the
 end of a group, or until the call ends, so that what a program printed stands
 as one stretch and its findings follow it. No program's own annotation is
-passed through: the tool reads Biome's findings off its `github` format in
-place of printing those lines, and the scripts it runs for Stylelint,
-html-validate and yamllint hand theirs over as data, one JSON object per line
-of a file, which the tool writes; the script for markdownlint writes what
-markdownlint's library returns, which the tool reads and writes, a line such as
+passed through: the scripts it runs for Stylelint and html-validate hand
+theirs over as data, one JSON object per line of a file, which the tool
+writes; the script for markdownlint writes what markdownlint's library returns,
+which the tool reads and writes, a line such as
 `README.md:3 error MD001/heading-increment …` and a finding on its line. This holds
 for every call in a workflow run, so `plan`, `files` and the other calls that
 print data print it inside such a stretch there too. Outside a workflow run
 nothing is a command, and text goes out as it is. Prettier names
-no position for a file it finds unformatted, and check-jsonschema a JSON path
-instead of a line; there the finding names the file alone.
+no position for a file it finds unformatted, and the schema check of the
+Dependabot configuration a JSON path instead of a line; there the finding
+names the file alone.
 
 ### The Rust check
 
@@ -1058,7 +1060,7 @@ sentence and exit code `1`, for the same reason it gets no plan.
 
 ## The rules
 
-Markdownlint, yamllint, Stylelint, html-validate and Ruff run with a default of
+Markdownlint, Stylelint, html-validate and Ruff run with a default of
 the pipeline, which their blocks lay a repository's own configuration over rule
 by rule (see
 [Linter rules](../README.md#linter-rules)). `check` shows, per check, every
@@ -1072,39 +1074,30 @@ Rules
       .markdownlint-cli2.jsonc                          laid over the default rule by rule; it names no rule
       .markdownlint-cli2.jsonc                          for `.github/**`: laid over the default and the rules above, rule by rule
           MD041                                         false (the pipeline's file does not name it; Markdownlint's own default holds)
-  yaml                                                  yamllint: the default, with these laid over it
-      .yamllint.yaml                                    laid over the default rule by rule
-          comments                                      {"require-starting-space":false} (over the default {"min-spaces-from-content":1})
-          line-length                                   "disable" (the same as the default)
 ```
 
 A rule the repository sets to what the default already gives it is `the same
 as the default`; any other one stands `over the default`, with the default's
 value. A rule the pipeline's file does not name keeps what lies beneath that
 file, which the tool does not compile in: Markdownlint's own default for the
-rule, and for yamllint what the file's `extends` sets, yamllint's own default.
+rule, and for Stylelint and html-validate what the file's `extends` sets.
 The report says so (`the pipeline's file does not name it; Markdownlint's own
-default holds`, ``…; what its `extends: default` sets holds``). Markdownlint
-rules are matched by any of their names and tags, in any case, so
-`line-length` stands over the default's `MD013`; a tag over rules the default
-does not give one value says so. For yamllint, a rule's options are laid over
-the default's options of that rule, as yamllint does, so writing one option of
-a rule the default sets is a difference only where that option differs. The
-defaults of Stylelint and html-validate name no rule of their own, only what
-they extend (`stylelint-config-standard`; html-validate's presets
+default holds`, ``…; what its `extends: stylelint-config-standard` sets
+holds``). Markdownlint rules are matched by any of their names and tags, in any
+case, so `line-length` stands over the default's `MD013`; a tag over rules the
+default does not give one value says so. The defaults of Stylelint and
+html-validate name no rule of their own, only what they extend (`stylelint-config-standard`; html-validate's presets
 `recommended`, `a11y` and `prettier`), so every rule a repository sets for them
 is shown as one the pipeline's file does not name.
 
 Read are, for Markdownlint, the one file the Markdown check reads
 ([The configuration of a linter](#the-configuration-of-a-linter)), with each
-difference by pattern shown under it, and yamllint's configuration at the root.
-The Markdown check prints the same lines for Markdownlint before it lints, so
-what the report shows is what runs. Every file of Markdownlint's configuration
-that is not read and every key that is not handed over is shown at its file,
-with why. yamllint's configuration is read as yamllint reads it, as YAML 1.1,
-so a plain `no` or `off` in it is `false`. A file in JavaScript is named, not
-read: phase 0 runs no code of the repository. What an `extends` of yamllint
-names is named, not read.
+difference by pattern shown under it. The Markdown check prints the same lines
+for Markdownlint before it lints, so what the report shows is what runs. Every
+file of Markdownlint's configuration that is not read and every key that is not
+handed over is shown at its file, with why. A file in JavaScript is named, not
+read: phase 0 runs no code of the repository. What an `extends` names is named,
+not read.
 
 Stylelint and html-validate are shown only where their check covers a file.
 For Stylelint, the configuration nearest to each stylesheet is read: the first

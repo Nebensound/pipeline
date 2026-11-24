@@ -1,9 +1,11 @@
 name: check-yaml
 description: >-
   The YAML check over one unit: every `.yml` and `.yaml` file the unit holds
-  is formatted the way Prettier writes it and passes yamllint, every GitHub
-  Actions workflow among them passes actionlint, and the Dependabot
-  configuration among them matches the Dependabot schema.
+  parses and is formatted the way Prettier writes it, every GitHub Actions
+  workflow among them passes actionlint, and the Dependabot configuration
+  among them matches the Dependabot schema. Whether a file parses and whether
+  the Dependabot configuration matches its schema the tool judges itself;
+  Prettier and actionlint are the programs it starts.
 
 # One input, and it is not a setting: where the unit is. It comes from the plan
 # of phase 0. The calling job checks the repository out and puts the tool on the

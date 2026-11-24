@@ -1,0 +1,1 @@
+::error file=config.yaml,line=2,col=1::not valid YAML: while parsing a flow sequence, expected ',' or ']'
