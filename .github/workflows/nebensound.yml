@@ -374,8 +374,9 @@ jobs:
           persist-credentials: false
 
       # From the cache `Declare` filled; the version writers call it. On a
-      # runner of another system, such as a target's macOS runner, the cache
-      # holds no build for it, and the tool is built here.
+      # runner of another system, such as a target's macOS runner, Declare's
+      # build does not fit; the first job there builds the tool and keeps it
+      # in the cache for the next.
       - name: Get the tool
         uses: $/.github/actions/tool
 
