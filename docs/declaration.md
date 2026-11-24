@@ -1035,9 +1035,9 @@ finding lists every difference by its key path:
   Lists are compared without regard to order.
 
 A key the command does not set, `labels` among them, an entry for an ecosystem
-it writes none for, and comments are not compared. `check` compares the file only when phase 0
-found no error: what a declaration with errors gives could watch the wrong
-folders.
+it writes none for, and comments are not compared. `check` compares the file
+only when phase 0 found no error: what a declaration with errors gives could
+watch the wrong folders.
 
 ### When the file cannot be read
 
