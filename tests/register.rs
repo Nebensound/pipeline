@@ -12,7 +12,9 @@ use nebensound_repo::names::{
     BuildName, CheckName, EcosystemName, PresetName, TargetName, VersionWriterName,
 };
 use nebensound_repo::path::RelativePath;
-use nebensound_repo::register::{BUILTIN_REGISTER, Register, RegisterError, Stands};
+use nebensound_repo::register::{
+    BUILTIN_REGISTER, Register, RegisterError, Stands, TARGETED_BUILDS,
+};
 use nebensound_repo::{Central, Ruling, Tree};
 
 fn refuses(source: &str) -> String {
@@ -709,6 +711,70 @@ fn a_build_names_the_version_writers_it_needs() {
     // `cargo` sets to the unit's.
     assert_eq!(needs("cargo-package"), ["cargo"]);
     assert!(needs("docker").is_empty());
+}
+
+#[test]
+fn a_build_lists_targets_only_when_it_builds_for_each_one_of_a_known_platform() {
+    let sound = r#"
+[version.v]
+copy = "v"
+[check.markdown]
+extensions = [".md"]
+[build.b]
+produces = "thing"
+[build.cargo-release]
+produces = "executable"
+[build.cargo-release.targets]
+aarch64-apple-darwin = "macos-latest"
+x86_64-unknown-linux-musl = "ubuntu-latest"
+[target.t]
+accepts = ["thing"]
+[ecosystem.e]
+package-ecosystem = "e"
+manifests = ["E.toml"]
+[preset.p]
+check = ["markdown"]
+publish = ["t"]
+"#;
+    assert!(Register::parse(sound).is_ok());
+    assert_eq!(TARGETED_BUILDS, ["cargo-release"]);
+
+    // A build that builds once would only repeat that build per target.
+    assert_eq!(
+        refuses(&sound.replace(
+            "[build.b]\nproduces = \"thing\"",
+            "[build.b]\nproduces = \"thing\"\n[build.b.targets]\nx86_64-apple-darwin = \"macos-26-intel\""
+        )),
+        "the build b lists targets, and only a build that builds once for each target lists any"
+    );
+    // One that builds once per target and lists none would build nothing.
+    assert_eq!(
+        refuses(&sound.replace(
+            "[build.cargo-release.targets]\naarch64-apple-darwin = \"macos-latest\"\n\
+             x86_64-unknown-linux-musl = \"ubuntu-latest\"\n",
+            ""
+        )),
+        "the build cargo-release builds once for each of its targets, and lists none"
+    );
+    // A target of a platform no machine is told by fails in every job.
+    assert_eq!(
+        refuses(&sound.replace(
+            "aarch64-apple-darwin = \"macos-latest\"",
+            "x86_64-pc-windows-msvc = \"windows-latest\""
+        )),
+        "the build cargo-release lists the target \"x86_64-pc-windows-msvc\", which is for \
+         neither Linux nor macOS"
+    );
+    // Two targets of one platform leave its machine no one target to build.
+    assert_eq!(
+        refuses(&sound.replace(
+            "aarch64-apple-darwin = \"macos-latest\"",
+            "x86_64-unknown-linux-gnu = \"ubuntu-latest\""
+        )),
+        "the build cargo-release lists the targets \"x86_64-unknown-linux-gnu\" and \
+         \"x86_64-unknown-linux-musl\", both for linux on x86_64, so a machine of that platform \
+         could not tell which to build"
+    );
 }
 
 #[test]

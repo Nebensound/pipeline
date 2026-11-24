@@ -384,6 +384,7 @@ impl Run<'_> {
                 processes: base.join("proc"),
                 patience: Duration::from_secs(60),
                 interval: Duration::from_millis(1),
+                answer: Duration::from_secs(30),
             },
             temp: base.join("tmp"),
             variables: BTreeMap::from([

@@ -112,8 +112,21 @@ programs   = ["dockerfmt", "hadolint"]
 produces         = "crate"
 requires-version = ["cargo"]
 
+# The one binary of the unit's package, built in release for each of its
+# targets, each on a runner of that platform, where the binary is started:
+# `--version` has to print the version the writer `cargo` wrote. Linux is
+# linked statically against musl, so that the binary runs on every runner image
+# whatever C library the image carries. The Intel build for macOS runs on
+# GitHub's Intel image; GitHub ends those images in 2027, and what happens to
+# the target then is ruled when it comes.
 [build.cargo-release]
-produces = "executable"
+produces         = "executable"
+requires-version = ["cargo"]
+
+[build.cargo-release.targets]
+aarch64-apple-darwin      = "macos-latest"
+x86_64-apple-darwin       = "macos-26-intel"
+x86_64-unknown-linux-musl = "ubuntu-latest"
 
 # The image is scanned for vulnerabilities before it is handed on, and the
 # scanner is pinned like any program a check calls. A build names the files it

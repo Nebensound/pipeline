@@ -261,16 +261,17 @@ pub enum Command {
         unit: String,
     },
     /// Run one build of one unit, as its building block runs it in the Build
-    /// phase: for the builds cargo-package and docker. Names the artifact it
-    /// leaves as outputs of the step.
+    /// phase: for the builds cargo-package, cargo-release and docker. Names
+    /// the artifact it leaves as outputs of the step.
     // It starts Cargo and the Rust toolchain, or Docker and Trivy, and unpacks
     // what it built, so it is part of the feature `program`.
     #[cfg(feature = "program")]
     Build {
-        /// The version the build docker labels the image with: from a plan
-        /// `nebensound-repo plan` printed, for a checkout without the history
-        /// to resolve it from. Without it, it is resolved from the history,
-        /// as `plan` resolves it.
+        /// The unit's version of the run, which the build docker labels the
+        /// image with and the build cargo-release holds the binary's
+        /// `--version` to: from a plan `nebensound-repo plan` printed, for a
+        /// checkout without the history to resolve it from. Without it, it is
+        /// resolved from the history, as `plan` resolves it.
         #[arg(long, value_name = "FILE")]
         plan: Option<PathBuf>,
         /// The build, as the register names it.
@@ -473,7 +474,8 @@ pub enum Failure {
     /// The build that was named is not one `build` carries out.
     #[cfg(feature = "program")]
     #[error(
-        "`build` carries out the builds cargo-package and docker; {build:?} is not one of them"
+        "`build` carries out the builds cargo-package, cargo-release and docker; {build:?} is \
+         not one of them"
     )]
     NotBuilt {
         /// What was named.
@@ -915,9 +917,9 @@ fn versions_of(job: &Job) -> Option<&PullRequest> {
 /// come with the plan it hands on. Which programs `setup` needs follows from
 /// the checks the plan starts, never from a version, so a question about a
 /// release does not keep anyone from setting up the programs either, and
-/// Dependabot needs no version. A check
-/// that writes versions, and a build that labels what it builds with the
-/// version, read the history only when no plan hands them in.
+/// Dependabot needs no version. A check that writes versions, and a build that
+/// takes the unit's version of the run, read the history only when no plan
+/// hands them in.
 fn files_alone(job: &Job) -> bool {
     match job {
         Job::Files { .. }
@@ -929,7 +931,7 @@ fn files_alone(job: &Job) -> bool {
         #[cfg(feature = "program")]
         Job::Run { check, plan, .. } => plan.is_some() || !check.writes_versions(),
         #[cfg(feature = "program")]
-        Job::Build { build, plan, .. } => plan.is_some() || !build.labels_version(),
+        Job::Build { build, plan, .. } => plan.is_some() || !build.takes_version(),
         _ => false,
     }
 }
@@ -1389,7 +1391,14 @@ fn declare(
     plan.pull_request = pull_request.map(|pull_request| pull_request.number);
     let excluded = repository.excluded_packages(&analysis);
     Ok(
-        if declare::hand_on(&plan, &run, &excluded, context.variables, out) {
+        if declare::hand_on(
+            &plan,
+            central.register(),
+            &run,
+            &excluded,
+            context.variables,
+            out,
+        ) {
             OK
         } else {
             FOUND

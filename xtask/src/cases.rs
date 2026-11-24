@@ -46,6 +46,7 @@ use crate::{Error, process, say};
 /// is every block; the cases of a block not named here cannot run.
 pub const FROM_THE_TOOL: &[&str] = &[
     "build-cargo-package",
+    "build-cargo-release",
     "build-docker",
     "check-css",
     "check-dockerfile",

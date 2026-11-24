@@ -308,10 +308,13 @@ fn has(text: &str, line: &str) {
 fn a_build_is_named_as_the_register_names_it() {
     assert_eq!(Build::of("cargo-package"), Some(Build::CargoPackage));
     assert_eq!(Build::CargoPackage.name(), "cargo-package");
-    assert!(!Build::CargoPackage.labels_version());
+    assert!(!Build::CargoPackage.takes_version());
+    assert_eq!(Build::of("cargo-release"), Some(Build::CargoRelease));
+    assert_eq!(Build::CargoRelease.name(), "cargo-release");
+    assert!(Build::CargoRelease.takes_version());
     assert_eq!(Build::of("docker"), Some(Build::Docker));
     assert_eq!(Build::Docker.name(), "docker");
-    assert!(Build::Docker.labels_version());
+    assert!(Build::Docker.takes_version());
     assert_eq!(Build::of("nonsense"), None);
 }
 
@@ -621,8 +624,8 @@ fn the_call_builds_only_what_the_plan_starts() {
         (
             vec!["nonsense", "app"],
             2,
-            "`build` carries out the builds cargo-package and docker; \"nonsense\" is not one of \
-             them",
+            "`build` carries out the builds cargo-package, cargo-release and docker; \"nonsense\" \
+             is not one of them",
         ),
         (
             vec!["cargo-package", "../app"],
