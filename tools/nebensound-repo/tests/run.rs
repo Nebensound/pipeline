@@ -20,6 +20,7 @@ use std::process::Command;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use nebensound_repo::Register;
+use nebensound_repo::lychee_config;
 use nebensound_repo::output::Output;
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::programs::Platform;
@@ -105,8 +106,10 @@ while [ $# -gt 0 ]; do
 done
 echo "config: $(cat "$config")"
 echo "lines: $(cat "$list")"
+echo "starts in: $(pwd -P)"
+if [ -e .lycheeignore ]; then echo "a .lycheeignore where it starts"; fi
 if grep -q broken "$list"; then
-  printf '%s\n' "# Summary" "" "## Errors per input" "" "### Errors in README-broken.md" "" \
+  printf '%s\n' "# Summary" "" "## Errors per input" "" "### Errors in $(grep broken "$list")" "" \
     "* [ERROR] <file:///x/missing.md> (at 3:11) | File not found" \
     "* [ERROR] <file:///x/other.md> | File not found" "" "### Redirects in README.md" "" \
     "* something" > "$out"
@@ -134,7 +137,7 @@ echo "lines: $(cat "$list")"
 set -- "$root"/*
 if [ -d "$root" ] && [ "$1" = "$root/*" ]; then echo "root: an empty folder"; fi
 if grep -q broken "$list"; then
-  printf '%s\n' "# Summary" "" "## Errors per input" "" "### Errors in broken.html" "" \
+  printf '%s\n' "# Summary" "" "## Errors per input" "" "### Errors in $(grep broken "$list")" "" \
     "* [ERROR] <file:///x/missing.html> (at 11:29) | File not found" > "$out"
   exit 2
 fi
@@ -876,7 +879,21 @@ fn markdown_files_are_formatted_follow_the_rules_and_link_somewhere() {
     );
     has(&text, "Rules: the pipeline default");
     has(&text, "config: max_retries = 1");
-    has(&text, "lines: README.md");
+    has(
+        &text,
+        &format!("lines: {}/README.md", fixture.root().display()),
+    );
+    // lychee starts in the folder of what it is handed, where there is no
+    // `.lycheeignore` of the repository.
+    let starts = line_of(&text, "starts in: ");
+    assert!(
+        starts.starts_with(&format!(
+            "starts in: {}/nebensound-repo-run-",
+            fixture.base.join("tmp").display()
+        )),
+        "{starts}"
+    );
+    assert!(!text.contains("a .lycheeignore where it starts"), "{text}");
     let lychee = text
         .lines()
         .find(|line| line.starts_with("lychee "))
@@ -932,6 +949,187 @@ fn every_kind_of_markdown_finding_is_reported() {
     }
     // A redirect is no broken link.
     assert!(!text.contains("::error file=README.md"), "{text}");
+}
+
+/// The configuration lychee was handed, as the fake one printed it: from
+/// the line `config: ` up to the line `lines: `.
+fn handed_config(text: &str) -> ::toml::Table {
+    let start = text.find("config: ").expect("a configuration");
+    let rest = &text[start + "config: ".len()..];
+    let end = rest.find("\nlines: ").expect("the lines after it");
+    ::toml::from_str(&rest[..end]).expect("TOML")
+}
+
+#[test]
+fn the_link_check_hands_lychee_the_settings_it_knows_and_the_lycheeignore() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture
+        .everything()
+        .file("README.md", "# x\n")
+        .file(
+            "lychee.toml",
+            "max_retries = 2\nexclude = ['^https://a\\.example/']\n\n[hosts.\"b.example\"]\nconcurrency = 1\n",
+        )
+        .file(
+            ".lycheeignore",
+            "# a comment\n   # one after white space\n\n^https://c\\.example/\r\n",
+        );
+    let (code, text) = fixture.run(Check::Markdown, &["README.md"], true);
+    assert_eq!(code, 0, "{text}");
+    let config = handed_config(&text);
+    let expected: ::toml::Table = ::toml::from_str(
+        "max_retries = 2\nexclude = ['^https://a\\.example/', '^https://c\\.example/']\n\n\
+         [hosts.\"b.example\"]\nconcurrency = 1\n",
+    )
+    .unwrap();
+    assert_eq!(config, expected, "{text}");
+    // lychee starts where the repository's `.lycheeignore` is out of its
+    // reach.
+    assert!(!text.contains("a .lycheeignore where it starts"), "{text}");
+
+    // Without a `lychee.toml`, the `.lycheeignore` alone.
+    fs::remove_file(fixture.root().join("lychee.toml")).unwrap();
+    let (code, text) = fixture.run(Check::Markdown, &["README.md"], true);
+    assert_eq!(code, 0, "{text}");
+    let expected: ::toml::Table = ::toml::from_str("exclude = ['^https://c\\.example/']").unwrap();
+    assert_eq!(handed_config(&text), expected, "{text}");
+}
+
+#[test]
+fn a_key_that_starts_a_command_ends_the_run_or_reads_other_files_fails_by_name() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.everything().file("unformatted.md", "# x\n");
+    for (key, why) in lychee_config::REFUSED {
+        fixture.file("lychee.toml", &format!("max_retries = 1\n{key} = 1\n"));
+        let (code, text) = fixture.run(Check::Markdown, &["unformatted.md"], true);
+        assert_eq!(code, 1, "{text}");
+        has(
+            &text,
+            &format!("::error file=lychee.toml::`{key}` is not handed to lychee: it {why}"),
+        );
+        // lychee does not start, and the other parts of the check still run.
+        assert!(!text.contains("lychee --"), "{text}");
+        has(
+            &text,
+            "::error file=unformatted.md::not formatted the way Prettier writes it",
+        );
+    }
+
+    // A key the tool does not know, such as a slip of the pen, as well; and
+    // every such key is named.
+    fixture.file(
+        "lychee.toml",
+        "exclude_paths = []\npreprocess = { command = \"sh\" }\n",
+    );
+    let (code, text) = fixture.run(Check::Markdown, &["unformatted.md"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error file=lychee.toml::`exclude_paths` is not a setting the link check knows, so it is \
+         not handed to lychee",
+    );
+    assert!(
+        text.contains("::error file=lychee.toml::`preprocess` "),
+        "{text}"
+    );
+    assert!(!text.contains("lychee --"), "{text}");
+
+    // The HTML check shares the link check.
+    fixture
+        .computer("lychee", LYCHEE_PAGES)
+        .file("lychee.toml", "dump = true\n")
+        .file("index.html", "<p></p>\n");
+    let (code, text) = fixture.run(Check::Html, &["index.html"], true);
+    assert_eq!(code, 1, "{text}");
+    assert!(text.contains("::error file=lychee.toml::`dump` "), "{text}");
+    assert!(!text.contains("lychee --"), "{text}");
+}
+
+#[test]
+fn a_lychee_configuration_the_tool_cannot_read_fails_by_name() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.everything().file("README.md", "# x\n");
+    for (source, message) in [
+        ("x = ", "is no TOML: "),
+        ("exclude = 'a'", "`exclude` is not a list of text"),
+        ("exclude = [1]", "`exclude` is not a list of text"),
+        ("exclude_path = 'a'", "`exclude_path` is not a list of text"),
+        ("exclude_path = ['(']", "`exclude_path`: "),
+    ] {
+        fixture.file("lychee.toml", source);
+        let (code, text) = fixture.run(Check::Markdown, &["README.md"], true);
+        assert_eq!(code, 1, "{source}: {text}");
+        assert!(
+            text.contains(&format!("::error file=lychee.toml::{message}")),
+            "{source}: {text}"
+        );
+        assert!(!text.contains("lychee --"), "{source}: {text}");
+    }
+}
+
+#[test]
+fn exclude_path_takes_out_what_it_matches_from_the_root() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture
+        .everything()
+        .file("docs/a.md", "# x\n")
+        .file("b.md", "# x\n")
+        .file("lychee.toml", "exclude_path = ['^docs/']\n");
+    let (code, text) = fixture.run(Check::Markdown, &["b.md", "docs/a.md"], true);
+    assert_eq!(code, 0, "{text}");
+    has(&text, &format!("lines: {}/b.md", fixture.root().display()));
+    let left_out = format!("{}/docs/a.md", fixture.root().display());
+    assert!(
+        !text.lines().any(|line| line.ends_with(&left_out)),
+        "{text}"
+    );
+    // exclude_path is the tool's, not lychee's.
+    assert!(handed_config(&text).is_empty(), "{text}");
+
+    // Every file out, lychee does not start.
+    fixture.file("lychee.toml", "exclude_path = ['.']\n");
+    let (code, text) = fixture.run(Check::Markdown, &["b.md", "docs/a.md"], true);
+    assert_eq!(code, 0, "{text}");
+    has(
+        &text,
+        "lychee is not started: `exclude_path` in lychee.toml takes out every file it would read",
+    );
+    assert!(!text.contains("lychee --"), "{text}");
+}
+
+#[test]
+fn a_lycheeignore_is_read_only_as_it_stands_in_the_repository() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture.everything().file("README.md", "# x\n");
+    let ignore = fixture.root().join(".lycheeignore");
+    std::os::unix::fs::symlink("/etc/hosts", &ignore).unwrap();
+    let (code, text) = fixture.run(Check::Markdown, &["README.md"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error file=.lycheeignore::is a link or no regular file; the link check reads it only \
+         as it stands in the repository",
+    );
+    assert!(!text.contains("lychee --"), "{text}");
+
+    fs::remove_file(&ignore).unwrap();
+    fixture.file(".lycheeignore", "a\n");
+    fs::set_permissions(&ignore, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read(&ignore).is_ok() {
+        // Whoever can read every file reads this one too.
+        return;
+    }
+    let (code, text) = fixture.run(Check::Markdown, &["README.md"], true);
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains("::error file=.lycheeignore::cannot be read: "),
+        "{text}"
+    );
 }
 
 #[test]
@@ -1210,12 +1408,34 @@ fn the_link_check_is_handed_every_path_as_lychee_reads_it() {
         ("dir/mailto:a.md", "dir/mailto:a.md"),
         ("1:a.md", "1:a.md"),
         ("é:a.md", "é:a.md"),
+        // A drive, which lychee reads as a path.
+        ("a:b.md", "a:b.md"),
+        (r"C:\repo/a.md", r"C:\repo/a.md"),
+        (r"\\server\share/a.md", r"\\server\share/a.md"),
     ] {
         assert_eq!(markdown::lychee_line(file), line, "{file:?}");
     }
+    // Absolute, the root in front: a glob character in the root is taken
+    // literally as well.
     assert_eq!(
-        markdown::lychee_lines(&["a.md".to_owned(), "b c.md".to_owned()]),
-        "a.md\nb c.md\n"
+        markdown::lychee_lines(
+            Path::new("/r[1]"),
+            &["a.md".to_owned(), "b c.md".to_owned(), "#c.md ".to_owned()]
+        ),
+        "/r[[]1[]]/a.md\n/r[[]1[]]/b c.md\n/r[[]1[]]/#c.md[ ]\n"
+    );
+    // A Windows verbatim root loses its prefix, which would make every line
+    // a glob naming no file.
+    for (root, written) in [
+        ("/r", "/r"),
+        (r"\\?\C:\repo", r"C:\repo"),
+        (r"\\?\UNC\server\share\repo", r"\\server\share\repo"),
+    ] {
+        assert_eq!(markdown::lychee_root(Path::new(root)), written, "{root:?}");
+    }
+    assert_eq!(
+        markdown::lychee_lines(Path::new(r"\\?\C:\repo"), &["a.md".to_owned()]),
+        "C:\\repo/a.md\n"
     );
 }
 
@@ -2220,7 +2440,10 @@ fn pages_are_formatted_pass_html_validate_and_link_somewhere() {
         &format!("config: {}", html::excluded(Path::new(root)).trim_end()),
     );
     has(&text, "root: an empty folder");
-    has(&text, "lines: docs/header.htm");
+    has(
+        &text,
+        &format!("lines: {}/docs/header.htm", fixture.root().display()),
+    );
     // What `run` wrote for the programs is gone again.
     assert_eq!(fs::read_dir(&tmp).unwrap().count(), 0);
 

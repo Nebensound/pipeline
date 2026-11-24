@@ -580,9 +580,9 @@ coverage.py, `exclude`, `extend-exclude`, `include`, `lint.exclude` and
 `# ruff: noqa`, `.stylelintignore` and `ignoreFiles` of Stylelint,
 `.htmlvalidateignore` of html-validate — and fails on every file one of them
 takes out that no `[[exclude]]` entry does (`unexcused-ignore`). The checks
-read none of them except lychee's `exclude_path`, which phase 0 matches
-against the path from the root, the string `run markdown` and `run html`
-hand lychee, and rustfmt's `ignore`, which takes effect on a nightly toolchain,
+read none of them except lychee's `exclude_path`, which `run markdown` and
+`run html` apply themselves, matched against the path from the root as phase 0
+matches it, and rustfmt's `ignore`, which takes effect on a nightly toolchain,
 and Ruff's `# ruff: noqa`, which the file holds itself; run by hand, the tools
 read them all.
 
@@ -751,9 +751,15 @@ over the default, and the page rules over both, written into the folder of what
 `run` hands the programs and loaded from there; a flat configuration
 (`html-validate.config.*`) at the root fails the check. The link check of the
 HTML check resolves a link from the root of a site, such as `/login`, below an
-empty folder, and a second configuration behind the repository's
-`lychee.toml` leaves out every address below it, written with the folder's
-path without links. actionlint uses the
+empty folder, and a second configuration behind the one the tool writes
+leaves out every address below it, written with the folder's path without
+links. lychee, the link check of the Markdown and the HTML check, is the one
+program that does not start at the repository root: it starts in the folder of
+what `run` hands the programs, with the configuration the tool writes from the
+repository's `lychee.toml` and `.lycheeignore` and the files as absolute
+paths, so that it reads nothing of the repository's configuration itself. The
+keys the tool carries over and the ones it refuses by name stand in
+[`src/lychee_config.rs`](src/lychee_config.rs). actionlint uses the
 ShellCheck and pyflakes on the `PATH`, where there are any, and the output says
 whether it found them. Hadolint gets the repository's `.hadolint.yaml` or
 `.hadolint.yml` at the root, or an empty configuration, and none of the

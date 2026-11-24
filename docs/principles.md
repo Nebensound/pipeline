@@ -47,6 +47,15 @@ apart, the reading checks hold whatever the code of the repository does.
 **Today.** The unit job runs `check-rust` and `check-python`, which build and
 test the repository's code, in the same job as the reading checks of that
 unit. The job of the repository also runs `cargo xtask check --all` there.
+The link check of the Markdown and the HTML check hands lychee only the
+configuration the tool writes from the keys of `lychee.toml` it knows, and
+reads `.lycheeignore` itself: no key can make lychee start a command, end
+without checking, send a link to an address it does not check, or read
+another file. The keys that choose which addresses are checked (`exclude`,
+`include`, `scheme`) and `.lycheeignore` are carried over as the repository's
+stated choice of what it leaves out, so they can still leave a link into the
+repository unchecked. The other linters still find and read the repository's
+configuration themselves.
 
 ## 3. All logic is Rust, in the tool, and tested
 
@@ -182,6 +191,13 @@ yet, it says so.
 - **The action `tool`** holds logic in shell: the fingerprint and the build of
   the tool from source (rule 3). The build from source in a caller: #24. The
   fingerprint: no issue exists yet.
+- **Linters read their configuration themselves** (rule 2). Only the link
+  check gets its configuration from the tool. The other linters find the
+  repository's configuration and read it, and some of their ways load code of
+  the repository: a configuration file in JavaScript, a plugin, a module a
+  configuration extends. markdownlint and the reader for all of them: #199.
+  Prettier: #200. Stylelint: #201. Hadolint, actionlint, the Dockerfile
+  formatter and Ruff: #202. html-validate leaves the HTML check with #185.
 - **Text from the repository in logs** is escaped place by place, and the file
   lists of the blocks not at all (rule 5): #143.
 - **The source of actionlint**, whose upstream stands still, and the growing

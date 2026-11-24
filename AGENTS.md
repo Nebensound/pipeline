@@ -80,8 +80,13 @@ only by the calls named beside it:
 | Code of the repository (its tests, its build scripts, the commands of the package it builds) | only executing checks and builds                                                                                 |
 
 A reading check starts no toolchain of a language and no code of the
-repository. uv is pinned in the register; rustup and Docker come from the
-machine, on GitHub Actions from the runner image.
+repository. The link check holds to that: lychee gets only the configuration
+the tool writes from the keys of `lychee.toml` it knows, and a key that would
+start a command fails by name. The other linters still read the repository's
+configuration themselves, and some of their ways load code (see
+[What does not hold yet](docs/principles.md#what-does-not-hold-yet)). uv is
+pinned in the register; rustup and Docker come from the machine, on GitHub
+Actions from the runner image.
 
 ## Workflows and actions
 
