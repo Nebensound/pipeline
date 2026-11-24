@@ -60,6 +60,7 @@ pub fn register(central: &Central) -> String {
         targets(register),
         version_writers(register),
         ecosystems(register),
+        dependabot(central),
         excluded(central),
     ]
     .join("\n\n");
@@ -371,6 +372,60 @@ fn ecosystems(register: &Register) -> String {
          [`missing-lockfile`](declaration.md#missing-lockfile)).",
         &["Ecosystem", "Dependabot name", "Manifests", "Lockfile"],
         &rows,
+    )
+}
+
+fn dependabot(central: &Central) -> String {
+    let policy = central.dependabot();
+    let group = &policy.group;
+    let settings = section(
+        "Dependabot policy",
+        "How every ecosystem a declaration has watched is watched, in every repository.\n\
+         `nebensound-repo dependabot` prints the `.github/dependabot.yml` the declaration\n\
+         and this policy give: one entry per ecosystem, each with the policy applied.\n\
+         Phase 0 warns where the file in the tree departs from it (see\n\
+         [`stale-dependabot`](declaration.md#stale-dependabot)). Only the defaults hold the\n\
+         policy; a declaration cannot change it.",
+        &["Setting", "Key", "Value"],
+        &[
+            vec![
+                "How often".to_owned(),
+                code("schedule.interval"),
+                code(&policy.interval),
+            ],
+            vec![
+                "Open pull requests per entry, at most".to_owned(),
+                code("open-pull-requests-limit"),
+                code(&policy.open_pull_requests_limit),
+            ],
+            vec![
+                format!("Together in the group {}", code(&group.name)),
+                code("update-types"),
+                codes(&group.update_types),
+            ],
+        ],
+    );
+    let rows: Vec<Vec<String>> = central
+        .register()
+        .ecosystem
+        .keys()
+        .map(|name| {
+            vec![
+                code(name),
+                code(policy.prefix(name)),
+                codes(policy.exclude_from_group(name)),
+            ]
+        })
+        .collect();
+    format!(
+        "{settings}\n\n\
+         An update the group does not take comes alone, and so does a security update.\n\
+         The policy sets no `labels`: Dependabot then applies its own, `dependencies` and\n\
+         one for the ecosystem, and creates them where they are missing.\n\
+         The commit prefix (`commit-message.prefix`) depends on the ecosystem, and some\n\
+         dependencies stay out of the group (`exclude-patterns`), each raise of them a\n\
+         pull request of its own:\n\n{}",
+        table(&["Ecosystem", "Commit prefix", "Out of the group"], &rows).join("\n")
     )
 }
 

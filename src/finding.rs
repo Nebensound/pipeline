@@ -137,6 +137,9 @@ pub enum Rule {
     NonconformingDefaultBranch,
     /// A file every repository holds, and this one does not.
     MissingMinimumFile,
+    /// A Dependabot configuration that is missing, cannot be read, or departs
+    /// from what the declaration and the policy give.
+    StaleDependabot,
 }
 
 impl Rule {
@@ -182,6 +185,7 @@ impl Rule {
             Self::NonconformingName => "nonconforming-name",
             Self::NonconformingDefaultBranch => "nonconforming-default-branch",
             Self::MissingMinimumFile => "missing-minimum-file",
+            Self::StaleDependabot => "stale-dependabot",
         }
     }
 }

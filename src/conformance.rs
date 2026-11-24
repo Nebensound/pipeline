@@ -146,7 +146,9 @@ impl Minimum {
     }
 }
 
-/// The files every repository holds once.
+/// The files every repository holds once. The Dependabot configuration is one
+/// of them too; [`crate::dependabot`] reports it missing, beside a file that
+/// departs from what the declaration gives, with one code for both.
 const MINIMUM_FILES: &[Minimum] = &[
     Minimum {
         what: "README",
@@ -171,12 +173,6 @@ const MINIMUM_FILES: &[Minimum] = &[
         written: ".github/CODEOWNERS",
         folders: &["", "docs", ".github"],
         name: Name::Exact(&["CODEOWNERS"]),
-    },
-    Minimum {
-        what: "Dependabot configuration",
-        written: ".github/dependabot.yml",
-        folders: &[".github"],
-        name: Name::Exact(&["dependabot.yml", "dependabot.yaml"]),
     },
     Minimum {
         what: ".gitignore",

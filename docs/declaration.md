@@ -205,7 +205,7 @@ set.
 | `check`      | array of check names             | `[]`    | Checks beyond the base set. Each is in force for every file of the unit and runs in the Check phase.                                                                                                                                                                                                                                        |
 | `build`      | build name                       | none    | The build that produces the unit's artifact. The plan names it for a unit that carries a version of its own and generates no children, and that unit gets a job in the Build phase of every run that gives it a version, the runs of a commit that touches it. Phase 0 demands that `version` selects every version writer the build needs. |
 | `publish`    | `false` or array of target names | `false` | Where the artifact goes: `false` for nowhere, said out loud, or a list of targets. `publish = true` is an error, since it names no target. A target without a building block fails `nebensound / Check` by name, and no target has one yet.                                                                                                 |
-| `dependabot` | array of ecosystem names         | `[]`    | The ecosystems Dependabot is to watch for this unit, beyond the base set. Phase 0 compares them with the manifests the unit holds. Nothing writes a Dependabot configuration from them yet.                                                                                                                                                 |
+| `dependabot` | array of ecosystem names         | `[]`    | The ecosystems Dependabot is to watch for this unit, beyond the base set. Phase 0 compares them with the manifests the unit holds. `nebensound-repo dependabot` prints the Dependabot configuration they give (see [`stale-dependabot`](#stale-dependabot)).                                                                                |
 
 ### `[[include]]`
 
@@ -624,8 +624,8 @@ stable code; the wording of its message may improve, the code does not change.
 - A **warning** stops nothing. It says that a statement in the declaration is
   not true, not that something is broken, or that the repository departs from
   the organization's conventions (`nonconforming-name`,
-  `nonconforming-default-branch`, `missing-minimum-file`). `check` reports
-  these three; the other calls do not look for them.
+  `nonconforming-default-branch`, `missing-minimum-file`, `stale-dependabot`).
+  `check` reports these four; the other calls do not look for them.
 
 A finding reads like `error[uncovered-file] at src/main.rs: …`: the severity, the
 code, the unit or path it is about, and a sentence. A finding that points at a
@@ -1005,17 +1005,54 @@ the root of the repository. The finding stands at the path where the file
 belongs, and its message names that path. Every place and name GitHub itself
 honours counts:
 
-| File                          | Counts as                                                                                          | Named at                 |
-| ----------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------ |
-| README                        | `README`, alone or with any extension, in any case, at the root, under `.github/` or under `docs/` | `README.md`              |
-| licence or proprietary notice | a name that starts with `LICENSE`, `LICENCE`, `COPYING` or `UNLICENSE`, in any case, at the root   | `LICENSE`                |
-| `AGENTS.md`                   | `AGENTS.md` at the root                                                                            | `AGENTS.md`              |
-| code owners                   | `CODEOWNERS` at the root, under `docs/` or under `.github/`                                        | `.github/CODEOWNERS`     |
-| Dependabot configuration      | `.github/dependabot.yml` or `.github/dependabot.yaml`                                              | `.github/dependabot.yml` |
-| `.gitignore`                  | `.gitignore` at the root                                                                           | `.gitignore`             |
-| `.editorconfig`               | `.editorconfig` at the root                                                                        | `.editorconfig`          |
+| File                          | Counts as                                                                                          | Named at             |
+| ----------------------------- | -------------------------------------------------------------------------------------------------- | -------------------- |
+| README                        | `README`, alone or with any extension, in any case, at the root, under `.github/` or under `docs/` | `README.md`          |
+| licence or proprietary notice | a name that starts with `LICENSE`, `LICENCE`, `COPYING` or `UNLICENSE`, in any case, at the root   | `LICENSE`            |
+| `AGENTS.md`                   | `AGENTS.md` at the root                                                                            | `AGENTS.md`          |
+| code owners                   | `CODEOWNERS` at the root, under `docs/` or under `.github/`                                        | `.github/CODEOWNERS` |
+| `.gitignore`                  | `.gitignore` at the root                                                                           | `.gitignore`         |
+| `.editorconfig`               | `.editorconfig` at the root                                                                        | `.editorconfig`      |
 
 A file counts when Git tracks it, whatever it holds. Add the file.
+
+The Dependabot configuration is a file every repository holds as well.
+[`stale-dependabot`](#stale-dependabot) reports it missing, since it reports
+whatever else is wrong with it too.
+
+### `stale-dependabot`
+
+Warning. The Dependabot configuration, `.github/dependabot.yml` or else
+`.github/dependabot.yaml`, is missing, cannot be read, or departs from what the
+declaration and the organization's
+[Dependabot policy](register.md#dependabot-policy) give.
+`nebensound-repo dependabot` prints the file they give; write it in place of
+the one in the tree.
+
+The file has one entry per ecosystem that the base set or a unit has watched,
+with the policy applied. Its folders are those that hold a manifest of the
+ecosystem inside a unit that has it watched, less what an `[[exclude]]` entry
+takes out; one folder stands as `directory`, several as `directories`.
+`github-actions` names no manifest: Dependabot reads the workflows from `/`,
+and `/.github/actions/*` stands beside it once the repository holds a composite
+action, `.github/actions/<name>/action.yml` or `.yaml`.
+
+The file in the tree is compared only for what the command sets, and one
+finding lists every difference by its key path:
+
+- `version`, and an entry under `updates` for each ecosystem, told by its
+  `package-ecosystem`;
+- every folder: `directory: X` counts as `directories: [X]`, the folders of all
+  entries for one ecosystem count together, and a folder more is tolerated;
+- in every entry for the ecosystem, `schedule.interval`, the policy's group
+  with its `update-types` and, where the policy sets them, its
+  `exclude-patterns`, `open-pull-requests-limit` and `commit-message.prefix`.
+  Lists are compared without regard to order.
+
+A key the command does not set, `labels` among them, an entry for an ecosystem
+it writes none for, and comments are not compared. `check` compares the file
+only when phase 0 found no error: what a declaration with errors gives could
+watch the wrong folders.
 
 ### When the file cannot be read
 
