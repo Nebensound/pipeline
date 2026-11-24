@@ -28,7 +28,10 @@
 //! handed on. Before anything is written they are held against what its
 //! release needs ([`assets::found`]): every target of the build is there, and
 //! every archive belongs to the version and the commit of the run. Anything
-//! else stops the stage, named, and nothing is written.
+//! else stops the stage, named, and nothing is written, unless the unit's
+//! release is published already: it takes no archive, so a re-run after the
+//! run's artifacts expired leaves it as it is. A draft still takes them, so a
+//! re-run that has to finish a draft needs the artifacts.
 //!
 //! Then it writes, in this order: the tag and the release as a draft of every
 //! unit, then the archives attached to the drafts, while the releases still
@@ -369,12 +372,19 @@ fn stage(
         report.say("Nothing is released in this run.");
         return OK;
     }
-    let Some(archives) = archives(&releases, handed, head, report) else {
-        report.say(
-            "Nothing is released in this run: the archives the builds handed on are not the ones \
-             the releases take.",
-        );
-        return FAILED;
+    let archives = match archives(&releases, handed, head, github, report) {
+        Ok(Some(archives)) => archives,
+        Ok(None) => {
+            report.say(
+                "Nothing is released in this run: the archives the builds handed on are not the \
+                 ones the releases take.",
+            );
+            return FAILED;
+        }
+        Err(message) => {
+            report.error(&message);
+            return FAILED;
+        }
     };
     match write(&releases, &archives, records, github, report) {
         Ok(()) => OK,
@@ -385,17 +395,36 @@ fn stage(
     }
 }
 
+/// Whether the release of the tag is published already.
+fn published(existing: &[github::Listed], tag: &str) -> bool {
+    existing
+        .iter()
+        .any(|release| release.tag == tag && !release.draft)
+}
+
+/// The archives each unit attaches to its draft.
+type Attached<'p> = Vec<(&'p UnitName, Vec<Archive>)>;
+
 /// The archives of every unit to release that publishes to
 /// `release-assets`, held against what its release needs; [`None`] when they
 /// are not the ones, each reason named.
+///
+/// A unit whose archives are refused is looked up among the releases, a
+/// read, so still nothing is written: a release published already takes no
+/// archive, so a re-run after the run's artifacts expired leaves it as it is.
+///
+/// # Errors
+///
+/// Returns a sentence when the releases cannot be read.
 fn archives<'p>(
     releases: &[(&'p Planned, Option<&str>)],
     handed: &Handed<'_>,
     head: &str,
+    github: &GitHub,
     report: &mut Report<'_, '_>,
-) -> Option<Vec<(&'p UnitName, Vec<Archive>)>> {
+) -> Result<Option<Attached<'p>>, String> {
     let mut archives = Vec::new();
-    let mut refused = false;
+    let mut refusals = Vec::new();
     for (unit, _) in releases {
         let Some(declared) = handed
             .declared
@@ -404,26 +433,40 @@ fn archives<'p>(
         else {
             continue;
         };
-        let label = &unit.name;
         match assets::found(handed.folder, declared, &unit.version.to_string(), head) {
             Ok(found) => {
                 let names: Vec<&str> = found.iter().map(|archive| archive.name.as_str()).collect();
                 report.line(&format!(
-                    "{label}: the archives for {} are {}.",
+                    "{}: the archives for {} are {}.",
+                    unit.name,
                     unit.tag,
                     names.join(", ")
                 ));
                 archives.push((&unit.name, found));
             }
-            Err(problems) => {
-                for problem in problems {
-                    report.error(&format!("{label}: {problem}."));
-                }
-                refused = true;
-            }
+            Err(problems) => refusals.push((*unit, problems)),
         }
     }
-    (!refused).then_some(archives)
+    if refusals.is_empty() {
+        return Ok(Some(archives));
+    }
+    let existing = github.releases()?;
+    let mut refused = false;
+    for (unit, problems) in refusals {
+        let label = &unit.name;
+        if published(&existing, &unit.tag) {
+            report.line(&format!(
+                "{label}: the release {} is published already and takes no archive.",
+                unit.tag
+            ));
+            continue;
+        }
+        for problem in problems {
+            report.error(&format!("{label}: {problem}."));
+        }
+        refused = true;
+    }
+    Ok((!refused).then_some(archives))
 }
 
 /// Writes the records of the units to release: every tag and draft, then the
@@ -441,12 +484,7 @@ fn write(
     for (unit, previous) in releases {
         let label = &unit.name;
         let tag = &unit.tag;
-        let release = |draft: bool| {
-            existing
-                .iter()
-                .find(|release| release.tag == *tag && release.draft == draft)
-        };
-        if release(false).is_some() {
+        if published(&existing, tag) {
             report.line(&format!(
                 "{label}: the release {tag} is published already; nothing is changed."
             ));
@@ -460,7 +498,10 @@ fn write(
             github.create_tag(tag, head)?;
             report.line(&format!("{label}: tagged {head} as {tag}."));
         }
-        let draft = if let Some(draft) = release(true) {
+        let left = existing
+            .iter()
+            .find(|release| release.tag == *tag && release.draft);
+        let draft = if let Some(draft) = left {
             report.line(&format!(
                 "{label}: the draft of {tag} that an earlier attempt left is taken up."
             ));
@@ -561,7 +602,9 @@ fn attach(
             github.delete_asset(asset.id)?;
         }
         let uploaded = github.upload(&draft.upload, name, &archive.file)?;
-        let given = uploaded.digest.as_deref().unwrap_or(digest.as_str());
+        // An answer without a digest proves nothing, so it fails as well, as
+        // the same asset fails the check of a re-run above.
+        let given = uploaded.digest.as_deref().unwrap_or("none");
         if !uploaded.uploaded || uploaded.name != *name || given != digest {
             return Err(format!(
                 "GitHub holds the upload of {name} to the draft of {tag} as {} with the digest \

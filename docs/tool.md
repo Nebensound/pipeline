@@ -363,7 +363,11 @@ unit:
 
    Artifacts of other units and of other kinds are passed over. Without
    `--assets`, or with a folder that does not exist, nothing was handed on,
-   and every archive is missing.
+   and every archive is missing. When the artifacts of a unit are refused,
+   the releases are read, still writing nothing: a release published already
+   takes no archive, so its refusal stops nothing, and a re-run after the
+   run's artifacts expired (the builds keep them for 7 days) leaves it as it
+   is. A draft left behind still needs them.
 
 4. For every unit to release the tag, unless it stands on the commit already,
    and the release as a draft titled `<unit> <version>` (the repository by its
@@ -378,7 +382,8 @@ unit:
    the name of its file. An asset of that name the draft holds with the same
    SHA-256 is kept; one with another, or whose upload broke off, is deleted
    and the archive uploaded again. An upload that GitHub does not hold under
-   that name, uploaded and with that digest, fails the call, and so does any
+   that name, uploaded and with that digest, fails the call (an answer without
+   a digest as well), and so does any
    call that fails here: no release is published then. Other assets of the
    draft are left as they are.
 6. Every draft published, with `prerelease: false` and the mark of the latest

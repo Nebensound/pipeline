@@ -295,7 +295,8 @@ works in this order:
    artifact of the build belongs to the version released and to the pushed
    commit and is for a target of the build, and each holds exactly one plain
    file, the archive, named for its target. Anything else fails the job here,
-   each by name, before anything is written. Artifacts of other units or of
+   each by name, before anything is written, unless the unit's release is
+   published already: it takes no archive then. Artifacts of other units or of
    other kinds are passed over.
 2. **Create the tags and the drafts.** For each unit, the tag on the pushed
    commit, a lightweight one, and the release as a draft, titled
@@ -319,10 +320,13 @@ works in this order:
 A re-run completes what an earlier attempt left undone and changes nothing
 else: a tag that stands on the pushed commit is kept, a draft the attempt left
 is taken up with the archives it holds already, and a release published
-already is left as it is. The artifacts of a run stay with the run, so a
-re-run of Publish is handed the same ones. The tool
-writes what it did into the log, and the summary of the run lists every unit
-with its release, or the sentence why there is none.
+already is left as it is. A re-run of Publish is handed the artifacts of its
+run only while they are kept: the builds keep them for 7 days, and a run can be
+re-run for longer. A published release takes no archive, so a re-run after
+that is still green and changes nothing. A draft not published yet still
+takes them, so a re-run that has to finish a draft after the artifacts expired
+fails, each archive named as missing. The tool writes what it did into the log, and the summary of
+the run lists every unit with its release, or the sentence why there is none.
 
 Tags and releases are records. Publish reads them for what records answer, the
 notes since the previous record and whether a newer one holds the commit, and

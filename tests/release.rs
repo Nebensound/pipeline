@@ -1463,6 +1463,84 @@ fn a_re_run_of_a_run_that_attached_the_archives_changes_nothing() {
 }
 
 #[test]
+fn a_re_run_after_the_artifacts_expired_leaves_a_published_release_as_it_is() {
+    let (git, head) = binary();
+    let double = Double::new();
+    let handed = Handed::of("0.0.1", &head);
+    let (text, code) = stage(&git, &handed.settings(&double, None));
+    assert_eq!(code, 0, "{text}");
+    let assets = double.state().assets.clone();
+    git.tag("v0.0.1", &head);
+    let written = double.requests().len();
+    // The artifacts are gone: `download-artifact` found none and created no
+    // folder.
+    let mut settings = double.settings(None);
+    settings.assets = Some(handed.path().join("expired"));
+
+    let (text, code) = stage(&git, &settings);
+
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.contains(
+            "the repository: the release v0.0.1 is published already and takes no archive.\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "the repository: the release v0.0.1 is published already; nothing is changed."
+        ),
+        "{text}"
+    );
+    assert!(!text.contains("::error::"), "{text}");
+    let calls: Vec<String> = double.calls().split_off(written);
+    assert_eq!(calls, [LISTED, LISTED]);
+    assert_eq!(double.state().assets, assets);
+}
+
+#[test]
+fn a_re_run_that_has_to_finish_a_draft_needs_the_artifacts() {
+    let (git, head) = binary();
+    git.tag("v0.0.1", &head);
+    let double = Double::new();
+    let id = double.holds("v0.0.1", true);
+    for target in TARGETS {
+        double.holds_asset(id, &archive_name(target), &bytes(target), "uploaded");
+    }
+
+    let (text, code) = stage(&git, &double.settings(None));
+
+    assert_eq!(code, 1, "{text}");
+    assert_eq!(errors(&text).len(), TARGETS.len(), "{text}");
+    assert!(
+        errors(&text)
+            .iter()
+            .all(|error| error.starts_with("the archive for ") && error.contains(" is missing: ")),
+        "{text}"
+    );
+    assert_eq!(double.calls(), [LISTED]);
+}
+
+#[test]
+fn a_refused_hand_over_whose_releases_cannot_be_read_fails_the_stage() {
+    let (git, _) = binary();
+    let double = Double::new();
+    double.answer("GET", "releases?per_page=100&page=1", 502, "Bad gateway\n");
+
+    let (text, code) = stage(&git, &double.settings(None));
+
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.ends_with(
+            "::error::GitHub refused GET releases?per_page=100&page=1 with 502: Bad gateway\n"
+        ),
+        "{text}"
+    );
+    assert!(errors(&text).is_empty(), "{text}");
+    assert_eq!(double.calls(), [LISTED]);
+}
+
+#[test]
 fn a_re_run_keeps_an_archive_of_the_same_digest_and_replaces_any_other() {
     let (git, head) = binary();
     git.tag("v0.0.1", &head);
@@ -1593,8 +1671,12 @@ fn an_upload_github_does_not_hold_as_it_was_sent_fails_the_stage() {
             format!("as {name} with the digest sha256:00, uploaded,"),
         ),
         (
-            json!({ "id": 9, "name": "renamed", "state": "uploaded" }),
+            json!({ "id": 9, "name": "renamed", "state": "uploaded", "digest": ours }),
             format!("as renamed with the digest {ours}, uploaded,"),
+        ),
+        (
+            json!({ "id": 9, "name": name, "state": "uploaded" }),
+            format!("as {name} with the digest none, uploaded,"),
         ),
         (
             json!({ "id": 9, "name": name, "state": "starter", "digest": ours }),
@@ -1725,6 +1807,10 @@ fn a_refused_deletion_fails_the_stage() {
     );
 }
 
+/// The one call a stage whose archives are refused makes: the list of
+/// releases, a read.
+const LISTED: &str = "GET releases?per_page=100&page=1";
+
 /// The stage on [`binary`] with these artifacts: its log, its exit code, and
 /// the calls it made.
 fn checked(handed: impl FnOnce(&str, &Handed)) -> (String, u8, Vec<String>) {
@@ -1762,7 +1848,7 @@ fn a_missing_target_fails_by_name_and_nothing_is_written() {
     });
 
     assert_eq!(code, 1, "{text}");
-    assert!(calls.is_empty(), "{calls:?}");
+    assert_eq!(calls, [LISTED]);
     let head = text
         .split("executable-.@0.0.1@")
         .nth(1)
@@ -1807,7 +1893,7 @@ fn without_artifacts_every_target_is_missing() {
             .collect();
         assert_eq!(errors(&text), missing);
     }
-    assert!(double.calls().is_empty(), "{:?}", double.calls());
+    assert_eq!(double.calls(), [LISTED; 3]);
 }
 
 #[test]
@@ -1828,7 +1914,7 @@ fn a_folder_of_artifacts_that_cannot_be_read_fails_by_name() {
         )),
         "{text}"
     );
-    assert!(double.calls().is_empty(), "{:?}", double.calls());
+    assert_eq!(double.calls(), [LISTED]);
 }
 
 #[test]
@@ -1842,7 +1928,7 @@ fn an_archive_of_another_version_or_commit_fails_by_name() {
     });
 
     assert_eq!(code, 1, "{text}");
-    assert!(calls.is_empty(), "{calls:?}");
+    assert_eq!(calls, [LISTED]);
     let zero = "0".repeat(40);
     assert_eq!(
         errors(&text),
@@ -1910,7 +1996,7 @@ fn a_duplicate_archive_fails_by_name() {
     });
 
     assert_eq!(code, 1, "{text}");
-    assert!(calls.is_empty(), "{calls:?}");
+    assert_eq!(calls, [LISTED]);
     assert_eq!(
         errors(&text),
         [format!(
@@ -2194,8 +2280,7 @@ fn the_artifact_names_are_those_of_the_build() {
 #[test]
 fn the_call_hands_the_stage_the_folder_of_the_artifacts() {
     let (git, head) = binary();
-    let handed = Handed::new();
-    handed.archive("0.0.1", &head, TARGETS[0]);
+    let handed = Handed::of("0.0.1", &head);
     let (_dir, summary) = summary_file();
     let owned = run_variables(&summary);
 
@@ -2205,16 +2290,18 @@ fn the_call_hands_the_stage_the_folder_of_the_artifacts() {
         &borrowed(&owned),
     );
 
+    // The archives are held before the first call, which goes nowhere here.
     assert_eq!(code, Some(1), "{text}");
+    let names: Vec<String> = TARGETS.iter().map(|target| archive_name(target)).collect();
     assert!(
         text.contains(&format!(
-            "the repository: the archive for {} is missing",
-            TARGETS[1]
+            "the repository: the archives for v0.0.1 are {}.\n",
+            names.join(", ")
         )),
         "{text}"
     );
     assert!(
-        !text.contains(&format!("the archive for {} is missing", TARGETS[0])),
+        text.contains("curl failed on GET releases?per_page=100&page=1"),
         "{text}"
     );
 }

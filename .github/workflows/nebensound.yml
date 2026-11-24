@@ -505,7 +505,10 @@ jobs:
 
       # Every artifact of this run, each into a folder of its own named after
       # it, outside the checkout. Which of them a release takes, and whether
-      # they are the ones it needs, the tool decides.
+      # they are the ones it needs, the tool decides. The download includes
+      # artifacts no release takes, such as those of other builds, and runs
+      # when no unit publishes to release-assets: the filter stays in the tool,
+      # at the cost of that time.
       - name: Fetch the artifacts of the builds
         uses: actions/download-artifact@v8
         with:
