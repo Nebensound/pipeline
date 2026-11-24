@@ -1,0 +1,4 @@
+# The warning the name would start anywhere in a line. A line that starts
+# with `#` is a comment, so the pattern starts with `*`, which also stands for
+# nothing.
+*##[warning]x*

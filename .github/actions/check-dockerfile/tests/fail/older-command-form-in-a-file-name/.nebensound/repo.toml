@@ -1,0 +1,10 @@
+# An unformatted Dockerfile whose name holds `##[warning]x`. The runner reads
+# that older form of a workflow command anywhere in a line, so the name would
+# start a warning wherever it is printed: in the file list, and in dockerfmt's
+# line about it. Both stand where the runner processes no command; the check
+# fails on the file and starts no command. The tool's own annotation names the
+# file as it stands in its `file=` property, and the runner reads that line as
+# the command `error` and looks for no `##[` in it.
+[repo]
+audience = "public"
+pipeline = { check = ["dockerfile"], dependabot = ["docker"] }

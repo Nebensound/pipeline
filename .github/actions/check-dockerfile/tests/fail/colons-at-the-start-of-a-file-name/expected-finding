@@ -1,0 +1,1 @@
+::error file=%3A%3Awarning%3A%3Ax.dockerfile::not formatted the way dockerfmt writes it*

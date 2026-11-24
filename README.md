@@ -945,6 +945,32 @@ block prints, with `*` standing for any text, for example
 `::error file=data.json::not formatted the way Prettier writes it`. That file is
 not part of the case's repository.
 
+A case of either kind may hold a file `forbidden-line`, which names commands
+the block must not start, such as a workflow command that a name or a file of
+the case's repository would start: every line that is not empty and does not
+start with `#` is a pattern, as in `expected-finding`, that no command the
+runner would read in a line the block prints may match. Like `expected-finding`
+it is not part of the case's repository.
+
+The lines are read the way the runner of GitHub Actions reads them. The tool
+prints everything that comes from a program or from the repository while the
+runner's processing of workflow commands is stopped (see
+[the principles](docs/principles.md#5-one-rule-per-kind-of-problem)), and a
+line inside such a stretch starts nothing. So a pattern of `expected-finding`
+that starts with `::` names an annotation, and only a line outside a stopped
+stretch matches it; any other pattern matches a line wherever it stands. A
+pattern of `forbidden-line` is matched against the command the runner would
+read in a line outside a stopped stretch: from the `::` the line starts with
+once white space in front is passed over, or else from the first `##[` in it.
+A line that starts with `#` is a comment, so a pattern for the older form starts
+with `*`, as in `*##[warning]x*`.
+The failing cases `line-break-in-a-file-name`,
+`older-command-form-in-a-file-name` and `colons-at-the-start-of-a-file-name` of
+check-dockerfile, and `content-a-program-quotes` of check-json, hold such a
+file: a name with a line break before `::warning::x`, a name that holds
+`##[warning]x`, a name that starts with `::warning::x`, and a JSON file whose
+broken line, which Prettier quotes, holds `##[warning]quoted`.
+
 `cargo xtask check --all` first holds the blocks, the register and
 `nebensound.yml` to each other:
 
@@ -1087,8 +1113,12 @@ installs with `cargo install` goes into a folder of the run that comes first on
 its `PATH`, so the cases leave the developer's own programs as they are.
 
 What a step or a call of the tool prints stands in the log behind a `|`, so
-that the findings of a failing case do not become annotations of the gate. What
-the xtask itself finds is an annotation.
+that a reader tells it from the xtask's own lines. In the gate the xtask is a
+program `nebensound-repo xtask` starts, so everything it prints stands in a
+stretch in which the runner processes no workflow command: neither the findings
+of a failing case nor a name from a case start a command there, and what the
+xtask itself finds is no annotation of the gate either, but a line of the log
+and the failure of the step.
 
 The cases of the blocks that run from the tool run wherever the tool does, on
 Linux and macOS alike. The steps of the other blocks are written for the Linux

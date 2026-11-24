@@ -28,7 +28,14 @@
 //! only when they passed; it gets the plan as well when it takes one. A
 //! passing case passes when the block succeeds everywhere. A failing case
 //! passes when the block fails and every line of its [`FINDING`] file matches
-//! a line the block printed.
+//! a line the block printed. Either kind fails when a line the block printed
+//! starts a command its [`FORBIDDEN`] file names.
+//!
+//! The lines are read the way the runner of GitHub Actions reads them
+//! ([`read`]): a line inside a stretch in which the tool stopped the
+//! processing of workflow commands starts none, so an annotation a case
+//! expects has to stand outside such a stretch, and a line a case forbids
+//! counts only outside one.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -85,6 +92,19 @@ const PHASE0_FAILS: &str =
 /// line the block printed, where `*` stands for any text.
 pub const FINDING: &str = "expected-finding";
 
+/// The file in a case, passing or failing, that names commands no line the
+/// block prints may start, such as a workflow command that text from the
+/// case's repository would start. It is not copied into the case's
+/// repository either.
+///
+/// Each line that is not empty and does not start with `#` is a pattern, as in
+/// [`FINDING`], that the command the runner would read in a line ([`read`])
+/// must not match: from the `::` a line starts with once white space in front
+/// is passed over, or else from the first `##[` in it. Since a line that starts
+/// with `#` is a comment, a pattern for the older form starts with `*`, which
+/// also stands for nothing: `*##[warning]x*`.
+pub const FORBIDDEN: &str = "forbidden-line";
+
 /// Where the building blocks lie, from the repository root.
 pub const ACTIONS: &str = ".github/actions";
 
@@ -112,6 +132,9 @@ pub struct Case {
     pub dir: PathBuf,
     /// What it expects.
     pub expect: Expect,
+    /// The patterns of the commands the block must not start (see
+    /// [`FORBIDDEN`]); empty when it names none.
+    pub forbidden: Vec<String>,
 }
 
 impl Case {
@@ -132,7 +155,8 @@ impl Case {
 /// # Errors
 ///
 /// When an entry under `tests/pass/` or `tests/fail/` is no case: not a
-/// directory, a failing case without its findings, a passing case with some.
+/// directory, a failing case without its findings, a passing case with some,
+/// or a case whose [`FORBIDDEN`] file names no command.
 pub fn discover(block: &Path) -> Result<Vec<Case>, Error> {
     let mut cases = Vec::new();
     for (kind, failing) in [("pass", false), ("fail", true)] {
@@ -181,13 +205,7 @@ fn case(dir: PathBuf, failing: bool) -> Result<Case, Error> {
             )));
         }
         (true, finding) => {
-            let patterns: Vec<String> = finding
-                .unwrap_or_default()
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty() && !line.starts_with('#'))
-                .map(str::to_owned)
-                .collect();
+            let patterns = patterns(&finding.unwrap_or_default());
             if patterns.is_empty() {
                 return Err(Error::new(format!(
                     "the failing case {} names no finding: its {FINDING} has to name at least \
@@ -198,7 +216,108 @@ fn case(dir: PathBuf, failing: bool) -> Result<Case, Error> {
             Expect::Fail(patterns)
         }
     };
-    Ok(Case { name, dir, expect })
+    let forbidden = match fs::read_to_string(dir.join(FORBIDDEN)) {
+        Ok(text) => {
+            let forbidden = patterns(&text);
+            if forbidden.is_empty() {
+                return Err(Error::new(format!(
+                    "the case {} holds {FORBIDDEN}, and it names no command",
+                    dir.display()
+                )));
+            }
+            forbidden
+        }
+        Err(_) => Vec::new(),
+    };
+    Ok(Case {
+        name,
+        dir,
+        expect,
+        forbidden,
+    })
+}
+
+/// The patterns of a [`FINDING`] or [`FORBIDDEN`] file: every line that is not
+/// empty and does not start with `#`, without white space at either end.
+fn patterns(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// How the runner of GitHub Actions takes a line of a step's log.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Read {
+    /// It stops or resumes the processing of workflow commands.
+    Switch,
+    /// It stands inside a stopped stretch and starts nothing.
+    Stopped,
+    /// It is read as it is: it may start a command.
+    Live,
+}
+
+/// Every line of a log, with how the runner takes it.
+///
+/// `::stop-commands::<token>` at the start of a line, past white space, or
+/// `##[stop-commands]<token>` anywhere in one stops the processing of
+/// workflow commands; then nothing takes effect until a line starts with
+/// `::<token>::` past white space or holds `##[<token>]` anywhere, which
+/// resumes it.
+#[must_use]
+pub fn read(log: &[String]) -> Vec<(Read, &str)> {
+    let mut stopped: Option<String> = None;
+    log.iter()
+        .map(|line| {
+            let text = line.trim_start();
+            let read = if let Some(token) = &stopped {
+                if text.starts_with(&format!("::{token}::"))
+                    || line.contains(&format!("##[{token}]"))
+                {
+                    stopped = None;
+                    Read::Switch
+                } else {
+                    Read::Stopped
+                }
+            } else if let Some(token) = text
+                .strip_prefix("::stop-commands::")
+                .or_else(|| line.split_once("##[stop-commands]").map(|(_, token)| token))
+            {
+                stopped = Some(token.to_owned());
+                Read::Switch
+            } else {
+                Read::Live
+            };
+            (read, line.as_str())
+        })
+        .collect()
+}
+
+/// The command the runner reads in a line outside a stopped stretch: from the
+/// `::` the line starts with past white space, when another `::` follows it,
+/// or else from the first `##[` in it; [`None`] when it reads none.
+#[must_use]
+pub fn command(line: &str) -> Option<&str> {
+    let text = line.trim_start();
+    if text
+        .strip_prefix("::")
+        .is_some_and(|rest| rest.contains("::"))
+    {
+        return Some(text);
+    }
+    line.find("##[").map(|start| &line[start..])
+}
+
+/// What a log holds besides the lines that stop and resume the processing of
+/// workflow commands: every line as it was printed, in order.
+#[must_use]
+pub fn printed(log: &[String]) -> Vec<&str> {
+    read(log)
+        .into_iter()
+        .filter(|(read, _)| *read != Read::Switch)
+        .map(|(_, line)| line)
+        .collect()
 }
 
 /// Whether a line matches a pattern of a [`FINDING`] file: the whole line,
@@ -223,10 +342,39 @@ pub fn matches(pattern: &str, line: &str) -> bool {
     rest.ends_with(last)
 }
 
-/// Judges a run against what the case expects: nothing when it went as
-/// expected, else what went wrong.
+/// Judges a run against what the case expects and the commands it forbids
+/// (see [`FORBIDDEN`]): nothing when it went as expected, else what went
+/// wrong.
+///
+/// The log is read as the runner reads it ([`read`]). A pattern of a
+/// [`FINDING`] file that starts with `::` names an annotation, which has to
+/// stand outside a stopped stretch to take effect; any other pattern may match
+/// a line anywhere. A forbidden command counts only outside a stopped stretch.
 #[must_use]
-pub fn judge(expect: &Expect, success: bool, log: &[String]) -> Option<String> {
+pub fn judge(
+    expect: &Expect,
+    forbidden: &[String],
+    success: bool,
+    log: &[String],
+) -> Option<String> {
+    let read = read(log);
+    let started: Vec<String> = read
+        .iter()
+        .filter(|(read, _)| *read == Read::Live)
+        .filter_map(|(_, line)| command(line))
+        .filter_map(|command| {
+            forbidden
+                .iter()
+                .find(|pattern| matches(pattern, command))
+                .map(|pattern| format!("`{command}` (`{pattern}`)"))
+        })
+        .collect();
+    if !started.is_empty() {
+        return Some(format!(
+            "the block starts a command the case forbids: {}",
+            started.join(", ")
+        ));
+    }
     match expect {
         Expect::Pass if success => None,
         Expect::Pass => Some("the block fails on a case that is meant to pass".to_owned()),
@@ -237,7 +385,16 @@ pub fn judge(expect: &Expect, success: bool, log: &[String]) -> Option<String> {
         Expect::Fail(patterns) => {
             let missing: Vec<&str> = patterns
                 .iter()
-                .filter(|pattern| !log.iter().any(|line| matches(pattern, line)))
+                .filter(|pattern| {
+                    !read.iter().any(|(read, line)| {
+                        let counts = match read {
+                            Read::Live => true,
+                            Read::Stopped => !pattern.starts_with("::"),
+                            Read::Switch => false,
+                        };
+                        counts && matches(pattern, line)
+                    })
+                })
                 .map(String::as_str)
                 .collect();
             if missing.is_empty() {
@@ -465,7 +622,7 @@ fn attempt(
         }
         success &= written && runs(&dir, &call.inputs)?;
     }
-    Ok(judge(&case.expect, success, &log))
+    Ok(judge(&case.expect, &case.forbidden, success, &log))
 }
 
 /// The runs of a block of `kind` in `dir` the plan of phase 0 asks for, or
@@ -649,7 +806,10 @@ fn through_the_tool(
     if !tool(bench, &workspace, &phase0, out)?.0 {
         return Ok(Some(PHASE0_FAILS.to_owned()));
     }
-    let plan = tool(bench, &workspace, &["plan"], out)?.1.join("\n");
+    // The tool writes the plan as text, which in a workflow run stands in a
+    // stopped stretch: the plan is what it printed, without the lines that
+    // stop and resume the processing.
+    let plan = printed(&tool(bench, &workspace, &["plan"], out)?.1).join("\n");
     let file = temp.path().join("plan.json");
     fs::write(&file, &plan).map_err(|error| {
         Error::new(format!(
@@ -685,7 +845,7 @@ fn through_the_tool(
         success &= passed;
         log.extend(lines);
     }
-    Ok(judge(&case.expect, success, &log))
+    Ok(judge(&case.expect, &case.forbidden, success, &log))
 }
 
 /// One run of the tool for a case: the version writers before it, then the
@@ -785,7 +945,8 @@ fn tool(
 }
 
 /// A directory of its own for a case, in `scratch`, and in it the case as a
-/// fresh Git repository, with everything but its [`FINDING`] committed, and
+/// fresh Git repository, with everything but its [`FINDING`] and
+/// [`FORBIDDEN`] committed, and
 /// the directory its steps write to. The directory goes when what is returned
 /// is dropped.
 fn fresh(scratch: &Path, git: &OsString, case: &Case) -> Result<(TempDir, PathBuf), Error> {
@@ -801,7 +962,8 @@ fn fresh(scratch: &Path, git: &OsString, case: &Case) -> Result<(TempDir, PathBu
 }
 
 /// Copies a case into a fresh Git repository, with everything but its
-/// [`FINDING`] committed, and makes the directory its steps write to.
+/// [`FINDING`] and [`FORBIDDEN`] committed, and makes the directory its steps
+/// write to.
 fn prepare(git: &OsString, case: &Path, workspace: &Path, runner: &Path) -> Result<(), Error> {
     let os = |text: &str| OsString::from(text);
     let git = |args: &[&str]| {
@@ -816,7 +978,14 @@ fn prepare(git: &OsString, case: &Path, workspace: &Path, runner: &Path) -> Resu
             vec![os("-R"), case.join(".").into(), workspace.into()],
         ),
         git(&["-c", "init.defaultBranch=main", "init", "--quiet"]),
-        git(&["add", "--all", "--", ".", &format!(":(exclude){FINDING}")]),
+        git(&[
+            "add",
+            "--all",
+            "--",
+            ".",
+            &format!(":(exclude){FINDING}"),
+            &format!(":(exclude){FORBIDDEN}"),
+        ]),
         git(&[
             "-c",
             "user.name=xtask",

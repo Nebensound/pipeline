@@ -14,10 +14,13 @@
 //! An action that runs on Node.js cannot run here. The few the blocks call
 //! have a stand-in below; any other one is refused by name.
 //!
-//! What a step prints is shown with `    | ` in front. A block announces its
-//! findings as workflow commands (`::error file=…::…`); in the gate, where the
-//! xtask itself runs as a step, those lines would otherwise become
-//! annotations for mistakes a failing case makes on purpose.
+//! What a step prints is shown with `    | ` in front, so that a reader tells
+//! it from the xtask's own lines. In the gate the xtask is a program the tool
+//! starts (`nebensound-repo xtask`), and everything it prints, what it shows
+//! of a step included, stands in a stretch in which the tool stopped the
+//! runner's processing of workflow commands: neither a block's annotation for
+//! a mistake a failing case makes on purpose, nor a name from a case, starts
+//! a command there.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;

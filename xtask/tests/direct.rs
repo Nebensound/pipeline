@@ -128,7 +128,7 @@ case "$1" in
     elif [ -f other-writer ]; then echo '{"units":[{"kind":"component","name":"a","path":"a","checks":[],"build":"cargo-package"}],"versions":[{"kind":"component","name":"a","path":"a","version":"1.0.0","writers":["other"]}]}'
     elif [ -f unversioned ]; then echo '{"units":[{"kind":"component","name":"a","path":"a","checks":[],"build":"cargo-package"}],"versions":[{"kind":"component","name":"a","path":"a","version":null,"writers":[]}]}'
     elif [ -f planned ] || [ -f plan-unwritable ]; then echo '{"units":[{"path":".","checks":["planned"]}]}'
-    else echo '{"units":[{"path":".","checks":["json"]}]}'; fi
+    else echo '::stop-commands::t'; echo '{"units":[{"path":".","checks":["json"]}]}'; echo '::t::'; fi
     [ -f vanish-at-run ] && rm -f "$0"
     exit 0 ;;
   run)
@@ -467,6 +467,7 @@ fn a_case_that_breaks_off_cannot_be_run() {
             name: marker.to_owned(),
             dir,
             expect: Expect::Pass,
+            forbidden: Vec::new(),
         };
         let bench = Direct {
             tool: &tool,
@@ -578,6 +579,7 @@ impl Blocks {
             name: "case".to_owned(),
             dir,
             expect,
+            forbidden: Vec::new(),
         };
         let env = xtask::runner::environment(std::env::vars_os().collect());
         let bench = Direct {
