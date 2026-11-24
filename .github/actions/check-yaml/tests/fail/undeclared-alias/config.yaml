@@ -1,0 +1,3 @@
+base: &base
+  name: fixture
+copy: *missing

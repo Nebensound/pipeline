@@ -62,26 +62,6 @@ done
 exit "$status"
 "#;
 
-const JQ: &str = r#"#!/bin/sh
-for last in "$@"; do :; done
-case "$last" in
-  *two*) if [ "$1" = "--exit-status" ]; then exit 1; else echo 2; exit 0; fi ;;
-  *broken*) echo "jq: error: parse error: Expected another key-value pair at line 1, column 22" >&2; exit 2 ;;
-esac
-exit 0
-"#;
-
-const BIOME: &str = r#"#!/bin/sh
-printf '%s\n' "biome $*"
-for arg in "$@"; do
-  case "$arg" in
-    *quoted*) echo "::error title=parse,file=$(pwd -P)/$arg,line=1,endLine=1,col=3,endColumn=9::JSON standard does not allow single quoted strings"; exit 1 ;;
-    *noted*) echo "::notice file=$(pwd -P)/$arg::a note%0Aon two lines" ;;
-  esac
-done
-exit 0
-"#;
-
 const TAPLO: &str = r#"#!/bin/sh
 printf '%s\n' "taplo $*"
 input=$(cat)
@@ -215,21 +195,6 @@ esac
 exit 0
 "##;
 
-/// The Python of yamllint's environment, which runs the linter the way the
-/// script would.
-const PYTHON: &str = r#"#!/bin/sh
-echo "python $1 OWN=$OWN"
-status=0
-for f in $(tr '\0' ' ' < "$LIST"); do
-  case "$f" in
-    *duplicate*)
-      echo "{\"level\":\"error\",\"file\":\"$f\",\"line\":2,\"column\":1,\"message\":\"2:1 [key-duplicates] duplication of key \\\"name\\\" in mapping\"}" >> "$FINDINGS"
-      status=1 ;;
-  esac
-done
-exit "$status"
-"#;
-
 /// actionlint, which prints nothing but its JSON format, as the real one
 /// does, and so writes what it was called with beside itself.
 const ACTIONLINT: &str = r#"#!/bin/sh
@@ -243,18 +208,6 @@ for arg in "$@"; do
 done
 [ "$status" -eq 0 ] && echo "[]"
 exit "$status"
-"#;
-
-const JSONSCHEMA: &str = r#"#!/bin/sh
-printf '%s\n' "check-jsonschema $*"
-for last in "$@"; do :; done
-if grep -q schedules "$last"; then
-  echo "Schema validation errors were encountered."
-  echo "  $last::\$.updates[0]: Additional properties are not allowed ('schedules' was unexpected)"
-  echo "  elsewhere.yml::\$.x: not this file"
-  exit 1
-fi
-echo "ok -- validation done"
 "#;
 
 /// dockerfmt, which says what dockerfmt says about a file of that name.
@@ -390,13 +343,10 @@ impl Fixture {
     /// only pinned, pinned.
     fn everything(&self) -> &Self {
         self.computer("prettier", PRETTIER)
-            .computer("jq", JQ)
-            .computer("biome", BIOME)
             .computer("taplo", TAPLO)
             .computer("lychee", LYCHEE)
             .computer("node", NODE)
             .computer("actionlint", ACTIONLINT)
-            .computer("check-jsonschema", JSONSCHEMA)
             .computer("dockerfmt", DOCKERFMT)
             .computer("hadolint", HADOLINT)
             .pinned(
@@ -417,8 +367,6 @@ impl Fixture {
                 "node_modules/.bin/stylelint",
                 "#!/bin/sh\n",
             )
-            .pinned("yamllint", "1.38.0", "bin/yamllint", "#!/bin/sh\n")
-            .pinned("yamllint", "1.38.0", "bin/python", PYTHON)
     }
 
     fn env(&self) -> Environment {
@@ -538,20 +486,14 @@ fn json_files_parse_and_are_formatted() {
     let fixture = Fixture::new();
     fixture.everything();
     fixture
-        .file("a.json", "{}\n")
-        .file("b.jsonc", "{}\n")
+        .file("a.json", "\u{feff}{}\n")
+        .file("b.jsonc", "{\n  // a comment\n  \"a\": [1, 2,],\n}\n")
         .file("Pipfile.lock", "{}\n");
     let (code, text) = fixture.run(Check::Json, &["Pipfile.lock", "a.json", "b.jsonc"], true);
     assert_eq!(code, 0, "{text}");
     has(&text, "3 JSON file(s) to check:");
-    has(&text, "1 .jsonc file(s) parsed.");
+    has(&text, "3 file(s) parsed, 1 of them as JSONC.");
     let root = fixture.root();
-    let biome = text
-        .lines()
-        .find(|line| line.starts_with("biome "))
-        .unwrap();
-    assert!(biome.starts_with("biome lint --config-path="), "{biome}");
-    assert!(biome.ends_with(" --reporter=github -- b.jsonc"), "{biome}");
     let prettier = text
         .lines()
         .find(|line| line.starts_with("prettier "))
@@ -579,42 +521,49 @@ fn every_kind_of_json_finding_is_reported() {
     fixture.everything();
     let files = [
         "broken.json",
+        "empty.jsonc",
+        "folder.json",
+        "latin.jsonc",
         "quoted.jsonc",
         "two.json",
         "unformatted.json",
         "unreadable.geojson",
     ];
-    for file in files {
-        fixture.file(file, "x\n");
-    }
-    fixture.file("noted.jsonc", "x\n");
-    let (code, text) = fixture.run(Check::Json, &["noted.jsonc"], true);
-    assert_eq!(code, 0, "{text}");
-    has(
-        &text,
-        "::warning file=noted.jsonc::Biome: a note%0Aon two lines",
-    );
-    assert!(!text.contains("::notice"), "{text}");
+    fixture
+        .file("broken.json", "{ \"name\": \"fixture\", }\n")
+        .file("empty.jsonc", "// nothing but a comment\n")
+        .file("folder.json/inside", "")
+        .file("quoted.jsonc", "{ 'name': \"fixture\" }\n")
+        .file("two.json", "{} {}\n")
+        .file("unformatted.json", "{}\n")
+        .file("unreadable.geojson", "{}\n");
+    fs::write(fixture.root().join("latin.jsonc"), b"\"caf\xe9\"\n").unwrap();
     let (code, text) = fixture.run(Check::Json, &files, true);
     assert_eq!(code, 1, "{text}");
     for line in [
-        "::error file=broken.json::not valid JSON: jq: error: parse error: Expected another \
-         key-value pair at line 1, column 22",
+        "::error file=broken.json,line=1,col=22::not valid JSON: key must be a string",
+        "::error file=empty.jsonc::not valid JSONC: the file holds no value, a JSONC document is \
+         exactly one",
+        "::error file=latin.jsonc::not valid JSONC: it is not UTF-8 (invalid utf-8 sequence of 1 \
+         bytes from index 4)",
+        "::error file=quoted.jsonc,line=1,col=3::not valid JSONC: Single-quoted strings are not \
+         allowed",
         "::error file=two.json::not valid JSON: the file holds 2 values, a JSON document is \
          exactly one",
-        "::error file=quoted.jsonc,line=1,col=3::Biome parse: JSON standard does not allow single \
-         quoted strings",
         "[warn] unformatted.json",
         "::error file=unformatted.json::not formatted the way Prettier writes it",
         "::error file=unreadable.geojson::Prettier cannot read it: SyntaxError: Unexpected token \
          (1:1)",
+        "8 file(s) parsed, 3 of them as JSONC.",
     ] {
         has(&text, line);
     }
+    assert!(
+        text.contains("::error file=folder.json::cannot be read: "),
+        "{text}"
+    );
     // Not a file: no finding on it.
     assert!(!text.contains("::error file=Code style"), "{text}");
-    // Biome's own line is read as a finding and not printed as well.
-    assert!(!text.contains("title=parse"), "{text}");
 
     // Elsewhere a finding reads as a line that starts with its place.
     let (code, text) = fixture.run(Check::Json, &files, false);
@@ -626,8 +575,85 @@ fn every_kind_of_json_finding_is_reported() {
     );
     has(
         &text,
-        "quoted.jsonc:1:3: error: Biome parse: JSON standard does not allow single quoted strings",
+        "quoted.jsonc:1:3: error: not valid JSONC: Single-quoted strings are not allowed",
     );
+}
+
+#[test]
+fn json_is_judged_as_strictly_as_before() {
+    let strict = |text: &str| run::json::strict_finding(text.as_bytes()).map(|found| found.message);
+    let commented =
+        |text: &str| run::json::commented_finding(text.as_bytes()).map(|found| found.message);
+    // What jq passed: one value, also after a byte order mark, also a number
+    // beyond the range of a double, also bytes that are no UTF-8 in a string.
+    for text in ["{}", "\u{feff}[1]", "1e400", "{\"a\": 1, \"a\": 2}"] {
+        assert_eq!(strict(text), None, "{text:?}");
+    }
+    assert_eq!(
+        run::json::strict_finding(b"{\"a\": \"\xff\"}"),
+        None,
+        "a byte that is no UTF-8"
+    );
+    for (text, expected) in [
+        (
+            "",
+            "not valid JSON: the file holds 0 values, a JSON document is exactly one",
+        ),
+        (
+            "{}{}",
+            "not valid JSON: the file holds 2 values, a JSON document is exactly one",
+        ),
+        ("[1,]", "not valid JSON: expected value"),
+        ("// a comment\n{}", "not valid JSON: expected value"),
+        // What jq took and RFC 8259 does not: the names of numbers that are
+        // none. They are findings now.
+        ("[NaN]", "not valid JSON: expected value"),
+        ("nan", "not valid JSON: expected ident"),
+        ("[Infinity]", "not valid JSON: expected value"),
+    ] {
+        assert_eq!(strict(text).as_deref(), Some(expected), "{text:?}");
+    }
+    assert_eq!(
+        run::json::strict_finding(b"{\"a\": 1,\n}"),
+        Some(run::Finding {
+            position: Some((2, 1)),
+            message: "not valid JSON: key must be a string".to_owned(),
+        })
+    );
+    // What Biome passed as JSONC: comments and trailing commas, a byte order
+    // mark, and a key twice.
+    for text in [
+        "// one\n/* two */ {\"a\": [1, 2,],}",
+        "\u{feff}{}",
+        "{\"a\": 1, \"a\": 2}",
+    ] {
+        assert_eq!(commented(text), None, "{text:?}");
+    }
+    // What it refused.
+    for (text, position) in [
+        ("{a: 1}", (1, 2)),
+        ("{'a': 1}", (1, 2)),
+        ("[0x1F]", (1, 2)),
+        ("[NaN]", (1, 2)),
+        ("[+1]", (1, 2)),
+        ("[.5]", (1, 2)),
+        ("{\"a\": 1 \"b\": 2}", (1, 8)),
+        ("{} {}", (1, 4)),
+        ("[1,,2]", (1, 4)),
+    ] {
+        let found = run::json::commented_finding(text.as_bytes());
+        assert!(
+            found
+                .as_ref()
+                .is_some_and(|found| found.message.starts_with("not valid JSONC: ")),
+            "{text:?}: {found:?}"
+        );
+        assert_eq!(
+            found.and_then(|found| found.position),
+            Some(position),
+            "{text:?}"
+        );
+    }
 }
 
 #[test]
@@ -638,7 +664,7 @@ fn lockfiles_are_parsed_and_not_formatted() {
     fixture.file("Pipfile.lock", "{}\n");
     let (code, text) = fixture.run(Check::Json, &["Pipfile.lock"], true);
     assert_eq!(code, 0, "{text}");
-    has(&text, "No .jsonc file to parse.");
+    has(&text, "1 file(s) parsed, 0 of them as JSONC.");
     has(
         &text,
         "No file to format-check: lockfiles are parsed, not formatted.",
@@ -700,15 +726,13 @@ fn a_missing_program_fails_the_check_and_names_setup() {
     fixture.file("a.json", "{}\n");
     let (code, text) = fixture.run(Check::Json, &["a.json"], true);
     assert_eq!(code, 1, "{text}");
-    for program in ["jq 1.8.1", "biome 2.5.15", "prettier 3.9.6"] {
-        has(
-            &text,
-            &format!(
-                "::error::{program} is neither pinned in the tool's folder nor on the computer; \
-                 `nebensound-repo setup` installs it"
-            ),
-        );
-    }
+    has(
+        &text,
+        "::error::prettier 3.9.6 is neither pinned in the tool's folder nor on the computer; \
+         `nebensound-repo setup` installs it",
+    );
+    // The parsing needs no program and runs all the same.
+    has(&text, "1 file(s) parsed, 0 of them as JSONC.");
 
     fixture.file("a.toml", "a = 1\n");
     let (code, text) = fixture.run(Check::Toml, &["a.toml"], true);
@@ -1195,7 +1219,7 @@ fn a_lycheeignore_is_read_only_as_it_stands_in_the_repository() {
 }
 
 #[test]
-fn yaml_files_are_formatted_and_pass_their_linters() {
+fn yaml_files_parse_are_formatted_and_pass_their_linters() {
     let _alone = alone();
     let fixture = Fixture::new();
     fixture
@@ -1203,8 +1227,15 @@ fn yaml_files_are_formatted_and_pass_their_linters() {
         .computer("shellcheck", "#!/bin/sh\n")
         .file(".yamllint.yaml", "rules: {}\n")
         .file(".github/workflows/ci.yml", "on: push\n")
-        .file(".github/dependabot.yml", "version: 2\n")
-        .file("config.yaml", "a: 1\n");
+        .file(
+            ".github/dependabot.yml",
+            "version: 2\nupdates:\n  - package-ecosystem: cargo\n    directory: /\n    \
+             schedule:\n      interval: weekly\n",
+        )
+        .file(
+            "config.yaml",
+            "\u{feff}a: &a 1\nb: *a\nm:\n  <<: {x: 1}\n  <<: {y: 2}\n",
+        );
     let files = [
         ".github/dependabot.yml",
         ".github/workflows/ci.yml",
@@ -1214,11 +1245,13 @@ fn yaml_files_are_formatted_and_pass_their_linters() {
     assert_eq!(code, 0, "{text}");
     has(&text, "1 of them workflow(s).");
     has(&text, "Dependabot configuration: .github/dependabot.yml");
+    has(&text, "3 file(s) parsed.");
     has(
         &text,
-        "Rules: the pipeline default, and laid over it .yamllint.yaml",
+        ".github/dependabot.yml against the Dependabot schema: 0 finding(s).",
     );
-    has(&text, "python -c OWN=.yamllint.yaml");
+    // A configuration of yamllint is not read.
+    assert!(!text.contains(".yamllint.yaml"), "{text}");
     let bin = fixture.base.join("bin");
     has(
         &text,
@@ -1239,11 +1272,6 @@ fn yaml_files_are_formatted_and_pass_their_linters() {
          ^property \"workflow_(repository|sha)\" is not defined in object type \\{check_run_id: \
          number;  -format {{json .}} -- .github/workflows/ci.yml",
     );
-    has(
-        &text,
-        "check-jsonschema --builtin-schema vendor.dependabot --color never -- \
-         .github/dependabot.yml",
-    );
 }
 
 #[test]
@@ -1253,39 +1281,255 @@ fn every_kind_of_yaml_finding_is_reported() {
     fixture
         .everything()
         .file(".github/workflows/broken.yaml", "on: push\n")
-        .file(".github/dependabot.yaml", "schedules: x\n")
-        .file("duplicate.yaml", "a: 1\n")
+        .file(
+            ".github/dependabot.yaml",
+            "version: 2\nupdates:\n  - package-ecosystem: cargo\n    directory: /\n    \
+             schedules:\n      interval: weekly\n",
+        )
+        .file("duplicate.yaml", "name: a\nname: b\n")
+        .file("alias.yaml", "a: *x\n")
+        .file("folder.yaml/inside", "")
         .file("unformatted.yml", "a: 1\n");
     let files = [
         ".github/dependabot.yaml",
         ".github/workflows/broken.yaml",
+        "alias.yaml",
         "duplicate.yaml",
+        "folder.yaml",
         "unformatted.yml",
     ];
     let (code, text) = fixture.run(Check::Yaml, &files, true);
     assert_eq!(code, 1, "{text}");
     for line in [
         "::error file=unformatted.yml::not formatted the way Prettier writes it",
-        "::error file=duplicate.yaml,line=2,col=1::2:1 [key-duplicates] duplication of key \
-         \"name\" in mapping",
+        "::error file=duplicate.yaml,line=2,col=1::the key \"name\" stands twice in this \
+         mapping: a mapping holds each key once",
+        "::error file=alias.yaml,line=1,col=4::not valid YAML: the alias \"*x\" names no anchor \
+         declared before it in its document",
         "::error file=.github/workflows/broken.yaml,line=10,col=3::\"runs-on\" section is missing \
          in job \"test\" [syntax-check]",
         "::error file=.github/dependabot.yaml::$.updates[0]: Additional properties are not \
          allowed ('schedules' was unexpected)",
-        "Rules: the pipeline default",
+        "::error file=.github/dependabot.yaml::$.updates[0]: \"schedule\" is a required property",
+        ".github/dependabot.yaml against the Dependabot schema: 2 finding(s).",
         "ShellCheck is not on the search path, so actionlint reads no `run:` script with it",
     ] {
         has(&text, line);
     }
-    assert!(!text.contains("::error file=elsewhere.yml"), "{text}");
+    assert!(
+        text.contains("::error file=folder.yaml::cannot be read: "),
+        "{text}"
+    );
 
     // Elsewhere a finding is a line.
     let (_, text) = fixture.run(Check::Yaml, &["duplicate.yaml"], false);
     has(
         &text,
-        "duplicate.yaml:2:1: error: 2:1 [key-duplicates] duplication of key \"name\" in mapping",
+        "duplicate.yaml:2:1: error: the key \"name\" stands twice in this mapping: a mapping \
+         holds each key once",
     );
     assert!(!text.contains("endgroup"), "{text}");
+}
+
+#[test]
+fn a_dependabot_configuration_that_does_not_parse_is_not_held_against_the_schema() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture
+        .everything()
+        .file(".github/dependabot.yml", "version: 2\nversion: 2\n");
+    let (code, text) = fixture.run(Check::Yaml, &[".github/dependabot.yml"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error file=.github/dependabot.yml,line=2,col=1::the key \"version\" stands twice in \
+         this mapping: a mapping holds each key once",
+    );
+    assert!(!text.contains("against the Dependabot schema"), "{text}");
+
+    // Nor is one that cannot be read.
+    let dir = fixture.root().join(".github/dependabot.yml");
+    fs::remove_file(&dir).unwrap();
+    fs::create_dir(&dir).unwrap();
+    let (code, text) = fixture.run(Check::Yaml, &[".github/dependabot.yml"], true);
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains("::error file=.github/dependabot.yml::cannot be read: "),
+        "{text}"
+    );
+    assert!(!text.contains("against the Dependabot schema"), "{text}");
+}
+
+#[test]
+fn yaml_is_judged_by_the_tool() {
+    let findings = |text: &str| -> Vec<(Option<(usize, usize)>, String)> {
+        yaml::findings(text.as_bytes())
+            .into_iter()
+            .map(|found| (found.position, found.message))
+            .collect()
+    };
+    let twice = |key: &str| {
+        format!("the key \"{key}\" stands twice in this mapping: a mapping holds each key once")
+    };
+    // Valid YAML, also in several documents, with keys that only look alike,
+    // merge keys, the same key in two mappings, aliases and lists.
+    for text in [
+        "",
+        "a: 1\n---\na: 2\n",
+        "true: 1\nTrue: 2\n",
+        "b: &b {x: 1}\nm:\n  <<: *b\n  <<: *b\n",
+        "a:\n  x: 1\nb:\n  x: 1\n",
+        "- &a x\n- *a\n- [1, {k: v}]\n",
+        "? [a]\n: 1\n? [a]\n: 2\n",
+        "\u{feff}a: 1\n",
+    ] {
+        assert_eq!(findings(text), [], "{text:?}");
+    }
+    // Every key twice, at the place of the second, also in a flow mapping and
+    // when one of them is quoted.
+    assert_eq!(
+        findings("a: 1\n\"a\": 2\n{b: 1, b: 2}: x\nn:\n  1: a\n  '1': b\n  1: c\n"),
+        [
+            (Some((2, 1)), twice("a")),
+            (Some((3, 8)), twice("b")),
+            (Some((6, 3)), twice("1")),
+            (Some((7, 3)), twice("1")),
+        ]
+    );
+    // A key whose value is a collection, and the key after it.
+    assert_eq!(
+        findings("a: 1\na:\n  b: 2\nc: [1]\nc: *x\n"),
+        [
+            (Some((2, 1)), twice("a")),
+            (Some((5, 1)), twice("c")),
+            (
+                Some((5, 4)),
+                "not valid YAML: the alias \"*x\" names no anchor declared before it in its \
+                 document"
+                    .to_owned()
+            ),
+        ]
+    );
+    // An anchor counts in its own document only.
+    assert_eq!(
+        findings("x: &a 1\n---\ny: [*a]\n"),
+        [(
+            Some((3, 5)),
+            "not valid YAML: the alias \"*a\" names no anchor declared before it in its document"
+                .to_owned()
+        )]
+    );
+    assert_eq!(
+        findings("a: [1,\n"),
+        [(
+            Some((2, 1)),
+            "not valid YAML: while parsing a node, did not find expected node content".to_owned()
+        )]
+    );
+    assert_eq!(
+        yaml::findings(b"a: \xff\n"),
+        [run::Finding {
+            position: None,
+            message: "not valid YAML: it is not UTF-8 (invalid utf-8 sequence of 1 bytes from \
+                      index 3)"
+                .to_owned(),
+        }]
+    );
+}
+
+#[test]
+fn a_dependabot_configuration_is_held_against_its_schema() {
+    let messages = |schema: &str, text: &[u8]| -> Vec<String> {
+        yaml::schema_findings(schema, text)
+            .into_iter()
+            .map(|found| found.message)
+            .collect()
+    };
+    let valid = b"version: 2\nupdates:\n  - package-ecosystem: github-actions\n    directory: \
+                  /\n    schedule:\n      interval: weekly\n";
+    assert_eq!(messages(yaml::DEPENDABOT, valid), Vec::<String>::new());
+    // A merge key brings its mapping in, as YAML 1.1 reads it, instead of
+    // standing as a key of its own that the schema does not know.
+    let merged = b"version: 2\nupdates:\n  - package-ecosystem: npm\n    directory: /\n    <<: \
+                   &weekly\n      schedule:\n        interval: weekly\n  - package-ecosystem: \
+                   github-actions\n    directory: /\n    <<: *weekly\n";
+    assert_eq!(messages(yaml::DEPENDABOT, merged), Vec::<String>::new());
+    assert_eq!(
+        messages(yaml::DEPENDABOT, b"version: \"2\"\nupdates: []\n"),
+        [
+            "$.version: \"2\" is not of type \"integer\"",
+            "$.version: 2 was expected"
+        ]
+    );
+    assert_eq!(
+        messages(yaml::DEPENDABOT, b""),
+        ["$: null is not of type \"object\""]
+    );
+    // What YAML reads as one key, though the file writes it twice in two
+    // ways, stops the loading.
+    assert_eq!(
+        messages(yaml::DEPENDABOT, b"true: 1\nTrue: 2\n"),
+        ["not valid YAML: Boolean(true): duplicated key in mapping"]
+    );
+    assert_eq!(
+        messages(yaml::DEPENDABOT, b"a: \xff\n"),
+        ["not valid YAML: it is not UTF-8 (invalid utf-8 sequence of 1 bytes from index 3)"]
+    );
+    let refused = |schema: &str| messages(schema, b"a: 1\n").join("\n");
+    assert!(
+        refused("not json").starts_with("the schema does not read: "),
+        "{}",
+        refused("not json")
+    );
+    assert!(
+        refused(r#"{"type": 1}"#).starts_with("the schema cannot be used: "),
+        "{}",
+        refused(r#"{"type": 1}"#)
+    );
+}
+
+#[test]
+fn merge_keys_are_applied_before_the_schema() {
+    let messages = |text: &str| -> Vec<String> {
+        let schema = r#"{"properties": {"m": {
+            "properties": {
+                "a": {"const": "own"}, "b": {"const": "first"},
+                "c": {"const": "second"}, "d": {"const": "deep"}
+            },
+            "required": ["a", "b", "c", "d"],
+            "additionalProperties": false
+        }}}"#;
+        yaml::schema_findings(schema, text.as_bytes())
+            .into_iter()
+            .map(|found| found.message)
+            .collect()
+    };
+    // The mapping's own key wins over a merged one, the earlier mapping of a
+    // list over the later one, and a merged mapping's own merge key counts.
+    let text = "d: &d {d: deep}\nf: &f {a: first, b: first, <<: *d}\ns: &s {b: second, c: \
+                second}\nm:\n  a: own\n  <<: [*f, *s]\n";
+    assert_eq!(messages(text), Vec::<String>::new());
+    // A merge key whose value is no mapping, nor a list of them, stays a key.
+    for value in ["1", "[{a: own}, 1]"] {
+        let found = messages(&format!(
+            "m: {{a: own, b: first, c: second, d: deep, <<: {value}}}\n"
+        ));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("'<<' was unexpected"), "{found:?}");
+    }
+}
+
+#[test]
+fn a_place_in_a_value_reads_as_a_json_path() {
+    let location: jsonschema::paths::Location = [
+        jsonschema::paths::LocationSegment::Property("updates".into()),
+        jsonschema::paths::LocationSegment::Index(0),
+        jsonschema::paths::LocationSegment::Property("package-ecosystem".into()),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(yaml::json_path(&location), "$.updates[0].package-ecosystem");
+    assert_eq!(yaml::json_path(&jsonschema::paths::Location::new()), "$");
 }
 
 #[test]
@@ -1294,25 +1538,14 @@ fn programs_only_some_files_need_are_looked_for_only_then() {
     let fixture = Fixture::new();
     fixture
         .computer("prettier", PRETTIER)
-        .pinned("yamllint", "1.38.0", "bin/yamllint", "#!/bin/sh\n")
-        .pinned("yamllint", "1.38.0", "bin/python", PYTHON)
         .file("a.yml", "a: 1\n")
-        .file(".github/workflows/ci.yml", "on: push\n")
-        .file(".github/dependabot.yml", "version: 2\n");
+        .file(".github/workflows/ci.yml", "on: push\n");
     let (code, text) = fixture.run(Check::Yaml, &["a.yml"], true);
     assert_eq!(code, 0, "{text}");
-    let (code, text) = fixture.run(
-        Check::Yaml,
-        &[".github/dependabot.yml", ".github/workflows/ci.yml"],
-        true,
-    );
+    let (code, text) = fixture.run(Check::Yaml, &[".github/workflows/ci.yml"], true);
     assert_eq!(code, 1, "{text}");
     assert!(
         text.contains("::error::actionlint 1.7.12 is neither"),
-        "{text}"
-    );
-    assert!(
-        text.contains("::error::check-jsonschema 0.39.0 is neither"),
         "{text}"
     );
 }
@@ -1323,15 +1556,13 @@ fn a_program_that_cannot_be_started_fails_the_check() {
     let fixture = Fixture::new();
     fixture
         .everything()
-        .computer("jq", GARBAGE)
-        .computer("biome", GARBAGE)
+        .computer("prettier", GARBAGE)
         .file("a.json", "{}\n")
         .file("b.jsonc", "{}\n");
     let (code, text) = fixture.run(Check::Json, &["a.json", "b.jsonc"], true);
     assert_eq!(code, 1, "{text}");
-    assert!(text.contains("::error::jq cannot be started: "), "{text}");
     assert!(
-        text.contains("::error::Biome cannot be started: "),
+        text.contains("::error::Prettier cannot be started: "),
         "{text}"
     );
 }
@@ -1671,11 +1902,11 @@ fn schema_directives_and_locations_are_read_as_taplo_reads_them() {
             serde_json::from_str(&toml::with_id(schema, "file:///x")).unwrap();
         assert_eq!(value["$id"], "file:///x", "{name}");
     }
-    assert!(!run::json::BIOME.is_empty());
+    assert!(yaml::DEPENDABOT.contains("\"package-ecosystem\""));
 }
 
 #[test]
-fn workflows_and_schema_findings_are_recognized() {
+fn workflows_are_recognized() {
     for (file, expected) in [
         (".github/workflows/ci.yml", true),
         (".github/workflows/ci.yaml", true),
@@ -1685,22 +1916,6 @@ fn workflows_and_schema_findings_are_recognized() {
         (".github/workflows/ci.json", false),
     ] {
         assert_eq!(yaml::is_workflow(file), expected, "{file:?}");
-    }
-    let file = ".github/dependabot.yml";
-    for (line, expected) in [
-        (
-            "  .github/dependabot.yml::$.a: wrong",
-            Some(("$.a", "wrong")),
-        ),
-        (".github/dependabot.yml::$.a: wrong", None),
-        ("  other.yml::$.a: wrong", None),
-        ("  .github/dependabot.yml:$.a: wrong", None),
-        ("  .github/dependabot.yml::$.a wrong", None),
-        ("  .github/dependabot.yml::$.a:wrong", None),
-        ("  .github/dependabot.yml::a: wrong", None),
-        ("  .github/dependabot.yml::$.a: ", None),
-    ] {
-        assert_eq!(yaml::schema_finding(line, file), expected, "{line:?}");
     }
 }
 
@@ -1837,26 +2052,13 @@ fn a_missing_program_leaves_the_other_parts_of_its_check_running() {
     let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything();
-    for program in ["jq", "lychee", "actionlint"] {
+    for program in ["lychee", "actionlint"] {
         fs::remove_file(fixture.base.join("bin").join(program)).unwrap();
     }
     fixture
-        .file("unformatted.json", "{}\n")
         .file("heading.md", "# x\n")
         .file(".github/workflows/ci.yml", "on: push\n")
-        .file("duplicate.yaml", "a: 1\n");
-
-    let (code, text) = fixture.run(Check::Json, &["unformatted.json"], true);
-    assert_eq!(code, 1, "{text}");
-    has(
-        &text,
-        "::error::jq 1.8.1 is neither pinned in the tool's folder nor on the computer; \
-         `nebensound-repo setup` installs it",
-    );
-    has(
-        &text,
-        "::error file=unformatted.json::not formatted the way Prettier writes it",
-    );
+        .file("duplicate.yaml", "name: a\nname: b\n");
 
     let (code, text) = fixture.run(Check::Markdown, &["heading.md"], true);
     assert_eq!(code, 1, "{text}");
@@ -1877,8 +2079,8 @@ fn a_missing_program_leaves_the_other_parts_of_its_check_running() {
     );
     has(
         &text,
-        "::error file=duplicate.yaml,line=2,col=1::2:1 [key-duplicates] duplication of key \
-         \"name\" in mapping",
+        "::error file=duplicate.yaml,line=2,col=1::the key \"name\" stands twice in this \
+         mapping: a mapping holds each key once",
     );
 }
 

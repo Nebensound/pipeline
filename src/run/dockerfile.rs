@@ -20,9 +20,9 @@
 //!
 //! The pipeline brings no Hadolint configuration of its own: Hadolint's own
 //! rules hold, and they contradict no other tool of the pipeline. The
-//! repository's `.hadolint.yaml` or `.hadolint.yml` at its root is handed over
-//! with `--config`, as yamllint's is read at the root only; without one, an
-//! empty configuration is. So Hadolint reads none of a user's own files, which
+//! repository's `.hadolint.yaml` or `.hadolint.yml` at its root, and only
+//! there, is handed over with `--config`; without one, an empty configuration
+//! is. So Hadolint reads none of a user's own files, which
 //! it would look for in the home folder, and no `HADOLINT_*` variable: they are
 //! taken out of its environment.
 //!
@@ -32,8 +32,7 @@
 //! `#[allow]`. What would pass every finding of a file unchecked is set aside:
 //! `no-fail`, and a `failure-threshold` of `none` or `ignore`, which leaves
 //! Hadolint's default, `info`. A finding below the threshold, such as a style
-//! finding by default, is a warning and fails nothing, as a yamllint warning
-//! does in the YAML check.
+//! finding by default, is a warning and fails nothing.
 //!
 //! Hadolint cannot be told on its command line to set `no-fail` aside, so its
 //! exit code decides nothing: the check reads the configuration as Hadolint

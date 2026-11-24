@@ -1,1 +1,1 @@
-::error file=settings.jsonc,line=1,col=3::Biome parse: *
+::error file=settings.jsonc,line=1,col=3::not valid JSONC: Single-quoted strings are not allowed

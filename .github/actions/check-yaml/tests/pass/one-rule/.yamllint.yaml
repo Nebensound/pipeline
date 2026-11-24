@@ -1,7 +1,0 @@
-# One option of one rule differs from the pipeline default: a comment needs
-# no space after its `#`. Every other rule, and every other option of this
-# one, keeps the default, so the line below may stand one space from its
-# comment and run past eighty characters.
-rules:
-  comments:
-    require-starting-space: false

@@ -8,19 +8,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::register::Register;
-use nebensound_repo::rules::{
-    Defaults, HTML_VALIDATE, MARKDOWNLINT, RUFF, STYLELINT, YAMLLINT, report,
-};
+use nebensound_repo::rules::{Defaults, HTML_VALIDATE, MARKDOWNLINT, RUFF, STYLELINT, report};
 use support::{QUIET, analysis, call, repository};
 
 /// What the report says of a Markdownlint rule the pipeline's file does not
 /// name.
 const MD_UNNAMED: &str = "the pipeline's file does not name it; Markdownlint's own default holds";
-
-/// What it says of such a yamllint rule, beneath which lies yamllint's own
-/// default.
-const YAML_UNNAMED: &str =
-    "the pipeline's file does not name it; what its `extends: default` sets holds";
 
 /// The report for a repository under this declaration that holds these
 /// paths, the files among them read from memory, held against these defaults.
@@ -95,8 +88,6 @@ fn without_a_configuration_of_its_own_the_defaults_hold_as_they_are() {
             "",
             "  markdown                                              Markdownlint: the default, \
              nothing laid over it",
-            "  yaml                                                  yamllint: the default, \
-             nothing laid over it",
         ]
     );
 }
@@ -104,8 +95,6 @@ fn without_a_configuration_of_its_own_the_defaults_hold_as_they_are() {
 #[test]
 fn the_defaults_compiled_in_are_the_files_the_blocks_read() {
     assert!(MARKDOWNLINT.contains("\"MD013\": false"), "{MARKDOWNLINT}");
-    assert!(YAMLLINT.contains("extends: default"), "{YAMLLINT}");
-    assert!(YAMLLINT.contains("line-length: disable"), "{YAMLLINT}");
 }
 
 #[test]
@@ -142,7 +131,6 @@ fn a_change_of_the_default_reaches_a_repository_that_did_not_name_the_rule() {
     let files = [(".markdownlint-cli2.yaml", "config:\n  MD041: false\n")];
     let changed = Defaults {
         markdownlint: "{ \"MD013\": false, \"MD041\": false }",
-        yamllint: YAMLLINT,
         stylelint: STYLELINT,
         html_validate: HTML_VALIDATE,
         ruff: RUFF,
@@ -310,7 +298,6 @@ fn a_markdownlint_rule_is_found_by_any_of_its_names_and_tags() {
 fn a_markdownlint_tag_over_rules_the_default_treats_apart_says_so() {
     let defaults = Defaults {
         markdownlint: "{ \"MD001\": false, \"heading-style\": false, \"whitespace\": false }",
-        yamllint: YAMLLINT,
         stylelint: STYLELINT,
         html_validate: HTML_VALIDATE,
         ruff: RUFF,
@@ -339,7 +326,6 @@ fn a_markdownlint_tag_over_rules_the_default_treats_apart_says_so() {
 fn the_default_of_markdownlint_stands_for_every_rule_it_does_not_name() {
     let defaults = Defaults {
         markdownlint: "{ \"Default\": false, \"MD013\": true }",
-        yamllint: YAMLLINT,
         stylelint: STYLELINT,
         html_validate: HTML_VALIDATE,
         ruff: RUFF,
@@ -365,7 +351,6 @@ fn the_rules_of_markdownlint_are_read_in_the_order_written() {
     // come last and give `MD025` the value `false`.
     let defaults = Defaults {
         markdownlint: "{ \"headings\": false, \"MD025\": true }",
-        yamllint: YAMLLINT,
         stylelint: STYLELINT,
         html_validate: HTML_VALIDATE,
         ruff: RUFF,
@@ -391,24 +376,6 @@ fn the_rules_of_markdownlint_are_read_in_the_order_written() {
         .filter_map(|line| line.split_whitespace().next())
         .collect();
     assert_eq!(names, ["single-title", "headings", "MD001"], "{text}");
-}
-
-#[test]
-fn a_yamllint_default_without_extends_leaves_a_rule_it_does_not_name_off() {
-    let defaults = Defaults {
-        markdownlint: MARKDOWNLINT,
-        yamllint: "rules:\n  comments: enable\n",
-        stylelint: STYLELINT,
-        html_validate: HTML_VALIDATE,
-        ruff: RUFF,
-    };
-
-    let text = rules_with(defaults, &[(".yamllint", "rules:\n  hyphens: enable\n")]);
-
-    assert_eq!(
-        after(&text, "hyphens"),
-        ["\"enable\" (the pipeline's file does not name it, so it is off)"]
-    );
 }
 
 #[test]
@@ -450,11 +417,6 @@ fn a_file_that_cannot_be_read_says_why() {
             "a: [\n",
             "cannot be read, so nothing of it is handed to markdownlint: ",
         ),
-        (
-            ".yamllint",
-            "rules: [1]\n",
-            "cannot be read: `rules` is not a mapping",
-        ),
     ] {
         let text = rules(&[(file, source)]);
 
@@ -478,89 +440,24 @@ fn an_empty_file_of_yaml_lays_nothing_over_the_default() {
 
 #[test]
 fn a_file_the_tree_lists_and_the_disk_does_not_hold_says_so() {
-    let analysis = analysis(QUIET, &[".nebensound/repo.toml", ".yamllint.yml"]);
+    let analysis = analysis(
+        QUIET,
+        &[".nebensound/repo.toml", ".markdownlint.yml", "README.md"],
+    );
     let read = |_: &RelativePath| Err("gone".to_owned());
 
     let text = report(&analysis, &read, Defaults::BUILT_IN, &register());
 
-    assert_eq!(after(&text, ".yamllint.yml"), ["cannot be read: gone"]);
-}
-
-#[test]
-fn yamllint_lays_the_options_of_a_rule_over_those_of_the_default() {
-    let text = rules(&[(
-        ".yamllint.yaml",
-        "extends: relaxed\n\
-         rules:\n\
-         \x20 comments:\n\
-         \x20   min-spaces-from-content: 1\n\
-         \x20 braces: enable\n\
-         \x20 truthy:\n\
-         \x20   check-keys: true\n\
-         \x20 line-length: disable\n\
-         \x20 document-start: enable\n\
-         \x20 key-ordering: enable\n\
-         \x20 indentation: { spaces: 4 }\n",
-    )]);
-
     assert_eq!(
-        after(&text, ".yamllint.yaml"),
-        ["laid over the default rule by rule"]
+        after(&text, ".markdownlint.yml"),
+        ["cannot be read, so nothing of it is handed to markdownlint: gone"]
     );
-    assert_eq!(
-        after(&text, "extends"),
-        ["relaxed: what it sets lies beneath the rules here"]
-    );
-    assert_eq!(
-        after(&text, "comments"),
-        ["{\"min-spaces-from-content\":1} (the same as the default)"]
-    );
-    assert_eq!(
-        after(&text, "braces"),
-        ["\"enable\" (the same as the default)"]
-    );
-    assert_eq!(
-        after(&text, "truthy"),
-        ["{\"check-keys\":true} (over the default {\"check-keys\":false})"]
-    );
-    assert_eq!(
-        after(&text, "line-length"),
-        ["\"disable\" (the same as the default)"]
-    );
-    assert_eq!(
-        after(&text, "document-start"),
-        ["\"enable\" (over the default \"disable\")"]
-    );
-    assert_eq!(
-        after(&text, "key-ordering"),
-        [format!("\"enable\" ({YAML_UNNAMED})")]
-    );
-    assert_eq!(
-        after(&text, "indentation"),
-        [format!("{{\"spaces\":4}} ({YAML_UNNAMED})")]
-    );
-}
-
-#[test]
-fn yamllint_reads_the_first_of_its_files_at_the_root_only() {
-    let text = rules(&[
-        (".yamllint", "rules:\n  key-ordering: enable\n"),
-        (".yamllint.yaml", "rules:\n  empty-lines: disable\n"),
-        ("sub/.yamllint", "rules:\n  hyphens: disable\n"),
-    ]);
-
-    assert_eq!(
-        after(&text, "key-ordering"),
-        [format!("\"enable\" ({YAML_UNNAMED})")]
-    );
-    assert!(!text.contains("empty-lines"), "{text}");
-    assert!(!text.contains("hyphens"), "{text}");
 }
 
 #[test]
 fn every_kind_of_yaml_value_is_shown_as_the_json_it_stands_for() {
-    let text = rules(&[(
-        ".yamllint.yml",
+    let text = web(&[(
+        ".stylelintrc.yml",
         "rules:\n\
          \x20 a: 3\n\
          \x20 b: 1.5\n\
@@ -571,25 +468,15 @@ fn every_kind_of_yaml_value_is_shown_as_the_json_it_stands_for() {
          \x20 g: { 1: x }\n",
     )]);
 
-    assert_eq!(after(&text, "a"), [format!("3 ({YAML_UNNAMED})")]);
-    assert_eq!(after(&text, "b"), [format!("1.5 ({YAML_UNNAMED})")]);
-    assert_eq!(after(&text, "c"), [format!("\".inf\" ({YAML_UNNAMED})")]);
-    assert_eq!(after(&text, "d"), [format!("null ({YAML_UNNAMED})")]);
-    assert_eq!(after(&text, "e"), [format!("true ({YAML_UNNAMED})")]);
-    assert_eq!(after(&text, "f"), [format!("[\"x\",2] ({YAML_UNNAMED})")]);
+    assert_eq!(after(&text, "a"), [format!("3 ({CSS_UNNAMED})")]);
+    assert_eq!(after(&text, "b"), [format!("1.5 ({CSS_UNNAMED})")]);
+    assert_eq!(after(&text, "c"), [format!("\".inf\" ({CSS_UNNAMED})")]);
+    assert_eq!(after(&text, "d"), [format!("null ({CSS_UNNAMED})")]);
+    assert_eq!(after(&text, "e"), [format!("true ({CSS_UNNAMED})")]);
+    assert_eq!(after(&text, "f"), [format!("[\"x\",2] ({CSS_UNNAMED})")]);
     assert_eq!(
         after(&text, "g"),
-        [format!("{{\"1\":\"x\"}} ({YAML_UNNAMED})")]
-    );
-}
-
-#[test]
-fn a_yamllint_file_without_rules_names_none() {
-    let text = rules(&[(".yamllint", "locale: C.UTF-8\n")]);
-
-    assert_eq!(
-        after(&text, ".yamllint"),
-        ["laid over the default rule by rule; it names no rule"]
+        [format!("{{\"1\":\"x\"}} ({CSS_UNNAMED})")]
     );
 }
 
@@ -598,29 +485,24 @@ fn a_name_that_could_forge_a_line_is_escaped() {
     let text = rules(&[(".markdownlint.json", "{\"MD\\u001b[2J\": \"\\nfake\"}")]);
 
     assert!(!text.contains('\u{1b}'), "{text}");
-    assert_eq!(text.lines().count(), 6, "{text}");
+    assert_eq!(text.lines().count(), 5, "{text}");
 }
 
 #[test]
 fn a_default_that_does_not_read_is_named() {
     let broken = Defaults {
         markdownlint: "{",
-        yamllint: "- a\n",
         stylelint: STYLELINT,
         html_validate: HTML_VALIDATE,
         ruff: RUFF,
     };
 
-    let text = rules_with(broken, &[(".yamllint", "rules: {}\n")]);
+    let text = rules_with(broken, &[]);
 
     let lines: Vec<&str> = text.lines().skip(2).collect();
-    assert_eq!(lines.len(), 2, "{text}");
+    assert_eq!(lines.len(), 1, "{text}");
     assert!(
         lines[0].ends_with("Markdownlint: the pipeline's default does not read: Unterminated object on line 1 column 2"),
-        "{text}"
-    );
-    assert!(
-        lines[1].ends_with("yamllint: the pipeline's default does not read: it holds no mapping"),
         "{text}"
     );
 }
@@ -633,7 +515,6 @@ fn a_default_of_markdownlint_that_holds_no_rules_is_named() {
     ] {
         let broken = Defaults {
             markdownlint: default,
-            yamllint: YAMLLINT,
             stylelint: STYLELINT,
             html_validate: HTML_VALIDATE,
             ruff: RUFF,
@@ -648,6 +529,20 @@ fn a_default_of_markdownlint_that_holds_no_rules_is_named() {
             "{text}"
         );
     }
+}
+
+#[test]
+fn a_default_of_markdownlint_that_names_what_it_extends_still_gives_its_rules() {
+    let defaults = Defaults {
+        markdownlint: "{ \"extends\": \"base.json\", \"MD001\": false }",
+        stylelint: STYLELINT,
+        html_validate: HTML_VALIDATE,
+        ruff: RUFF,
+    };
+
+    let text = rules_with(defaults, &[(".markdownlint.jsonc", "{ \"MD001\": true }")]);
+
+    assert_eq!(after(&text, "MD001"), ["true (over the default false)"]);
 }
 
 #[test]
@@ -670,27 +565,6 @@ fn check_prints_the_rules_after_the_configuration() {
     let tree = text.find("\nTree\n").unwrap();
     assert!(configuration < rules && rules < tree, "{text}");
     assert_eq!(after(&text, "MD041"), [format!("false ({MD_UNNAMED})")]);
-}
-
-#[test]
-fn a_yamllint_file_that_cannot_be_read_says_why() {
-    for (source, why) in [
-        ("a: [\n", "cannot be read: while parsing"),
-        (
-            "extends: [default]\n",
-            "cannot be read: `extends` is not text",
-        ),
-        ("- rules\n", "cannot be read: it holds no mapping"),
-        (
-            "rules: {}\nrules: {}\n",
-            "cannot be read: String(\"rules\"): duplicated key in mapping",
-        ),
-    ] {
-        let text = rules(&[(".yamllint", source)]);
-
-        let shown = after(&text, ".yamllint");
-        assert!(shown[0].starts_with(why), "{text}");
-    }
 }
 
 #[test]
@@ -725,33 +599,6 @@ fn a_file_an_exclusion_takes_out_is_not_named_and_the_one_at_the_root_is_read() 
         assert!(!text.contains(gone), "{gone}: {text}");
     }
     assert_eq!(after(&text, "MD041"), [format!("false ({MD_UNNAMED})")]);
-}
-
-#[test]
-fn yamllint_reads_its_configuration_as_yaml_1_1() {
-    let text = rules(&[(
-        ".yamllint",
-        "rules:\n\
-         \x20 truthy:\n\
-         \x20   check-keys: no\n\
-         \x20 document-start: Off\n\
-         \x20 key-ordering: { a: YES, b: on, c: 'no', d: \"off\", e: !!str yes }\n",
-    )]);
-
-    assert_eq!(
-        after(&text, "truthy"),
-        ["{\"check-keys\":false} (the same as the default)"]
-    );
-    assert_eq!(
-        after(&text, "document-start"),
-        ["false (the same as the default)"]
-    );
-    assert_eq!(
-        after(&text, "key-ordering"),
-        [format!(
-            "{{\"a\":true,\"b\":true,\"c\":\"no\",\"d\":\"off\",\"e\":\"yes\"}} ({YAML_UNNAMED})"
-        )]
-    );
 }
 
 #[test]
@@ -793,7 +640,7 @@ const CSS_UNNAMED: &str = "the pipeline's file does not name it; what its `exten
 fn stylesheets_and_pages_show_their_defaults_only_where_their_check_covers_a_file() {
     let text = web(&[]);
     assert_eq!(
-        text.lines().skip(4).collect::<Vec<_>>(),
+        text.lines().skip(3).collect::<Vec<_>>(),
         [
             "  css                                                   Stylelint: the default, \
              nothing laid over it",
@@ -811,7 +658,7 @@ fn stylesheets_and_pages_show_their_defaults_only_where_their_check_covers_a_fil
     );
 
     // Without a stylesheet or a page, neither is shown.
-    assert_eq!(rules(&[]).lines().count(), 4);
+    assert_eq!(rules(&[]).lines().count(), 3);
 }
 
 #[test]
@@ -980,7 +827,6 @@ fn html_validate_reads_nothing_above_a_configuration_that_says_root() {
 fn a_rule_the_default_of_stylelint_or_html_validate_names_is_compared() {
     let defaults = Defaults {
         markdownlint: MARKDOWNLINT,
-        yamllint: YAMLLINT,
         stylelint: "rules:\n  color-named: never\n",
         html_validate: "{ \"extends\": \"html-validate:standard\", \"rules\": { \"void-style\": \"off\" } }",
         ruff: RUFF,
@@ -1046,7 +892,6 @@ fn a_configuration_of_stylelint_or_html_validate_that_does_not_read_says_why() {
 
     let broken = Defaults {
         markdownlint: MARKDOWNLINT,
-        yamllint: YAMLLINT,
         stylelint: "a: [\n",
         html_validate: "{",
         ruff: RUFF,
@@ -1059,6 +904,21 @@ fn a_configuration_of_stylelint_or_html_validate_that_does_not_read_says_why() {
     assert!(
         text.contains("html-validate: the pipeline's default does not read: "),
         "{text}"
+    );
+}
+
+#[test]
+fn a_configuration_of_stylelint_the_disk_does_not_hold_says_so() {
+    let text = report_for(
+        WEB,
+        &[".nebensound/repo.toml", "site.css", ".stylelintrc.yml"],
+        &[],
+        Defaults::BUILT_IN,
+    );
+
+    assert_eq!(
+        after(&text, ".stylelintrc.yml"),
+        ["cannot be read: no such file"]
     );
 }
 
@@ -1092,7 +952,7 @@ fn without_a_configuration_of_its_own_ruff_runs_with_the_default_alone() {
     let text = python(&[]);
 
     assert_eq!(
-        text.lines().skip(4).collect::<Vec<_>>(),
+        text.lines().skip(3).collect::<Vec<_>>(),
         [
             "  python                                                Ruff: the default, \
           nothing laid over it"
@@ -1100,7 +960,7 @@ fn without_a_configuration_of_its_own_ruff_runs_with_the_default_alone() {
     );
     assert!(RUFF.contains("select = [\"ALL\"]"), "{RUFF}");
     // Without a Python file the check covers, Ruff is not shown.
-    assert_eq!(rules(&[]).lines().count(), 4);
+    assert_eq!(rules(&[]).lines().count(), 3);
 }
 
 #[test]
@@ -1361,7 +1221,7 @@ fn what_extend_names_lies_beneath_it_over_the_default() {
         ),
     ]);
 
-    let lines: Vec<&str> = text.lines().skip(5).map(str::trim).collect();
+    let lines: Vec<&str> = text.lines().skip(4).map(str::trim).collect();
     let squeezed: Vec<String> = lines
         .iter()
         .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))

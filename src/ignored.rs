@@ -19,9 +19,6 @@
 //!   root, whichever Taplo reads.
 //! - markdownlint-cli2: `ignores` in `.markdownlint-cli2.jsonc` or
 //!   `.markdownlint-cli2.yaml`, in every folder, relative to that folder.
-//! - yamllint: `ignore` and `ignore-from-file` in `.yamllint`,
-//!   `.yamllint.yaml` or `.yamllint.yml` at the root, whichever yamllint reads,
-//!   or, where it sets neither, in the configuration its `extends` names.
 //! - lychee: `exclude_path` in `lychee.toml` at the root, read and matched
 //!   against the path from the root as `run markdown` and `run html` read and
 //!   match it.
@@ -106,8 +103,6 @@ pub enum Tool {
     Taplo,
     /// The linter of `check-markdown`.
     Markdownlint,
-    /// The linter of `check-yaml`.
-    Yamllint,
     /// The link checker of `check-html` and `check-markdown`.
     Lychee,
     /// The formatter of `check-rust`.
@@ -132,7 +127,6 @@ impl Tool {
             Self::Prettier => "Prettier",
             Self::Taplo => "Taplo",
             Self::Markdownlint => "markdownlint-cli2",
-            Self::Yamllint => "yamllint",
             Self::Lychee => "lychee",
             Self::Rustfmt => "rustfmt",
             Self::Stylelint => "Stylelint",
@@ -151,7 +145,6 @@ impl Tool {
             Self::Taplo => &["toml"],
             Self::Markdownlint => &["markdown"],
             Self::Lychee => &["html", "markdown"],
-            Self::Yamllint => &["yaml"],
             Self::Rustfmt => &["rust"],
             Self::Stylelint => &["css"],
             Self::HtmlValidate => &["html"],
@@ -724,76 +717,11 @@ fn markdownlint_yaml(source: &str, base: &RelativePath) -> Result<Option<Matcher
     )
 }
 
-/// Text or a list of text, as yamllint takes both `ignore` and
-/// `ignore-from-file`.
+/// Text or a list of text, as Stylelint takes `ignoreFiles`.
 fn text_or_list(value: &Yaml, key: &str) -> Result<Option<Vec<String>>, String> {
     match value {
         Yaml::String(text) => Ok(Some(vec![text.clone()])),
         other => list(other, key),
-    }
-}
-
-fn yamllint(file: &RelativePath, source: &str, read: &Read<'_>) -> Result<Option<Matcher>, String> {
-    let lines = yamllint_ignore(file, source, read, &mut Vec::new())?;
-    lines
-        .map(|lines| {
-            gitignore(
-                lines.iter().flat_map(|text| text.lines()),
-                &RelativePath::root(),
-            )
-        })
-        .transpose()
-}
-
-/// The configurations yamllint ships, which `extends` names without a `/`.
-/// None of them sets `ignore`.
-const YAMLLINT_BUILT_IN: &[&str] = &["default", "relaxed"];
-
-/// The lines of the `ignore` yamllint takes from this configuration, or
-/// [`None`] where it takes none. Where the file sets neither `ignore` nor
-/// `ignore-from-file`, yamllint keeps the one of the configuration `extends`
-/// names, so that one is read the same way. `seen` holds the configurations
-/// already on the way, so that one extending itself is reported instead of
-/// read without end.
-fn yamllint_ignore(
-    file: &RelativePath,
-    source: &str,
-    read: &Read<'_>,
-    seen: &mut Vec<RelativePath>,
-) -> Result<Option<Vec<String>>, String> {
-    seen.push(file.clone());
-    let config = yaml(source)?;
-    let ignore = text_or_list(&config["ignore"], "ignore")?;
-    let from_files = text_or_list(&config["ignore-from-file"], "ignore-from-file")?;
-    match (ignore, from_files) {
-        (Some(_), Some(_)) => {
-            Err("`ignore` and `ignore-from-file` cannot stand together".to_owned())
-        }
-        (Some(written), None) => Ok(Some(written)),
-        (None, Some(files)) => {
-            let mut lines = Vec::new();
-            for file in files {
-                let path = RelativePath::new(&file).map_err(text)?;
-                lines.push(read(&path).map_err(|error| format!("{file}: {error}"))?);
-            }
-            Ok(Some(lines))
-        }
-        (None, None) => match &config["extends"] {
-            Yaml::BadValue => Ok(None),
-            Yaml::String(name) if YAMLLINT_BUILT_IN.contains(&name.as_str()) => Ok(None),
-            // yamllint opens any other name as a path, from where it runs: the
-            // repository root.
-            Yaml::String(name) => {
-                let base = RelativePath::new(name).map_err(|error| format!("{name}: {error}"))?;
-                if seen.contains(&base) {
-                    return Err(format!("`extends` comes back round to {base}"));
-                }
-                let source = read(&base).map_err(|error| format!("{name}: {error}"))?;
-                yamllint_ignore(&base, &source, read, seen)
-                    .map_err(|error| format!("{name}: {error}"))
-            }
-            _ => Err("`extends` is not text".to_owned()),
-        },
     }
 }
 
@@ -1569,10 +1497,6 @@ fn places<'a>(files: &[&'a RelativePath]) -> Vec<(&'a RelativePath, Tool)> {
     for (names, tool) in [
         (&[".prettierignore"][..], Tool::Prettier),
         (&[".taplo.toml", "taplo.toml"][..], Tool::Taplo),
-        (
-            &[".yamllint", ".yamllint.yaml", ".yamllint.yml"][..],
-            Tool::Yamllint,
-        ),
         (&["lychee.toml"][..], Tool::Lychee),
         (&[".stylelintignore"][..], Tool::Stylelint),
     ] {
@@ -1635,7 +1559,6 @@ fn read_setting(
         Tool::Prettier => gitignore(source.lines(), &RelativePath::root()).map(Some),
         Tool::Rustfmt => rustfmt(&source, &folder(file)),
         Tool::Taplo => taplo(&source),
-        Tool::Yamllint => yamllint(file, &source, read),
         Tool::Lychee => lychee(&source),
         Tool::Markdownlint if file.file_name() == Some(".markdownlint-cli2.jsonc") => {
             markdownlint_jsonc(&source, &folder(file))
@@ -1672,7 +1595,6 @@ fn remedy(tool: Tool) -> &'static str {
         Tool::Prettier
         | Tool::Taplo
         | Tool::Markdownlint
-        | Tool::Yamllint
         | Tool::Lychee
         | Tool::Pyright
         | Tool::Coverage

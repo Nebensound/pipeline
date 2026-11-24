@@ -1,106 +1,30 @@
-//! The YAML check: every `.yml` and `.yaml` file is formatted the way
-//! Prettier writes it and passes yamllint, every GitHub Actions workflow
-//! among them passes actionlint, and the Dependabot configuration among them
-//! matches the Dependabot schema.
+//! The YAML check: every `.yml` and `.yaml` file parses and is formatted the
+//! way Prettier writes it, every GitHub Actions workflow among them passes
+//! actionlint, and the Dependabot configuration among them matches the
+//! Dependabot schema.
+//!
+//! Whether a file parses, and whether the Dependabot configuration matches
+//! its schema, is the tool's own judgement, with `yaml-rust2` and `jsonschema`
+//! linked into it. Prettier and actionlint are the programs it starts.
 
 use std::ffi::OsString;
-use std::path::Path;
+use std::fmt::Write as _;
 
+use jsonschema::paths::{Location, LocationSegment};
 use serde::Deserialize;
+use yaml_rust2::parser::{Event, MarkedEventReceiver, Parser};
+use yaml_rust2::scanner::{Marker, ScanError};
+use yaml_rust2::yaml::Hash;
+use yaml_rust2::{Yaml, YamlLoader};
 
-use super::{Entry, Session, Tool};
-use crate::rules;
+use super::{Finding, Session, Tool};
 use crate::setup::find;
 
-/// What runs yamllint's own linter, on the Python of its pinned copy.
-///
-/// The pipeline's default (`rules/yamllint.yaml`, compiled into this tool)
-/// lies beneath the repository's own yamllint configuration at its root,
-/// which is laid over it rule by rule, the way yamllint lays a configuration
-/// over the one its `extends` names: a rule the repository does not name
-/// keeps the default's value, and an option it does not name keeps the
-/// default's option of that rule. So its file names only what differs, and a
-/// change of the default reaches it. What its own `extends` names comes along
-/// with it, over the default as well.
-///
-/// Its rules hold, but its `ignore` and `ignore-from-file` take nothing out:
-/// yamllint would skip what they name even when the file is named to it, so
-/// its own linter runs here with them set aside, file by file, the way its
-/// command line does. It prints no workflow command: every finding is handed
-/// to the tool as data, one JSON object per line of the file `FINDINGS` (see
-/// [`FINDINGS`](super::FINDINGS)), and the tool writes it on its line, with
-/// the message yamllint's `github` format gives it. A warning fails nothing,
-/// an error fails the check, as on the command line.
-///
-/// It reads the default (`DEFAULT`), the repository's configuration if it has
-/// one (`OWN`), the list of files, each ended by a zero byte (`LIST`), and
-/// where its findings go (`FINDINGS`) from its environment.
-pub const YAMLLINT: &str = r#"
-import json
-import locale
-import os
-import sys
-
-from yamllint import linter
-from yamllint.config import YamlLintConfig, YamlLintConfigError
-
-
-class Layered(YamlLintConfig):
-    """A configuration laid over a base the way yamllint lays one over
-    the configuration its `extends` names: after its own `extends` is
-    read, before the rules are checked."""
-
-    def __init__(self, file, base):
-        self.base = base
-        super().__init__(file=file)
-
-    def parse(self, raw_content):
-        super().parse(raw_content)
-        try:
-            self.extend(self.base)
-        except Exception as error:
-            raise YamlLintConfigError(f"invalid config: {error}") from error
-
-
-config = os.environ["DEFAULT"]
-try:
-    conf = YamlLintConfig(file=config)
-    if os.environ["OWN"]:
-        config = os.environ["OWN"]
-        conf = Layered(config, conf)
-except YamlLintConfigError as error:
-    sys.exit(f"{config}: {error}")
-# Both `ignore` and `ignore-from-file` end up here.
-conf.ignore = None
-if conf.locale is not None:
-    locale.setlocale(locale.LC_ALL, conf.locale)
-with open(os.environ["LIST"], "rb") as listing:
-    files = [entry.decode() for entry in listing.read().split(b"\0") if entry]
-
-# Every finding goes to the tool as data, with the message yamllint's own
-# `github` format gives it; the tool writes it.
-worst = 0
-with open(os.environ["FINDINGS"], "a", encoding="utf-8") as found:
-    for path in files:
-        with open(path, "rb") as content:
-            problems = list(linter.run(content, conf, path))
-        for problem in problems:
-            worst = max(worst, linter.PROBLEM_LEVELS[problem.level])
-            rule = f"[{problem.rule}] " if problem.rule else ""
-            finding = {
-                "level": problem.level,
-                "file": path,
-                "line": problem.line,
-                "column": problem.column,
-                "message": f"{problem.line}:{problem.column} {rule}{problem.desc}",
-            }
-            found.write(json.dumps(finding) + "\n")
-sys.exit(1 if worst == linter.PROBLEM_LEVELS["error"] else 0)
-"#;
-
-/// The names yamllint looks for its configuration under at the root, in its
-/// order.
-const OWN: &[&str] = &[".yamllint", ".yamllint.yaml", ".yamllint.yml"];
+/// The schema the Dependabot configuration is held against: the
+/// `dependabot-2.0.json` of `SchemaStore`, vendored beside the tool (see
+/// `schemas/README.md`) and compiled in, so that the validation sends no
+/// request.
+pub const DEPENDABOT: &str = include_str!("../../schemas/dependabot-2.0.json");
 
 /// Messages of actionlint 1.7.12 that are left out.
 ///
@@ -186,32 +110,14 @@ pub(super) fn run(session: &mut Session<'_, '_, '_>) -> bool {
             .log
             .line(&format!("Dependabot configuration: {dependabot}"));
     }
-    // A missing program is named and fails the check, and the parts whose
-    // programs were found still run, so that one run reports every finding.
+    // A missing program is named and fails the check, and the parts that do
+    // not need it still run, so that one run reports every finding.
     let prettier = session.tool("prettier", false);
-    let yamllint = session.tool("yamllint", true);
-    // The other two only where there is something for them: the outer
-    // [`None`] when nothing needs one.
+    // actionlint only where there is a workflow: the outer [`None`] when
+    // nothing needs it.
     let actionlint = (!workflows.is_empty()).then(|| session.tool("actionlint", false));
-    let jsonschema =
-        dependabot.map(|dependabot| (dependabot, session.tool("check-jsonschema", false)));
-    let mut list = Vec::new();
-    for file in &files {
-        list.extend_from_slice(file.as_bytes());
-        list.push(0);
-    }
-    let Some(temp) = session.folder(|_| {
-        let entries: Vec<Entry> = vec![
-            ("nothing-ignored".to_owned(), Some(Vec::new())),
-            (super::FINDINGS.to_owned(), Some(Vec::new())),
-            ("files".to_owned(), Some(list)),
-            (
-                "yamllint.yaml".to_owned(),
-                Some(rules::YAMLLINT.as_bytes().to_vec()),
-            ),
-        ];
-        entries
-    }) else {
+    let Some(temp) = session.folder(|_| vec![("nothing-ignored".to_owned(), Some(Vec::new()))])
+    else {
         return false;
     };
     let all: Vec<&str> = files.iter().map(String::as_str).collect();
@@ -219,14 +125,33 @@ pub(super) fn run(session: &mut Session<'_, '_, '_>) -> bool {
     // every finding at once.
     let formatted = prettier
         .is_some_and(|prettier| session.prettier(&prettier, &temp.join("nothing-ignored"), &all));
-    let linted = yamllint.is_some_and(|yamllint| yamllint_run(session, &yamllint, &temp));
+    let mut parsed = true;
+    // The Dependabot configuration as read, once it parses: one that does not
+    // is named already, and there is nothing to hold against the schema.
+    let mut configuration = None;
+    for file in &all {
+        let Some(bytes) = session.contents(file) else {
+            parsed = false;
+            continue;
+        };
+        let found = findings(&bytes);
+        for finding in &found {
+            session.finding(file, finding);
+        }
+        if !found.is_empty() {
+            parsed = false;
+        } else if Some(*file) == dependabot {
+            configuration = Some(bytes);
+        }
+    }
+    session.log.line(&format!("{} file(s) parsed.", all.len()));
     let workflows_pass = actionlint.is_none_or(|actionlint| {
         actionlint.is_some_and(|actionlint| actionlint_run(session, &actionlint, &workflows))
     });
-    let dependabot_passes = jsonschema.is_none_or(|(dependabot, jsonschema)| {
-        jsonschema.is_some_and(|jsonschema| schema(session, &jsonschema, dependabot))
-    });
-    formatted && linted && workflows_pass && dependabot_passes
+    let dependabot_passes = dependabot
+        .zip(configuration)
+        .is_none_or(|(dependabot, bytes)| schema(session, dependabot, &bytes));
+    formatted && parsed && workflows_pass && dependabot_passes
 }
 
 /// Whether a file is a workflow: directly under `.github/workflows`, with the
@@ -242,26 +167,133 @@ pub fn is_workflow(file: &str) -> bool {
         .is_some_and(|stem| !stem.is_empty())
 }
 
-/// yamllint over every file, with the repository's rules laid over the
-/// pipeline's default: see [`YAMLLINT`].
-fn yamllint_run(session: &mut Session<'_, '_, '_>, yamllint: &Tool, temp: &Path) -> bool {
-    let own = OWN.iter().copied().find(|name| session.is_file(name));
-    session.log.line(&match own {
-        Some(own) => format!("Rules: the pipeline default, and laid over it {own}"),
-        None => "Rules: the pipeline default".to_owned(),
-    });
-    // The pinned copy, whose virtual environment holds the linter.
-    let python = find::environment_python(&yamllint.folder, session.context.env.windows);
-    let mut command = session.command(&python, &yamllint.search_path);
-    command
-        .args(["-c", YAMLLINT])
-        .env("DEFAULT", temp.join("yamllint.yaml"))
-        .env("OWN", own.unwrap_or_default())
-        .env("LIST", temp.join("files"))
-        .env("FINDINGS", temp.join(super::FINDINGS));
-    let ran = session.capture(command, "yamllint");
-    session.log.lines(&ran.text);
-    session.handed(&temp.join(super::FINDINGS), "yamllint") && ran.success
+/// What the parser finds wrong with a YAML file: every key that a mapping
+/// holds a second time, and the first error that stops the parser, such as a
+/// syntax error or an alias that names no anchor declared before it in its
+/// document. Empty when the file is valid YAML. A file of several documents
+/// is read whole.
+#[must_use]
+pub fn findings(bytes: &[u8]) -> Vec<Finding> {
+    let text = match super::utf8(bytes, "YAML") {
+        Ok(text) => text,
+        Err(finding) => return vec![finding],
+    };
+    let mut keys = Keys::default();
+    let parsed = Parser::new_from_str(text).load(&mut keys, true);
+    let mut found = keys.found;
+    if let Err(error) = parsed {
+        found.push(broken(text, &error));
+    }
+    found
+}
+
+/// The finding of an error that stopped the parser in `text`, at its line
+/// and column. An alias that names no anchor is named.
+fn broken(text: &str, error: &ScanError) -> Finding {
+    let mark = *error.marker();
+    let message = if error.info() == "while parsing node, found unknown anchor" {
+        // The parser counts its places in characters.
+        let alias: String = text
+            .chars()
+            .skip(mark.index())
+            .take_while(|character| !character.is_whitespace() && !",[]{}".contains(*character))
+            .collect();
+        format!(
+            "not valid YAML: the alias \"{alias}\" names no anchor declared before it in its \
+             document"
+        )
+    } else {
+        format!("not valid YAML: {}", error.info())
+    };
+    Finding {
+        position: Some(place(mark)),
+        message,
+    }
+}
+
+/// A place the parser marks, as line and column from 1: it counts the
+/// columns from 0.
+fn place(mark: Marker) -> (usize, usize) {
+    (mark.line(), mark.col() + 1)
+}
+
+/// The key a mapping holds more than once, read off the parser's events.
+///
+/// Keys are compared by their text, so `1` and `"1"` are the same key, and
+/// `true` and `True` are not. Only a key that is a scalar is compared. The
+/// merge key `<<` may stand several times: each brings in another mapping.
+#[derive(Default)]
+struct Keys {
+    /// The collections that are open, the innermost last.
+    open: Vec<Collection>,
+    found: Vec<Finding>,
+}
+
+/// An open collection.
+enum Collection {
+    /// A mapping: its keys so far, and whether its next node is a key.
+    Mapping {
+        keys: Vec<String>,
+        key_next: bool,
+    },
+    Sequence,
+}
+
+impl Keys {
+    /// Whether the node that starts now is a key of the open mapping.
+    fn is_key(&mut self) -> bool {
+        match self.open.last_mut() {
+            Some(Collection::Mapping { key_next, .. }) => {
+                let key = *key_next;
+                *key_next = !key;
+                key
+            }
+            Some(Collection::Sequence) | None => false,
+        }
+    }
+}
+
+impl MarkedEventReceiver for Keys {
+    fn on_event(&mut self, event: Event, mark: Marker) {
+        match event {
+            Event::Scalar(text, ..) => {
+                if self.is_key()
+                    && text != "<<"
+                    && let Some(Collection::Mapping { keys, .. }) = self.open.last_mut()
+                {
+                    if keys.contains(&text) {
+                        self.found.push(Finding {
+                            position: Some(place(mark)),
+                            message: format!(
+                                "the key \"{text}\" stands twice in this mapping: a mapping \
+                                 holds each key once"
+                            ),
+                        });
+                    } else {
+                        keys.push(text);
+                    }
+                }
+            }
+            Event::Alias(_) => {
+                self.is_key();
+            }
+            Event::MappingStart(..) => {
+                self.is_key();
+                self.open.push(Collection::Mapping {
+                    keys: Vec::new(),
+                    key_next: true,
+                });
+            }
+            Event::SequenceStart(..) => {
+                self.is_key();
+                self.open.push(Collection::Sequence);
+            }
+            Event::MappingEnd | Event::SequenceEnd => {
+                self.open.pop();
+            }
+            _ => {}
+        }
+    }
 }
 
 /// actionlint over the workflows: the domain validator for GitHub Actions.
@@ -319,42 +351,123 @@ fn actionlint_run(
     ran.success
 }
 
-/// The Dependabot configuration against the schema check-jsonschema brings
-/// along, so that the validation sends no request. Without it, a mistake in
-/// the file shows only after the merge, when Dependabot itself fails to read
-/// it: an unknown key, a missing one, a value of the wrong kind.
+/// The Dependabot configuration against [`DEPENDABOT`]. Without this, a
+/// mistake in the file shows only after the merge, when Dependabot itself
+/// fails to read it: an unknown key, a missing one, a value of the wrong kind.
 ///
-/// A finding reads `<file>::<JSON path>: <message>`, the message naming the
-/// key; each becomes one on the file, and stays in the output as it is.
-fn schema(session: &mut Session<'_, '_, '_>, jsonschema: &Tool, dependabot: &str) -> bool {
-    let args: Vec<OsString> = vec![
-        "--builtin-schema".into(),
-        "vendor.dependabot".into(),
-        "--color".into(),
-        "never".into(),
-    ];
-    let ran = session.over(jsonschema, &args, &[dependabot], "check-jsonschema");
-    for line in ran.text.lines() {
-        session.log.line(line);
-        if let Some((path, message)) = schema_finding(line, dependabot) {
-            session
-                .log
-                .error(Some(dependabot), None, &format!("{path}: {message}"));
-        }
+/// Each finding is one on the file, `<JSON path>: <message>`, the message
+/// naming the key.
+fn schema(session: &mut Session<'_, '_, '_>, dependabot: &str, bytes: &[u8]) -> bool {
+    let found = schema_findings(DEPENDABOT, bytes);
+    session.log.line(&format!(
+        "{dependabot} against the Dependabot schema: {} finding(s).",
+        found.len()
+    ));
+    for finding in &found {
+        session.finding(dependabot, finding);
     }
-    ran.success
+    found.is_empty()
 }
 
-/// A finding of check-jsonschema on `file`, `  <file>::<JSON path>:
-/// <message>`, taken apart into the path and the message.
+/// What a YAML file breaks of a JSON Schema: one finding for each error the
+/// validator reports, at the path of the value it is about. The file's first
+/// document is held against it, with every merge key `<<` applied, as YAML
+/// 1.1 defines the key. A file whose loading fails is one finding at the
+/// place where it does, such as a key that the file writes twice in two
+/// ways YAML reads as one, `true` and `True`; and a schema that is no JSON
+/// Schema the validator can use is one finding that says so.
 #[must_use]
-pub fn schema_finding<'l>(line: &'l str, file: &str) -> Option<(&'l str, &'l str)> {
-    let rest = line.trim_start_matches(' ');
-    if rest.len() == line.len() {
-        return None;
+pub fn schema_findings(schema: &str, bytes: &[u8]) -> Vec<Finding> {
+    let validator = serde_json::from_str(schema)
+        .map_err(|error| format!("the schema does not read: {error}"))
+        .and_then(|schema: serde_json::Value| {
+            jsonschema::validator_for(&schema)
+                .map_err(|error| format!("the schema cannot be used: {error}"))
+        });
+    let validator = match validator {
+        Ok(validator) => validator,
+        Err(message) => {
+            return vec![Finding {
+                position: None,
+                message,
+            }];
+        }
+    };
+    let text = match super::utf8(bytes, "YAML") {
+        Ok(text) => text,
+        Err(finding) => return vec![finding],
+    };
+    let documents = match YamlLoader::load_from_str(text) {
+        Ok(documents) => documents,
+        Err(error) => return vec![broken(text, &error)],
+    };
+    let instance = documents
+        .first()
+        .map_or(serde_json::Value::Null, |document| {
+            crate::rules::json(&merged(document))
+        });
+    validator
+        .iter_errors(&instance)
+        .map(|error| Finding {
+            position: None,
+            message: format!("{}: {error}", json_path(error.instance_path())),
+        })
+        .collect()
+}
+
+/// `yaml` with every merge key `<<` applied, as YAML 1.1 defines the key: the
+/// loader resolves aliases but keeps `<<` as a key of its own, which the
+/// schema would then name as an unknown property.
+///
+/// A `<<` whose value is a mapping, or a list of mappings, stands for those
+/// keys of them that the mapping does not hold itself; of two mappings in the
+/// list, the earlier one wins. The mapping's own keys stay first. A `<<`
+/// whose value is anything else stays as it is.
+fn merged(yaml: &Yaml) -> Yaml {
+    match yaml {
+        Yaml::Hash(hash) => {
+            let mut own = Hash::new();
+            let mut brought = Vec::new();
+            for (key, value) in hash {
+                let merge = matches!(key, Yaml::String(name) if name == "<<");
+                match (merge, merged(value)) {
+                    (true, Yaml::Hash(mapping)) => brought.push(mapping),
+                    (true, Yaml::Array(items))
+                        if items.iter().all(|item| matches!(item, Yaml::Hash(_))) =>
+                    {
+                        brought.extend(items.into_iter().filter_map(Yaml::into_hash));
+                    }
+                    (_, value) => {
+                        own.insert(key.clone(), value);
+                    }
+                }
+            }
+            for (key, value) in brought.into_iter().flatten() {
+                if !own.contains_key(&key) {
+                    own.insert(key, value);
+                }
+            }
+            Yaml::Hash(own)
+        }
+        Yaml::Array(items) => Yaml::Array(items.iter().map(merged).collect()),
+        other => other.clone(),
     }
-    let rest = rest.strip_prefix(file)?.strip_prefix("::")?;
-    let (path, message) = rest.split_once(':')?;
-    let message = message.strip_prefix(' ')?;
-    (path.starts_with('$') && !message.is_empty()).then_some((path, message))
+}
+
+/// A place in a value as a JSON path, `$` for the value itself, `.name` for
+/// a key and `[n]` for an item of a list.
+#[must_use]
+pub fn json_path(location: &Location) -> String {
+    let mut path = "$".to_owned();
+    for segment in location {
+        match segment {
+            LocationSegment::Property(name) => {
+                let _ = write!(path, ".{name}");
+            }
+            LocationSegment::Index(index) => {
+                let _ = write!(path, "[{index}]");
+            }
+        }
+    }
+    path
 }
