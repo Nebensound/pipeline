@@ -708,8 +708,14 @@ fn the_binary_has_to_print_the_version_of_the_run_in_time() {
         } else {
             fs::remove_file(fixture.base().join("binary")).unwrap();
         }
+        // Only the binary that never ends gets the short time: on a busy
+        // machine, a shell that does end can take longer than that to start.
         let mut call = Call::of("app");
-        call.machine.answer = Duration::from_millis(300);
+        call.machine.answer = if said.contains("did not end") {
+            Duration::from_millis(300)
+        } else {
+            Duration::from_secs(30)
+        };
         let (code, text) = fixture.run(&call);
         assert_eq!(code, 1, "{text}");
         assert!(text.contains(said), "{said}: {text}");
