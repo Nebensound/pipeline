@@ -78,8 +78,17 @@ impl Files {
     }
 }
 
-/// `declare` on `git` with these variables beside the files of the run.
+/// `declare` on `git` with these variables beside the files of the run: what
+/// it printed, without the lines that stop and resume the processing of
+/// workflow commands.
 fn declare(git: &Git, files: &Files, variables: &[(&str, &str)]) -> (String, u8) {
+    let (log, code) = declare_log(git, files, variables);
+    (support::printed(&log), code)
+}
+
+/// `declare` as [`declare`] calls it: its log as the runner gets it, with the
+/// stretches in which the processing of workflow commands is stopped.
+fn declare_log(git: &Git, files: &Files, variables: &[(&str, &str)]) -> (String, u8) {
     let output = files.output();
     let summary = files.summary();
     let mut all = vec![
@@ -94,7 +103,7 @@ fn declare(git: &Git, files: &Files, variables: &[(&str, &str)]) -> (String, u8)
         &all,
         Output::Workflow,
     );
-    (support::printed(&text), code)
+    (text, code)
 }
 
 #[test]
@@ -239,10 +248,12 @@ fn phase_0_errors_hand_nothing_on() {
 }
 
 /// Declare on a repository that phase 0 refuses: it fails, hands nothing on,
-/// and writes no line of the repository's text as a line of its own.
+/// and writes no line of the repository's text as a line of its own. What is
+/// returned is the log as the runner gets it, with its stopped stretches.
 fn refused(git: &Git) -> String {
     let files = Files::new();
-    let (text, code) = declare(git, &files, &[("NEBENSOUND_VISIBILITY", "public")]);
+    let (log, code) = declare_log(git, &files, &[("NEBENSOUND_VISIBILITY", "public")]);
+    let text = support::printed(&log);
     assert_eq!(code, 1, "{text}");
     assert_eq!(Files::read(&files.output()), "");
     assert!(!text.contains("::group::The plan"), "{text}");
@@ -252,7 +263,7 @@ fn refused(git: &Git) -> String {
             "{forged}\n{text}"
         );
     }
-    text
+    log
 }
 
 #[test]
@@ -261,12 +272,14 @@ fn a_tracked_file_whose_name_holds_a_line_break_stops_phase_0_by_name() {
     git.write(&[("docs/a\nb.md", "# a\n")]);
     git.commit("docs: a name with a line break");
 
-    let text = refused(&git);
+    let log = refused(&git);
+    // It stands outside every stopped stretch, where the runner takes it as an
+    // annotation.
     let line = "::error file=docs/a\\nb.md,title=control-character::[control-character] at \
                 docs/a\\nb.md: the name of this file holds a control character, shown here as \
                 an escape. A tool that takes names one per line, or as the value of a step \
                 output, would misread it; rename the file";
-    assert!(text.lines().any(|found| found == line), "{text}");
+    assert!(support::outside(&log).contains(&line), "{log}");
 }
 
 #[test]
@@ -281,12 +294,14 @@ fn a_declared_path_that_holds_a_line_break_stops_phase_0_by_name() {
     )]);
     git.commit("chore: a path with a line break");
 
-    let text = refused(&git);
+    let log = refused(&git);
+    // It stands outside every stopped stretch, where the runner takes it as an
+    // annotation.
     let line = "::error file=.nebensound/repo.toml,title=control-character::[control-character] \
                 at .nebensound/repo.toml: the path of [[exclude]] entry 2 is \
                 \"app/a\\n::warning::forged\", which holds a control character, shown here as \
                 an escape. No tracked file may carry it either; write the path without it";
-    assert!(text.lines().any(|found| found == line), "{text}");
+    assert!(support::outside(&log).contains(&line), "{log}");
 }
 
 #[test]

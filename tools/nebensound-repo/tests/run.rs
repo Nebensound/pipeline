@@ -1377,6 +1377,12 @@ fn workflow_commands_read_plainly_elsewhere() {
         "::error file=a%2Cb%3Ac%25.md,line=3::one%0Atwo%0D%25"
     );
     assert_eq!(run::annotation(None, None, "x"), "::error::x");
+    // A line break in a name is written in the runner's own escape, as phase
+    // 0 writes it (`console::property`).
+    assert_eq!(
+        run::annotation(Some("docs/a\nb.md"), None, "m"),
+        "::error file=docs/a%0Ab.md::m"
+    );
 }
 
 #[test]
@@ -2333,21 +2339,8 @@ fn a_program_and_the_repository_print_only_inside_a_stopped_stretch() {
     assert_eq!(code, 1, "{text}");
     // Every line outside a stretch is a command of the tool's own, and the
     // annotations follow what the programs printed.
-    let mut stopped: Option<String> = None;
-    let mut outside = Vec::new();
-    for line in text.lines() {
-        match &stopped {
-            Some(token) if line == format!("::{token}::") => stopped = None,
-            Some(_) => {}
-            None => match line.strip_prefix("::stop-commands::") {
-                Some(token) => stopped = Some(token.to_owned()),
-                None => outside.push(line),
-            },
-        }
-    }
-    assert_eq!(stopped, None, "{text}");
     assert_eq!(
-        outside,
+        support::outside(&text),
         [
             "::error file=a##[warning]x-unformatted.css::not formatted the way Prettier writes it",
             "::error file=styled.css,line=2,col=10::Expected \"#00aa77\" to be \"#0a7\" \

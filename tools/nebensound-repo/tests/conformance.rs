@@ -529,17 +529,19 @@ fn in_a_run_every_finding_is_an_annotation() {
     let text = String::from_utf8(out).expect("the output is UTF-8");
 
     assert_eq!(code, 1, "{text}");
+    // Every finding stands outside the stopped stretches, where the runner
+    // takes it as an annotation.
+    let outside = support::outside(&text);
+    let stands = |start: &str| outside.iter().any(|line| line.starts_with(start));
     // A finding at a file of the tree names that file.
     assert!(
-        text.contains(
-            "\n::error file=src/main.rs,title=uncovered-file::[uncovered-file] at src/main.rs: "
-        ),
+        stands("::error file=src/main.rs,title=uncovered-file::[uncovered-file] at src/main.rs: "),
         "{text}"
     );
     // One about the repository names none.
     assert!(
-        text.contains(
-            "\n::warning title=nonconforming-name::[nonconforming-name] the repository is named \
+        stands(
+            "::warning title=nonconforming-name::[nonconforming-name] the repository is named \
              My_Tool, and a name"
         ),
         "{text}"
@@ -547,8 +549,8 @@ fn in_a_run_every_finding_is_an_annotation() {
     // Nor does one at a file the repository does not hold: it would point
     // nowhere.
     assert!(
-        text.contains(
-            "\n::warning title=missing-minimum-file::[missing-minimum-file] at LICENSE: the \
+        stands(
+            "::warning title=missing-minimum-file::[missing-minimum-file] at LICENSE: the \
              repository holds no licence"
         ),
         "{text}"
