@@ -116,11 +116,19 @@ const OWN: &[&str] = &[".yamllint", ".yamllint.yaml", ".yamllint.yml"];
 /// uses, so that a waiting run is never replaced. Every other unknown key of
 /// the section is still reported, and so is every other finding about it.
 ///
-/// The patterns go once actionlint knows the form and the key.
+/// The fourth for exactly two properties of the context `job`: that version
+/// does not know `job.workflow_sha` and `job.workflow_repository` yet, the
+/// commit and the repository of the workflow file that defines the job, which
+/// GitHub documents and the central workflow hands the action `tool`, so that
+/// it finds the release of the pipeline's own commit. Every other unknown
+/// property of `job` is still reported.
+///
+/// The patterns go once actionlint knows the form, the key and the properties.
 const ACTIONLINT_IGNORED: &[&str] = &[
     r#"^specifying action "\$/[^"]+" in invalid format because ref is missing"#,
     r#"^reusable workflow call "\$/[^"]+" at "uses" is not following the format"#,
     r#"^unexpected key "queue" for "concurrency" section\. "#,
+    r#"^property "workflow_(repository|sha)" is not defined in object type \{check_run_id: number; "#,
 ];
 
 /// How actionlint writes its findings: as one JSON list per call, which

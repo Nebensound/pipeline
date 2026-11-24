@@ -2,8 +2,10 @@
 //! call of the tool: all logic is Rust, in the tool, and tested.
 //!
 //! The exception is named, with what keeps it: the action `tool`, which gets
-//! the tool and cannot call it before it has it, until the tool is a release
-//! binary.
+//! the tool and cannot call it before it has it. Its step that fetches the
+//! released binary has cases of its own (`tool_action.rs`); the fingerprint
+//! and the build from source, for a commit that carries no release, are shell
+//! as well.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 

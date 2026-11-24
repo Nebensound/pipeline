@@ -86,10 +86,17 @@ jobs:
       # this workflow to an exact version; everything below it comes from that
       # same commit, and no second version stands in here to fall behind.
       #
-      # The tool is built here once and kept in the cache, from which every
-      # later job but Publish takes it.
+      # Every job gets the tool the same way: the verified binary of the
+      # release on the commit the workflow runs at (`job.workflow_sha` of
+      # `job.workflow_repository`), and where that commit carries no release,
+      # such as in a run of the pipeline's own repository, a build from its
+      # source. Such a build is kept in the cache, from which every later job
+      # on the same system and image but Publish takes it.
       - name: Get the tool
         uses: $/.github/actions/tool
+        with:
+          commit: ${{ job.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
 
       - name: Run phase 0
         id: phase0
@@ -99,8 +106,8 @@ jobs:
   # the run, and after a push to a pre-branch the sentence why there is none.
   # It writes nothing and tags nothing: it reports. It runs whatever Declare's
   # result, so that an error in the history fails it with the finding instead
-  # of leaving it skipped; it only waits for Declare to take the tool from the
-  # cache Declare filled. A cancelled run, for instance one of a pull request
+  # of leaving it skipped; it only waits for Declare, so that a tool built from
+  # source comes from the cache Declare filled. A cancelled run, for instance one of a pull request
   # that a newer push to it replaced, skips it.
   version:
     name: Version
@@ -119,6 +126,9 @@ jobs:
 
       - name: Get the tool
         uses: $/.github/actions/tool
+        with:
+          commit: ${{ job.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
 
       # On a pull request the checkout is the merge commit GitHub builds for
       # it, and the tool reads it as the squash merge would put it on the base
@@ -178,9 +188,13 @@ jobs:
         with:
           persist-credentials: false
 
-      # From the cache `Declare` filled; built here only when it misses.
+      # The released binary, as in Declare; else from the cache Declare
+      # filled, and built here only when it misses.
       - name: Get the tool
         uses: $/.github/actions/tool
+        with:
+          commit: ${{ job.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
 
       # A check the register knows and nobody has written yet. It fails by
       # name, so that a pull request says what is missing instead of passing
@@ -279,9 +293,13 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      # From the cache `Declare` filled; built here only when it misses.
+      # The released binary, as in Declare; else from the cache Declare
+      # filled, and built here only when it misses.
       - name: Get the tool
         uses: $/.github/actions/tool
+        with:
+          commit: ${{ job.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
 
       - name: Gather the checks
         env:
@@ -375,12 +393,16 @@ jobs:
         with:
           persist-credentials: false
 
-      # From the cache `Declare` filled; the version writers call it. On a
-      # runner of another system, such as a target's macOS runner, Declare's
-      # build does not fit; the first job there builds the tool and keeps it
-      # in the cache for the next.
+      # The released binary for the runner's system, as in Declare; the
+      # version writers call it. Where there is none, from the cache Declare
+      # filled; on a runner of another system or image, such as a target's
+      # macOS runner, Declare's build does not fit, and the first job there
+      # builds the tool and keeps it in the cache for the next.
       - name: Get the tool
         uses: $/.github/actions/tool
+        with:
+          commit: ${{ job.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
 
       # A build the register knows and nobody has written yet fails by name, as
       # a check does, so that a pull request says what is missing.
@@ -433,9 +455,13 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      # From the cache `Declare` filled; built here only when it misses.
+      # The released binary, as in Declare; else from the cache Declare
+      # filled, and built here only when it misses.
       - name: Get the tool
         uses: $/.github/actions/tool
+        with:
+          commit: ${{ job.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
 
       - name: Gather the builds
         env:
@@ -464,10 +490,11 @@ jobs:
   #
   # Of what another job wrote, only whether that job passed and the artifacts
   # of the builds reach it: it takes no job output, it reads the versions from
-  # the history itself, and it builds the tool itself, from the source of this
-  # commit of the pipeline, without the cache. Every job of a branch may write
-  # the cache, a job that runs code of the repository among them, and what such
-  # a job left there is not to run with a token that can write. The artifacts
+  # the history itself, and it gets the tool itself: the verified binary of the
+  # release on this commit of the pipeline, as every job does, or else a build
+  # from its source, without the cache. Every job of a branch may write the
+  # cache, a job that runs code of the repository among them, and what such a
+  # job left there is not to run with a token that can write. The artifacts
   # are the products the builds tested, and they are data here: the tool holds
   # each against the version and the commit of the run and uploads it, and
   # nothing of them is started.
@@ -501,6 +528,8 @@ jobs:
       - name: Get the tool
         uses: $/.github/actions/tool
         with:
+          commit: ${{ job.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
           cache: "false"
 
       # Every artifact of this run, each into a folder of its own named after

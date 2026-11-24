@@ -37,6 +37,38 @@ machine, on GitHub Actions from the runner image.
 This is a prototype. Releases are on `0.0.x`. The code arrives piece by piece;
 the open issues and milestones show what comes next.
 
+## The tool on a computer
+
+Every release of this repository carries the tool as a binary, one archive per
+system, holding the binary and the licence: `nebensound-repo-<target>.tar.gz`,
+with `<target>` one of `x86_64-unknown-linux-musl` (Linux on x86_64, linked
+statically), `aarch64-apple-darwin` and `x86_64-apple-darwin`. The archive of
+the newest release has a fixed address:
+
+```text
+https://github.com/Nebensound/pipeline/releases/latest/download/nebensound-repo-<target>.tar.gz
+```
+
+To verify a download against the attestation of its release, name the release
+it came from and check it with gh 2.93.0 or later, logged in:
+
+```sh
+tag=v0.0.79
+target=aarch64-apple-darwin
+curl -fsSLO "https://github.com/Nebensound/pipeline/releases/download/$tag/nebensound-repo-$target.tar.gz"
+gh release verify-asset "$tag" "nebensound-repo-$target.tar.gz" --repo Nebensound/pipeline
+tar -xzf "nebensound-repo-$target.tar.gz" nebensound-repo
+./nebensound-repo --version
+```
+
+Verify against the tag, not against the newest release: the newest can change
+between the download and the check. The check proves that the file is an asset
+of exactly that release and that its tag stood on its commit, not what the
+binary was built from. The binary prints the version of the pipeline it
+belongs to. On macOS it carries only the linker's ad-hoc signature: curl and gh
+set no quarantine flag, so it starts, while one downloaded with a browser does
+not until the flag is removed.
+
 ## Reference
 
 - [The principles](docs/principles.md): the six rules every change is held
@@ -162,11 +194,13 @@ unit (see [`build-cargo-package`](#build-cargo-package),
 [`build-cargo-release`](#build-cargo-release) and
 [`build-docker`](#build-docker)).
 
-The unit job gets the tool the same way `Declare` does, from the cache phase 0
-fills ([`.github/actions/tool`](.github/actions/tool)); it builds the tool
-only when the cache misses. So do the build jobs and the closing jobs `Check`
-and `Build`, whose steps are calls of the tool as well. The list does not
-travel through a job output, which is limited in size.
+The unit job gets the tool the same way `Declare` does
+([`.github/actions/tool`](.github/actions/tool)): the verified binary of the
+release on the pinned commit, or, where there is none, a build from source that
+comes from the cache phase 0 fills and is built only when the cache misses. So
+do the build jobs and the closing jobs `Check` and `Build`, whose steps are
+calls of the tool as well. The list does not travel through a job output, which
+is limited in size.
 
 The checks for CSS, Dockerfiles, HTML, JSON, Markdown, TOML and YAML run from
 the tool. Their blocks do two things:
@@ -535,7 +569,10 @@ first key or table of `.nebensound/repo.toml`:
   messages, and only for a `uses:` that begins with `$/`. Nor does it know
   the key `queue` of a `concurrency` section, which GitHub documents; `run`
   drops the message about that one key, and every other unknown key of the
-  section is still a finding.
+  section is still a finding. Nor does it know the properties
+  `job.workflow_sha` and `job.workflow_repository`, which GitHub documents;
+  `run` drops the message about those two, and every other unknown property
+  of `job` is still a finding.
 - `.github/dependabot.yml` matches the Dependabot schema (`check-jsonschema`,
   pinned, with the schema it brings along). An unknown key fails the check
   with the file and the key named, instead of surfacing only after the merge.
@@ -1190,6 +1227,14 @@ and the tool to print every finding the case names, so a call that fails for
 another reason does not count. The xtask runs no block's own steps: a block
 whose work the tool does not carry out is a problem of its own, named with the
 reason that its cases cannot run.
+
+The action `tool` is no block, and its cases do not lie beside it: the one step
+that decides something before the tool exists, the one that fetches and
+verifies the release's binary, is run by a test of the xtask
+(`xtask/tests/tool_action.rs`) as a runner runs it, with stand-ins for Git, gh
+and curl, against a case for every way it ends: the verified binary on each of
+the three systems, a binary that does not verify, and every reason for a build
+from source.
 
 A call of the tool for a case gets only the variables a step on a runner has
 too: `PATH`, `HOME`, the user, the locale, where Cargo, rustup and Go keep their
