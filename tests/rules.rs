@@ -532,6 +532,20 @@ fn a_default_of_markdownlint_that_holds_no_rules_is_named() {
 }
 
 #[test]
+fn a_default_of_markdownlint_that_names_what_it_extends_still_gives_its_rules() {
+    let defaults = Defaults {
+        markdownlint: "{ \"extends\": \"base.json\", \"MD001\": false }",
+        stylelint: STYLELINT,
+        html_validate: HTML_VALIDATE,
+        ruff: RUFF,
+    };
+
+    let text = rules_with(defaults, &[(".markdownlint.jsonc", "{ \"MD001\": true }")]);
+
+    assert_eq!(after(&text, "MD001"), ["true (over the default false)"]);
+}
+
+#[test]
 fn check_prints_the_rules_after_the_configuration() {
     let dir = repository(&[
         (".nebensound/repo.toml", QUIET),
