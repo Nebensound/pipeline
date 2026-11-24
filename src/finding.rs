@@ -119,6 +119,8 @@ pub enum Rule {
     UnexcusedIgnore,
     /// A tool's setting that takes files out, and that phase 0 cannot read.
     UnreadableIgnoreFile,
+    /// A configuration file of a program that no check starts any more.
+    UnreadConfiguration,
     /// An exclusion that takes code out of a Rust package, and not the whole
     /// package.
     PartialPackageExclusion,
@@ -172,6 +174,7 @@ impl Rule {
             Self::UnreleasedRequirement => "unreleased-requirement",
             Self::UnexcusedIgnore => "unexcused-ignore",
             Self::UnreadableIgnoreFile => "unreadable-ignore-file",
+            Self::UnreadConfiguration => "unread-configuration",
             Self::PartialPackageExclusion => "partial-package-exclusion",
             Self::MissingAudience => "missing-audience",
             Self::MismatchedAudience => "mismatched-audience",

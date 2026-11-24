@@ -943,6 +943,16 @@ a pattern or an entry is not what the tool takes, or a file it names through
 the declaration, so it cannot tell whether the setting takes out more than
 `[[exclude]]` does. Correct the setting. The message says what is wrong.
 
+### `unread-configuration`
+
+Warning. The repository holds the configuration of a program that no check
+starts any more, at the place where a check once read it, so its rules and
+what it leaves out change nothing the pipeline does. Today that is a
+`.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at the root: the YAML check
+judges itself whether a file is valid YAML and starts no yamllint. Remove the
+file, or keep it for a run of the program by hand; the finding stays as long as
+the file does.
+
 ### `partial-package-exclusion`
 
 Error. An `[[exclude]]` entry takes code out of a Rust package and not the whole

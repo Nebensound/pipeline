@@ -970,6 +970,7 @@ fn every_rule_has_a_code_of_its_own() {
         Rule::ConflictingTag,
         Rule::UnexcusedIgnore,
         Rule::UnreadableIgnoreFile,
+        Rule::UnreadConfiguration,
         Rule::PartialPackageExclusion,
     ];
     let mut codes: Vec<_> = rules.iter().map(|rule| rule.code()).collect();

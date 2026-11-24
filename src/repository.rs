@@ -20,7 +20,7 @@ use crate::register::{BUILTIN_DEFAULTS, BUILTIN_REGISTER};
 use crate::{Analysis, Central, Declaration, History, ReadError, Tree, analyse};
 use thiserror::Error;
 
-use crate::{ignored, lockfiles, packages, release_fields};
+use crate::{ignored, lockfiles, packages, release_fields, unread};
 
 /// Where the declaration of a repository lies.
 pub const DECLARATION: &str = crate::history::DECLARATION;
@@ -386,6 +386,7 @@ impl Repository {
         let read = self.reader();
         let mut found = ignored::findings(&analysis, central.register(), &read);
         found.extend(lockfiles::findings(&analysis, central.register(), &read));
+        found.extend(unread::findings(&analysis));
         found.extend(packages::findings(
             &analysis,
             &declaration_path(),

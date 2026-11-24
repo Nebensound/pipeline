@@ -524,7 +524,10 @@ first key or table of `.nebensound/repo.toml`:
   that names no anchor declared before it in its document, and every key that
   a mapping holds twice, each at its line and column. Keys are compared by
   their text, so `1` and `"1"` are the same key; the merge key `<<` may stand
-  more than once. The pipeline reads no configuration of yamllint any more.
+  more than once. The pipeline reads no configuration of yamllint any more:
+  phase 0 names a `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at the root
+  as unread (see
+  [`unread-configuration`](docs/declaration.md#unread-configuration)).
 - Every workflow directly under `.github/workflows` passes actionlint, with
   ShellCheck reading every `run:` script and pyflakes every Python one where
   they are on the search path, as ShellCheck is on GitHub's Linux runners; the
