@@ -59,13 +59,13 @@ const { cosmiconfig } = await load("cosmiconfig", "dist", "index.js");
 // repository, and a configuration in a home folder counts as
 // little.
 const explorer = cosmiconfig("stylelint", { searchStrategy: "none" });
-const found = new Map();
+const searched = new Map();
 const own = async (file) => {
   for (let dir = dirname(resolve(file)); ; dir = dirname(dir)) {
-    if (!found.has(dir)) {
-      found.set(dir, await explorer.search(dir));
+    if (!searched.has(dir)) {
+      searched.set(dir, await explorer.search(dir));
     }
-    const result = found.get(dir);
+    const result = searched.get(dir);
     if (result && !result.isEmpty) {
       return result;
     }
