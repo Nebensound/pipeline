@@ -62,8 +62,16 @@ fn dir(name: &str, action: bool, cases: Result<Vec<Case>, Error>) -> Directory {
         name: name.to_owned(),
         action,
         plan: Ok(false),
+        steps: Vec::new(),
         cases,
     }
+}
+
+/// The keys of steps, each step's as written.
+fn steps(keys: &[&[&str]]) -> Vec<Vec<String>> {
+    keys.iter()
+        .map(|step| step.iter().map(|key| (*key).to_owned()).collect())
+        .collect()
 }
 
 /// A block with both kinds of cases whose action.yml declares the input
@@ -145,6 +153,63 @@ fn agreeing_parts_find_nothing() {
     .unwrap();
     assert_eq!(found.problems, Vec::<String>::new());
     assert_eq!(found.blocks, ["check-demo"]);
+}
+
+#[test]
+fn a_step_of_a_block_carries_only_what_a_thin_block_needs() {
+    let compare = |block: Directory, tool: Directory| {
+        layout::compare(
+            REGISTER,
+            &workflow(r#"["demo"]"#, AGREEING_STEPS),
+            &[block, dir("phase0", true, Ok(Vec::new())), tool],
+        )
+        .unwrap()
+        .problems
+    };
+    // The call of the tool and an action the block needs, with every key
+    // they need.
+    let thin = steps(&[
+        &["name", "id", "shell", "env", "run"],
+        &["name", "uses", "with"],
+    ]);
+    assert_eq!(
+        layout::BLOCK_STEP_KEYS,
+        ["name", "id", "shell", "env", "run", "uses", "with"]
+    );
+    // The workflow's machinery is no block, and is not held to the list.
+    let machinery = Directory {
+        steps: steps(&[&["if", "working-directory", "shell", "run"]]),
+        ..dir("tool", true, Ok(Vec::new()))
+    };
+    let block = |keys: Vec<Vec<String>>| Directory {
+        steps: keys,
+        ..dir("check-demo", true, Ok(both()))
+    };
+    assert_eq!(
+        compare(block(thin.clone()), machinery),
+        Vec::<String>::new()
+    );
+
+    // Any other key is named with its step, whatever else the step carries.
+    let mut loose = thin;
+    loose.extend(steps(&[
+        &["shell", "run", "continue-on-error"],
+        &["if", "uses", "working-directory"],
+    ]));
+    let allowed = "`name`, `id`, `shell`, `env`, `run`, `uses`, `with`";
+    assert_eq!(
+        compare(block(loose), dir("tool", true, Ok(Vec::new()))),
+        [
+            format!(
+                "step 3 of `check-demo` carries `continue-on-error`: a step of a block carries \
+                 only {allowed}"
+            ),
+            format!(
+                "step 4 of `check-demo` carries `if`, `working-directory`: a step of a block \
+                 carries only {allowed}"
+            ),
+        ]
+    );
 }
 
 #[test]
@@ -955,7 +1020,7 @@ fn every_directory_is_listed_with_its_cases() {
             ),
             (
                 "check-d/action.yml",
-                "inputs:\n  working-directory:\n    required: true\nruns:\n  using: composite\n  steps: []\n",
+                "inputs:\n  working-directory:\n    required: true\nruns:\n  using: composite\n  steps:\n    - name: call\n      continue-on-error: true\n      run: x\n",
             ),
             ("a file", ""),
         ],
@@ -981,6 +1046,17 @@ fn every_directory_is_listed_with_its_cases() {
             // GitHub reads input names without regard to case.
             ("check-c", true, 0, Ok(true)),
             ("check-d", true, 0, Ok(false)),
+        ]
+    );
+    // The keys of each step, as written; none where nothing could be read.
+    let keys: Vec<&Vec<Vec<String>>> = found.iter().map(|dir| &dir.steps).collect();
+    assert_eq!(
+        keys,
+        [
+            &Vec::<Vec<String>>::new(),
+            &Vec::new(),
+            &Vec::new(),
+            &steps(&[&["name", "continue-on-error", "run"]]),
         ]
     );
 }

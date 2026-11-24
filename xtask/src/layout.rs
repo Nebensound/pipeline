@@ -22,9 +22,10 @@
 //! units of its own kind without the step. A version writer is held the same
 //! way by the step `Version writers not written yet`, and a publish target by
 //! the step `Publish targets not written yet`. Every block brings its test
-//! cases, at least one passing and one failing. Beside the blocks lie only
-//! the workflow's own machinery ([`MACHINERY`]), which belongs to no register
-//! entry; it is called from `nebensound.yml` all the same.
+//! cases, at least one passing and one failing, and each of its steps carries
+//! only the keys a thin block needs ([`BLOCK_STEP_KEYS`]). Beside the blocks
+//! lie only the workflow's own machinery ([`MACHINERY`]), which belongs to no
+//! register entry; it is called from `nebensound.yml` all the same.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -68,6 +69,18 @@ const TARGETS_NOT_WRITTEN: &str = "Publish targets not written yet";
 /// `continue-on-error` keeps the job green whatever the block finds,
 /// `timeout-minutes` cuts it short, `env` steers its tools.
 const CALL_KEYS: &[&str] = &["if", "name", "uses", "with"];
+
+/// The keys a step of a block may carry: what a thin block needs. Its step is
+/// either the call of the tool, a `run` with its `shell` and the block's
+/// inputs handed in through `env` rather than written into the script, or an
+/// action the block needs, a `uses` with its `with`; `name` names the step in
+/// the log, and `id` lets a later step read its outputs, as the upload reads
+/// the artifact the build names. Any other key changes what the block does in
+/// every caller's job, and no case of the block notices it, since the cases
+/// call the tool and not the block's steps: `continue-on-error` keeps the job
+/// green whatever the tool finds, and `if` or `working-directory` put a
+/// decision or a place into the block instead of the tool.
+pub const BLOCK_STEP_KEYS: &[&str] = &["name", "id", "shell", "env", "run", "uses", "with"];
 
 /// The input a step hands a check or build block: the unit's own path, so
 /// that every unit is checked and built where it lies.
@@ -150,6 +163,9 @@ pub struct Directory {
     /// be read. Without an `action.yml` it declares nothing; that is reported
     /// on its own.
     pub plan: Result<bool, Error>,
+    /// The keys each step of its `action.yml` carries, step by step. None
+    /// without an `action.yml` or when it cannot be read, which `plan` says.
+    pub steps: Vec<Vec<String>>,
     /// Its test cases.
     pub cases: Result<Vec<Case>, Error>,
 }
@@ -188,6 +204,14 @@ pub fn directories(dir: &Path) -> Result<Vec<Directory>, Error> {
         .filter(|path| path.is_dir())
         .map(|path| {
             let action = path.join("action.yml").is_file();
+            let (plan, steps) = if action {
+                match Action::load(&path) {
+                    Ok(read) => (Ok(read.takes(CALL_PLAN.0)), read.steps),
+                    Err(error) => (Err(error), Vec::new()),
+                }
+            } else {
+                (Ok(false), Vec::new())
+            };
             Directory {
                 name: path
                     .file_name()
@@ -195,11 +219,8 @@ pub fn directories(dir: &Path) -> Result<Vec<Directory>, Error> {
                     .to_string_lossy()
                     .into_owned(),
                 action,
-                plan: if action {
-                    Action::load(&path).map(|action| action.takes(CALL_PLAN.0))
-                } else {
-                    Ok(false)
-                },
+                plan,
+                steps,
                 cases: cases::discover(&path),
             }
         })
@@ -453,6 +474,7 @@ pub fn compare(register: &str, workflow: &str, directories: &[Directory]) -> Res
             }
         };
         problems.extend(held(name, &entry.name, form, &dir.plan, &called));
+        problems.extend(foreign_keys(name, &dir.steps));
         if !list.contains(&entry.name) {
             problems.push(format!(
                 "`{name}` exists, but `{step}` still fails for `{}`",
@@ -511,6 +533,26 @@ fn without_block<'a>(
             !names.contains(format!("{prefix}-{}", name.replace('.', "-")).as_str())
         })
         .map(move |name| format!("`{step}` counts {what}`{name}` as written, but it has no block"))
+}
+
+/// Every step of the block `name` that carries a key outside
+/// [`BLOCK_STEP_KEYS`], one sentence each.
+fn foreign_keys<'a>(name: &'a str, steps: &'a [Vec<String>]) -> impl Iterator<Item = String> + 'a {
+    steps.iter().enumerate().filter_map(move |(index, keys)| {
+        let foreign: Vec<&str> = keys
+            .iter()
+            .map(String::as_str)
+            .filter(|key| !BLOCK_STEP_KEYS.contains(key))
+            .collect();
+        (!foreign.is_empty()).then(|| {
+            format!(
+                "step {} of `{name}` carries `{}`: a step of a block carries only `{}`",
+                index + 1,
+                foreign.join("`, `"),
+                BLOCK_STEP_KEYS.join("`, `")
+            )
+        })
+    })
 }
 
 /// What is wrong with the steps that call the block `name` of the entry

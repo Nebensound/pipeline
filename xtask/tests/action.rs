@@ -25,6 +25,9 @@ runs:
   steps:
     - shell: bash
       run: echo first
+    - name: second
+      uses: actions/upload-artifact@v7
+      continue-on-error: true
 ";
 
 #[test]
@@ -35,6 +38,28 @@ fn the_inputs_of_an_action_are_read_in_order() {
     assert!(action.takes("plan"));
     assert!(action.takes("GIVEN"));
     assert!(!action.takes("working-directory"));
+}
+
+#[test]
+fn the_keys_of_each_step_are_read_in_order() {
+    let action = Action::parse(FULL, "demo").unwrap();
+    assert_eq!(
+        action.steps,
+        [
+            vec!["shell", "run"],
+            vec!["name", "uses", "continue-on-error"]
+        ]
+    );
+    // An action that runs no steps carries none.
+    for yaml in [
+        "runs:\n  using: node24\n  main: index.js\n",
+        "runs:\n  using: composite\n  steps:\n",
+    ] {
+        assert!(
+            Action::parse(yaml, "demo").unwrap().steps.is_empty(),
+            "{yaml}"
+        );
+    }
 }
 
 #[test]
@@ -80,6 +105,18 @@ fn what_cannot_be_read_is_refused_with_its_place() {
         (
             "inputs:\n  ? - a\n  : {}\nruns:\n  using: node24\n",
             "inputs in demo is no single value",
+        ),
+        (
+            "runs:\n  using: composite\n  steps: run\n",
+            "runs.steps in demo is no list",
+        ),
+        (
+            "runs:\n  using: composite\n  steps:\n    - run\n",
+            "step 1 in demo is no mapping",
+        ),
+        (
+            "runs:\n  using: composite\n  steps:\n    - run: x\n    - ? [a]\n      : x\n",
+            "step 2 in demo is no single value",
         ),
     ] {
         let error = Action::parse(yaml, "demo").expect_err(yaml);

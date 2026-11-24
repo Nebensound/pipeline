@@ -999,7 +999,14 @@ not part of the case's repository.
   `Publish targets not written yet` exactly the publish targets, each under
   the name of its block, the dots of a target turned into hyphens;
 - every block has a passing and a failing case. A `.DS_Store` beside the cases
-  is passed over: Git ignores it, so the gate never sees it.
+  is passed over: Git ignores it, so the gate never sees it;
+- every step of a block carries no other key than `name`, `id`, `shell`,
+  `env`, `run`, `uses` and `with`, what a thin block needs: the call of the
+  tool with its inputs handed in through `env`, the actions the block needs,
+  and the `id` by which a later step reads an output. The cases call the tool,
+  not the block's steps, so they would not notice a `continue-on-error` that
+  keeps every caller's job green whatever the tool finds, or an `if` or a
+  `working-directory` that puts a decision or a place into the block.
 
 For now the xtask knows only how a check, a version writer and a build are
 called and tested, so a `publish-` block is reported until the xtask learns
