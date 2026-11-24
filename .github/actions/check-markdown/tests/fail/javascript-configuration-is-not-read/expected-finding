@@ -1,0 +1,2 @@
+# The module is not loaded: the rule it would switch off still fails.
+::error file=README.md,line=1*::MD041/first-line-heading*

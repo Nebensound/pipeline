@@ -946,13 +946,28 @@ the declaration, so it cannot tell whether the setting takes out more than
 
 ### `unread-configuration`
 
-Warning. The repository holds the configuration of a program that no check
-starts any more, at the place where a check once read it, so its rules and
-what it leaves out change nothing the pipeline does. Today that is a
-`.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at the root: the YAML check
-judges itself whether a file is valid YAML and starts no yamllint. Remove the
-file, or keep it for a run of the program by hand; the finding stays as long as
-the file does.
+Error, or a warning for a program no check starts any more. A file of a
+linter's configuration that the tool does not read. The tool reads the
+configuration of a linter under its rule itself, from one file at the root of
+the repository, as data, and hands the linter what it wrote (see
+[the tool](tool.md#the-configuration-of-a-linter)). So it does not read another
+of the linter's files at the root beside the one it reads, one in a folder below
+the root, or one written in JavaScript, wherever it lies; run by hand, the
+linter would follow each of them. The register names the files per linter (see
+[the register](register.md#configuration-of-the-programs)); today markdownlint
+is the one linter under the rule. Move what the file says into the one file at
+the root, a difference for a folder as a pattern, or remove it. A file an
+`[[exclude]]` entry takes out is not reported as an error. The check that runs
+the linter fails on the file as well.
+
+A warning is the configuration of a program that no check starts any more, at
+the place where a check once read it, so its rules and what it leaves out
+change nothing the pipeline does. Today that is a `.yamllint`, `.yamllint.yaml`
+or `.yamllint.yml` at the root: the YAML check judges itself whether a file is
+valid YAML. Such a program is in no register entry, so its files are not
+named there. The warning is given whether or not an `[[exclude]]` entry takes
+the file out. Remove the file, or keep it for a run of the program by hand; the
+finding stays as long as the file does.
 
 ### `partial-package-exclusion`
 

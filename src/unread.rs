@@ -4,6 +4,10 @@
 //! wrote for it stays behind and keeps looking as if it counted. Phase 0 names
 //! each such file it finds, with [`Rule::UnreadConfiguration`], so that the
 //! repository learns that its rules and its ignore lists there change nothing.
+//! It does so through [`crate::linter_config::findings`], beside the files of
+//! a linter's configuration the tool does not read. The program has left the
+//! register, so the files are listed here and not under the register's
+//! `configuration-not-read`.
 //!
 //! The YAML check started yamllint and laid the repository's configuration at
 //! the root over the pipeline's default: `.yamllint`, `.yamllint.yaml` or

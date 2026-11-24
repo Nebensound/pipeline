@@ -83,7 +83,9 @@ pub fn locate(register: &Register, name: &ProgramName, env: &Environment) -> Opt
             runtime,
         });
     }
-    search(&program.command, &env.search_path, env.windows).map(|executable| Location {
+    // A library is never looked for on the computer.
+    let command = program.command.as_deref()?;
+    search(command, &env.search_path, env.windows).map(|executable| Location {
         executable,
         pinned: false,
         runtime,
@@ -101,8 +103,12 @@ pub fn program(
     if let Some(path) = pinned_program(register, name, program, env) {
         return Found::Pinned(path);
     }
+    // A library is never looked for on the computer.
+    let Some(command) = program.command.as_deref() else {
+        return Found::Missing;
+    };
     computer(
-        search(&program.command, &env.search_path, env.windows),
+        search(command, &env.search_path, env.windows),
         &program.version_args,
         env,
     )
@@ -178,7 +184,7 @@ fn pinned_program(
     env: &Environment,
 ) -> Option<PathBuf> {
     let dir = program_folder(env.folder.as_deref()?, name, &program.version);
-    let executable = program_executable(register, program, &dir, env)?;
+    let executable = program_executable(register, name, program, &dir, env)?;
     // A virtual environment points at the Python it was made with. Once that
     // Python is gone, nothing in it starts, and it counts as no installation:
     // see `environment_starts`.
@@ -212,11 +218,13 @@ fn finished(dir: &Path, executable: PathBuf) -> Option<PathBuf> {
 
 /// Where the executable of a program lies once its pinned version is in
 /// `dir`: inside the build for this platform, or where the runtime's
-/// installer puts it. [`None`] when the register has no build for this
+/// installer puts it; for a library, the file that shows it is there (see
+/// [`installed`]). [`None`] when the register has no build for this
 /// platform.
 #[must_use]
 pub fn program_executable(
     register: &Register,
+    name: &ProgramName,
     program: &Program,
     dir: &Path,
     env: &Environment,
@@ -226,7 +234,28 @@ pub fn program_executable(
         return Some(below(dir, build.executable.as_deref().unwrap_or_default()));
     };
     let installer = register.runtime.get(runtime)?.installer;
-    Some(installed_by(installer, dir, &program.command, env.windows))
+    Some(installed(installer, dir, name, program, env.windows))
+}
+
+/// What the installer of a program on a runtime leaves in `dir` that shows
+/// the program is there: its command ([`installed_by`]), or, for a library,
+/// which has none, the description of its package, `package.json`, where npm
+/// puts the package.
+#[must_use]
+pub fn installed(
+    installer: Installer,
+    dir: &Path,
+    name: &ProgramName,
+    program: &Program,
+    windows: bool,
+) -> PathBuf {
+    match &program.command {
+        Some(command) => installed_by(installer, dir, command, windows),
+        None => dir
+            .join("node_modules")
+            .join(name.as_str())
+            .join("package.json"),
+    }
 }
 
 /// A path the register writes with `/` between its parts, below `dir`, joined

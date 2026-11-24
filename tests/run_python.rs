@@ -371,6 +371,7 @@ impl Fixture {
             packages: Packages {
                 repository: &repository,
                 tracked: &tracked,
+                kept: &[],
                 excluded: &[],
                 orders: &[],
             },

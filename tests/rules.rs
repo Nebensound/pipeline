@@ -7,6 +7,7 @@ mod support;
 use std::collections::{BTreeMap, BTreeSet};
 
 use nebensound_repo::path::RelativePath;
+use nebensound_repo::register::Register;
 use nebensound_repo::rules::{Defaults, HTML_VALIDATE, MARKDOWNLINT, RUFF, STYLELINT, report};
 use support::{QUIET, analysis, call, repository};
 
@@ -36,7 +37,12 @@ fn report_for(
             .cloned()
             .ok_or_else(|| "no such file".to_owned())
     };
-    report(&analysis, &read, defaults)
+    report(&analysis, &read, defaults, &register())
+}
+
+/// The register compiled into the tool.
+fn register() -> Register {
+    Register::builtin().expect("the register")
 }
 
 /// The report for a repository holding these files, and a Markdown file in
@@ -141,29 +147,16 @@ fn a_change_of_the_default_reaches_a_repository_that_did_not_name_the_rule() {
 }
 
 #[test]
-fn every_folder_is_read_the_file_of_rules_first_and_then_the_options_file() {
+fn only_the_first_file_at_the_root_is_read_and_every_other_one_is_named() {
     let text = rules(&[
         (
-            ".markdownlint.jsonc",
-            "{ \"$schema\": \"x\", \"extends\": \"base.json\", \"MD007\": { \"indent\": 4 } }",
+            ".markdownlint-cli2.jsonc",
+            "{ \"$schema\": \"x\", \"config\": { \"$schema\": \"y\", \"MD041\": false } }",
         ),
         (".markdownlint.yaml", "MD001: false\n"),
-        (
-            ".markdownlint-cli2.jsonc",
-            "{ \"config\": { \"MD041\": false } }",
-        ),
-        (".markdownlint-cli2.yaml", "config:\n  MD002: false\n"),
         ("docs/.markdownlint.yml", "MD033: false\n"),
-        (
-            "docs/.markdownlint-cli2.jsonc",
-            "{ \"config\": { \"MD044\": false } }",
-        ),
-        (
-            ".github/.markdownlint-cli2.yaml",
-            "config:\n  MD041: false\n",
-        ),
         ("lib/.markdownlint.cjs", "module.exports = {};\n"),
-        ("tools/.markdownlint-cli2.mjs", "export default {};\n"),
+        (".markdownlint-cli2.mjs", "export default {};\n"),
     ]);
 
     let files: Vec<&str> = text
@@ -174,48 +167,110 @@ fn every_folder_is_read_the_file_of_rules_first_and_then_the_options_file() {
     assert_eq!(
         files,
         [
-            ".markdownlint.jsonc",
             ".markdownlint-cli2.jsonc",
-            ".github/.markdownlint-cli2.yaml",
+            ".markdownlint-cli2.mjs",
+            ".markdownlint.yaml",
             "docs/.markdownlint.yml",
-            "docs/.markdownlint-cli2.jsonc",
             "lib/.markdownlint.cjs",
-            "tools/.markdownlint-cli2.mjs",
         ],
         "{text}"
     );
     assert!(!text.contains("$schema"), "{text}");
     assert!(!text.contains("MD001"), "{text}");
-    assert!(!text.contains("MD002"), "{text}");
-    assert!(!text.contains("MD044"), "{text}");
-    assert_eq!(
-        after(&text, "extends"),
-        ["base.json: what it sets lies beneath the rules here"]
+    assert!(!text.contains("MD033"), "{text}");
+    assert_eq!(after(&text, "MD041"), [format!("false ({MD_UNNAMED})")]);
+    let javascript = after(&text, "lib/.markdownlint.cjs");
+    assert!(
+        javascript[0].starts_with(
+            "not read: the tool reads the configuration of markdownlint only as data, from one \
+             file at the root of the repository (`.markdownlint-cli2.jsonc`, "
+        ),
+        "{text}"
     );
+    assert!(javascript[0].ends_with("and never runs this one"), "{text}");
+    assert_eq!(after(&text, ".markdownlint-cli2.mjs"), javascript);
     assert_eq!(
-        after(&text, "MD007"),
-        [format!("{{\"indent\":4}} ({MD_UNNAMED})")]
+        after(&text, ".markdownlint.yaml"),
+        [
+            "not read: the tool reads the configuration of markdownlint from one file at the root \
+          of the repository, and that is `.markdownlint-cli2.jsonc`"
+        ]
     );
+    let below = after(&text, "docs/.markdownlint.yml");
+    assert!(
+        below[0].ends_with(
+            "and from no folder below it; a difference for a folder belongs in that file, as a \
+             pattern"
+        ),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_difference_by_pattern_is_shown_under_the_file() {
+    let text = rules(&[(
+        ".markdownlint-cli2.yaml",
+        "config:\n  MD033: false\n\
+         overrides:\n\
+         \x20 - filter: [\".github/**\", \"!.github/x.md\"]\n\
+         \x20   combine: merge\n\
+         \x20   config: { MD041: false }\n\
+         \x20 - filter: [\"docs/**\"]\n\
+         \x20   combine: replace\n\
+         \x20   config: {}\n",
+    )]);
+
     assert_eq!(
-        after(&text, ".github/.markdownlint-cli2.yaml"),
-        ["laid over the default and what lies above it, rule by rule"]
+        after(&text, ".markdownlint-cli2.yaml"),
+        [
+            "laid over the default rule by rule",
+            "for `.github/**`, `!.github/x.md`: laid over the default and the rules above, rule \
+             by rule",
+            "for `docs/**`: laid over the default rule by rule, in place of the rules above; it \
+             names no rule",
+        ],
+        "{text}"
     );
+    assert_eq!(after(&text, "MD033"), [format!("false ({MD_UNNAMED})")]);
+    assert_eq!(after(&text, "MD041"), [format!("false ({MD_UNNAMED})")]);
+}
+
+#[test]
+fn a_key_that_is_not_handed_over_is_named_at_its_file() {
+    let text = rules(&[(
+        ".markdownlint-cli2.jsonc",
+        "{ \"customRules\": [\"./rule.mjs\"], \"config\": { \"my-rule\": true } }",
+    )]);
+
     assert_eq!(
-        after(&text, "docs/.markdownlint.yml"),
-        ["in place of everything above it, the default included"]
+        after(&text, ".markdownlint-cli2.jsonc"),
+        [
+            "laid over the default rule by rule; it names no rule",
+            "`customRules` is not handed to markdownlint: it names modules of rules, which would \
+             be loaded and run, and the Markdown check runs no code of the repository",
+            "`config.my-rule` is no rule, alias or tag of markdownlint 0.41.1, so it is not \
+             handed to markdownlint",
+        ],
+        "{text}"
     );
-    assert_eq!(
-        after(&text, "docs/.markdownlint-cli2.jsonc"),
-        ["its `config` is not read: the file of rules only in its folder takes its place"]
+}
+
+#[test]
+fn a_register_without_markdownlint_reads_nothing_for_it() {
+    let analysis = analysis(QUIET, &[".nebensound/repo.toml", ".markdownlint.json"]);
+    let read = |_: &RelativePath| Ok("{ \"MD041\": false }".to_owned());
+    let mut register = register();
+    register
+        .program
+        .retain(|name, _| name.as_str() != "markdownlint");
+
+    let text = report(&analysis, &read, Defaults::BUILT_IN, &register);
+
+    assert!(
+        text.contains("Markdownlint: the default, nothing laid over it"),
+        "{text}"
     );
-    assert_eq!(
-        after(&text, "lib/.markdownlint.cjs"),
-        ["written in JavaScript, which phase 0 does not run"]
-    );
-    assert_eq!(
-        after(&text, "tools/.markdownlint-cli2.mjs"),
-        ["written in JavaScript, which phase 0 does not run"]
-    );
+    assert!(!text.contains("MD041"), "{text}");
 }
 
 #[test]
@@ -223,7 +278,7 @@ fn a_markdownlint_rule_is_found_by_any_of_its_names_and_tags() {
     let text = rules(&[(
         ".markdownlint.jsonc",
         "{ \"line-length\": true, \"md013\": false, \"line_length\": { \"line_length\": 100 }, \
-           \"headings\": false, \"default\": true, \"my-rule\": true }",
+           \"headings\": false, \"default\": true }",
     )]);
 
     assert_eq!(
@@ -237,7 +292,6 @@ fn a_markdownlint_rule_is_found_by_any_of_its_names_and_tags() {
     );
     assert_eq!(after(&text, "headings"), [format!("false ({MD_UNNAMED})")]);
     assert_eq!(after(&text, "default"), [format!("true ({MD_UNNAMED})")]);
-    assert_eq!(after(&text, "my-rule"), [format!("true ({MD_UNNAMED})")]);
 }
 
 #[test]
@@ -291,59 +345,96 @@ fn the_default_of_markdownlint_stands_for_every_rule_it_does_not_name() {
 }
 
 #[test]
+fn the_rules_of_markdownlint_are_read_in_the_order_written() {
+    // In the default the rule comes after its tag, so the rule counts, as
+    // markdownlint 0.41.1 resolves it. Read in sorted order, the tag would
+    // come last and give `MD025` the value `false`.
+    let defaults = Defaults {
+        markdownlint: "{ \"headings\": false, \"MD025\": true }",
+        stylelint: STYLELINT,
+        html_validate: HTML_VALIDATE,
+        ruff: RUFF,
+    };
+
+    let text = rules_with(
+        defaults,
+        &[(
+            ".markdownlint.yaml",
+            "single-title: true\nheadings: false\nMD001: false\n",
+        )],
+    );
+
+    assert_eq!(
+        after(&text, "single-title"),
+        ["true (the same as the default)"]
+    );
+    assert_eq!(after(&text, "MD001"), ["false (the same as the default)"]);
+    // The report shows the file's rules in the order they count in.
+    let names: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with("          "))
+        .filter_map(|line| line.split_whitespace().next())
+        .collect();
+    assert_eq!(names, ["single-title", "headings", "MD001"], "{text}");
+}
+
+#[test]
 fn a_file_that_names_no_rule_says_so() {
-    let text = rules(&[
-        (".markdownlint-cli2.jsonc", "{ \"globs\": [] }"),
-        ("docs/.markdownlint.json", "{}"),
-    ]);
+    let text = rules(&[(".markdownlint-cli2.jsonc", "{ \"globs\": [] }")]);
 
     assert_eq!(
         after(&text, ".markdownlint-cli2.jsonc"),
         ["laid over the default rule by rule; it names no rule"]
     );
-    assert_eq!(
-        after(&text, "docs/.markdownlint.json"),
-        ["in place of everything above it, the default included; it names no rule"]
-    );
 }
 
 #[test]
 fn a_file_that_cannot_be_read_says_why() {
-    let text = rules(&[
-        ("a/.markdownlint.jsonc", "{ \"MD001\": "),
-        ("b/.markdownlint.jsonc", "[1]"),
-        ("c/.markdownlint-cli2.jsonc", "[1]"),
-        ("c2/.markdownlint-cli2.jsonc", "{"),
-        ("d/.markdownlint.jsonc", "{ \"extends\": 1 }"),
-        ("e/.markdownlint.yaml", "a: [\n"),
-        ("f/.markdownlint.yaml", ""),
-    ]);
+    for (file, source, why) in [
+        (
+            ".markdownlint.jsonc",
+            "{ \"MD001\": ",
+            "cannot be read, so nothing of it is handed to markdownlint: ",
+        ),
+        (
+            ".markdownlint.jsonc",
+            "[1]",
+            "holds no mapping, so nothing of it is handed to markdownlint",
+        ),
+        (
+            ".markdownlint-cli2.jsonc",
+            "{ \"config\": [1] }",
+            "`config` is not a mapping of rules, so it is not handed to markdownlint",
+        ),
+        (
+            ".markdownlint.jsonc",
+            "{ \"extends\": \"base.json\" }",
+            "`extends` is not handed to markdownlint: it names another file of configuration, \
+             and the tool reads one file",
+        ),
+        (
+            ".markdownlint.yaml",
+            "a: [\n",
+            "cannot be read, so nothing of it is handed to markdownlint: ",
+        ),
+    ] {
+        let text = rules(&[(file, source)]);
 
-    let unreadable: Vec<String> = text
-        .lines()
-        .filter(|line| line.contains("cannot be read"))
-        .map(|line| line.split_whitespace().next().unwrap().to_owned())
-        .collect();
+        let shown = after(&text, file);
+        assert!(
+            shown.iter().any(|line| line.starts_with(why)),
+            "{file}: {text}"
+        );
+    }
+}
+
+#[test]
+fn an_empty_file_of_yaml_lays_nothing_over_the_default() {
+    let text = rules(&[(".markdownlint.yaml", "")]);
+
     assert_eq!(
-        unreadable,
-        [
-            "a/.markdownlint.jsonc",
-            "b/.markdownlint.jsonc",
-            "c/.markdownlint-cli2.jsonc",
-            "c2/.markdownlint-cli2.jsonc",
-            "d/.markdownlint.jsonc",
-            "e/.markdownlint.yaml",
-            "f/.markdownlint.yaml",
-        ],
-        "{text}"
-    );
-    assert_eq!(
-        after(&text, "b/.markdownlint.jsonc"),
-        ["cannot be read: it holds no mapping"]
-    );
-    assert_eq!(
-        after(&text, "d/.markdownlint.jsonc"),
-        ["cannot be read: `extends` is not text"]
+        after(&text, ".markdownlint.yaml"),
+        ["laid over the default rule by rule; it names no rule"]
     );
 }
 
@@ -355,9 +446,12 @@ fn a_file_the_tree_lists_and_the_disk_does_not_hold_says_so() {
     );
     let read = |_: &RelativePath| Err("gone".to_owned());
 
-    let text = report(&analysis, &read, Defaults::BUILT_IN);
+    let text = report(&analysis, &read, Defaults::BUILT_IN, &register());
 
-    assert_eq!(after(&text, ".markdownlint.yml"), ["cannot be read: gone"]);
+    assert_eq!(
+        after(&text, ".markdownlint.yml"),
+        ["cannot be read, so nothing of it is handed to markdownlint: gone"]
+    );
 }
 
 #[test]
@@ -414,6 +508,30 @@ fn a_default_that_does_not_read_is_named() {
 }
 
 #[test]
+fn a_default_of_markdownlint_that_holds_no_rules_is_named() {
+    for (default, why) in [
+        ("[1]", "it holds no mapping"),
+        ("{ \"extends\": 1 }", "`extends` is not text"),
+    ] {
+        let broken = Defaults {
+            markdownlint: default,
+            stylelint: STYLELINT,
+            html_validate: HTML_VALIDATE,
+            ruff: RUFF,
+        };
+
+        let text = rules_with(broken, &[]);
+
+        assert!(
+            text.contains(&format!(
+                "Markdownlint: the pipeline's default does not read: {why}"
+            )),
+            "{text}"
+        );
+    }
+}
+
+#[test]
 fn check_prints_the_rules_after_the_configuration() {
     let dir = repository(&[
         (".nebensound/repo.toml", QUIET),
@@ -436,7 +554,7 @@ fn check_prints_the_rules_after_the_configuration() {
 }
 
 #[test]
-fn markdownlint_files_where_the_check_lints_nothing_are_not_read() {
+fn a_file_an_exclusion_takes_out_is_not_named_and_the_one_at_the_root_is_read() {
     let declaration = "[repo]\naudience = \"public\"\n\
                        pipeline = \"none\"\n\
                        \n\
@@ -445,61 +563,33 @@ fn markdownlint_files_where_the_check_lints_nothing_are_not_read() {
                        reason = \"a vendored copy, kept as it came\"\n\
                        \n\
                        [[exclude]]\n\
-                       path   = \"docs/.markdownlint.json\"\n\
+                       path   = \".markdownlint.json\"\n\
                        reason = \"kept out of the json check\"\n";
     let files = [
         (
             "vendor/.markdownlint-cli2.jsonc",
             "{ \"config\": { \"MD001\": false } }",
         ),
-        ("vendor/sub/.markdownlint.json", "{ \"MD003\": false }"),
-        ("assets/.markdownlint.json", "{ \"MD004\": false }"),
-        ("docs/.markdownlint.json", "{ \"MD005\": false }"),
-        ("guide/.markdownlint.json", "{ \"MD007\": false }"),
-    ];
-    let paths = [
-        ".nebensound/repo.toml",
-        "README.md",
-        "vendor/README.md",
-        "vendor/sub/notes.md",
-        "assets/logo.png",
-        "docs/index.md",
-        "guide/part/one.md",
+        ("vendor/sub/.markdownlint.mjs", "export default {};"),
+        (".markdownlint.json", "{ \"MD041\": false }"),
     ];
 
-    let text = report_for(declaration, &paths, &files, Defaults::BUILT_IN);
-
-    for gone in ["vendor/", "assets/", "MD001", "MD003", "MD004"] {
-        assert!(!text.contains(gone), "{gone}: {text}");
-    }
-    assert_eq!(
-        after(&text, "docs/.markdownlint.json"),
-        ["in place of everything above it, the default included"]
-    );
-    assert_eq!(
-        after(&text, "guide/.markdownlint.json"),
-        ["in place of everything above it, the default included"]
-    );
-}
-
-#[test]
-fn without_a_file_the_markdown_check_lints_nothing_is_laid_over_its_default() {
     let text = report_for(
-        "[repo]\naudience = \"public\"\npipeline = \"none\"\n",
+        declaration,
         &[".nebensound/repo.toml"],
-        &[(".markdownlint.json", "{ \"MD041\": false }")],
+        &files,
         Defaults::BUILT_IN,
     );
 
-    assert!(
-        text.contains("Markdownlint: the default, nothing laid over it"),
-        "{text}"
-    );
+    for gone in ["vendor/", "MD001"] {
+        assert!(!text.contains(gone), "{gone}: {text}");
+    }
+    assert_eq!(after(&text, "MD041"), [format!("false ({MD_UNNAMED})")]);
 }
 
 #[test]
 fn markdownlint_reads_yaml_as_1_2() {
-    let text = rules(&[(".markdownlint.yaml", "MD013: no\n")]);
+    let text = rules(&[(".markdownlint.yml", "MD013: no\n")]);
 
     assert_eq!(after(&text, "MD013"), ["\"no\" (over the default false)"]);
 }

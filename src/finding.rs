@@ -119,7 +119,8 @@ pub enum Rule {
     UnexcusedIgnore,
     /// A tool's setting that takes files out, and that phase 0 cannot read.
     UnreadableIgnoreFile,
-    /// A configuration file of a program that no check starts any more.
+    /// A file of a linter's configuration that the tool does not read, and
+    /// that the linter would follow when it runs by hand.
     UnreadConfiguration,
     /// An exclusion that takes code out of a Rust package, and not the whole
     /// package.

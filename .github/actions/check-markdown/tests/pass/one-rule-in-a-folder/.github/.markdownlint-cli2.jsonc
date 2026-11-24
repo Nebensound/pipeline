@@ -1,8 +1,0 @@
-{
-  // A pull request template begins on a second-level heading. This one rule,
-  // for this folder only, takes the place of an inline
-  // `markdownlint-disable-file MD041` directive in the template.
-  "config": {
-    "MD041": false,
-  },
-}

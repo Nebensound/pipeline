@@ -1,0 +1,4 @@
+{
+  // A module of rules is code of the repository, which the check never runs.
+  "customRules": ["./rule.mjs"],
+}

@@ -65,26 +65,26 @@ that no check covers has to be excluded. The programs are what the check calls
 check measures coverage on, on top of the one the workspace pins; the tool
 installs it through rustup.
 
-| Check        | Extensions                                               | File names                                                    | Programs                                  | Coverage toolchain   |
-| ------------ | -------------------------------------------------------- | ------------------------------------------------------------- | ----------------------------------------- | -------------------- |
-| `asciidoc`   | `.adoc`, `.asciidoc`                                     | none                                                          | none                                      | none                 |
-| `cpp`        | `.c`, `.h`, `.cpp`, `.hpp`, `.cc`, `.hh`, `.cxx`, `.ino` | none                                                          | none                                      | none                 |
-| `css`        | `.css`, `.scss`                                          | none                                                          | `prettier`, `stylelint`                   | none                 |
-| `dockerfile` | `.dockerfile`                                            | `Dockerfile`, `Containerfile`                                 | `dockerfmt`, `hadolint`                   | none                 |
-| `html`       | `.html`, `.htm`                                          | none                                                          | `html-validate`, `lychee`, `prettier`     | none                 |
-| `javascript` | `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.tsx`             | none                                                          | none                                      | none                 |
-| `json`       | `.json`, `.jsonc`, `.geojson`                            | `composer.lock`, `flake.lock`, `Pipfile.lock`                 | `prettier`                                | none                 |
-| `markdown`   | `.md`, `.markdown`                                       | none                                                          | `lychee`, `markdownlint-cli2`, `prettier` | none                 |
-| `php`        | `.php`                                                   | none                                                          | none                                      | none                 |
-| `python`     | `.py`, `.pyi`                                            | none                                                          | `coverage`, `pyright`, `ruff`, `uv`       | none                 |
-| `qml`        | `.qml`                                                   | none                                                          | none                                      | none                 |
-| `r`          | `.r`                                                     | none                                                          | none                                      | none                 |
-| `rust`       | `.rs`                                                    | none                                                          | `cargo-llvm-cov`                          | `nightly-2026-11-14` |
-| `shell`      | `.sh`, `.bash`                                           | none                                                          | none                                      | none                 |
-| `sql`        | `.sql`                                                   | none                                                          | none                                      | none                 |
-| `toml`       | `.toml`                                                  | `Cargo.lock`, `uv.lock`, `poetry.lock`, `pdm.lock`, `Pipfile` | `taplo`                                   | none                 |
-| `typst`      | `.typ`                                                   | none                                                          | none                                      | none                 |
-| `yaml`       | `.yml`, `.yaml`                                          | none                                                          | `actionlint`, `prettier`                  | none                 |
+| Check        | Extensions                                               | File names                                                    | Programs                              | Coverage toolchain   |
+| ------------ | -------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------- | -------------------- |
+| `asciidoc`   | `.adoc`, `.asciidoc`                                     | none                                                          | none                                  | none                 |
+| `cpp`        | `.c`, `.h`, `.cpp`, `.hpp`, `.cc`, `.hh`, `.cxx`, `.ino` | none                                                          | none                                  | none                 |
+| `css`        | `.css`, `.scss`                                          | none                                                          | `prettier`, `stylelint`               | none                 |
+| `dockerfile` | `.dockerfile`                                            | `Dockerfile`, `Containerfile`                                 | `dockerfmt`, `hadolint`               | none                 |
+| `html`       | `.html`, `.htm`                                          | none                                                          | `html-validate`, `lychee`, `prettier` | none                 |
+| `javascript` | `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.tsx`             | none                                                          | none                                  | none                 |
+| `json`       | `.json`, `.jsonc`, `.geojson`                            | `composer.lock`, `flake.lock`, `Pipfile.lock`                 | `prettier`                            | none                 |
+| `markdown`   | `.md`, `.markdown`                                       | none                                                          | `lychee`, `markdownlint`, `prettier`  | none                 |
+| `php`        | `.php`                                                   | none                                                          | none                                  | none                 |
+| `python`     | `.py`, `.pyi`                                            | none                                                          | `coverage`, `pyright`, `ruff`, `uv`   | none                 |
+| `qml`        | `.qml`                                                   | none                                                          | none                                  | none                 |
+| `r`          | `.r`                                                     | none                                                          | none                                  | none                 |
+| `rust`       | `.rs`                                                    | none                                                          | `cargo-llvm-cov`                      | `nightly-2026-11-14` |
+| `shell`      | `.sh`, `.bash`                                           | none                                                          | none                                  | none                 |
+| `sql`        | `.sql`                                                   | none                                                          | none                                  | none                 |
+| `toml`       | `.toml`                                                  | `Cargo.lock`, `uv.lock`, `poetry.lock`, `pdm.lock`, `Pipfile` | `taplo`                               | none                 |
+| `typst`      | `.typ`                                                   | none                                                          | none                                  | none                 |
+| `yaml`       | `.yml`, `.yaml`                                          | none                                                          | `actionlint`, `prettier`              | none                 |
 
 ## Programs
 
@@ -95,29 +95,43 @@ or those of the checks and builds it is named (see
 A program on a runtime is one package, which the runtime's installer puts in
 place together with its companions, the packages pinned beside it that are
 no command, and needs at least the version of the runtime its package states;
+one that is a library has no command and is used only in its pinned copy;
 every other one is a build per platform. Each download is refused unless it
 has the digest the register pins; the addresses and digests stand in
 `register.toml`, each with the release data it was taken from. On a platform
 without a build only the computer's copy can be used: the default mode of
 `setup` takes it from the `PATH`, and `setup --pinned` fails for the program.
 
-| Program             | Version   | Runtime                     | Builds                                                                                                                                       |
-| ------------------- | --------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `actionlint`        | `1.7.12`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64`                                        |
-| `cargo-llvm-cov`    | `0.9.0`   | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64`                                        |
-| `coverage`          | `7.17.4`  | `python`, `3.11.0` or later | one package for every platform                                                                                                               |
-| `dockerfmt`         | `1.0.0`   | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`                                                                             |
-| `hadolint`          | `2.15.1`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                                                           |
-| `html-validate`     | `11.21.1` | `node`, `22.22.0` or later  | one package for every platform                                                                                                               |
-| `lychee`            | `0.24.2`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                                                           |
-| `markdownlint-cli2` | `0.23.2`  | `node`, `22.0.0` or later   | one package for every platform                                                                                                               |
-| `prettier`          | `3.9.6`   | `node`, `14.0.0` or later   | one package for every platform                                                                                                               |
-| `pyright`           | `1.1.414` | `node`, `14.0.0` or later   | one package for every platform                                                                                                               |
-| `ruff`              | `0.17.6`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64`                                        |
-| `stylelint`         | `18.0.0`  | `node`, `22.22.2` or later  | one package for every platform, with `stylelint-config-standard` `41.0.0`, `stylelint-config-standard-scss` `18.0.0`, `postcss-scss` `4.0.9` |
-| `taplo`             | `0.10.0`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64`                                        |
-| `trivy`             | `0.76.2`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                                                           |
-| `uv`                | `0.13.9`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64`                                        |
+| Program          | Version   | Runtime                     | Builds                                                                                                                                       |
+| ---------------- | --------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `actionlint`     | `1.7.12`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64`                                        |
+| `cargo-llvm-cov` | `0.9.0`   | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64`                                        |
+| `coverage`       | `7.17.4`  | `python`, `3.11.0` or later | one package for every platform                                                                                                               |
+| `dockerfmt`      | `1.0.0`   | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`                                                                             |
+| `hadolint`       | `2.15.1`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                                                           |
+| `html-validate`  | `11.21.1` | `node`, `22.22.0` or later  | one package for every platform                                                                                                               |
+| `lychee`         | `0.24.2`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                                                           |
+| `markdownlint`   | `0.41.1`  | `node`, `22.0.0` or later   | one package for every platform                                                                                                               |
+| `prettier`       | `3.9.6`   | `node`, `14.0.0` or later   | one package for every platform                                                                                                               |
+| `pyright`        | `1.1.414` | `node`, `14.0.0` or later   | one package for every platform                                                                                                               |
+| `ruff`           | `0.17.6`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64`                                        |
+| `stylelint`      | `18.0.0`  | `node`, `22.22.2` or later  | one package for every platform, with `stylelint-config-standard` `41.0.0`, `stylelint-config-standard-scss` `18.0.0`, `postcss-scss` `4.0.9` |
+| `taplo`          | `0.10.0`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64`                                        |
+| `trivy`          | `0.76.2`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                                                           |
+| `uv`             | `0.13.9`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`, `windows-aarch64`                                        |
+
+## Configuration of the programs
+
+The files a repository writes the configuration of a program in, which the tool
+reads for it: the first of those under Read that stands at the root of the
+repository, as data. Every other one of them at the root, every one in a folder
+below it and every one under Not read, wherever it lies, the tool names as not
+read (see [the tool](tool.md#the-configuration-of-a-linter)). A program not
+named here still reads its configuration itself.
+
+| Program        | Read                                                                                                                                          | Not read                                                                                     |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `markdownlint` | `.markdownlint-cli2.jsonc`, `.markdownlint-cli2.yaml`, `.markdownlint.jsonc`, `.markdownlint.json`, `.markdownlint.yaml`, `.markdownlint.yml` | `.markdownlint-cli2.cjs`, `.markdownlint-cli2.mjs`, `.markdownlint.cjs`, `.markdownlint.mjs` |
 
 ## Runtimes
 

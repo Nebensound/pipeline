@@ -36,7 +36,7 @@ fn every_check_with_a_building_block_names_the_programs_it_calls() {
         ("dockerfile", &["dockerfmt", "hadolint"]),
         ("html", &["html-validate", "lychee", "prettier"]),
         ("json", &["prettier"]),
-        ("markdown", &["lychee", "markdownlint-cli2", "prettier"]),
+        ("markdown", &["lychee", "markdownlint", "prettier"]),
         ("python", &["coverage", "pyright", "ruff", "uv"]),
         ("rust", &["cargo-llvm-cov"]),
         ("toml", &["taplo"]),
@@ -73,7 +73,7 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
         ("hadolint", "2.15.1", None),
         ("html-validate", "11.21.1", Some(("node", "22.22.0"))),
         ("lychee", "0.24.2", None),
-        ("markdownlint-cli2", "0.23.2", Some(("node", "22.0.0"))),
+        ("markdownlint", "0.41.1", Some(("node", "22.0.0"))),
         ("prettier", "3.9.6", Some(("node", "14.0.0"))),
         ("pyright", "1.1.414", Some(("node", "14.0.0"))),
         ("ruff", "0.17.6", None),
@@ -94,7 +94,9 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
             runtime.map(|(_, minimum)| minimum),
             "{name}"
         );
-        assert_eq!(program.command, name, "{name}");
+        // markdownlint is a library, with no command.
+        let command = (name != "markdownlint").then_some(name);
+        assert_eq!(program.command.as_deref(), command, "{name}");
         let every = program.download.contains_key(&Platform::Any);
         assert_eq!(every, runtime.is_some(), "{name}");
         for (platform, download) in &program.download {

@@ -53,6 +53,7 @@ pub fn register(central: &Central) -> String {
         presets(register),
         checks(register),
         programs(register),
+        configuration(register),
         runtimes(register),
         images(register),
         builds(register),
@@ -169,12 +170,39 @@ fn programs(register: &Register) -> String {
          A program on a runtime is one package, which the runtime's installer puts in\n\
          place together with its companions, the packages pinned beside it that are\n\
          no command, and needs at least the version of the runtime its package states;\n\
+         one that is a library has no command and is used only in its pinned copy;\n\
          every other one is a build per platform. Each download is refused unless it\n\
          has the digest the register pins; the addresses and digests stand in\n\
          `register.toml`, each with the release data it was taken from. On a platform\n\
          without a build only the computer's copy can be used: the default mode of\n\
          `setup` takes it from the `PATH`, and `setup --pinned` fails for the program.",
         &["Program", "Version", "Runtime", "Builds"],
+        &rows,
+    )
+}
+
+fn configuration(register: &Register) -> String {
+    let rows: Vec<Vec<String>> = register
+        .program
+        .iter()
+        .filter(|(_, program)| !program.configuration.is_empty())
+        .map(|(name, program)| {
+            vec![
+                code(name),
+                codes(&program.configuration),
+                codes(&program.configuration_not_read),
+            ]
+        })
+        .collect();
+    section(
+        "Configuration of the programs",
+        "The files a repository writes the configuration of a program in, which the tool\n\
+         reads for it: the first of those under Read that stands at the root of the\n\
+         repository, as data. Every other one of them at the root, every one in a folder\n\
+         below it and every one under Not read, wherever it lies, the tool names as not\n\
+         read (see [the tool](tool.md#the-configuration-of-a-linter)). A program not\n\
+         named here still reads its configuration itself.",
+        &["Program", "Read", "Not read"],
         &rows,
     )
 }

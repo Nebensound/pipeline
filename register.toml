@@ -21,7 +21,7 @@ copy = "the :revnumber: attribute in the unit's AsciiDoc source document"
 # pinned.
 [check.markdown]
 extensions = [".md", ".markdown"]
-programs   = ["lychee", "markdownlint-cli2", "prettier"]
+programs   = ["lychee", "markdownlint", "prettier"]
 
 [check.yaml]
 extensions = [".yml", ".yaml"]
@@ -554,18 +554,39 @@ digest     = "sha256:32975d1493ee1a975d6bb41e4fb56fe419cb442ded628bb772ba2e614ac
 executable = "lychee-x86_64-pc-windows-msvc/lychee.exe"
 
 # The npm registry's `dist.integrity`, in hexadecimal; `engines.node` is
-# ">=22". The package names its version in the first line of its help; it has
-# no flag for the version alone.
-[program.markdownlint-cli2]
-version         = "0.23.2"
-command         = "markdownlint-cli2"
-version-args    = ["--help"]
-runtime         = "node"
+# ">=22". A library, with no command: the Markdown check calls it through
+# Node.js from the pinned copy alone.
+#
+# `configuration` names the files a repository writes its configuration of
+# markdownlint in, at the root, as markdownlint-cli2 documents them: its
+# options files, which also hold differences by pattern (`overrides`), then the
+# files that hold rules only, each in a format of data, so that an editor reads
+# the same file. The tool reads the first of them there and names every other
+# one as not read. `configuration-not-read` names the files markdownlint-cli2
+# would also read, written in JavaScript: the tool runs none of them and names
+# each.
+[program.markdownlint]
+version = "0.41.1"
+runtime = "node"
 runtime-minimum = "22.0.0"
+configuration = [
+  ".markdownlint-cli2.jsonc",
+  ".markdownlint-cli2.yaml",
+  ".markdownlint.jsonc",
+  ".markdownlint.json",
+  ".markdownlint.yaml",
+  ".markdownlint.yml",
+]
+configuration-not-read = [
+  ".markdownlint-cli2.cjs",
+  ".markdownlint-cli2.mjs",
+  ".markdownlint.cjs",
+  ".markdownlint.mjs",
+]
 
-[program.markdownlint-cli2.download.any]
-url    = "https://registry.npmjs.org/markdownlint-cli2/-/markdownlint-cli2-0.23.2.tgz"
-digest = "sha512:79485c9e44a9cd4468fe8e21b52a9cecb3c3b3380e393927854e1e63fb0f1ef3022f19d3098b1cbf5830d7f8ecfe27666993e2b2ff4409510839172596a8d353"
+[program.markdownlint.download.any]
+url    = "https://registry.npmjs.org/markdownlint/-/markdownlint-0.41.1.tgz"
+digest = "sha512:a8729e5361356ddc8d013d3bee0a361554cd5ef61c92d379207b45e97c9e0f59743c2971cd2a76b54029015d7839123c0c65f81fd6cd2991337a5669e2a9fc20"
 
 # The npm registry's `dist.integrity`, in hexadecimal; `engines.node` is
 # ">=14".

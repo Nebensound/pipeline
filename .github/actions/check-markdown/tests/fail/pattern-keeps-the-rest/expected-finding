@@ -1,0 +1,5 @@
+# The check prints what the rules report shows: the difference by pattern,
+# and how its rule stands to the default.
+*.markdownlint-cli2.jsonc*for `.github/**`: laid over the default and the rules above, rule by rule
+*MD041*false (the pipeline's file does not name it; Markdownlint's own default holds)
+::error file=.github/PULL_REQUEST_TEMPLATE.md,line=3*::MD001/heading-increment*

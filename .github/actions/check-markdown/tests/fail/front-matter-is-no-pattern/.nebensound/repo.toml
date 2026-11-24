@@ -1,0 +1,5 @@
+# An options file whose front matter is no pattern of JavaScript. The check
+# names it at its file, and markdownlint still lints the rest.
+[repo]
+audience = "public"
+pipeline = "none"

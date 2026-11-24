@@ -1,0 +1,6 @@
+# The tag switches every rule of headings off, and the rule after it switches
+# one of them on again: markdownlint reads the keys in the order they are
+# written, so `MD025` holds. Read in sorted order, `MD025` would come first and
+# the tag would switch it off.
+headings: false
+MD025: true

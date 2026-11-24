@@ -1,0 +1,13 @@
+{
+  // One rule differs for the files below .github/; every other rule still
+  // holds there, so the skipped level in the template fails.
+  "overrides": [
+    {
+      "filter": [".github/**"],
+      "combine": "merge",
+      "config": {
+        "MD041": false,
+      },
+    },
+  ],
+}

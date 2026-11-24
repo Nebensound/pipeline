@@ -1002,6 +1002,115 @@ fn in_a_terminal_a_runtime_is_installed_on_a_yes_only() {
     );
 }
 
+/// An npm that puts a package named like the package file into
+/// `node_modules`, with its description and no command, as it does for a
+/// library.
+const NPM_LIBRARY: &str = r#"#!/bin/sh
+prefix=""
+file=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --prefix) prefix="$2"; shift 2 ;;
+    install|--*) shift ;;
+    *) file="$1"; shift ;;
+  esac
+done
+name="${file##*/}"
+name="${name%.tgz}"
+/bin/mkdir -p "$prefix/node_modules/$name"
+echo '{}' > "$prefix/node_modules/$name/package.json"
+"#;
+
+#[test]
+fn a_library_is_installed_pinned_and_never_looked_for_on_the_computer() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    let archive = npm_runtime(NPM_LIBRARY);
+    let library = packaged(
+        "lib",
+        "rt",
+        &fixture.serve("lib.tgz", b"a library"),
+        &sha256(b"a library"),
+    )
+    .replace("command = \"lib\"\n", "");
+    let register = register(
+        &[
+            check(&["lib"]),
+            library,
+            runtime(
+                "rt",
+                "npm",
+                &fixture.serve("rt.tar.gz", &archive),
+                &sha256(&archive),
+                "rt/bin/rt",
+            ),
+        ]
+        .concat(),
+    );
+    // A command of its name on the computer is not the library.
+    fixture.install("lib", "#!/bin/sh\necho 'lib 7.8.9'\n");
+    let name = ProgramName::new("lib").expect("a name");
+    assert_eq!(find::locate(&register, &name, &fixture.env()), None);
+
+    let (text, code) = run(&register, Mode::Check, false, &mut fixture.env());
+    assert_eq!(code, 1, "{text}");
+    assert!(text.contains("  lib 7.8.9 (json): missing\n"), "{text}");
+
+    let (text, code) = run(&register, Mode::Pinned, true, &mut fixture.env());
+    assert_eq!(code, 0, "{text}");
+    let description = fixture.path("cache/programs/lib/7.8.9/node_modules/lib/package.json");
+    assert!(
+        text.contains(&format!(
+            "  lib 7.8.9 (json): pinned, {}\n",
+            description.display()
+        )),
+        "{text}"
+    );
+    let location = find::locate(&register, &name, &fixture.env()).expect("the pinned copy");
+    assert!(location.pinned);
+    assert_eq!(location.executable, description);
+}
+
+#[test]
+fn only_a_package_installed_with_npm_may_be_a_library() {
+    let zero = format!("sha256:{}", "0".repeat(64));
+    let library = |installer: &str| {
+        Register::parse(&format!(
+            "[version]\n[build]\n[target]\n[preset]\n[ecosystem]\n{}",
+            [
+                check(&[]),
+                packaged("lib", "rt", "https://example.invalid/lib", &zero)
+                    .replace("command = \"lib\"\n", ""),
+                runtime(
+                    "rt",
+                    installer,
+                    "https://example.invalid/rt",
+                    &zero,
+                    "rt/bin/rt",
+                ),
+            ]
+            .concat()
+        ))
+    };
+    library("npm").expect("a library installed with npm");
+    let refused = library("pip").expect_err("a library installed with pip");
+    assert_eq!(
+        refused.to_string(),
+        "lib names no command, and only a package installed with npm may be a library"
+    );
+    let native = native("lib", "1.0.0", "https://example.invalid/lib", &zero, "lib")
+        .replace("command = \"lib\"\n", "");
+    let refused = Register::parse(&format!(
+        "[version]\n[build]\n[target]\n[preset]\n[ecosystem]\n{}{native}",
+        check(&[])
+    ))
+    .expect_err("a library without a runtime");
+    assert_eq!(
+        refused.to_string(),
+        "lib names no command, and only a package installed with npm may be a library"
+    );
+}
+
 /// A program on the runtime `py`, and the runtime itself, which acts like
 /// Python.
 fn on_python(fixture: &Fixture) -> Register {
@@ -1924,16 +2033,28 @@ fn windows_keeps_its_programs_elsewhere() {
     env.platform = Some(Platform::WindowsX86_64);
     let program = nebensound_repo::programs::Program {
         version: "1.0.0".to_owned(),
-        command: "tool".to_owned(),
+        command: Some("tool".to_owned()),
         version_args: vec![],
         runtime: Some(RuntimeName::new("absent").expect("a name")),
         runtime_minimum: Some("1.0.0".to_owned()),
         download: std::collections::BTreeMap::new(),
         companions: Vec::new(),
+        configuration: Vec::new(),
+        configuration_not_read: Vec::new(),
+    };
+    let name = ProgramName::new("tool").expect("a name");
+    assert_eq!(
+        find::program_executable(&register, &name, &program, dir, &env),
+        None
+    );
+    // A library has no command, and its package shows it is there.
+    let library = nebensound_repo::programs::Program {
+        command: None,
+        ..program
     };
     assert_eq!(
-        find::program_executable(&register, &program, dir, &env),
-        None
+        find::installed(Installer::Npm, dir, &name, &library, false),
+        dir.join("node_modules").join("tool").join("package.json")
     );
 }
 
@@ -2226,7 +2347,7 @@ fn in_a_terminal_the_binary_asks_before_it_installs_a_runtime() {
 
     let screen = wait_for(&receiver, "[y/N]");
     assert!(
-        screen.contains("node 24.22.3 (Node.js), for markdownlint-cli2, prettier"),
+        screen.contains("node 24.22.3 (Node.js), for markdownlint, prettier"),
         "{screen}"
     );
     let mut writer = pair.master.take_writer().expect("write into it");

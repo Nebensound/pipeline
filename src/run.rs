@@ -13,12 +13,12 @@
 //! [`locate`](crate::setup::find::locate) finds them: the pinned copy in the
 //! tool's folder first, the one on the computer otherwise. Three of them are
 //! called through their internals, so that the repository's rules are laid
-//! over the pipeline's default: html-validate, markdownlint-cli2 and
-//! Stylelint. Of those three only the pinned copy is taken, since only its
-//! internals are known. A program that is not there fails the check and names
-//! `setup`, which installs it; `run` installs nothing. What the tool can judge
-//! itself starts no program: whether a JSON or a YAML file parses, and whether
-//! a Dependabot configuration matches its schema.
+//! over the pipeline's default: html-validate, markdownlint, a library with no
+//! command, and Stylelint. Of those three only the pinned copy is taken, since
+//! only its internals are known. A program that is not there fails the check
+//! and names `setup`, which installs it; `run` installs nothing. What the tool
+//! can judge itself starts no program: whether a JSON or a YAML file parses,
+//! and whether a Dependabot configuration matches its schema.
 //!
 //! Every program is called with the flags that set its own ignore mechanisms
 //! aside: what is not to be checked is not in the list. Each part of a check
@@ -186,21 +186,28 @@ pub struct Context<'a> {
     /// Where `run` makes the folder of what it hands the programs, which it
     /// removes again.
     pub temp: &'a Path,
-    /// What the Rust check reads of the repository beyond its files; the
+    /// What the Rust check reads of the repository beyond its files, and
+    /// what the Markdown check reads for markdownlint's configuration; the
     /// other checks read none of it.
     pub packages: Packages<'a>,
 }
 
-/// What the Rust check reads of the repository beyond its files.
+/// What the Rust check reads of the repository beyond its files, and what
+/// the Markdown check reads for markdownlint's configuration
+/// ([`crate::linter_config::markdownlint`]).
 pub struct Packages<'a> {
     /// The repository, into whose manifests the package test writes the
-    /// versions.
+    /// versions, and from which the configuration is read.
     pub repository: &'a Repository,
     /// Every file Git tracks, as a path from the repository root: the
-    /// manifests the versions are written into, and the `.rs` files of an
+    /// manifests the versions are written into, the `.rs` files of an
     /// excluded package, which coverage leaves out one by one where another
-    /// package lies inside it.
+    /// package lies inside it, and the files the configuration is looked for
+    /// among.
     pub tracked: &'a [RelativePath],
+    /// The files of `tracked` that no `[[exclude]]` entry takes out: a file
+    /// of the configuration that is not read is named only among them.
+    pub kept: &'a [RelativePath],
     /// The packages `[[exclude]]` takes out as a whole.
     pub excluded: &'a [Excluded],
     /// The versions the package test writes: from the plan handed in, or
