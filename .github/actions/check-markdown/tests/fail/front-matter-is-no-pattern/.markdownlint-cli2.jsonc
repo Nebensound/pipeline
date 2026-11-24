@@ -1,0 +1,4 @@
+{
+  // A pattern JavaScript does not read: the group is never closed.
+  "frontMatter": "(",
+}

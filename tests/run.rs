@@ -204,9 +204,13 @@ for f in $(grep -o '"[^"]*\.md"' "$JOB" | tr -d '"'); do
   esac
   entries="${entries:+$entries,}$entry"
 done
+case "$(cat "$JOB")" in
+  *'"frontMatter":"("'*) refused='"Invalid regular expression: /(/u: Unterminated group"' ;;
+  *) refused=null ;;
+esac
 case "$entries" in
   *unreadable*) echo "not JSON" > "$RESULTS" ;;
-  *) printf '[{%s}]' "$entries" > "$RESULTS" ;;
+  *) printf '{"frontMatter":%s,"groups":[{%s}]}' "$refused" "$entries" > "$RESULTS" ;;
 esac
 exit 0
 "##;
@@ -1455,6 +1459,29 @@ fn a_warning_of_markdownlint_fails_nothing() {
     has(
         &text,
         "::warning file=warned.md,line=2::MD009/no-trailing-spaces Trailing spaces",
+    );
+}
+
+#[test]
+fn a_front_matter_javascript_does_not_read_fails_at_its_file_and_the_rest_still_runs() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    fixture
+        .everything()
+        .file(".markdownlint-cli2.jsonc", "{ \"frontMatter\": \"(\" }")
+        .file("heading.md", "# x\n");
+    let (code, text) = fixture.run(Check::Markdown, &["heading.md"], true);
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error file=.markdownlint-cli2.jsonc::`frontMatter` is not a pattern JavaScript reads, \
+         so it is not handed to markdownlint, which skips the front matter it knows by default: \
+         Invalid regular expression: /(/u: Unterminated group",
+    );
+    has(
+        &text,
+        "::error file=heading.md,line=3::MD001/heading-increment Heading levels should only \
+         increment by one level at a time [Expected: h2; Actual: h3]",
     );
 }
 

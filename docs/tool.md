@@ -1095,7 +1095,9 @@ name stand in
 
 - Carried over: `config`, `overrides`, `frontMatter` and `noInlineConfig`.
   Every key of the rules is a rule, an alias or a tag of the pinned
-  markdownlint, in any case, or `default`.
+  markdownlint, in any case, or `default`. `frontMatter` is a pattern of
+  JavaScript; one that JavaScript does not read fails the check at its file,
+  and markdownlint skips the front matter it knows by default.
 - Set aside, since the check decides them itself: `globs`, `ignores` and
   `gitignore` (the files are those `files` names, and phase 0 holds `ignores`
   against the declaration, see [Exclusions](../README.md#exclusions)),

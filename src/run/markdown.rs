@@ -36,7 +36,10 @@ const RESULTS: &str = "markdownlint-results.json";
 /// It reads where the pinned package lies (`TOOLS`), what it is handed
 /// (`JOB`) and where it writes what markdownlint found (`RESULTS`) from its
 /// environment, and writes the results as markdownlint gives them, one object
-/// per group, for the tool to read.
+/// per group, for the tool to read ([`Results`]). A `frontMatter` that is no
+/// pattern JavaScript reads is not handed over: the script writes why beside
+/// the results, and markdownlint lints with the front matter it knows by
+/// default, so that one run still shows every finding.
 pub const MARKDOWNLINT: &str = r#"
 import fs from "node:fs";
 import { join } from "node:path";
@@ -47,16 +50,20 @@ const { lint } = await import(
   pathToFileURL(join(TOOLS, "node_modules", "markdownlint", "lib", "exports-promise.mjs")).href
 );
 const job = JSON.parse(fs.readFileSync(JOB, "utf8"));
-const results = [];
-for (const { config, files } of job.groups) {
-  results.push(await lint({
-    files,
-    config,
-    frontMatter: job.frontMatter === null ? undefined : new RegExp(job.frontMatter, "u"),
-    noInlineConfig: job.noInlineConfig,
-  }));
+let frontMatter;
+let refused = null;
+if (job.frontMatter !== null) {
+  try {
+    frontMatter = new RegExp(job.frontMatter, "u");
+  } catch (error) {
+    refused = error.message;
+  }
 }
-fs.writeFileSync(RESULTS, JSON.stringify(results));
+const groups = [];
+for (const { config, files } of job.groups) {
+  groups.push(await lint({ files, config, frontMatter, noInlineConfig: job.noInlineConfig }));
+}
+fs.writeFileSync(RESULTS, JSON.stringify({ frontMatter: refused, groups }));
 "#;
 
 /// Runs the check; whether it found nothing.
@@ -89,7 +96,8 @@ pub(super) fn run(session: &mut Session<'_, '_, '_>) -> bool {
     // every finding at once.
     let formatted = prettier
         .is_some_and(|prettier| session.prettier(&prettier, &temp.join("nothing-ignored"), &files));
-    let rules_hold = linter.is_some_and(|linter| markdownlint_run(session, &linter, &temp));
+    let rules_hold = linter
+        .is_some_and(|linter| markdownlint_run(session, &linter, &temp, configured.file.as_ref()));
     let root = session.context.root;
     let links_lead = handed.is_some_and(|handed| {
         lychee.is_some_and(|lychee| links::check(session, &lychee, &handed, &temp, &[], root))
@@ -128,7 +136,14 @@ fn configuration(session: &mut Session<'_, '_, '_>) -> (Rules, bool) {
 /// is, then every finding, as a line `<file>:<line>[:<column>] <severity>
 /// <rule> <description>` the way markdownlint-cli2 prints it, and as a
 /// finding on its line. A warning fails nothing, an error fails the check.
-fn markdownlint_run(session: &mut Session<'_, '_, '_>, markdownlint: &Tool, temp: &Path) -> bool {
+/// A `frontMatter` the script could not make a pattern of fails the check
+/// at `file`, the repository's file it came from.
+fn markdownlint_run(
+    session: &mut Session<'_, '_, '_>,
+    markdownlint: &Tool,
+    temp: &Path,
+    file: Option<&RelativePath>,
+) -> bool {
     // The pinned copy, which `Session::tool` takes only with its runtime
     // when it is installed with npm, as the register has it.
     let Some(node) = &markdownlint.runtime else {
@@ -148,20 +163,30 @@ fn markdownlint_run(session: &mut Session<'_, '_, '_>, markdownlint: &Tool, temp
     let ran = session.capture(command, "markdownlint");
     session.log.lines(&ran.text);
     let results = fs::read_to_string(temp.join(RESULTS)).unwrap_or_default();
-    let groups: Vec<std::collections::BTreeMap<String, Vec<Lint>>> =
-        match serde_json::from_str(&results) {
-            Ok(groups) => groups,
-            Err(error) => {
-                session.log.error(
-                    None,
-                    None,
-                    &format!("what markdownlint found does not read: {error}"),
-                );
-                return false;
-            }
-        };
+    let results: Results = match serde_json::from_str(&results) {
+        Ok(results) => results,
+        Err(error) => {
+            session.log.error(
+                None,
+                None,
+                &format!("what markdownlint found does not read: {error}"),
+            );
+            return false;
+        }
+    };
     let mut held = ran.success;
-    for (file, found) in groups.iter().flatten() {
+    if let Some(reason) = &results.front_matter {
+        held = false;
+        session.log.error(
+            file.map(ToString::to_string).as_deref(),
+            None,
+            &format!(
+                "`frontMatter` is not a pattern JavaScript reads, so it is not handed to \
+                 markdownlint, which skips the front matter it knows by default: {reason}"
+            ),
+        );
+    }
+    for (file, found) in results.groups.iter().flatten() {
         for lint in found {
             let line = lint.line_number.to_string();
             let column = lint.column().map(|column| column.to_string());
@@ -184,6 +209,18 @@ fn markdownlint_run(session: &mut Session<'_, '_, '_>, markdownlint: &Tool, temp
         }
     }
     held
+}
+
+/// What the script writes: why `frontMatter` was not handed over, if it was
+/// not, and what markdownlint found, one map from file to findings per group.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Results {
+    /// Why JavaScript did not read `frontMatter` as a pattern, where it did
+    /// not.
+    pub front_matter: Option<String>,
+    /// What markdownlint found in each group.
+    pub groups: Vec<std::collections::BTreeMap<String, Vec<Lint>>>,
 }
 
 /// One finding of markdownlint, as its library gives it.
