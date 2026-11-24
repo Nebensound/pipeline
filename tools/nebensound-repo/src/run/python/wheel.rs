@@ -21,6 +21,7 @@
 //! while the wheel is built, and is put back as committed afterwards. The
 //! wheel is never handed on.
 
+use std::borrow::Cow;
 use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::fs::{self, File};
@@ -213,7 +214,13 @@ pub fn offered(wheel: &Path) -> Result<(Vec<String>, Vec<String>), String> {
 /// [`offered`], with the error of the archive.
 fn read_wheel(wheel: &Path) -> zip::result::ZipResult<(Vec<String>, Vec<String>)> {
     let mut archive = zip::ZipArchive::new(File::open(wheel)?)?;
-    let names: Vec<String> = archive.file_names().map(str::to_owned).collect();
+    // A name is read as UTF-8 and otherwise as CP437, which decodes every
+    // byte, so no name fails; `flatten` takes the names out of their results.
+    let names: Vec<String> = archive
+        .file_names()
+        .flatten()
+        .map(Cow::into_owned)
+        .collect();
     let mut commands = Vec::new();
     for name in &names {
         let parts: Vec<&str> = name.split('/').collect();
