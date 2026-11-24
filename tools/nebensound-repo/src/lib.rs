@@ -29,6 +29,7 @@ pub mod audience;
 pub mod build;
 pub mod central;
 pub mod conformance;
+pub mod control;
 #[cfg(feature = "program")]
 pub mod declare;
 #[cfg(feature = "ui")]
@@ -1533,12 +1534,13 @@ fn orders(
 #[non_exhaustive]
 pub enum ReadError {
     /// The TOML did not read, or did not match the shape.
-    #[error("the declaration is not readable: {0}")]
+    #[error("the declaration is not readable: {}", quoted(.0))]
     Unreadable(#[from] toml::de::Error),
     /// The same pattern stands twice under `[[exclude]]`.
     #[error(
-        "{pattern} stands twice under [[exclude]]. A list can say the same thing twice, a \
-         statement cannot: of two reasons for the same file, one is untrue"
+        "{} stands twice under [[exclude]]. A list can say the same thing twice, a statement \
+         cannot: of two reasons for the same file, one is untrue",
+        report::shown(.pattern)
     )]
     DuplicateExclusion {
         /// The duplicated pattern.
@@ -1546,8 +1548,9 @@ pub enum ReadError {
     },
     /// A repository excluded a pattern rather than a path.
     #[error(
-        "{pattern} takes a whole type or name out of the check. Here a pattern may only add \
-         work, never excuse any — write the path, or pull it back in with `include`"
+        "{} takes a whole type or name out of the check. Here a pattern may only add work, \
+         never excuse any — write the path, or pull it back in with `include`",
+        report::shown(.pattern)
     )]
     WildcardExclusion {
         /// The rejected pattern.
@@ -1555,8 +1558,9 @@ pub enum ReadError {
     },
     /// A repository made an exclusion depend on the file being empty.
     #[error(
-        "{path} sets only-if-empty, which only the central list of what nobody checks may set. \
-         Here an exclusion takes its path out as it stands — leave the field out"
+        "{} sets only-if-empty, which only the central list of what nobody checks may set. Here \
+         an exclusion takes its path out as it stands — leave the field out",
+        report::shown(.path)
     )]
     ConditionalExclusion {
         /// The path of the rejected entry.
@@ -1577,6 +1581,20 @@ pub enum ReadError {
         /// The number it names.
         edition: i64,
     },
+}
+
+/// What the TOML reader says of a declaration that does not read, each line
+/// as [`report::shown`] writes it. The reader quotes the line it stopped at,
+/// and a control character it stopped on, such as a carriage return in a
+/// path, would otherwise reach the log as it stands, before phase 0 could
+/// refuse the path by name ([`control`]).
+fn quoted(error: &toml::de::Error) -> String {
+    error
+        .to_string()
+        .split('\n')
+        .map(report::shown)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// The edition this tool reads: the only one there is. A declaration that

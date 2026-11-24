@@ -58,6 +58,9 @@ pub enum Rule {
     RepositoryWithoutVersion,
     /// A component path does not exist in the tree.
     MissingPath,
+    /// A tracked file's name, or a path in the declaration, that holds a
+    /// control character.
+    ControlCharacter,
     /// A file whose language the register offers no check for at all.
     LanguageWithoutCheck,
     /// A unit declares children it does not have.
@@ -143,6 +146,7 @@ impl Rule {
             Self::NoRequestableDefault => "no-requestable-default",
             Self::RepositoryWithoutVersion => "repository-without-version",
             Self::MissingPath => "missing-path",
+            Self::ControlCharacter => "control-character",
             Self::LanguageWithoutCheck => "language-without-check",
             Self::ChildlessGenerator => "childless-generator",
             Self::UngeneratableName => "ungeneratable-name",

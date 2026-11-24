@@ -160,15 +160,18 @@ fn a_name_pattern_accepts_exactly_what_its_parser_accepts() {
 }
 
 #[test]
-fn the_path_pattern_accepts_exactly_what_the_parser_accepts() {
+fn the_path_pattern_accepts_exactly_what_phase_0_accepts() {
+    use nebensound_repo::control::holds_control;
     use nebensound_repo::path::RelativePath;
 
+    // The parser reads a control character; phase 0 then refuses it by a
+    // finding of its own, and the schema refuses it where it is written.
     let regex = pattern(&committed()["definitions"]["RelativePath"]);
-    for candidate in strings(&['a', '.', '/', '\\'], 6) {
+    for candidate in strings(&['a', '.', '/', '\\', '\n', '\u{9f}'], 6) {
         assert_eq!(
             regex.is_match(&candidate),
-            RelativePath::new(&candidate).is_ok(),
-            "the schema and the parser disagree on {candidate:?}"
+            RelativePath::new(&candidate).is_ok() && !holds_control(&candidate),
+            "the schema and phase 0 disagree on {candidate:?}"
         );
     }
 }
@@ -207,6 +210,13 @@ fn the_pattern_schema_lets_through_everything_the_parser_accepts() {
                 "the parser reads {candidate:?}, the schema refuses it"
             );
         }
+    }
+    // A control character phase 0 refuses by a finding, in every form.
+    for candidate in ["a\nb", "**/a\u{1b}", "*.\u{7f}", "a/\u{0}", "\u{85}"] {
+        assert!(
+            !choices.iter().any(|regex| regex.is_match(candidate)),
+            "the schema lets {candidate:?} through"
+        );
     }
 }
 
