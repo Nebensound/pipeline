@@ -89,10 +89,10 @@ that references a further one brings that one along.
 ## `nebensound-declaration.json`
 
 Not taken from anywhere: `nebensound-repo schema` derives it from the types
-phase 0 reads `.nebensound/repo.toml` with. A test in `tools/nebensound-repo`
-fails when it differs from what the types describe, so a change to the
-declaration format carries its schema in the same commit. To write it again, run
-in `tools/nebensound-repo`:
+phase 0 reads `.nebensound/repo.toml` with. A test of the tool fails when it
+differs from what the types describe, so a change to the declaration format
+carries its schema in the same commit. To write it again, run at the root of the
+repository:
 
 ```sh
 cargo run --quiet -- schema > schemas/nebensound-declaration.json
@@ -108,4 +108,4 @@ and a mistake while the file is written.
 The TOML check always validates `.nebensound/repo.toml` against the copy here,
 the one of the pipeline version that reads the file. The public address of the
 copy on `main`, and the `#:schema` line that points an editor at it, stand in
-the [README of the repository](../../../README.md#check-toml).
+the [README of the repository](../README.md#check-toml).

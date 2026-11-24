@@ -238,11 +238,12 @@ fn check(setup: &Setup, out: &mut dyn Write) -> u8 {
 /// ask before it installs a runtime, and gets the developer's environment less
 /// what would steer Cargo.
 ///
-/// Cargo runs in the tool's directory: rustup picks the toolchain from the
-/// directory it is started in, not from `--manifest-path`, so only there does
-/// the tool's `rust-toolchain.toml` count.
+/// Cargo runs at the repository root, where the tool's package lies: rustup
+/// picks the toolchain from the directory it is started in, not from
+/// `--manifest-path`, so only there does the tool's `rust-toolchain.toml`
+/// count.
 fn programs(options: &[String], setup: &Setup, out: &mut dyn Write) -> u8 {
-    let tool = setup.root.join("tools/nebensound-repo");
+    let tool = &setup.root;
     let manifest = tool.join("Cargo.toml");
     let status = Command::new(&setup.cargo)
         .args(["run", "--quiet", "--locked", "--manifest-path"])
@@ -252,7 +253,7 @@ fn programs(options: &[String], setup: &Setup, out: &mut dyn Write) -> u8 {
         .arg(&setup.root)
         .arg("setup")
         .args(options)
-        .current_dir(&tool)
+        .current_dir(tool)
         .env_clear()
         .envs(process::outside_cargo(setup.env.clone()))
         .status();
@@ -331,11 +332,13 @@ fn cases(direct: &[String], setup: &Setup, out: &mut dyn Write) -> Result<usize,
 /// pins and in the release profile the action `tool` builds it in, and
 /// returns where Cargo put it.
 ///
-/// Cargo runs in the tool's directory, for its `rust-toolchain.toml`, with
-/// the developer's environment less what would steer Cargo, and names what it
-/// built in its messages, wherever its target directory is.
+/// Cargo runs at the repository root, where the tool's package lies, for its
+/// `rust-toolchain.toml`, with the developer's environment less what would
+/// steer Cargo, and names what it built in its messages, wherever its target
+/// directory is. The root package is the workspace's one default member, so
+/// the xtask is not built with it.
 fn build(setup: &Setup, out: &mut dyn Write) -> Result<PathBuf, Error> {
-    let tool = setup.root.join("tools/nebensound-repo");
+    let tool = &setup.root;
     say(
         out,
         &format!("  > cargo build --release --locked in {}\n", tool.display()),
@@ -350,7 +353,7 @@ fn build(setup: &Setup, out: &mut dyn Write) -> Result<PathBuf, Error> {
             "--manifest-path",
         ])
         .arg(tool.join("Cargo.toml"))
-        .current_dir(&tool)
+        .current_dir(tool)
         .env_clear()
         .envs(process::outside_cargo(setup.env.clone()))
         .stdin(Stdio::null())

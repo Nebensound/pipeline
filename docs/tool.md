@@ -8,11 +8,23 @@ question.
 ## Layout
 
 ```text
-tools/nebensound-repo/  the tool — Cargo.toml, src/, tests/
-  register.toml         the register, compiled in
-  defaults.toml         what every repository declares without writing it down
-  rules/                the pipeline's defaults for the linters
+Cargo.toml      the tool, the package at the root of the repository, and the workspace
+src/, tests/    its code and its tests
+register.toml   the register, compiled in
+defaults.toml   what every repository declares without writing it down
+rules/          the pipeline's defaults for the linters
+run/, schemas/  what `run` hands the programs, compiled in
+xtask/          the xtask of this repository, the workspace's other member
 ```
+
+The package lies at the root, so that the repository unit is the tool: the
+version writer `cargo` writes the repository's version into the root
+`Cargo.toml`, and the program built from it carries the version of the
+pipeline. The workspace has one lockfile, and the tool is its one default
+member, so a Cargo command at the root without `--package` or `--workspace`
+builds the tool alone. The test cases of the building blocks below
+`.github/actions` are Cargo projects of their own and stay out of the
+workspace: the root manifest excludes that folder.
 
 The tool is one package, a library and the program: one name, one version. The
 part of the library that understands the format deliberately has no input and
@@ -36,7 +48,7 @@ default of Ruff is compiled in the same way, for the Python check of `run` and
 to show it. What else `run` hands the programs
 is compiled in as well: `run/biome.json`, the configuration that makes Biome a
 parser of JSONC and nothing else, `schemas/`, the JSON Schemas the TOML check
-assigns ([their README](schemas/README.md)), and the page rules of the HTML
+assigns ([their README](../schemas/README.md)), and the page rules of the HTML
 check, html-validate rules in JavaScript that stand in `src/run/html.rs` as
 text.
 
@@ -69,8 +81,8 @@ nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branc
 | `gather`            | The one result of the checks or of the builds, from the results of the jobs the closing job `Check` or `Build` waits for. See [The calls of a workflow run](#the-calls-of-a-workflow-run).                                                                                                                                                                                                                                                                                                                                                                       |
 | `xtask`             | The repository's own checks, `cargo xtask check --all`, with the toolchain the xtask pins, as the last step of `Check repository`. See [The calls of a workflow run](#the-calls-of-a-workflow-run).                                                                                                                                                                                                                                                                                                                                                              |
 | `release`           | Writes the records of the versions of the commit at hand, as the job `Publish` does after a push to `main`: for every unit the commit touches, a tag on it and a full GitHub Release. Takes the repository, the token and the summary of the run from the variables of a workflow run. See [The release stage](#the-release-stage).                                                                                                                                                                                                                              |
-| `schema`            | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. The TOML check assigns the copy in `schemas/`, which `run` compiles in; [their README](schemas/README.md#nebensound-declarationjson) says how to write that copy again.                                                                                                                                                                                                                                                                           |
-| `register`          | The register as Markdown, exactly as [`docs/register.md`](../../docs/register.md) holds it, which a test compares with this output. Reads no repository.                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `schema`            | The JSON Schema of `.nebensound/repo.toml`, derived from the types phase 0 reads it with. Reads no repository. The TOML check assigns the copy in `schemas/`, which `run` compiles in; [their README](../schemas/README.md#nebensound-declarationjson) says how to write that copy again.                                                                                                                                                                                                                                                                        |
+| `register`          | The register as Markdown, exactly as [`docs/register.md`](register.md) holds it, which a test compares with this output. Reads no repository.                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `ui`                | The same result to walk through. Only in a build with the `ui` feature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 Exit code: `0` when there is nothing to report; `1` when the repository has a
@@ -156,10 +168,10 @@ the commit does not touch, where a package that gets a version needs it. The
 release stage on `main` releases each unit whose `version` is not `null` in
 full under its `prefix`, and `Check` fails for every entry of `targets`
 that has no building block. How they are resolved from the history is
-described in [the reference of the declaration](../../docs/declaration.md#versions).
+described in [the reference of the declaration](declaration.md#versions).
 
 `audience` is for whom the repository is meant, as the declaration at hand
-says (see [the reference](../../docs/declaration.md#audience)), and
+says (see [the reference](declaration.md#audience)), and
 `previous_audience` what the declaration of the commit before it on the line
 says, `null` when that commit names none or there is none. On a pull request
 into `main` that is the tip of `main`, so Declare names a change of the value in
@@ -592,7 +604,7 @@ The checks call external programs: formatters, linters, a link checker; the
 image build calls a scanner. The register pins each of them to one version, with
 a download per operating system and architecture and its digest, and names the
 runtime a program written in JavaScript or Python needs, with the lowest version
-of it the program runs on ([Programs](../../docs/register.md#programs)). `setup`
+of it the program runs on ([Programs](register.md#programs)). `setup`
 gets a computer ready to run the checks of a repository:
 
 ```bash
@@ -759,7 +771,7 @@ what `run` hands the programs, with the configuration the tool writes from the
 repository's `lychee.toml` and `.lycheeignore` and the files as absolute
 paths, so that it reads nothing of the repository's configuration itself. The
 keys the tool carries over and the ones it refuses by name stand in
-[`src/lychee_config.rs`](src/lychee_config.rs). actionlint uses the
+[`src/lychee_config.rs`](../src/lychee_config.rs). actionlint uses the
 ShellCheck and pyflakes on the `PATH`, where there are any, and the output says
 whether it found them. Hadolint gets the repository's `.hadolint.yaml` or
 `.hadolint.yml` at the root, or an empty configuration, and none of the
@@ -948,7 +960,7 @@ sentence and exit code `1`, for the same reason it gets no plan.
 Markdownlint, yamllint, Stylelint, html-validate and Ruff run with a default of
 the pipeline, which their blocks lay a repository's own configuration over rule
 by rule (see
-[Linter rules](../../README.md#linter-rules)). `check` shows, per check, every
+[Linter rules](../README.md#linter-rules)). `check` shows, per check, every
 file that is laid over the default and every rule it sets, with how the rule
 stands to the default:
 
@@ -1064,7 +1076,7 @@ on who runs it.
 Unlike the file list, the versions need a commit. They are resolved for `HEAD`,
 and each commit is read with the declaration it holds, so a change to
 `.nebensound/repo.toml` that is not committed yet reaches them only in part; see
-[what the history must hold](../../docs/declaration.md#what-the-history-must-hold).
+[what the history must hold](declaration.md#what-the-history-must-hold).
 
 ## What the output says
 
@@ -1103,7 +1115,7 @@ without the feature `ui` is not a call at all; it is refused like any other
 unknown word, with exit code `2`.
 
 ```bash
-cargo run --features ui -- -C ../.. ui        # on this repository
+cargo run --features ui -- -C . ui            # on this repository
 cargo run --features ui -- -C <directory> ui
 ```
 
@@ -1135,12 +1147,12 @@ answered truthfully — and a check of `ui` would take that terminal over.
 
 ## Developing
 
-Every command runs inside `tools/nebensound-repo/`, where the toolchain is
+Every command runs at the root of the repository, where the toolchain is
 declared.
 
 ```bash
-cargo run --quiet -- -C ../.. check    # phase 0 on this repository itself
-cargo run --quiet -- -C ../.. plan     # and the plan a run would start
+cargo run --quiet -- -C . check    # phase 0 on this repository itself
+cargo run --quiet -- -C . plan     # and the plan a run would start
 
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
@@ -1155,9 +1167,10 @@ cargo llvm-cov --workspace --no-default-features --locked \
   --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
 ```
 
-Together these are the gate for the tool: formatting, Clippy with
-`-D warnings` in both builds, the tests in both builds, the doc tests, rustdoc
-and full coverage of lines, regions and functions in both builds.
+Together these are the gate for the tool and the xtask: formatting, Clippy
+with `-D warnings` in both builds, the tests in both builds, the doc tests,
+rustdoc and full coverage of lines, regions and functions in both builds.
+`--workspace` takes in both packages, as the Rust check of the repository does.
 
 Raw mode, the alternate screen and the blocking read live in `src/terminal.rs`
 and are checked from inside a **pseudo terminal** (`tests/pty.rs`) — the same

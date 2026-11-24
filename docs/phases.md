@@ -267,7 +267,7 @@ gives it, and phase 0 would report it as `conflicting-tag` in the next run.
 
 The job checks the repository out with its whole history and every tag, builds
 the tool, and calls `nebensound-repo release`, which does the rest
-([the tool's README](../tools/nebensound-repo/README.md#the-release-stage)). It
+([the tool](tool.md#the-release-stage)). It
 holds no other logic. The tool works in this order:
 
 1. **Decide what to release.** Nothing is written yet. The tool reads the

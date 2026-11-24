@@ -87,7 +87,7 @@ fn setup_calls_the_tool_of_this_commit_with_every_option() {
     let _alone = support::alone();
     let scene = Scene::new();
     let root = scene.path().canonicalize().unwrap().join("root");
-    write(&root, &[("tools/nebensound-repo/Cargo.toml", "")]);
+    write(&root, &[("Cargo.toml", "")]);
     let mut setup = setup(&root, scene.path());
     setup.env.retain(|(name, _)| name != "RUSTUP_TOOLCHAIN");
     setup.env.push((
@@ -99,8 +99,8 @@ fn setup_calls_the_tool_of_this_commit_with_every_option() {
     let (code, out) = call(&["setup", "--pinned", "--with-runtimes"], &setup);
     assert_eq!(code, 0, "{out}");
     assert_eq!(out, "");
-    let manifest = root.join("tools/nebensound-repo/Cargo.toml");
-    // Cargo starts in the tool's directory, so that rustup takes the
+    let manifest = root.join("Cargo.toml");
+    // Cargo starts at the root, where the tool's package lies, so that rustup takes the
     // toolchain the tool pins, and without the xtask's RUSTUP_TOOLCHAIN.
     let expected = [
         "run",
@@ -114,7 +114,7 @@ fn setup_calls_the_tool_of_this_commit_with_every_option() {
         "setup",
         "--pinned",
         "--with-runtimes",
-        &root.join("tools/nebensound-repo").to_string_lossy(),
+        &root.to_string_lossy(),
         "toolchain=unset",
     ]
     .join("\n");
@@ -147,7 +147,7 @@ fn setup_calls_the_tool_of_this_commit_with_every_option() {
         out.starts_with("::error::cannot start `")
             && out.contains(&format!(
                 "no-cargo` in {} to build the tool",
-                root.join("tools/nebensound-repo").display()
+                root.display()
             )),
         "{out}"
     );
@@ -162,7 +162,6 @@ fn setup_killed_by_a_signal_is_a_failure() {
     let mut permissions = fs::metadata(&script).unwrap().permissions();
     std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
     fs::set_permissions(&script, permissions).unwrap();
-    fs::create_dir_all(scene.path().join("tools/nebensound-repo")).unwrap();
     let mut setup = setup(scene.path(), scene.path());
     setup.cargo = script.into();
     let (code, out) = call(&["setup"], &setup);

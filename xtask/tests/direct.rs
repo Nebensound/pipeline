@@ -188,7 +188,7 @@ fn repository(scene: &Scene) -> PathBuf {
     write(
         &root,
         &[
-            ("tools/nebensound-repo/register.toml", REGISTER),
+            ("register.toml", REGISTER),
             (".github/workflows/nebensound.yml", WORKFLOW),
             (".github/actions/tool/action.yml", TOOL),
             (".github/actions/phase0/action.yml", PHASE0),
@@ -375,7 +375,7 @@ fn without(root: &Path, name: &str) {
     write(
         root,
         &[
-            ("tools/nebensound-repo/register.toml", &register),
+            ("register.toml", &register),
             (".github/workflows/nebensound.yml", &workflow),
         ],
     );

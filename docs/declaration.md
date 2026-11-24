@@ -11,14 +11,14 @@ which name, is described in [the phases](phases.md).
 ## The file
 
 ```toml
-#:schema https://raw.githubusercontent.com/Nebensound/pipeline/main/tools/nebensound-repo/schemas/nebensound-declaration.json
+#:schema https://raw.githubusercontent.com/Nebensound/pipeline/main/schemas/nebensound-declaration.json
 
 [repo]
 audience = "public"
 pipeline = "none"
 
 [component.tool]
-path       = "tools/nebensound-repo"
+path       = "tools/cli"
 pipeline   = "rust-workspace"
 versioning = "none"
 
@@ -35,7 +35,7 @@ reason = "drawn in an editor that writes it; no tool here formats it"
   key fails instead of quietly meaning nothing.
 - `[repo]` is required, and in it `audience`. Everything else is optional.
 - The `#:schema` line gives an editor the
-  [JSON Schema of the file](../tools/nebensound-repo/schemas/nebensound-declaration.json),
+  [JSON Schema of the file](../schemas/nebensound-declaration.json),
   for completion and for marking an unknown key where it is written. The
   `check-toml` building block checks the file against the same schema whether
   the line is there or not, and always against the schema of the version the
@@ -282,7 +282,7 @@ public, but not whether a customer sees it, so the declaration says it.
 - A pull request into `main` that changes the value names the old and the new
   value in the summary of the run, as a notice and in the step summary.
 - The plan carries the value as `audience` (see
-  [the tool's README](../tools/nebensound-repo/README.md#the-plan)), and
+  [the tool](tool.md#the-plan)), and
   `nebensound-repo explain` shows it for every path.
 - No rule or check uses the value yet.
 
@@ -398,7 +398,7 @@ The history is the truth, and no version is stored in the tree. Phase 0
 resolves for every unit that carries a version which version the commit at
 hand has, from the commits of the repository and the declarations they hold,
 and from nothing else. `nebensound-repo plan` lists them under `versions` (see
-[the tool's README](../tools/nebensound-repo/README.md#the-plan)).
+[the tool](tool.md#the-plan)).
 `nebensound-repo version` shows them as a table, with each unit's current
 version, and the job `nebensound / Version` writes the same table into the
 summary of every run (see [the phases](phases.md#version)).
@@ -1031,8 +1031,8 @@ sentence that names the file and the mistake, and fails:
 
 ## Trying it locally
 
-The same tool that runs phase 0 in the workflow runs on a checkout. From
-`tools/nebensound-repo/` in a checkout of this repository:
+The same tool that runs phase 0 in the workflow runs on a checkout. From the
+root of a checkout of this repository:
 
 ```sh
 cargo run --quiet -- -C <repository> check                 # the whole report
@@ -1043,4 +1043,4 @@ cargo run --quiet -- -C <repository> excluded-packages     # the Rust packages t
 cargo run --quiet -- -C <repository> setup                 # find or install the programs its checks call
 ```
 
-[The tool's README](../tools/nebensound-repo/README.md) describes every call.
+[The tool](tool.md) describes every call.

@@ -204,8 +204,14 @@ fn help_and_version_are_not_a_failure() {
     assert_eq!(code, 0, "{help}");
     assert!(help.contains("explain"), "{help}");
 
+    // The version is the one the root manifest carries when the tool is
+    // built: what the version writer cargo wrote into it, `0.0.0` without.
     let (version, code) = call(&["nebensound-repo", "--version"]);
     assert_eq!(code, 0, "{version}");
+    assert_eq!(
+        version,
+        format!("nebensound-repo {}\n", env!("CARGO_PKG_VERSION"))
+    );
 }
 
 #[test]
