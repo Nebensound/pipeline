@@ -1119,8 +1119,8 @@ repository. The work of every block runs from the tool (`check-css`,
 `check-dockerfile`, `check-html`, `check-json`, `check-markdown`,
 `check-python`, `check-rust`, `check-toml`, `check-yaml`, `version-cargo`,
 `build-cargo-package`, `build-cargo-release`, `build-docker`), and its steps
-hold nothing of it, so
-the cases run through the tool itself: the xtask builds the tool of this commit
+hold nothing of it, so the cases run through the tool itself: the xtask builds
+the tool of this commit
 with Cargo, runs phase 0 on the case with `nebensound-repo check` and `plan`, as
 `Declare` does, and calls the tool as the block's step does, in the environment of a
 workflow run, so that the findings are annotations; its temporary folder
@@ -1203,9 +1203,10 @@ The cases are
 taken out of this repository's own checks with `[[exclude]]` and a reason in
 [`.nebensound/repo.toml`](.nebensound/repo.toml). A case of `check-rust` is a
 whole Cargo package, the only way Rust code can be excluded, and so is a case
-of `build-cargo-package` or `build-cargo-release`. None of them belongs to the Cargo workspace at the
-root: its manifest excludes everything below `.github/actions`, so Cargo run
-inside a case finds the case and not that workspace.
+of `build-cargo-package` or `build-cargo-release`. None of them belongs to the
+Cargo workspace at the root: its manifest excludes everything below
+`.github/actions`, so Cargo run inside a case finds the case and not that
+workspace.
 
 ## Licence
 
