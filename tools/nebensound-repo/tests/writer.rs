@@ -12,7 +12,7 @@ use std::process::{Command, Output};
 
 use nebensound_repo::plan;
 use nebensound_repo::repository::Repository;
-use nebensound_repo::writer::Order;
+use nebensound_repo::writer::{Order, WriteError};
 use support::{Git, call, central, repository};
 
 /// A workspace of two packages, `app` depending on `lib` by path, each a unit
@@ -2271,24 +2271,15 @@ fn a_manifest_that_is_no_toml_says_so() {
 
 #[test]
 fn a_line_break_in_the_path_of_a_manifest_is_written_as_an_escape() {
-    let git = Git::new();
-    git.write(&[
-        (
-            ".nebensound/repo.toml",
-            "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.thing]\npath = \
-             \"a\\n::warning::x\"\npipeline = { version = [\"cargo\"] }\n",
-        ),
-        ("a\n::warning::x/Cargo.toml", "this is [not TOML\n"),
-    ]);
-    git.commit("feat: start");
+    // Phase 0 refuses such a path before the writer runs (`control-character`),
+    // so the message is built here rather than reached through a call.
+    let message = WriteError::Malformed {
+        path: "a\n::warning::x/Cargo.toml".to_owned(),
+        message: "broken".to_owned(),
+    }
+    .to_string();
 
-    let (text, code) = call(&["nebensound-repo", "-C", git.root(), "write-versions"]);
-
-    assert_eq!(code, 1, "{text}");
-    assert!(
-        text.starts_with("a\\n::warning::x/Cargo.toml is not TOML: "),
-        "{text}"
-    );
+    assert_eq!(message, "a\\n::warning::x/Cargo.toml is not TOML: broken");
 }
 
 #[test]
