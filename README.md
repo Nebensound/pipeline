@@ -318,9 +318,12 @@ Every part runs even when one before it failed, so one run shows every finding.
   write another file (`cache`, `cookie_jar`, `exclude_file`, `files_from`,
   `glob_ignore_case`, `output`, `root_dir`) or ask a web archive (`suggest`)
   fails the check by name, and so does a key the tool does not know; the
-  other parts of the check still run. The tool reads `.lycheeignore` at the
-  root as well and adds its patterns to `exclude`, and starts lychee in a
-  folder of its own, where it finds no `.lycheeignore` to read. It hands
+  other parts of the check still run. The keys that choose and rewrite
+  addresses (`exclude`, `scheme`, `remap`) are carried over, so they can still
+  leave a link into the repository unchecked, such as one `remap` turns into a
+  web address. The tool reads `.lycheeignore` at the root as well and adds its
+  patterns to `exclude`, and starts lychee in a folder of its own, where it
+  finds no `.lycheeignore` to read. It hands
   lychee every file as an absolute path and takes out itself what
   `exclude_path` matches, against the path from the root, as phase 0 matches
   it and holds it against the declaration, like every setting that takes

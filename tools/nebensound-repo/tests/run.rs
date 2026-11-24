@@ -1408,6 +1408,10 @@ fn the_link_check_is_handed_every_path_as_lychee_reads_it() {
         ("dir/mailto:a.md", "dir/mailto:a.md"),
         ("1:a.md", "1:a.md"),
         ("é:a.md", "é:a.md"),
+        // A drive, which lychee reads as a path.
+        ("a:b.md", "a:b.md"),
+        (r"C:\repo/a.md", r"C:\repo/a.md"),
+        (r"\\server\share/a.md", r"\\server\share/a.md"),
     ] {
         assert_eq!(markdown::lychee_line(file), line, "{file:?}");
     }
@@ -1419,6 +1423,19 @@ fn the_link_check_is_handed_every_path_as_lychee_reads_it() {
             &["a.md".to_owned(), "b c.md".to_owned(), "#c.md ".to_owned()]
         ),
         "/r[[]1[]]/a.md\n/r[[]1[]]/b c.md\n/r[[]1[]]/#c.md[ ]\n"
+    );
+    // A Windows verbatim root loses its prefix, which would make every line
+    // a glob naming no file.
+    for (root, written) in [
+        ("/r", "/r"),
+        (r"\\?\C:\repo", r"C:\repo"),
+        (r"\\?\UNC\server\share\repo", r"\\server\share\repo"),
+    ] {
+        assert_eq!(markdown::lychee_root(Path::new(root)), written, "{root:?}");
+    }
+    assert_eq!(
+        markdown::lychee_lines(Path::new(r"\\?\C:\repo"), &["a.md".to_owned()]),
+        "C:\\repo/a.md\n"
     );
 }
 

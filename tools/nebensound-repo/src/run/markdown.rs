@@ -9,7 +9,7 @@ use super::links::{self, Handed};
 use super::{Entry, Session, Tool, relative};
 use crate::rules;
 
-pub use super::links::{Broken, broken, lychee_line, lychee_lines};
+pub use super::links::{Broken, broken, lychee_line, lychee_lines, lychee_root};
 
 /// What runs markdownlint-cli2 on Node.js, through its own `main`.
 ///

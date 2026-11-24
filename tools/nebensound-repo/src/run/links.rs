@@ -134,16 +134,34 @@ fn read(session: &mut Session<'_, '_>, path: &Path, name: &str, strict: bool) ->
 /// takes the root off again. A line holding a glob character is expanded, which
 /// yields the same path. Where lychee would misread a line, one character of
 /// it is put in brackets, which makes the line a glob naming just that file
-/// ([`lychee_line`]).
+/// ([`lychee_line`]). The root is written as [`lychee_root`] writes it.
 #[must_use]
 pub fn lychee_lines(root: &Path, files: &[String]) -> String {
-    let root = root.to_string_lossy();
+    let root = lychee_root(root);
     let mut text = String::new();
     for file in files {
         text.push_str(&lychee_line(&format!("{root}/{file}")));
         text.push('\n');
     }
     text
+}
+
+/// The repository root as the link check writes it in front of each file and
+/// takes it off lychee's report again: as it stands, except a Windows
+/// verbatim path, which is what `fs::canonicalize` returns there. Its `?`
+/// would make the line a glob, which the `glob` crate reads as a network
+/// share `?` that matches no file, and lychee would check nothing and pass.
+/// Without the prefix it
+/// names the same folder: `\\?\C:\repo` becomes `C:\repo`, and
+/// `\\?\UNC\server\share` becomes `\\server\share`.
+#[must_use]
+pub fn lychee_root(root: &Path) -> String {
+    let root = root.to_string_lossy();
+    if let Some(share) = root.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{share}")
+    } else {
+        root.strip_prefix(r"\\?\").unwrap_or(&root).to_owned()
+    }
 }
 
 /// One path as a line for the link check, which lychee reads as just that
@@ -153,11 +171,15 @@ pub fn lychee_lines(root: &Path, files: &[String]) -> String {
 ///   and pass;
 /// - a `#` at the start, which makes the line a comment;
 /// - white space at either end, which lychee trims off;
-/// - the first letter of a first segment holding a `:`, which lychee would
-///   read as an address, such as `mailto:a.md`.
+/// - the first letter of a first segment holding a `:` after its second
+///   character, which lychee would read as an address, such as
+///   `mailto:a.md`. A `:` right after the first letter, as in the drive of
+///   `C:\repo`, lychee reads as a path, not as an address, so the line stays
+///   a path: a bracket there would make it a glob that names no drive.
 ///
-/// The last two concern a path from the root; an absolute path, as
-/// [`lychee_lines`] writes, starts with `/`.
+/// The `#` and the white space at the start, and the address, concern a path
+/// from the root only: an absolute path, as [`lychee_lines`] writes, starts
+/// with `/`, or on Windows with a drive and `:` or with `\\`.
 #[must_use]
 pub fn lychee_line(file: &str) -> String {
     let bracket = |c: char| format!("[{c}]");
@@ -180,6 +202,7 @@ pub fn lychee_line(file: &str) -> String {
     let segment = line.split('/').next().unwrap_or_default();
     if let Some(first) = line.chars().next().filter(char::is_ascii_alphabetic)
         && segment[1..].contains(':')
+        && !segment[1..].starts_with(':')
     {
         line = format!("{}{}", bracket(first), &line[1..]);
     }
@@ -258,7 +281,7 @@ pub(super) fn check(
     session.log.lines(&ran.text);
     let report = fs::read_to_string(report).unwrap_or_default();
     session.log.lines(&report);
-    let prefix = format!("{}/", session.context.root.to_string_lossy());
+    let prefix = format!("{}/", lychee_root(session.context.root));
     for link in broken(&report) {
         session.log.error(
             Some(link.file.strip_prefix(&prefix).unwrap_or(&link.file)),
