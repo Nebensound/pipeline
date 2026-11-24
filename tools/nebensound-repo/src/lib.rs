@@ -41,6 +41,7 @@ pub mod gather;
 pub mod history;
 pub mod ignored;
 pub mod lockfiles;
+pub mod lychee_config;
 pub mod model;
 pub mod names;
 pub mod output;

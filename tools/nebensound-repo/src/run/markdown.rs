@@ -5,7 +5,8 @@
 use std::fs;
 use std::path::Path;
 
-use super::{Entry, Session, Tool, links, relative};
+use super::links::{self, Handed};
+use super::{Entry, Session, Tool, relative};
 use crate::rules;
 
 pub use super::links::{Broken, broken, lychee_line, lychee_lines};
@@ -118,27 +119,23 @@ pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
     let prettier = session.tool("prettier", false);
     let markdownlint = session.tool("markdownlint-cli2", true);
     let lychee = session.tool("lychee", false);
-    let Some(config) = links::config(session) else {
-        return false;
-    };
+    let handed = links::hand_over(session);
     let mut list = Vec::new();
     for file in &session.files {
         list.extend_from_slice(file.as_bytes());
         list.push(0);
     }
-    let lines = lychee_lines(&session.files);
     let Some(temp) = session.folder(|_| {
-        let entries: Vec<Entry> = vec![
+        let mut entries: Vec<Entry> = vec![
             ("nothing-ignored".to_owned(), Some(Vec::new())),
             ("base".to_owned(), None),
             ("files".to_owned(), Some(list)),
-            ("lines".to_owned(), Some(lines.into_bytes())),
-            ("lychee.toml".to_owned(), Some(config)),
             (
                 "markdownlint.jsonc".to_owned(),
                 Some(rules::MARKDOWNLINT.as_bytes().to_vec()),
             ),
         ];
+        entries.extend(Handed::entries(handed.as_ref()));
         entries
     }) else {
         return false;
@@ -152,15 +149,8 @@ pub(super) fn run(session: &mut Session<'_, '_>) -> bool {
     let rules_hold =
         markdownlint.is_some_and(|markdownlint| markdownlint_run(session, &markdownlint, &temp));
     let root = session.context.root;
-    let links_lead = lychee.is_some_and(|lychee| {
-        links::check(
-            session,
-            &lychee,
-            &[&temp.join("lychee.toml")],
-            root,
-            &temp.join("lines"),
-            &temp.join("links.md"),
-        )
+    let links_lead = handed.is_some_and(|handed| {
+        lychee.is_some_and(|lychee| links::check(session, &lychee, &handed, &temp, &[], root))
     });
     formatted && rules_hold && links_lead
 }

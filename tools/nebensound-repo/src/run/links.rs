@@ -5,44 +5,149 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::Path;
 
-use super::{Session, Tool};
+use super::{Entry, Session, Tool};
+use crate::lychee_config;
 
-/// The configuration of the link check, which is named and never looked for.
-/// Without one named, lychee takes the first it finds at the root:
-/// `lychee.toml`, else a lychee table in `Cargo.toml`, `pyproject.toml` or
-/// `package.json`, and an `exclude_path` in one of those three would take
-/// files out unseen by phase 0. So it is handed a copy of `lychee.toml`, or
-/// an empty file where there is none, which it reads as a configuration that
-/// sets nothing. A linked `lychee.toml` phase 0 refuses already.
-pub(super) fn config(session: &mut Session<'_, '_>) -> Option<Vec<u8>> {
-    let path = session.context.root.join("lychee.toml");
-    let regular = fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file());
-    if !regular {
-        return Some(Vec::new());
+/// The configuration the tool writes for lychee, in the folder of what the
+/// programs are handed.
+const CONFIG: &str = "lychee.toml";
+/// The files lychee reads, one per line, in that folder.
+const LINES: &str = "lines";
+/// lychee's report, in that folder.
+const REPORT: &str = "links.md";
+
+/// What the link check hands lychee.
+pub(super) struct Handed {
+    /// The configuration the tool writes from the repository's (see
+    /// [`lychee_config`]).
+    config: Vec<u8>,
+    /// The files lychee reads: see [`lychee_lines`].
+    lines: String,
+}
+
+impl Handed {
+    /// The entries of the folder of what the programs are handed that the
+    /// link check reads, empty where nothing is handed over.
+    pub(super) fn entries(handed: Option<&Self>) -> [Entry; 2] {
+        [
+            (
+                CONFIG.to_owned(),
+                Some(
+                    handed
+                        .map(|handed| handed.config.clone())
+                        .unwrap_or_default(),
+                ),
+            ),
+            (
+                LINES.to_owned(),
+                Some(
+                    handed
+                        .map(|handed| handed.lines.clone().into_bytes())
+                        .unwrap_or_default(),
+                ),
+            ),
+        ]
     }
-    match fs::read(&path) {
-        Ok(bytes) => Some(bytes),
+}
+
+/// What the link check hands lychee, read from the repository's
+/// `lychee.toml` and `.lycheeignore` at the root (see [`lychee_config`]), or
+/// [`None`] where it hands nothing, with every reason written as a finding.
+///
+/// The configuration is always named, never looked for: without one named,
+/// lychee would take the first it finds where it starts, `lychee.toml`, else
+/// a lychee table in `Cargo.toml`, `pyproject.toml` or `package.json`. Where
+/// the repository has no `lychee.toml`, the one written sets nothing beyond
+/// `.lycheeignore`. A linked `lychee.toml` phase 0 refuses already, and the
+/// link check reads it as none. `.lycheeignore` is read only as a regular
+/// file: phase 0 does not judge it, and a link could point out of the
+/// repository.
+///
+/// The files are the ones the check covers less those `exclude_path` takes
+/// out, matched against the path from the root as phase 0 matches it.
+pub(super) fn hand_over(session: &mut Session<'_, '_>) -> Option<Handed> {
+    let root = session.context.root;
+    let config = read(session, &root.join(CONFIG), CONFIG, false)?;
+    let ignore = read(session, &root.join(".lycheeignore"), ".lycheeignore", true)?;
+    let handed = match lychee_config::hand_over(&config, &ignore) {
+        Ok(handed) => handed,
+        Err(reasons) => {
+            for reason in reasons {
+                session.log.error(Some(CONFIG), None, &reason);
+            }
+            return None;
+        }
+    };
+    let files: Vec<String> = session
+        .files
+        .iter()
+        .filter(|file| {
+            !handed
+                .exclude_path
+                .as_ref()
+                .is_some_and(|set| set.is_match(file))
+        })
+        .cloned()
+        .collect();
+    Some(Handed {
+        config: handed.settings.to_string().into_bytes(),
+        lines: lychee_lines(root, &files),
+    })
+}
+
+/// A file at the root as text, empty where there is none or, unless `strict`,
+/// where it is no regular file; [`None`] with a finding where it cannot be
+/// read, or where it is there but no regular file and `strict` holds.
+fn read(session: &mut Session<'_, '_>, path: &Path, name: &str, strict: bool) -> Option<String> {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return Some(String::new());
+    };
+    if !metadata.is_file() {
+        if !strict {
+            return Some(String::new());
+        }
+        session.log.error(
+            Some(name),
+            None,
+            "is a link or no regular file; the link check reads it only as it stands in the \
+             repository",
+        );
+        return None;
+    }
+    match fs::read_to_string(path) {
+        Ok(text) => Some(text),
         Err(error) => {
-            session.log.error(
-                Some("lychee.toml"),
-                None,
-                &format!("cannot be read: {error}"),
-            );
+            session
+                .log
+                .error(Some(name), None, &format!("cannot be read: {error}"));
             None
         }
     }
 }
 
-/// The files as the link check reads them: one path per line. A file name
-/// holding a line break is not something it could be given.
+/// The files as the link check reads them: one absolute path per line, the
+/// root in front of the path from the root. A file name holding a line break
+/// is not something it could be given.
 ///
-/// Each line is the path from the repository root, such as `docs/a.md`:
-/// lychee matches `exclude_path` against the string it is handed, and phase
-/// 0 judges that setting against exactly this one. A line holding a glob
-/// character is expanded, which yields the path from the root as well. So
-/// nothing is put in front of a path; where lychee would misread a line, one
-/// character of it is put in brackets instead, which makes the line a glob
-/// naming just that file:
+/// The path is absolute because lychee starts in a folder of its own, not at
+/// the root; its report names each file by that path, and the link check
+/// takes the root off again. A line holding a glob character is expanded, which
+/// yields the same path. Where lychee would misread a line, one character of
+/// it is put in brackets, which makes the line a glob naming just that file
+/// ([`lychee_line`]).
+#[must_use]
+pub fn lychee_lines(root: &Path, files: &[String]) -> String {
+    let root = root.to_string_lossy();
+    let mut text = String::new();
+    for file in files {
+        text.push_str(&lychee_line(&format!("{root}/{file}")));
+        text.push('\n');
+    }
+    text
+}
+
+/// One path as a line for the link check, which lychee reads as just that
+/// file. One character is put in brackets, which makes the line a glob:
 ///
 /// - every glob character, since `[docs]/a.md` would otherwise match nothing
 ///   and pass;
@@ -50,17 +155,9 @@ pub(super) fn config(session: &mut Session<'_, '_>) -> Option<Vec<u8>> {
 /// - white space at either end, which lychee trims off;
 /// - the first letter of a first segment holding a `:`, which lychee would
 ///   read as an address, such as `mailto:a.md`.
-#[must_use]
-pub fn lychee_lines(files: &[String]) -> String {
-    let mut text = String::new();
-    for file in files {
-        text.push_str(&lychee_line(file));
-        text.push('\n');
-    }
-    text
-}
-
-/// One path as a line for the link check: see [`lychee_lines`].
+///
+/// The last two concern a path from the root; an absolute path, as
+/// [`lychee_lines`] writes, starts with `/`.
 #[must_use]
 pub fn lychee_line(file: &str) -> String {
     let bracket = |c: char| format!("[{c}]");
@@ -100,37 +197,48 @@ fn is_space(c: char) -> bool {
 /// outside are not checked in a pull request at all. A file without a link is
 /// not a finding.
 ///
-/// It runs at the repository root and reads the repository's `lychee.toml`
-/// (the first of `configs`, see [`config`]) and `.lycheeignore` there: which
-/// addresses it leaves out, which status codes it accepts, how long it waits
-/// stay the repository's configuration. An `exclude_path` in `lychee.toml`
-/// would take files out; phase 0 matches it against the same path from the
-/// root that each line of `lines` hands over, and fails on every file it
-/// takes out that no `[[exclude]]` entry does, so none of them is in the
-/// list. `--hidden` and `--no-ignore` keep it from skipping a file in a
-/// hidden folder or one a `.gitignore` names. A link from the root of a site,
-/// such as `/style.css`, is resolved below `root`; every configuration after
-/// the first is handed over behind it.
+/// lychee reads what [`hand_over`] wrote into `folder`, the folder of what
+/// the programs are handed, and nothing else of the repository's
+/// configuration: it starts in `folder`, so the `.lycheeignore` it would read
+/// where it starts is not the repository's, and it is named every
+/// configuration, so it looks for none. Which addresses it leaves out, which
+/// status codes it accepts and how long it waits stay the repository's
+/// configuration, carried over by the tool. `--hidden` and `--no-ignore` keep
+/// it from skipping a file in a hidden folder or one a `.gitignore` names. A
+/// link from the root of a site, such as `/style.css`, is resolved below
+/// `root`; every configuration of `more` is handed over behind the one the
+/// tool wrote. Where `exclude_path` took out every file, lychee does not
+/// start.
 ///
 /// Its report, in Markdown, goes into the output; every broken link in it
 /// becomes a finding on the file that holds it, at the line and column
-/// lychee names. The report goes to `report`.
+/// lychee names, the file named from the repository root.
 pub(super) fn check(
     session: &mut Session<'_, '_>,
     lychee: &Tool,
-    configs: &[&Path],
+    handed: &Handed,
+    folder: &Path,
+    more: &[&Path],
     root: &Path,
-    lines: &Path,
-    report: &Path,
 ) -> bool {
+    if handed.lines.is_empty() {
+        session.log.line(
+            "lychee is not started: `exclude_path` in lychee.toml takes out every file it would \
+             read",
+        );
+        return true;
+    }
+    let report = folder.join(REPORT);
     let mut args: Vec<OsString> = vec![
         "--offline".into(),
         "--include-fragments".into(),
         "--no-progress".into(),
         "--hidden".into(),
         "--no-ignore".into(),
+        "--config".into(),
+        folder.join(CONFIG).into(),
     ];
-    for config in configs {
+    for config in more {
         args.push("--config".into());
         args.push(config.into());
     }
@@ -138,19 +246,22 @@ pub(super) fn check(
         "--root-dir".into(),
         root.into(),
         "--files-from".into(),
-        lines.into(),
+        folder.join(LINES).into(),
         "--format".into(),
         "markdown".into(),
         "--output".into(),
-        report.into(),
+        report.clone().into(),
     ]);
-    let ran = session.execute(lychee, &args, None, "lychee");
+    let mut command = session.command(&lychee.executable, &lychee.search_path);
+    command.current_dir(folder).args(&args);
+    let ran = session.capture(command, "lychee");
     session.log.lines(&ran.text);
     let report = fs::read_to_string(report).unwrap_or_default();
     session.log.lines(&report);
+    let prefix = format!("{}/", session.context.root.to_string_lossy());
     for link in broken(&report) {
         session.log.error(
-            Some(&link.file),
+            Some(link.file.strip_prefix(&prefix).unwrap_or(&link.file)),
             link.place
                 .as_ref()
                 .map(|(line, column)| (line.as_str(), Some(column.as_str()))),
