@@ -53,6 +53,8 @@ the open issues and milestones show what comes next.
   the caller starts the workflow, which permissions it grants and why, why the
   schema line can run ahead of the pin, and how to change one linter rule in
   one place.
+- [The tool](docs/tool.md): every call of `nebensound-repo`, the package at the
+  root of this repository, and how to build and run it.
 
 ## Calling the pipeline
 
@@ -133,12 +135,15 @@ publish target without one in the step `Version writers not written yet` or
 This repository calls the workflow the same way, with one difference: its own
 [`gate.yml`](.github/workflows/gate.yml) calls the workflow at the commit that
 is running, so a change to the pipeline is checked by the pipeline it changes.
-Its declaration gives the tool `nebensound-repo` neither a version nor a build,
-so the repository's own tags `vX.Y.Z` are the only ones, and its Build phase has
-nothing to build. Every merge to `main` touches the repository and is released
-in full, as `vX.Y.Z`, the latest release, with nothing attached. The
-version writer `cargo` and the build `cargo-package` are held to their test
-cases instead.
+The tool `nebensound-repo` is the package at the root of this repository, and
+the xtask the other member of its one Cargo workspace, so the repository unit is
+the tool and its version the tool's: its declaration selects the version writer
+`cargo`, the Rust check over the workspace and Dependabot for Cargo, the parts
+of the preset `rust-binary` that have a building block. Its tags `vX.Y.Z` are
+the only ones, and its Build phase has nothing to build until the build of that
+preset has a building block. Every merge to `main` touches the repository and
+is released in full, as `vX.Y.Z`, the latest release, with nothing attached.
+The build `cargo-package` is held to its test cases instead.
 
 ## Building blocks
 
@@ -250,7 +255,7 @@ output of a run is not.
   other HTML file, such as a fragment or header a generator includes, gets the
   checks above without these. The page rules are html-validate rules compiled
   into the tool
-  ([`src/run/html.rs`](tools/nebensound-repo/src/run/html.rs)), switched on
+  ([`src/run/html.rs`](src/run/html.rs)), switched on
   after the repository's configuration, so neither that configuration nor an
   inline `html-validate-disable` comment switches them off: only an
   `[[exclude]]` entry takes a page out. Each finding names the page, the line
@@ -283,7 +288,7 @@ part runs even when one before it failed, so one run shows every finding.
 - `.jsonc` is strict JSONC as [jsonc.org](https://jsonc.org) defines it: JSON
   plus comments, trailing commas allowed. Biome judges it as a parser only, with
   the tool's own configuration
-  ([`run/biome.json`](tools/nebensound-repo/run/biome.json)) and no lint rule;
+  ([`run/biome.json`](run/biome.json)) and no lint rule;
   a repository's Biome configuration is not read.
 - `composer.lock`, `flake.lock` and `Pipfile.lock` are strict JSON like
   `.json`, judged by `jq`, but not format-checked: the tool that writes them
@@ -340,7 +345,7 @@ project, the unit's path: its `pyproject.toml` lies there, and its `uv.lock`
 there or at the root of the uv workspace above it. The block sets up the
 programs the register pins for the check and calls `nebensound-repo run
 python`, which runs the steps below in this order, each in a group of the log
-(see [the tool](tools/nebensound-repo/README.md#the-python-check)). The
+(see [the tool](docs/tool.md#the-python-check)). The
 interpreter is the one `.python-version` names, at the unit or at that root,
 installed by uv from its own downloads and never taken from the machine; like
 the toolchain of `check-rust`, it is no input. uv, Ruff, Pyright and
@@ -403,7 +408,7 @@ Python write no cache and no bytecode into the checkout.
 workspace, the unit's path. The block sets up cargo-llvm-cov as the register
 pins it and calls `nebensound-repo run rust`, which runs the steps below in this
 order, each in a group of the log, up to the first that fails (see
-[the tool](tools/nebensound-repo/README.md#running-a-check)). The toolchain is
+[the tool](docs/tool.md#running-a-check)). The toolchain is
 the one the workspace pins in its `rust-toolchain.toml`; the oldest supported
 version is the `rust-version` its packages claim; coverage is measured on the
 nightly toolchain [the register](docs/register.md#checks) pins for the check.
@@ -480,8 +485,8 @@ pins by SHA-256:
 - Schemas are assigned by the tool, so far to `Cargo.toml` by file name and
   to `.nebensound/repo.toml` by path (below). The schemas for `Cargo.toml` are
   copies of SchemaStore's schemas that the tool compiles in from
-  `tools/nebensound-repo/schemas/`, where they lie with their licence notice
-  (see [their README](tools/nebensound-repo/schemas/README.md)), so the check
+  `schemas/`, where they lie with their licence notice
+  (see [their README](schemas/README.md)), so the check
   makes no request to SchemaStore. Apart from the declaration, a
   file whose leading comments hold its own `#:schema` directive with an
   absolute URL keeps that schema. A schema that cannot be read fails the check
@@ -495,14 +500,14 @@ pins by SHA-256:
 The schema of the declaration on `main` has a public address, for editors:
 
 ```text
-https://raw.githubusercontent.com/Nebensound/pipeline/main/tools/nebensound-repo/schemas/nebensound-declaration.json
+https://raw.githubusercontent.com/Nebensound/pipeline/main/schemas/nebensound-declaration.json
 ```
 
 An editor that reads Taplo's directive finds it through this line before the
 first key or table of `.nebensound/repo.toml`:
 
 ```toml
-#:schema https://raw.githubusercontent.com/Nebensound/pipeline/main/tools/nebensound-repo/schemas/nebensound-declaration.json
+#:schema https://raw.githubusercontent.com/Nebensound/pipeline/main/schemas/nebensound-declaration.json
 ```
 
 ### `check-yaml`
@@ -640,7 +645,7 @@ build is one call of the tool, `nebensound-repo build --plan <file> docker
 first that fails, names the artifact and the file as outputs of its step and
 removes what it started; the block's last step hands the file on with
 `actions/upload-artifact` (see
-[the tool](tools/nebensound-repo/README.md#running-a-build)). The tool refuses
+[the tool](docs/tool.md#running-a-build)). The tool refuses
 a unit the plan starts no `docker` build for.
 
 - The Dockerfile is `deploy/Dockerfile` below the unit's path, and the build
@@ -686,19 +691,19 @@ Nothing is cached, for the same reason as for a crate. What the build started
 the end, whatever happened, and so is everything it made but the layout it
 hands on. Docker, its Buildx and Trivy start without the variables that steer
 them (see
-[the tool](tools/nebensound-repo/README.md#starting-docker-and-trivy)).
+[the tool](docs/tool.md#starting-docker-and-trivy)).
 
 ### Linter rules
 
 Markdownlint, yamllint, Stylelint and html-validate run with a default of the
 pipeline:
-[`tools/nebensound-repo/rules/markdownlint.jsonc`](tools/nebensound-repo/rules/markdownlint.jsonc)
+[`rules/markdownlint.jsonc`](rules/markdownlint.jsonc)
 (`MD013` off, since Prettier does not wrap prose),
-[`tools/nebensound-repo/rules/yamllint.yaml`](tools/nebensound-repo/rules/yamllint.yaml)
+[`rules/yamllint.yaml`](rules/yamllint.yaml)
 (yamllint's defaults, less what contradicts Prettier or GitHub Actions),
-[`tools/nebensound-repo/rules/stylelint.yaml`](tools/nebensound-repo/rules/stylelint.yaml)
+[`rules/stylelint.yaml`](rules/stylelint.yaml)
 (`stylelint-config-standard`, for `.scss` `stylelint-config-standard-scss`) and
-[`tools/nebensound-repo/rules/html-validate.json`](tools/nebensound-repo/rules/html-validate.json)
+[`rules/html-validate.json`](rules/html-validate.json)
 (the presets `recommended` and `a11y`, less what contradicts Prettier through
 html-validate's own preset `prettier`). `run` hands each linter the default
 compiled into the tool of the pipeline version that runs. A repository's own
@@ -707,7 +712,7 @@ rules it wants different, every rule it does not name keeps the default's value,
 and a later change of the default reaches it without a change of its own.
 `nebensound-repo check` shows, per check, every rule the repository sets and how
 it stands to the default (see
-[the tool's README](tools/nebensound-repo/README.md#the-rules)).
+[the tool](docs/tool.md#the-rules)).
 
 A repository whose pull request template begins on a second-level heading
 needs one Markdownlint rule changed, for that folder only. Instead of an inline
@@ -766,7 +771,7 @@ Both checks find only the pinned packages, so a configuration that names
 another one, such as a plugin, fails with the package named.
 
 Ruff runs with a default of the pipeline as well:
-[`tools/nebensound-repo/rules/ruff.toml`](tools/nebensound-repo/rules/ruff.toml),
+[`rules/ruff.toml`](rules/ruff.toml),
 every rule (`ALL`) less the ones Ruff names as conflicting with its formatter,
 one of each of two pairs of docstring rules that contradict each other, the
 copyright notice in every file (`CPY001`), since the licence stands in the
@@ -785,7 +790,7 @@ file (`# ruff: noqa: <code>`) stays the repository's choice.
 configuration and the files its `extend` names switch on or off, as each file
 writes it, against the same entry of the default, and for an
 `extend-select` entry the entries of the default's `ignore` it switches back
-on (see [the tool's README](tools/nebensound-repo/README.md#the-rules)).
+on (see [the tool](docs/tool.md#the-rules)).
 
 Pyright runs in strict mode, with the repository's configuration laid over it:
 the one Pyright finds for the unit, `pyrightconfig.json` or the
@@ -949,7 +954,7 @@ Checks that belong to one repository alone run through its xtask, inside
 - Beside `check`, an xtask offers `setup` as its second standard task:
   `cargo xtask setup` calls `nebensound-repo setup`, which finds or installs the
   programs the register's checks call
-  ([the tool's README](tools/nebensound-repo/README.md#setting-up-the-programs)),
+  ([the tool](docs/tool.md#setting-up-the-programs)),
   and then adds what only that repository needs, such as a program its own
   checks call.
 - A repository without `xtask/Cargo.toml` gets the step skipped and nothing
@@ -1129,8 +1134,8 @@ The cases run wherever the tool does, on Linux and macOS alike, except those of
 `build-docker`, which need an `x86_64` Linux machine with Docker (see above).
 
 `cargo xtask setup` calls `nebensound-repo setup` for this repository with the
-tool of this commit, built from `tools/nebensound-repo/` with the toolchain the
-tool pins, hands it every option unchanged (`--pinned`, `--with-runtimes`,
+tool of this commit, built from the package at the root of this repository
+with the toolchain the tool pins, hands it every option unchanged (`--pinned`, `--with-runtimes`,
 `--check`, the names of checks and builds), and exits with its exit code. The
 cases take the pinned programs `cargo xtask check --all` sets up itself, and a
 runtime from the computer or from `--with-runtimes`, which `cargo xtask check
@@ -1140,7 +1145,9 @@ The cases are
 taken out of this repository's own checks with `[[exclude]]` and a reason in
 [`.nebensound/repo.toml`](.nebensound/repo.toml). A case of `check-rust` is a
 whole Cargo package, the only way Rust code can be excluded, and so is a case
-of `build-cargo-package`.
+of `build-cargo-package`. None of them belongs to the Cargo workspace at the
+root: its manifest excludes everything below `.github/actions`, so Cargo run
+inside a case finds the case and not that workspace.
 
 ## Licence
 

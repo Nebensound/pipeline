@@ -104,6 +104,13 @@ Actions from the runner image.
 - Nothing private is named: no private repository, no internal host, no
   internal document. The repository is public, and so is its history.
 
+## Titles of pull requests
+
+The title of a pull request names, as its scope, the check or the part it
+changes: `fix(rust): …`, `feat(python)!: …`. The notes of a release are
+generated from the titles, and they are what a caller reads when its pin is
+raised.
+
 ## Merging
 
 While the repository is on `0.0.x`, a pull request may be merged into `main`

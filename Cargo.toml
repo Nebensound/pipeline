@@ -1,13 +1,26 @@
 # The tool `nebensound-repo`: what reads, resolves and checks a repository's
-# `.nebensound/repo.toml`, for the tasks of that repository. It stands here and
-# not at the root because the repository's product is the workflow and its
-# building blocks; this is what they run.
+# `.nebensound/repo.toml`, for the tasks of that repository. It is the package
+# at the root of the repository, so that the repository unit is the tool: the
+# version writer cargo writes the repository's version into this manifest, and
+# the program carries the version of the pipeline it belongs to.
 #
 # One package, a library and the program: one name, one version. What builds on
 # it as a library switches the default features off and gets neither the
 # downloads of `setup` nor the JSON Schema.
 #
 # No manifest carries a `version`: versions come from the history.
+
+# One workspace, one lockfile: the tool and the xtask of this repository. A
+# Cargo command at the root without `--package` or `--workspace` builds the
+# tool alone. The test cases of the building blocks are Cargo projects of their
+# own, each judged as a repository of its own; everything below
+# `.github/actions` stays out of this workspace, so that Cargo, run inside a
+# case, finds the case and not this workspace.
+[workspace]
+members         = ["xtask"]
+default-members = ["."]
+exclude         = [".github/actions"]
+
 [package]
 name         = "nebensound-repo"
 description  = "Reads a repository, runs phase 0 on it and shows the result."
@@ -15,15 +28,30 @@ edition      = "2024"
 rust-version = "1.98"
 license      = "EUPL-1.2"
 repository   = "https://github.com/Nebensound/pipeline"
+readme       = "docs/tool.md"
 
 # Not published. Whoever needs the tool gets it through the composite action; a
 # second distribution channel would be a second version that can fall behind.
 publish = false
 
-# The crate `cargo package` builds leaves out the tests that hold this
-# repository's documents in line with the tool: they read files outside the
-# package (docs/, the building blocks), so they are tests of the source.
-exclude = ["tests/declaration.rs", "tests/presets.rs", "tests/register_page.rs"]
+# The crate `cargo package` builds holds the tool and nothing else of the
+# repository: the files the program is built from and its tests. It leaves out
+# the tests that hold this repository's documents in line with the tool: they
+# read files outside the package (docs/, the building blocks), so they are
+# tests of the source.
+include = [
+  "/defaults.toml",
+  "/register.toml",
+  "/rules/",
+  "/run/",
+  "/rust-toolchain.toml",
+  "/schemas/",
+  "/src/",
+  "/tests/",
+  "!/tests/declaration.rs",
+  "!/tests/presets.rs",
+  "!/tests/register_page.rs",
+]
 
 # What `setup` needs to put a pinned program in place: sha2 holds a download
 # against its digest, flate2 and tar unpack a .gz or .tar.gz build, zip a .zip

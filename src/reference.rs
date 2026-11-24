@@ -25,10 +25,10 @@ names are described in [the reference of the declaration](declaration.md).
 This page is generated. `nebensound-repo register` prints it from the register
 and the defaults compiled into the tool, and a test of the tool fails when the
 committed page differs. To change it, change `register.toml` or `defaults.toml`
-in `tools/nebensound-repo/`, then write the page again from there:
+at the root of the repository, then write the page again from there:
 
 ```sh
-cargo run --quiet -- register > ../../docs/register.md
+cargo run --quiet -- register > docs/register.md
 ```
 
 A name stands here once the format knows it. Whether a step behind it is built
@@ -164,7 +164,7 @@ fn programs(register: &Register) -> String {
         "Every program a check or a build calls, pinned to one version.\n\
          `nebensound-repo setup` finds or installs the ones a repository's checks call,\n\
          or those of the checks and builds it is named (see\n\
-         [the tool](../tools/nebensound-repo/README.md#setting-up-the-programs)).\n\
+         [the tool](tool.md#setting-up-the-programs)).\n\
          A program on a runtime is one package, which the runtime's installer puts in\n\
          place together with its companions, the packages pinned beside it that are\n\
          no command, and needs at least the version of the runtime its package states;\n\

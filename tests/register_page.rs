@@ -19,7 +19,7 @@ use nebensound_repo::output::Output;
 use nebensound_repo::register::{BUILTIN_DEFAULTS, BUILTIN_REGISTER};
 use support::call;
 
-const COMMITTED: &str = "../../docs/register.md";
+const COMMITTED: &str = "docs/register.md";
 
 /// One call against a given register and given defaults.
 fn call_against(register: &str, defaults: &str) -> (String, u8) {
@@ -44,8 +44,8 @@ fn the_committed_page_is_the_generated_one() {
     assert_eq!(code, 0, "{text}");
     assert!(
         text == committed,
-        "{COMMITTED} is not the page the register prints; write it again from tools/nebensound-repo/ \
-         with `cargo run --quiet -- register > ../../docs/register.md`"
+        "{COMMITTED} is not the page the register prints; write it again from the repository root \
+         with `cargo run --quiet -- register > docs/register.md`"
     );
 }
 

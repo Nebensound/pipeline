@@ -21,7 +21,7 @@ use std::path::Path;
 use serde_json::Value;
 use support::call;
 
-const PAGE: &str = "../../docs/declaration.md";
+const PAGE: &str = "docs/declaration.md";
 const FINDINGS: &str = "src/finding.rs";
 
 /// The heading of the section that describes the keys at the top of the file.

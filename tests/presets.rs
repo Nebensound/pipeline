@@ -24,8 +24,8 @@ use std::path::Path;
 use serde_json::Value;
 use support::{Git, call};
 
-/// Where the building blocks lie, from the tool's folder.
-const ACTIONS: &str = "../../.github/actions";
+/// Where the building blocks lie, from the repository root.
+const ACTIONS: &str = ".github/actions";
 
 /// The files every repository holds, as a project writes them.
 const MINIMUM: &[(&str, &str)] = &[
