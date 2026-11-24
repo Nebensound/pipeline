@@ -309,16 +309,25 @@ Every part runs even when one before it failed, so one run shows every finding.
 - Every link into the repository leads to a file and a heading that exist
   (lychee, `--offline`). Links to the outside are not checked in a pull
   request: it should not turn red because someone else's server does not
-  answer. lychee reads the repository's `lychee.toml` and `.lycheeignore` at
-  the root, so excluded addresses, accepted status codes and timeouts stay the
-  repository's configuration. An `exclude_path` there is held against the
-  declaration by phase 0, like every setting that takes files out (see
-  [Exclusions](#exclusions)). `run` names `lychee.toml` as the
-  configuration, so a lychee table in `Cargo.toml`, `pyproject.toml` or
-  `package.json`, which lychee would otherwise read where there is no
-  `lychee.toml`, is not read. lychee's report stands in the output, and every
-  broken link in it is a finding on the file that holds it, at the line and
-  column lychee names.
+  answer. Excluded addresses, accepted status codes and timeouts stay the
+  repository's configuration, but lychee never reads it itself: the tool reads
+  `lychee.toml` at the root key by key and writes the configuration lychee
+  gets, carrying over the keys it knows as plain settings. A key that would
+  make lychee start a command (`preprocess`), end or pass without checking
+  (`dump`, `dump_inputs`, `generate`, `skip_missing`, `base_url`), read or
+  write another file (`cache`, `cookie_jar`, `exclude_file`, `files_from`,
+  `glob_ignore_case`, `output`, `root_dir`) or ask a web archive (`suggest`)
+  fails the check by name, and so does a key the tool does not know; the
+  other parts of the check still run. The tool reads `.lycheeignore` at the
+  root as well and adds its patterns to `exclude`, and starts lychee in a
+  folder of its own, where it finds no `.lycheeignore` to read. It hands
+  lychee every file as an absolute path and takes out itself what
+  `exclude_path` matches, against the path from the root, as phase 0 matches
+  it and holds it against the declaration, like every setting that takes
+  files out (see [Exclusions](#exclusions)). A lychee table in `Cargo.toml`,
+  `pyproject.toml` or `package.json` is not read. lychee's report stands in
+  the output, and every broken link in it is a finding on the file that holds
+  it, at the line and column lychee names.
 
 ### `check-python`
 
@@ -797,8 +806,8 @@ whole package (see [`check-rust`](#check-rust)).
 No block lets a tool's own way of leaving files out take a file out: an ignore
 file needs no reason and can turn a check green that checked nothing.
 `.gitignore` takes nothing out either. The blocks read none of these settings,
-except lychee's `exclude_path`, which comes along with the `lychee.toml`
-`check-markdown` and `check-html` read, and rustfmt's `ignore`, which comes
+except lychee's `exclude_path`, which `check-markdown` and `check-html` apply
+from the `lychee.toml` they read, and rustfmt's `ignore`, which comes
 along with the repository's rustfmt configuration and takes effect on a nightly
 toolchain, and Ruff's `# ruff: noqa`, which a Python file holds itself.
 Settings in a tool's configuration that pass a whole file unchecked are set
@@ -811,8 +820,8 @@ hand, the tools read all of them, so phase 0
 holds them against the declaration and fails on every file one of them takes
 out that no `[[exclude]]` entry takes out (`unexcused-ignore`). For lychee,
 that also keeps `exclude_path` from taking a file out in the block: phase 0
-matches it against the path from the root, such as `docs/a.md`, the string the
-block hands lychee. A setting that takes out less is fine. Phase 0 reads:
+matches it against the path from the root, such as `docs/a.md`, as the block
+does. A setting that takes out less is fine. Phase 0 reads:
 
 | Tool              | Setting                                                                                                  |
 | ----------------- | -------------------------------------------------------------------------------------------------------- |
