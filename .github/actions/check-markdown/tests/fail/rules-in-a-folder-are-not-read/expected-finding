@@ -1,0 +1,2 @@
+::error file=docs/.markdownlint.jsonc::not read: *and from no folder below it; a difference for a folder belongs in that file, as a pattern
+::error file=docs/guide.md,line=1*::MD041/first-line-heading*

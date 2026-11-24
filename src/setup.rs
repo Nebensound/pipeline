@@ -578,10 +578,11 @@ impl<'a> Setup<'a, '_> {
             files.push(fetch::download(&companion.download(), staging, self.env)?);
         }
         fresh(dir)?;
-        let executable = find::installed_by(
+        let executable = find::installed(
             definition.installer,
             dir,
-            &wanted.program.command,
+            wanted.name,
+            wanted.program,
             self.env.windows,
         );
         install::package(

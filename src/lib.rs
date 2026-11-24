@@ -42,6 +42,7 @@ pub mod finding;
 pub mod gather;
 pub mod history;
 pub mod ignored;
+pub mod linter_config;
 pub mod lockfiles;
 pub mod lychee_config;
 pub mod model;
@@ -1183,6 +1184,13 @@ fn run_check(
         .into_iter()
         .map(|(node, _)| node.path.clone())
         .collect();
+    let kept: Vec<RelativePath> = analysis
+        .tree
+        .files()
+        .into_iter()
+        .filter(|(_, coverage)| !matches!(coverage, Coverage::Excluded { .. }))
+        .map(|(node, _)| node.path.clone())
+        .collect();
     let excluded = repository.excluded_packages(analysis);
     let context = run::Context {
         register: central.register(),
@@ -1192,6 +1200,7 @@ fn run_check(
         packages: run::Packages {
             repository,
             tracked: &tracked,
+            kept: &kept,
             excluded: &excluded,
             orders,
         },
@@ -1484,7 +1493,12 @@ fn check(
         &format!(
             "{}\n\n{}\n\n{}\n\n",
             report::configuration(analysis, central),
-            rules::report(analysis, &repository.reader(), rules::Defaults::BUILT_IN),
+            rules::report(
+                analysis,
+                &repository.reader(),
+                rules::Defaults::BUILT_IN,
+                central.register()
+            ),
             report::tree(analysis)
         ),
     );

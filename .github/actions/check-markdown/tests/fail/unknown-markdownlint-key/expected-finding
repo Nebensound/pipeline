@@ -1,0 +1,2 @@
+::error file=.markdownlint-cli2.jsonc::`ignore` is not a setting the Markdown check knows, so it is not handed to markdownlint
+::error file=.markdownlint-cli2.jsonc::`config.MD002` is no rule, alias or tag of markdownlint *, so it is not handed to markdownlint

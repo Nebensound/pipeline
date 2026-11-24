@@ -54,8 +54,12 @@ without checking, send a link to an address it does not check, or read
 another file. The keys that choose which addresses are checked (`exclude`,
 `include`, `scheme`) and `.lycheeignore` are carried over as the repository's
 stated choice of what it leaves out, so they can still leave a link into the
-repository unchecked. The other linters still find and read the repository's
-configuration themselves.
+repository unchecked. markdownlint reads no file of the repository but the ones
+it lints: the tool reads its configuration from one file at the root, as data,
+fails on a key it does not know, on one that names code or another file and on
+every file it does not read, and hands markdownlint's library the rules of each
+file (see [the tool](tool.md#the-configuration-of-a-linter)). The other linters
+still find and read the repository's configuration themselves.
 
 ## 3. All logic is Rust, in the tool, and tested
 
@@ -204,13 +208,13 @@ yet, it says so.
 - **The action `tool`** holds logic in shell: the fingerprint and the build of
   the tool from source (rule 3). The build from source in a caller: #24. The
   fingerprint: no issue exists yet.
-- **Linters read their configuration themselves** (rule 2). Only the link
-  check gets its configuration from the tool. The other linters find the
-  repository's configuration and read it, and some of their ways load code of
-  the repository: a configuration file in JavaScript, a plugin, a module a
-  configuration extends. markdownlint and the reader for all of them: #199.
-  Prettier: #200. Stylelint: #201. Hadolint, actionlint, the Dockerfile
-  formatter and Ruff: #202. html-validate leaves the HTML check with #185.
+- **Linters read their configuration themselves** (rule 2). markdownlint and
+  the link check get their configuration from the tool. The other linters find
+  the repository's configuration and read it, and some of their ways load code
+  of the repository: a configuration file in JavaScript, a plugin, a module a
+  configuration extends. Prettier: #200. Stylelint: #201. Hadolint, actionlint,
+  the Dockerfile formatter and Ruff: #202. html-validate leaves the HTML check
+  with #185, yamllint the YAML check with #183.
 - **The source of actionlint**, whose upstream stands still, and the growing
   list of its messages the YAML check drops (rules 4 and 5): #169.
 - **The programs the tool may start.** The rule in

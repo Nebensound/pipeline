@@ -750,10 +750,13 @@ neither pinned nor on the computer fails the check and names `setup`, and the
 parts of the check whose programs are there still run. Four
 programs are run through their internals, so that the repository's rules are
 laid over the pipeline's default ([The rules](#the-rules)): html-validate,
-markdownlint-cli2 and Stylelint on Node.js and yamllint on the Python of its
-own environment. Of those four only the pinned copy is taken, since only its
-internals are known, and the check fails with a pointer to `setup --pinned`
-otherwise. Stylelint
+markdownlint, a library with no command, and Stylelint on Node.js and yamllint
+on the Python of its own environment. Of those four only the pinned copy is
+taken, since only its internals are known, and the check fails with a pointer
+to `setup --pinned` otherwise. markdownlint gets the files and, for each group
+of files with the same rules, the configuration the tool reads
+([The configuration of a linter](#the-configuration-of-a-linter)), and reads
+nothing else. Stylelint
 gets, for each stylesheet, the configuration nearest to it as the last of what
 its configuration extends, after the default, with `ignoreFiles` set aside and
 an empty ignore file in place of `.stylelintignore`, and finds only the pinned
@@ -815,7 +818,9 @@ as one stretch and its findings follow it. No program's own annotation is
 passed through: the tool reads Biome's findings off its `github` format in
 place of printing those lines, and the scripts it runs for Stylelint,
 html-validate and yamllint hand theirs over as data, one JSON object per line
-of a file, which the tool writes. This holds
+of a file, which the tool writes; the script for markdownlint writes what
+markdownlint's library returns, which the tool reads and writes, a line such as
+`README.md:3 error MD001/heading-increment …` and a finding on its line. This holds
 for every call in a workflow run, so `plan`, `files` and the other calls that
 print data print it inside such a stretch there too. Outside a workflow run
 nothing is a command, and text goes out as it is. Prettier names
@@ -968,7 +973,8 @@ stands to the default:
 Rules
 
   markdown                                              Markdownlint: the default, with these laid over it
-      .github/.markdownlint-cli2.jsonc                  laid over the default and what lies above it, rule by rule
+      .markdownlint-cli2.jsonc                          laid over the default rule by rule; it names no rule
+      .markdownlint-cli2.jsonc                          for `.github/**`: laid over the default and the rules above, rule by rule
           MD041                                         false (the pipeline's file does not name it; Markdownlint's own default holds)
   yaml                                                  yamllint: the default, with these laid over it
       .yamllint.yaml                                    laid over the default rule by rule
@@ -993,19 +999,16 @@ they extend (`stylelint-config-standard`; html-validate's presets
 `recommended`, `a11y` and `prettier`), so every rule a repository sets for them
 is shown as one the pipeline's file does not name.
 
-Read are, in every folder, the options file and the file of rules only that
-markdownlint-cli2 reads there, and yamllint's configuration at the root.
-markdownlint-cli2 reads the files of the folders that hold what it lints and of
-the folders above them, so a folder's files are shown only where the markdown
-check covers a file in that folder or below it: a folder that an `[[exclude]]`
-takes out as a whole shows none. yamllint's configuration is read as yamllint
-reads it, as YAML 1.1, so a plain `no` or `off` in it is `false`. A file in
-JavaScript is named, not read: phase 0 runs no code of the repository.
-What an `extends` names is named, not read. A `.markdownlint.*` file below the
-root is shown `in place of everything above it, the default included`, which
-is how markdownlint-cli2 reads it; the `config` of a `.markdownlint-cli2.*`
-beside it in the same folder is shown as not read, since markdownlint-cli2
-takes the file of rules only instead.
+Read are, for Markdownlint, the one file the Markdown check reads
+([The configuration of a linter](#the-configuration-of-a-linter)), with each
+difference by pattern shown under it, and yamllint's configuration at the root.
+The Markdown check prints the same lines for Markdownlint before it lints, so
+what the report shows is what runs. Every file of Markdownlint's configuration
+that is not read and every key that is not handed over is shown at its file,
+with why. yamllint's configuration is read as yamllint reads it, as YAML 1.1,
+so a plain `no` or `off` in it is `false`. A file in JavaScript is named, not
+read: phase 0 runs no code of the repository. What an `extends` of yamllint
+names is named, not read.
 
 Stylelint and html-validate are shown only where their check covers a file.
 For Stylelint, the configuration nearest to each stylesheet is read: the first
@@ -1052,6 +1055,78 @@ starts over as well, and the report names the default's patterns that no
 longer hold. The settings are read in the `lint` table, or at the top where
 `lint` does not name one. An `extend` that leaves the repository or that Ruff
 would expand (`~`, `$`) is named, not read.
+
+## The configuration of a linter
+
+A reading check starts no code of the repository, so a linter under this rule
+never looks for its configuration itself: the tool reads it, in one place
+([`src/linter_config.rs`](../src/linter_config.rs)), and hands the linter the
+configuration it wrote. The rules report and phase 0 read through the same
+place, so what the report shows is what runs. markdownlint is the one linter
+under the rule today; the link check's lychee gets its configuration from the
+tool the same way ([`src/lychee_config.rs`](../src/lychee_config.rs)). The
+others still find and read the repository's configuration themselves
+([what does not hold yet](principles.md#what-does-not-hold-yet)).
+
+1. **A repository's file is optional.** Without one, the pipeline's default
+   holds. With one, its rules are laid over the default's rule by rule, and the
+   rules report shows every difference, a rule switched off or loosened as well
+   ([The rules](#the-rules)).
+2. **One file per linter, at the root of the repository**, under one of the
+   names the register gives the program, in a format of data, so that an editor
+   reads the same file ([the register](register.md#configuration-of-the-programs)).
+   The tool reads the first of them that stands at the root. A difference for a
+   folder or a unit is written in that file, as a pattern.
+3. **The tool carries over only what it knows**: rules, options that are data,
+   and differences by pattern. Everything else fails the check by name: a key it
+   does not know, a key that names code or another file, and a file it does not
+   read. Phase 0 names every file it does not read as well
+   (`unread-configuration`): another of the names at the root, one in a folder
+   below it, and one written in JavaScript, wherever it lies. A file an
+   `[[exclude]]` entry takes out is not named.
+
+For markdownlint the file is an options file of markdownlint-cli2
+(`.markdownlint-cli2.jsonc` or `.markdownlint-cli2.yaml`), whose rules stand
+under `config`, or a file of rules only (`.markdownlint.jsonc`, `.json`,
+`.yaml` or `.yml`). The keys the tool carries over, sets aside and refuses by
+name stand in
+[`src/linter_config/markdownlint.rs`](../src/linter_config/markdownlint.rs):
+
+- Carried over: `config`, `overrides`, `frontMatter` and `noInlineConfig`.
+  Every key of the rules is a rule, an alias or a tag of the pinned
+  markdownlint, in any case, or `default`.
+- Set aside, since the check decides them itself: `globs`, `ignores` and
+  `gitignore` (the files are those `files` names, and phase 0 holds `ignores`
+  against the declaration, see [Exclusions](../README.md#exclusions)),
+  `noBanner`, `noProgress`, `showFound` and `$schema`.
+- Refused by name: `customRules`, `markdownItPlugins`, `outputFormatters` and
+  `modulePaths`, which name code, `fix`, which would write the files, and
+  `extends` in the rules, which names another file.
+
+A difference by pattern is an entry of `overrides`, as markdownlint-cli2 writes
+it:
+
+```jsonc
+{
+  "overrides": [
+    {
+      "filter": [".github/**"],
+      "combine": "merge",
+      "config": { "MD041": false },
+    },
+  ],
+}
+```
+
+`filter` holds patterns over the path from the repository root, where `*` stops
+at a `/`, `**` does not, and a leading `!` takes a match back; the first entry
+whose `filter` matches a file counts for it. `merge` lays its rules over the
+file's own, `replace` takes their place; the pipeline's default lies beneath
+either way. markdownlint's library knows no patterns, so the tool works out the
+rules of each file and hands the files in groups of the same rules. The tool
+reads the keys of one file in sorted order, so a file that names one rule
+twice, by a tag and by its name, can count differently than markdownlint reads
+the file itself.
 
 ## Where the file list comes from
 

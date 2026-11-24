@@ -24,8 +24,12 @@ pub struct Program {
     /// The version the register pins: three numbers, as the program prints
     /// them when asked for its version.
     pub version: String,
-    /// The name it is called by on a computer.
-    pub command: String,
+    /// The name it is called by on a computer, or [`None`] for a library: a
+    /// package of npm with no command, which a check calls through its
+    /// runtime from the pinned copy alone, and which is never looked for on
+    /// the computer.
+    #[serde(default)]
+    pub command: Option<String>,
     /// The arguments that make it print its version.
     #[serde(default = "version_args")]
     pub version_args: Vec<String>,
@@ -49,6 +53,17 @@ pub struct Program {
     /// place together with it.
     #[serde(default, rename = "companion")]
     pub companions: Vec<Companion>,
+    /// The files a repository writes its configuration of the program in,
+    /// each a path from the repository root, in the order the tool looks for
+    /// them there (see [`crate::linter_config`]). Empty for a program the tool
+    /// does not read a configuration for.
+    #[serde(default)]
+    pub configuration: Vec<String>,
+    /// The files the program would read a configuration from as well and the
+    /// tool never reads, such as one written in JavaScript: each is named as
+    /// not read wherever it lies.
+    #[serde(default)]
+    pub configuration_not_read: Vec<String>,
 }
 
 /// A package installed beside a program on a runtime, pinned by its digest.

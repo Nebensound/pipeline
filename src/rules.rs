@@ -12,18 +12,11 @@
 //!
 //! Read are the files the checks lay over the default:
 //!
-//! - Markdownlint: in every folder, the first options file markdownlint-cli2
-//!   reads there (`.markdownlint-cli2.jsonc`, `.yaml`, `.cjs`, `.mjs`) with
-//!   its `config`, and the first file that holds rules only
-//!   (`.markdownlint.jsonc`, `.json`, `.yaml`, `.yml`, `.cjs`, `.mjs`). The
-//!   block lays the one at the root over the default; one in a folder below
-//!   takes the place of everything above it there, and of the `config` of the
-//!   options file beside it, as markdownlint-cli2 reads it. markdownlint-cli2
-//!   reads the files of the folders that hold what it lints and of the folders
-//!   above them, so a folder's files are read only where the markdown check
-//!   covers a file in that folder or below it. Whether `[[exclude]]` takes the
-//!   configuration file itself out does not matter: the program reads it all
-//!   the same.
+//! - Markdownlint: the one file of its configuration at the root, read as
+//!   the Markdown check reads it ([`crate::linter_config::markdownlint`]),
+//!   with its differences by pattern, and every file of its configuration
+//!   the check does not read, and every key it does not hand over, each
+//!   with why. The check prints the same lines ([`markdownlint`]).
 //! - yamllint: `rules` in `.yamllint`, `.yamllint.yaml` or `.yamllint.yml` at
 //!   the root, whichever yamllint reads. yamllint reads it with `PyYAML`, as
 //!   YAML 1.1, so a plain `yes`, `no`, `on` or `off` in it is a boolean.
@@ -64,6 +57,9 @@ use yaml_rust2::scanner::{Marker, TScalarStyle};
 use yaml_rust2::{Event, Yaml, YamlLoader};
 
 use crate::ignored::{Read, folder};
+use crate::linter_config;
+use crate::linter_config::markdownlint::{Combine, Handed, Problem};
+use crate::register::Register;
 use crate::report::{column, shown};
 
 /// The pipeline's default for Markdownlint, as `run markdown` hands it over.
@@ -108,27 +104,8 @@ impl Defaults<'static> {
     };
 }
 
-/// The options files of markdownlint-cli2, in the order it looks for them.
-const MARKDOWNLINT_OPTIONS: &[&str] = &[
-    ".markdownlint-cli2.jsonc",
-    ".markdownlint-cli2.yaml",
-    ".markdownlint-cli2.cjs",
-    ".markdownlint-cli2.mjs",
-];
-
-/// The files of markdownlint-cli2 that hold rules only, in the order it looks
-/// for them.
-const MARKDOWNLINT_RULES: &[&str] = &[
-    ".markdownlint.jsonc",
-    ".markdownlint.json",
-    ".markdownlint.yaml",
-    ".markdownlint.yml",
-    ".markdownlint.cjs",
-    ".markdownlint.mjs",
-];
-
 /// The rules of Markdownlint, each with its names and its tags, as
-/// markdownlint 0.42.0 gives them. A key of a configuration names a rule by
+/// markdownlint 0.41.1, the version the register pins, gives them. A key of a configuration names a rule by
 /// any of its names, or every rule with a tag, in any case.
 const MARKDOWNLINT_NAMES: &[(&[&str], &[&str])] = &[
     (&["MD001", "heading-increment"], &["headings"]),
@@ -367,7 +344,7 @@ impl Program {
 /// rule it names, or every rule with the tag it names. None for a key that is
 /// neither, such as `default` or a rule markdownlint does not bring along.
 /// Markdownlint compares keys in upper case.
-fn covered(key: &str) -> Vec<&'static str> {
+pub(crate) fn covered(key: &str) -> Vec<&'static str> {
     let key = key.to_uppercase();
     let names = |words: &[&str]| words.iter().any(|word| word.to_ascii_uppercase() == key);
     if let Some((rule, _)) = MARKDOWNLINT_NAMES.iter().find(|(rule, _)| names(rule)) {
@@ -441,7 +418,7 @@ struct Config {
 
 /// How a file is written, told by its name.
 #[derive(Clone, Copy)]
-enum Format {
+pub(crate) enum Format {
     Jsonc,
     Yaml,
     Script,
@@ -449,7 +426,7 @@ enum Format {
 
 /// The programs look for their files by exact name, so the ending is matched
 /// exactly too; `.yamllint` has none and is YAML.
-fn format(file: &RelativePath) -> Format {
+pub(crate) fn format(file: &RelativePath) -> Format {
     let name = file.file_name().unwrap_or_default();
     match name.rsplit_once('.').map(|(_, ending)| ending) {
         Some("cjs" | "mjs" | "js" | "ts") => Format::Script,
@@ -463,7 +440,7 @@ fn text(error: impl std::fmt::Display) -> String {
 }
 
 /// The value a file holds. A file in JavaScript is never handed here.
-fn parse(format: Format, source: &str) -> Result<Value, String> {
+pub(crate) fn parse(format: Format, source: &str) -> Result<Value, String> {
     match format {
         Format::Jsonc => {
             jsonc_parser::parse_to_serde_value(source, &jsonc_parser::ParseOptions::default())
@@ -575,16 +552,6 @@ fn config(value: Value) -> Result<Config, String> {
     Ok(Config { extends, rules })
 }
 
-/// The rules of an options file of markdownlint-cli2: its `config`.
-fn options(format: Format, source: &str) -> Result<Config, String> {
-    let Value::Object(mut options) = parse(format, source)? else {
-        return Err(NO_MAPPING.to_owned());
-    };
-    options
-        .remove("config")
-        .map_or_else(|| Ok(Config::default()), config)
-}
-
 /// The rules of a configuration of Stylelint or html-validate: its `rules`,
 /// beside `extends`, which names one configuration or a list of them.
 fn rules_of(value: Value) -> Result<Config, String> {
@@ -633,12 +600,6 @@ fn yamllint(source: &str) -> Result<Config, String> {
 enum Place {
     /// Laid over the default, and over what lies above it.
     Over,
-    /// In place of everything above it, the default included.
-    Instead,
-    /// Not in effect: an options file whose folder below the root also holds
-    /// a file of rules only, which markdownlint-cli2 takes in place of its
-    /// `config`.
-    Unread,
     /// Laid over the default, in place of any configuration in a folder
     /// above it: Stylelint's for the files it is the nearest configuration
     /// of, html-validate's in a folder that says `root: true`.
@@ -648,8 +609,6 @@ enum Place {
 /// How a file's rules are read.
 #[derive(Clone, Copy)]
 enum Kind {
-    MarkdownlintOptions,
-    MarkdownlintRules,
     Yamllint,
     /// Stylelint's own file, or the `stylelint` key of `package.json`.
     Stylelint,
@@ -683,8 +642,6 @@ impl Layer {
         }
         let source = read(&self.file)?;
         match self.kind {
-            Kind::MarkdownlintOptions => options(format, &source),
-            Kind::MarkdownlintRules => config(parse(format, &source)?),
             Kind::Yamllint => yamllint(&source),
             Kind::Stylelint | Kind::HtmlValidate => rules_of(parse(format, &source)?),
             Kind::StylelintPackage => rules_of(
@@ -710,48 +667,6 @@ fn first<'a>(
             .find(|file| file.file_name() == Some(name) && folder(file) == *dir)
             .copied()
     })
-}
-
-/// The files markdownlint-cli2 reads, folder by folder, the root first; in a
-/// folder, the one that holds rules only before the options file. At the root
-/// the block lays the options file's `config` over the file of rules only; in
-/// a folder below, markdownlint-cli2 takes the file of rules only and leaves
-/// the `config` beside it unread. A folder counts only where a file the check
-/// lints lies in it or below it: markdownlint-cli2 reads no other.
-fn markdownlint_layers(files: &[&RelativePath], linted: &[&RelativePath]) -> Vec<Layer> {
-    let folders: BTreeSet<RelativePath> = files
-        .iter()
-        .filter(|file| {
-            let name = file.file_name().unwrap_or_default();
-            MARKDOWNLINT_OPTIONS.contains(&name) || MARKDOWNLINT_RULES.contains(&name)
-        })
-        .map(|file| folder(file))
-        .filter(|dir| linted.iter().any(|file| dir.contains(file)))
-        .collect();
-    let mut layers = Vec::new();
-    for dir in folders {
-        let rules = first(files, &dir, MARKDOWNLINT_RULES);
-        let below = !dir.is_root();
-        if let Some(file) = rules {
-            layers.push(Layer {
-                file: file.clone(),
-                place: if below { Place::Instead } else { Place::Over },
-                kind: Kind::MarkdownlintRules,
-            });
-        }
-        if let Some(file) = first(files, &dir, MARKDOWNLINT_OPTIONS) {
-            layers.push(Layer {
-                file: file.clone(),
-                place: if below && rules.is_some() {
-                    Place::Unread
-                } else {
-                    Place::Over
-                },
-                kind: Kind::MarkdownlintOptions,
-            });
-        }
-    }
-    layers
 }
 
 /// The configuration yamllint reads at the root.
@@ -922,16 +837,8 @@ fn section(program: Program, default: &str, layers: &[Layer], read: &Read<'_>) -
         let place = match layer.place {
             Place::Over if layer.owner().is_root() => "laid over the default rule by rule",
             Place::Over => "laid over the default and what lies above it, rule by rule",
-            Place::Instead => "in place of everything above it, the default included",
             Place::Nearest => {
                 "laid over the default rule by rule, in place of any configuration above it"
-            }
-            Place::Unread => {
-                lines.push(format!(
-                    "{file}its `config` is not read: the file of rules only in its folder \
-                     takes its place"
-                ));
-                continue;
             }
         };
         let config = match layer.read(read) {
@@ -959,31 +866,116 @@ fn section(program: Program, default: &str, layers: &[Layer], read: &Read<'_>) -
                 shown(extends)
             ));
         }
-        for (rule, value) in &config.rules {
-            let stand = match program.stand(rule, value, &default) {
-                Stand::Same => "the same as the default".to_owned(),
-                Stand::Over(under) => format!("over the default {under}"),
-                Stand::Unset => program.unset(&default),
-                Stand::Mixed => {
-                    "the default does not give the rules it covers one value".to_owned()
-                }
-            };
-            lines.push(format!(
-                "{}{}",
-                column(10, &shown(rule)),
-                shown(&format!("{value} ({stand})"))
-            ));
-        }
+        lines.extend(rule_lines(program, &config.rules, &default));
     }
     lines
 }
 
-/// Which rules the repository sets for each program with a default, and how
-/// each stands to that default.
+/// One line for every rule, with how it stands to the default.
+fn rule_lines(program: Program, rules: &Map<String, Value>, default: &Config) -> Vec<String> {
+    rules
+        .iter()
+        .map(|(rule, value)| {
+            let stand = match program.stand(rule, value, default) {
+                Stand::Same => "the same as the default".to_owned(),
+                Stand::Over(under) => format!("over the default {under}"),
+                Stand::Unset => program.unset(default),
+                Stand::Mixed => {
+                    "the default does not give the rules it covers one value".to_owned()
+                }
+            };
+            format!(
+                "{}{}",
+                column(10, &shown(rule)),
+                shown(&format!("{value} ({stand})"))
+            )
+        })
+        .collect()
+}
+
+/// The lines of Markdownlint, which the rules report shows and the Markdown
+/// check prints, both from what the check hands over: the file laid over the
+/// default and how each of its rules stands to it, each difference by
+/// pattern the same way, and every problem with the configuration, at its
+/// file.
 #[must_use]
-pub fn report(analysis: &Analysis, read: &Read<'_>, defaults: Defaults<'_>) -> String {
+pub fn markdownlint(default: &str, handed: &Handed, problems: &[Problem]) -> Vec<String> {
+    let program = Program::Markdownlint;
+    let head = column(2, program.check());
+    let default = match program.default(default) {
+        Ok(default) => default,
+        Err(error) => {
+            return vec![format!(
+                "{head}Markdownlint: the pipeline's default does not read: {}",
+                shown(&error)
+            )];
+        }
+    };
+    let mut lines = Vec::new();
+    match &handed.file {
+        None => lines.push(format!(
+            "{head}Markdownlint: the default, nothing laid over it"
+        )),
+        Some(file) => {
+            lines.push(format!(
+                "{head}Markdownlint: the default, with these laid over it"
+            ));
+            let file = column(6, &shown(&file.to_string()));
+            let mut layer = |place: String, rules: &Map<String, Value>| {
+                if rules.is_empty() {
+                    lines.push(format!("{file}{place}; it names no rule"));
+                } else {
+                    lines.push(format!("{file}{place}"));
+                    lines.extend(rule_lines(program, rules, &default));
+                }
+            };
+            layer(
+                "laid over the default rule by rule".to_owned(),
+                &handed.rules,
+            );
+            for entry in &handed.overrides {
+                let place = match entry.combine {
+                    Combine::Merge => "laid over the default and the rules above, rule by rule",
+                    Combine::Replace => {
+                        "laid over the default rule by rule, in place of the rules above"
+                    }
+                };
+                let filter: Vec<String> = entry
+                    .filter
+                    .iter()
+                    .map(|pattern| format!("`{}`", shown(pattern)))
+                    .collect();
+                layer(format!("for {}: {place}", filter.join(", ")), &entry.rules);
+            }
+        }
+    }
+    lines.extend(problems.iter().map(|problem| {
+        format!(
+            "{}{}",
+            column(6, &shown(&problem.file.to_string())),
+            shown(&problem.message)
+        )
+    }));
+    lines
+}
+
+/// Which rules the repository sets for each program with a default, and how
+/// each stands to that default. `register` names the files of each linter's
+/// configuration the tool reads ([`crate::linter_config`]).
+#[must_use]
+pub fn report(
+    analysis: &Analysis,
+    read: &Read<'_>,
+    defaults: Defaults<'_>,
+    register: &Register,
+) -> String {
     let nodes = analysis.tree.files();
     let files: Vec<&RelativePath> = nodes.iter().map(|(node, _)| &node.path).collect();
+    let excluded: BTreeSet<&RelativePath> = nodes
+        .iter()
+        .filter(|(_, coverage)| matches!(coverage, Coverage::Excluded { .. }))
+        .map(|(node, _)| &node.path)
+        .collect();
     let covered = |program: Program| -> Vec<&RelativePath> {
         nodes
             .iter()
@@ -993,14 +985,14 @@ pub fn report(analysis: &Analysis, read: &Read<'_>, defaults: Defaults<'_>) -> S
             .map(|(node, _)| &node.path)
             .collect()
     };
-    let linted = covered(Program::Markdownlint);
     let mut lines = vec!["Rules".to_owned(), String::new()];
-    lines.extend(section(
-        Program::Markdownlint,
-        defaults.markdownlint,
-        &markdownlint_layers(&files, &linted),
+    let (handed, problems) = linter_config::markdownlint::read_in(
+        register,
+        &files,
+        &|file| !excluded.contains(file),
         read,
-    ));
+    );
+    lines.extend(markdownlint(defaults.markdownlint, &handed, &problems));
     lines.extend(section(
         Program::Yamllint,
         defaults.yamllint,
