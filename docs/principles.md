@@ -192,6 +192,10 @@ yet, it says so.
   pinned in the register. Git, curl, Cargo, rustup and Docker, and further
   programs the workflow and the blocks call, come from the runner image without
   a pinned version or digest (rule 4). No issue exists yet.
+- **The database the image build's scan uses** (rule 4). Trivy fetches its
+  database of vulnerabilities fresh in every run, verified only by the digests
+  the registry serves for its tag at that moment; it is pinned nowhere. Whether
+  and how to pin it is open. No issue exists yet.
 - **One list in a form an updater reads** (rule 4). The register pins programs
   with digests, but Dependabot does not read it, and `AGENTS.md` allows actions
   pinned to a major version, without a digest. The Dependabot file does not
