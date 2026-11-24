@@ -111,6 +111,7 @@ struct Case {
     os: &'static str,
     arch: &'static str,
     commit: &'static str,
+    repository: &'static str,
     tags: String,
     git_fails: bool,
     gh: Option<&'static str>,
@@ -126,6 +127,7 @@ impl Case {
             os: "Linux",
             arch: "X64",
             commit: COMMIT,
+            repository: REPOSITORY,
             tags: format!(
                 "{OTHER}\trefs/tags/v0.0.78\n{COMMIT}\trefs/tags/v0.0.79\n{OTHER}\trefs/tags/v0.0.80\n"
             ),
@@ -191,7 +193,7 @@ impl Case {
             .env("GITHUB_OUTPUT", &outputs)
             .env("GH_TOKEN", "a token")
             .env("COMMIT", self.commit)
-            .env("REPOSITORY", REPOSITORY)
+            .env("REPOSITORY", self.repository)
             .env("FAKE_LOG", &log)
             .env("FAKE_TAGS", &self.tags)
             .env("FAKE_GIT_FAILS", if self.git_fails { "yes" } else { "" })
@@ -383,6 +385,22 @@ fn a_workflow_that_names_no_commit_or_repository_is_built_from_source() {
     for commit in ["", "0123456", "main"] {
         let outcome = Case {
             commit,
+            ..Case::released()
+        }
+        .run();
+        outcome.built_from_source("the workflow names no commit and repository of the pipeline");
+        assert!(outcome.calls.is_empty(), "{outcome:#?}");
+    }
+    for repository in [
+        "",
+        "Nebensound",
+        "a/b/c",
+        "a b/c",
+        "x/y::error",
+        "a/b\n::error::c",
+    ] {
+        let outcome = Case {
+            repository,
             ..Case::released()
         }
         .run();

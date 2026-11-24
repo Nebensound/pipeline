@@ -107,8 +107,8 @@ jobs:
   # It writes nothing and tags nothing: it reports. It runs whatever Declare's
   # result, so that an error in the history fails it with the finding instead
   # of leaving it skipped; it only waits for Declare, so that a tool built from
-  # source comes from the cache Declare filled. A cancelled run, for instance one of a pull request
-  # that a newer push to it replaced, skips it.
+  # source comes from the cache Declare filled. A cancelled run, for instance
+  # one of a pull request that a newer push to it replaced, skips it.
   version:
     name: Version
     needs: declare

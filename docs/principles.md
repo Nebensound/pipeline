@@ -165,15 +165,15 @@ code has been reviewed, and only then may a job with more rights act on it.
 [the README](../README.md#calling-the-pipeline) passes none. The workflow grants
 its jobs `contents: read`, and one job asks for more:
 
-| Job                                   | Token                                          | Runs code of the repository                                                                                                         |
-| ------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `Declare`                             | read                                           | No. The tool reads the files and the history; when the event does not name the visibility, phase 0 asks for it with the read token. |
-| `Version`                             | read                                           | No. The tool reads the history.                                                                                                     |
-| `Check repository`, `Check component` | read                                           | Yes: `check-rust`, `check-python` and `cargo xtask check --all`.                                                                    |
-| `Check`                               | read                                           | No. It gets the tool, gathers results and reads the plan.                                                                           |
-| `Build repository`, `Build component` | read                                           | Yes: the builds compile the code, start what they built and build images, a build with targets in one job per target.               |
-| `Build`                               | read                                           | No. It gets the tool and gathers results.                                                                                           |
-| `Publish`                             | `contents: write`, after a push to `main` only | No. It runs the tool, fetched or built without the cache, with Git and curl; it uploads the builds' archives and starts none.       |
+| Job                                   | Token                                          | Runs code of the repository                                                                                                                                                       |
+| ------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Declare`                             | read                                           | No. The tool reads the files and the history; when the event does not name the visibility, phase 0 asks for it with the read token.                                               |
+| `Version`                             | read                                           | No. The tool reads the history.                                                                                                                                                   |
+| `Check repository`, `Check component` | read                                           | Yes: `check-rust`, `check-python` and `cargo xtask check --all`.                                                                                                                  |
+| `Check`                               | read                                           | No. It gets the tool, gathers results and reads the plan.                                                                                                                         |
+| `Build repository`, `Build component` | read                                           | Yes: the builds compile the code, start what they built and build images, a build with targets in one job per target.                                                             |
+| `Build`                               | read                                           | No. It gets the tool and gathers results.                                                                                                                                         |
+| `Publish`                             | `contents: write`, after a push to `main` only | No. It runs the tool, fetched or built without the cache, with Git and curl, and gh, which only reads, to verify a fetched tool; it uploads the builds' archives and starts none. |
 
 The table holds for a caller, which pins the workflow. In this repository the
 gate calls the workflow at its own commit, so on a pull request every job runs
