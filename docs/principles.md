@@ -47,6 +47,15 @@ apart, the reading checks hold whatever the code of the repository does.
 **Today.** The unit job runs `check-rust` and `check-python`, which build and
 test the repository's code, in the same job as the reading checks of that
 unit. The job of the repository also runs `cargo xtask check --all` there.
+The link check of the Markdown and the HTML check hands lychee only the
+configuration the tool writes from the keys of `lychee.toml` it knows, and
+reads `.lycheeignore` itself: no key can make lychee start a command, end
+without checking, send a link to an address it does not check, or read
+another file. The keys that choose which addresses are checked (`exclude`,
+`include`, `scheme`) and `.lycheeignore` are carried over as the repository's
+stated choice of what it leaves out, so they can still leave a link into the
+repository unchecked. The other linters still find and read the repository's
+configuration themselves.
 
 ## 3. All logic is Rust, in the tool, and tested
 
@@ -64,14 +73,13 @@ settings that come as files, such as a rustup override on the checkout or
 Cargo's configuration files, which the tool does not neutralise.
 
 **Today.** The checks for CSS, Dockerfiles, HTML, JSON, Markdown, Python,
-Rust, TOML and YAML, the build `cargo-package` and the version writer `cargo`
-are thin blocks that call the tool. Phase 0, the release stage in `Publish` and
-every other step of `nebensound.yml` are one call of the tool each; a test of
-the xtask holds every step to that. The Python check runs Python in three
-places, each because only the interpreter can answer: whether pytest imports,
-whether a file holds a statement, and whether a package of the wheel imports.
-The image build and the action `tool`, which every job runs, are still shell,
-partly with `jq`.
+Rust, TOML and YAML, the builds `cargo-package` and `docker` and the version
+writer `cargo` are thin blocks that call the tool. Phase 0, the release stage in
+`Publish` and every other step of `nebensound.yml` are one call of the tool
+each; a test of the xtask holds every step to that. The Python check runs Python
+in three places, each because only the interpreter can answer: whether pytest
+imports, whether a file holds a statement, and whether a package of the wheel
+imports. The action `tool`, which every job runs, is still shell.
 
 ## 4. External programs are the exception and are started from the tool
 
@@ -95,7 +103,9 @@ version and the digest of every download, and the tool refuses a download
 without that digest. Dependabot does not read the register. Actions are pinned
 to a major version. The Dependabot file of the repository covers the actions of
 the workflows, not those used inside the actions under `.github/actions/`. Git,
-curl, Cargo, rustup, `jq` and Docker come from the runner image, unpinned.
+curl, Cargo, rustup and Docker come from the runner image, unpinned. The
+image build's BuildKit and Trivy stand in the register and nowhere else; the
+database Trivy scans with is fetched in every run and pinned nowhere.
 
 ## 5. One rule per kind of problem
 
@@ -178,16 +188,16 @@ yet, it says so.
   performs one step and is named after its register entry with the category in
   front. It describes the cut above, one named block per step. No issue exists
   yet that replaces it.
-- **The test cases of the building blocks** in `AGENTS.md` and
-  [the README](../README.md#test-cases-of-the-building-blocks): the cases of a
-  block that is a call of the tool run through the tool; the xtask runs the
-  `action.yml` of `build-docker`, shell included, the way the runner does, as
-  the proof for the shell that exists. What becomes of the cases once every
-  block is one call of the tool is decided by no issue yet.
-- **The image build** `build-docker` is shell, with `jq` (rule 3): #179.
 - **The action `tool`** holds logic in shell: the fingerprint and the build of
   the tool from source (rule 3). The build from source in a caller: #24. The
   fingerprint: no issue exists yet.
+- **Linters read their configuration themselves** (rule 2). Only the link
+  check gets its configuration from the tool. The other linters find the
+  repository's configuration and read it, and some of their ways load code of
+  the repository: a configuration file in JavaScript, a plugin, a module a
+  configuration extends. markdownlint and the reader for all of them: #199.
+  Prettier: #200. Stylelint: #201. Hadolint, actionlint, the Dockerfile
+  formatter and Ruff: #202. html-validate leaves the HTML check with #185.
 - **Text from the repository in logs** is escaped place by place, and the file
   lists of the blocks not at all (rule 5): #143.
 - **The source of actionlint**, whose upstream stands still, and the growing
@@ -195,9 +205,13 @@ yet, it says so.
 - **The programs the tool may start.** The rule in
   [`AGENTS.md`](../AGENTS.md#the-tool) and the README names each program and
   who may start it, and uv, which provides the Python of the Python check, is
-  pinned in the register. Git, curl, Cargo and rustup, and further programs the
-  workflow and the blocks call, come from the runner image without a pinned
-  version or digest (rule 4). No issue exists yet.
+  pinned in the register. Git, curl, Cargo, rustup and Docker, and further
+  programs the workflow and the blocks call, come from the runner image without
+  a pinned version or digest (rule 4). No issue exists yet.
+- **The database the image build's scan uses** (rule 4). Trivy fetches its
+  database of vulnerabilities fresh in every run, verified only by the digests
+  the registry serves for its tag at that moment; it is pinned nowhere. Whether
+  and how to pin it is open. No issue exists yet.
 - **One list in a form an updater reads** (rule 4). The register pins programs
   with digests, but Dependabot does not read it, and `AGENTS.md` allows actions
   pinned to a major version, without a digest. The Dependabot file does not

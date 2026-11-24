@@ -550,6 +550,30 @@ dependabot = ["e"]
     assert!(message.contains("program"), "{message}");
     assert!(message.contains("\"missing\""), "{message}");
 
+    // So are the images it starts.
+    let message = refuses(&sound.replace(
+        "produces = \"thing\"",
+        "produces = \"thing\"\nimages = [\"missing\"]",
+    ));
+    assert!(
+        message.contains("refers to the image \"missing\""),
+        "{message}"
+    );
+    let pinned = Register::parse(&format!(
+        "{}\n[image.kit]\nrepository = \"owner/kit\"\ntag = \"v1.2.3\"\ndigest = \"sha256:{}\"\n",
+        sound.replace(
+            "produces = \"thing\"",
+            "produces = \"thing\"\nimages = [\"kit\"]"
+        ),
+        "a".repeat(64)
+    ))
+    .unwrap();
+    let kit = pinned.image.values().next().unwrap();
+    assert_eq!(
+        kit.reference(),
+        format!("owner/kit:v1.2.3@sha256:{}", "a".repeat(64))
+    );
+
     let message = refuses("this is not toml");
     assert!(message.contains("not readable"), "{message}");
     assert!(matches!(

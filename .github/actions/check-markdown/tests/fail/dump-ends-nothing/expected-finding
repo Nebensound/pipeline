@@ -1,0 +1,1 @@
+::error file=lychee.toml::`dump` is not handed to lychee: it makes lychee print the links and end without checking them

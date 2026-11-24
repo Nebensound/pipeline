@@ -1,0 +1,3 @@
+# Carried over: the addresses lychee leaves out, and a setting for requests.
+exclude     = ['/left-out\.md$']
+max_retries = 2
