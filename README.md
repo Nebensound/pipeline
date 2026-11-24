@@ -539,7 +539,9 @@ first key or table of `.nebensound/repo.toml`:
   section is still a finding.
 - `.github/dependabot.yml` matches the Dependabot schema, which the tool
   compiles in ([`schemas/dependabot-2.0.json`](schemas/dependabot-2.0.json),
-  from SchemaStore) and validates against itself, without a request. An unknown
+  from SchemaStore) and validates against itself, without a request. Merge keys
+  `<<` are applied first, as YAML 1.1 defines them, so a mapping brought in
+  with `<<` counts as part of the mapping that merges it. An unknown
   key fails the check with the file and the path of the key named, instead of
   surfacing only after the merge.
 

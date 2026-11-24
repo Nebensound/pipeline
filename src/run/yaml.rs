@@ -12,9 +12,10 @@ use std::fmt::Write as _;
 
 use jsonschema::paths::{Location, LocationSegment};
 use serde::Deserialize;
-use yaml_rust2::YamlLoader;
 use yaml_rust2::parser::{Event, MarkedEventReceiver, Parser};
 use yaml_rust2::scanner::{Marker, ScanError};
+use yaml_rust2::yaml::Hash;
+use yaml_rust2::{Yaml, YamlLoader};
 
 use super::{Finding, Session, Tool};
 use crate::setup::find;
@@ -362,8 +363,9 @@ fn schema(session: &mut Session<'_, '_, '_>, dependabot: &str, bytes: &[u8]) -> 
 
 /// What a YAML file breaks of a JSON Schema: one finding for each error the
 /// validator reports, at the path of the value it is about. The file's first
-/// document is held against it. A file whose loading fails is one finding at
-/// the place where it does, such as a key that the file writes twice in two
+/// document is held against it, with every merge key `<<` applied, as YAML
+/// 1.1 defines the key. A file whose loading fails is one finding at the
+/// place where it does, such as a key that the file writes twice in two
 /// ways YAML reads as one, `true` and `True`; and a schema that is no JSON
 /// Schema the validator can use is one finding that says so.
 #[must_use]
@@ -393,7 +395,9 @@ pub fn schema_findings(schema: &str, bytes: &[u8]) -> Vec<Finding> {
     };
     let instance = documents
         .first()
-        .map_or(serde_json::Value::Null, crate::rules::json);
+        .map_or(serde_json::Value::Null, |document| {
+            crate::rules::json(&merged(document))
+        });
     validator
         .iter_errors(&instance)
         .map(|error| Finding {
@@ -401,6 +405,45 @@ pub fn schema_findings(schema: &str, bytes: &[u8]) -> Vec<Finding> {
             message: format!("{}: {error}", json_path(error.instance_path())),
         })
         .collect()
+}
+
+/// `yaml` with every merge key `<<` applied, as YAML 1.1 defines the key: the
+/// loader resolves aliases but keeps `<<` as a key of its own, which the
+/// schema would then name as an unknown property.
+///
+/// A `<<` whose value is a mapping, or a list of mappings, stands for those
+/// keys of them that the mapping does not hold itself; of two mappings in the
+/// list, the earlier one wins. The mapping's own keys stay first. A `<<`
+/// whose value is anything else stays as it is.
+fn merged(yaml: &Yaml) -> Yaml {
+    match yaml {
+        Yaml::Hash(hash) => {
+            let mut own = Hash::new();
+            let mut brought = Vec::new();
+            for (key, value) in hash {
+                let merge = matches!(key, Yaml::String(name) if name == "<<");
+                match (merge, merged(value)) {
+                    (true, Yaml::Hash(mapping)) => brought.push(mapping),
+                    (true, Yaml::Array(items))
+                        if items.iter().all(|item| matches!(item, Yaml::Hash(_))) =>
+                    {
+                        brought.extend(items.into_iter().filter_map(Yaml::into_hash));
+                    }
+                    (_, value) => {
+                        own.insert(key.clone(), value);
+                    }
+                }
+            }
+            for (key, value) in brought.into_iter().flatten() {
+                if !own.contains_key(&key) {
+                    own.insert(key, value);
+                }
+            }
+            Yaml::Hash(own)
+        }
+        Yaml::Array(items) => Yaml::Array(items.iter().map(merged).collect()),
+        other => other.clone(),
+    }
 }
 
 /// A place in a value as a JSON path, `$` for the value itself, `.name` for

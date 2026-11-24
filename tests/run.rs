@@ -1403,6 +1403,12 @@ fn a_dependabot_configuration_is_held_against_its_schema() {
     let valid = b"version: 2\nupdates:\n  - package-ecosystem: github-actions\n    directory: \
                   /\n    schedule:\n      interval: weekly\n";
     assert_eq!(messages(yaml::DEPENDABOT, valid), Vec::<String>::new());
+    // A merge key brings its mapping in, as YAML 1.1 reads it, instead of
+    // standing as a key of its own that the schema does not know.
+    let merged = b"version: 2\nupdates:\n  - package-ecosystem: npm\n    directory: /\n    <<: \
+                   &weekly\n      schedule:\n        interval: weekly\n  - package-ecosystem: \
+                   github-actions\n    directory: /\n    <<: *weekly\n";
+    assert_eq!(messages(yaml::DEPENDABOT, merged), Vec::<String>::new());
     assert_eq!(
         messages(yaml::DEPENDABOT, b"version: \"2\"\nupdates: []\n"),
         [
@@ -1435,6 +1441,37 @@ fn a_dependabot_configuration_is_held_against_its_schema() {
         "{}",
         refused(r#"{"type": 1}"#)
     );
+}
+
+#[test]
+fn merge_keys_are_applied_before_the_schema() {
+    let messages = |text: &str| -> Vec<String> {
+        let schema = r#"{"properties": {"m": {
+            "properties": {
+                "a": {"const": "own"}, "b": {"const": "first"},
+                "c": {"const": "second"}, "d": {"const": "deep"}
+            },
+            "required": ["a", "b", "c", "d"],
+            "additionalProperties": false
+        }}}"#;
+        yaml::schema_findings(schema, text.as_bytes())
+            .into_iter()
+            .map(|found| found.message)
+            .collect()
+    };
+    // The mapping's own key wins over a merged one, the earlier mapping of a
+    // list over the later one, and a merged mapping's own merge key counts.
+    let text = "d: &d {d: deep}\nf: &f {a: first, b: first, <<: *d}\ns: &s {b: second, c: \
+                second}\nm:\n  a: own\n  <<: [*f, *s]\n";
+    assert_eq!(messages(text), Vec::<String>::new());
+    // A merge key whose value is no mapping, nor a list of them, stays a key.
+    for value in ["1", "[{a: own}, 1]"] {
+        let found = messages(&format!(
+            "m: {{a: own, b: first, c: second, d: deep, <<: {value}}}\n"
+        ));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("'<<' was unexpected"), "{found:?}");
+    }
 }
 
 #[test]
