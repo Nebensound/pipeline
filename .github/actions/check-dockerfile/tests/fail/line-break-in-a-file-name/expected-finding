@@ -1,1 +1,0 @@
-::error file=a%0A%3A%3Awarning%3A%3Ax.dockerfile::dockerfmt failed on it*

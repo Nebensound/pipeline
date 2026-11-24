@@ -995,12 +995,14 @@ it read the older form, from the first `##[` in the line. So `::warning::x*`
 forbids the newer form and `##[warning]x*` the older one, and the tool's own
 `::error file=a##[warning]x.dockerfile::…` is the command `error` and starts no
 warning.
-The failing cases `line-break-in-a-file-name`,
-`older-command-form-in-a-file-name` and `colons-at-the-start-of-a-file-name` of
-check-dockerfile, and `content-a-program-quotes` of check-json, hold such a
-file: a name with a line break before `::warning::x`, a name that holds
+The failing cases `older-command-form-in-a-file-name` and
+`colons-at-the-start-of-a-file-name` of check-dockerfile, and
+`content-a-program-quotes` of check-json, hold such a file: a name that holds
 `##[warning]x`, a name that starts with `::warning::x`, and a JSON file whose
-broken line, which Prettier quotes, holds `##[warning]quoted`.
+broken line, which Prettier quotes, holds `##[warning]quoted`. A name with a
+line break never reaches a check: phase 0 refuses it
+([`control-character`](docs/declaration.md#control-character)), and a case has
+to pass phase 0, so the tool's own tests show that refusal instead.
 
 `cargo xtask check --all` first holds the blocks, the register and
 `nebensound.yml` to each other:
