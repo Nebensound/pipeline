@@ -1674,6 +1674,31 @@ fn an_answer_about_assets_without_what_the_call_needs_fails_the_stage() {
 }
 
 #[test]
+fn a_refused_list_of_assets_fails_the_stage_before_anything_is_published() {
+    let (git, head) = binary();
+    let double = Double::new();
+    let list = "releases/1/assets?per_page=100&page=1";
+    double.answer(
+        "GET",
+        list,
+        500,
+        &json!({ "message": "Broken" }).to_string(),
+    );
+    let handed = Handed::of("0.0.1", &head);
+
+    let (text, code) = stage(&git, &handed.settings(&double, None));
+
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.ends_with(&format!(
+            "::error::GitHub refused GET {list} with 500: Broken\n"
+        )),
+        "{text}"
+    );
+    assert_eq!(double.calls().last(), Some(&format!("GET {list}")));
+}
+
+#[test]
 fn a_refused_deletion_fails_the_stage() {
     let (git, head) = binary();
     git.tag("v0.0.1", &head);
