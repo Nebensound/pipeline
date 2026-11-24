@@ -779,7 +779,11 @@ fails nothing, such as a Stylelint or html-validate warning, a Hadolint
 finding below the failure threshold or dockerfmt's warning about a setting of `.editorconfig` it
 cannot use, is a warning: `::warning` in a workflow run, `Dockerfile:3:1: warning: …` elsewhere.
 In an annotation the file name and the message are escaped the way the runner reads
-them, so a name holding `,` or `:` points at its file.
+them, so a name holding `,` or `:` points at its file. Every annotation of the
+tool, those of phase 0 included, writes its `file=` in the runner's own
+escapes (`%25`, `%0D`, `%0A`, `%3A`, `%2C`), so a name with a line break
+points at its file too; a control character the runner has no escape for is
+written as `\t` or `\u{1b}`, as the report shows it.
 
 Only the tool writes workflow commands. In a workflow run everything else it
 prints, what the programs print and every text from the repository, stands in

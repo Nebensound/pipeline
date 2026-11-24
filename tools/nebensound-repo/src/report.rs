@@ -5,6 +5,7 @@
 //! handle a write error a `String` cannot have.
 
 use crate::annotate::{Coverage, Node};
+use crate::console::property;
 use crate::finding::{Finding, Position, UnitName};
 use crate::names::CheckName;
 use crate::path::RelativePath;
@@ -351,11 +352,6 @@ pub fn annotation(finding: &Finding, file: Option<(&RelativePath, Option<Positio
 /// runner reads it.
 fn data(text: &str) -> String {
     shown(text).replace('%', "%25")
-}
-
-/// A property of a workflow command, where `:` and `,` end the value as well.
-fn property(text: &str) -> String {
-    data(text).replace(':', "%3A").replace(',', "%2C")
 }
 
 /// The summary line with the counts.

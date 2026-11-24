@@ -43,6 +43,8 @@
 use std::fmt::Write as _;
 use std::io::{self, Write};
 
+use crate::report::shown;
+
 /// How the console draws the 16 bytes of a token. The operating system's
 /// randomness ([`randomness`]) in every call; a test hands in its own.
 pub type Draw = fn() -> Result<[u8; 16], getrandom::Error>;
@@ -270,7 +272,9 @@ pub fn plain(line: &str) -> Option<String> {
     let mut title = String::new();
     for pair in properties.split(',') {
         match pair.split_once('=') {
-            Some(("file", value)) => place.insert(0, unescape(value)),
+            // The name the property escapes for the runner, shown to a reader
+            // the way the report shows it.
+            Some(("file", value)) => place.insert(0, shown(&unescape(value))),
             Some(("line" | "col", value)) => place.push(unescape(value)),
             Some(("title", value)) => title = format!("[{}]", unescape(value)),
             _ => {}
@@ -299,6 +303,36 @@ pub fn annotation(line: &str) -> Option<(&str, &str, &str)> {
     }
     let (properties, message) = rest.strip_prefix(' ')?.split_once("::")?;
     (!properties.contains(':')).then_some((level, properties, message))
+}
+
+/// A property of a workflow command, such as the `file=` of an annotation,
+/// in the runner's own escaping: `%`, a carriage return and a line break,
+/// which would end the command's line, as `%25`, `%0D` and `%0A`, and `:` and
+/// `,`, which end a value, as `%3A` and `%2C`. The runner undoes these, so a
+/// file is named as it stands and the annotation sits on it.
+///
+/// The runner has no escape for any other control character, such as a tab
+/// or an escape character. Such a character cannot end the line, so no
+/// command starts from it, but the tool writes no control character from the
+/// repository into a line of its own: it is written as [`shown`] writes it
+/// (`\t`, `\u{1b}`). An annotation on such a file then names no file, and its
+/// message still names it; phase 0 refuses a tracked name that holds one
+/// (`control-character`).
+#[must_use]
+pub fn property(text: &str) -> String {
+    let mut written = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            '%' => written.push_str("%25"),
+            '\r' => written.push_str("%0D"),
+            '\n' => written.push_str("%0A"),
+            ':' => written.push_str("%3A"),
+            ',' => written.push_str("%2C"),
+            other if other.is_control() => written.extend(other.escape_debug()),
+            other => written.push(other),
+        }
+    }
+    written
 }
 
 /// Undoes the escapes of a workflow command.

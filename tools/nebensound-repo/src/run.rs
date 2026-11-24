@@ -66,6 +66,7 @@ use tempfile::TempDir;
 use crate::Register;
 use crate::console::Console;
 pub use crate::console::plain;
+pub(crate) use crate::console::property;
 use crate::names::ProgramName;
 use crate::packages::Excluded;
 use crate::path::RelativePath;
@@ -357,11 +358,6 @@ pub(crate) fn data(text: &str) -> String {
     text.replace('%', "%25")
         .replace('\r', "%0D")
         .replace('\n', "%0A")
-}
-
-/// A property of a workflow command, where `:` and `,` end the value as well.
-pub(crate) fn property(text: &str) -> String {
-    data(text).replace(':', "%3A").replace(',', "%2C")
 }
 
 /// The name of the file a script of the tool writes its findings to, in the

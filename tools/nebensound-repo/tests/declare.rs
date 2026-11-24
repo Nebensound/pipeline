@@ -273,9 +273,11 @@ fn a_tracked_file_whose_name_holds_a_line_break_stops_phase_0_by_name() {
     git.commit("docs: a name with a line break");
 
     let log = refused(&git);
-    // It stands outside every stopped stretch, where the runner takes it as an
-    // annotation.
-    let line = "::error file=docs/a\\nb.md,title=control-character::[control-character] at \
+    // The property names the file in the runner's own escape, which the
+    // runner undoes, so the annotation sits on the file; the message shows
+    // the name as the report does. It stands outside every stopped stretch,
+    // where the runner takes it as an annotation.
+    let line = "::error file=docs/a%0Ab.md,title=control-character::[control-character] at \
                 docs/a\\nb.md: the name of this file holds a control character, shown here as \
                 an escape. A tool that takes names one per line, or as the value of a step \
                 output, would misread it; rename the file";

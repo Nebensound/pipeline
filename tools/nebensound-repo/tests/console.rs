@@ -183,3 +183,22 @@ fn an_annotation_is_taken_apart() {
     assert_eq!(console::annotation("plain"), None);
     assert_eq!(console::unescape("a%0Ab%0Dc%3Ad%2Ce%25"), "a\nb\rc:d,e%");
 }
+
+#[test]
+fn a_property_names_a_file_with_a_line_break_in_the_runners_own_escape() {
+    // The runner undoes these escapes, so the annotation names the file as
+    // it stands.
+    let name = "docs/a\nb\r,c:d%.md";
+    assert_eq!(console::property(name), "docs/a%0Ab%0D%2Cc%3Ad%25.md");
+    assert_eq!(console::unescape(&console::property(name)), name);
+    // A control character the runner has no escape for is written as the
+    // report shows it.
+    assert_eq!(console::property("a\tb\u{1b}c"), "a\\tb\\u{1b}c");
+    assert_eq!(console::property("plain.md"), "plain.md");
+    // A reader outside a run sees the name as the report shows it, on one
+    // line.
+    assert_eq!(
+        console::plain("::error file=docs/a%0Ab.md,title=control-character::m").as_deref(),
+        Some("docs/a\\nb.md: error[control-character]: m")
+    );
+}
