@@ -418,6 +418,46 @@ fn when_every_case_holds_nothing_is_reported() {
 }
 
 #[test]
+fn a_disagreement_of_the_layout_alone_fails_the_run() {
+    let _alone = support::alone();
+    let scene = Scene::new();
+    let root = repository(&scene);
+    without(&root, "demo");
+    let tool = scene.path().join("nebensound-repo");
+    script(&tool, NEBENSOUND_REPO);
+    // Every case holds; only the block's step carries a key a block's step
+    // may not carry.
+    write(
+        &root,
+        &[(
+            ".github/actions/check-json/action.yml",
+            &BLOCK.replace(
+                "      run: exit 1\n",
+                "      run: exit 1\n      continue-on-error: true\n",
+            ),
+        )],
+    );
+
+    let (code, out) = call(
+        &["check", "--all"],
+        &setup(&root, scene.path(), cargo(&scene, &tool, 0)),
+    );
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains("::error::step 1 of `check-json` carries `continue-on-error`: "),
+        "{out}"
+    );
+    assert!(!out.contains("They agree.\n"), "{out}");
+    for case in ["passing case `good`", "failing case `bad`"] {
+        assert!(
+            out.contains(&format!("check-json, {case}: as expected\n")),
+            "{out}"
+        );
+    }
+    assert!(out.ends_with("1 problem(s), each named above.\n"), "{out}");
+}
+
+#[test]
 fn without_a_block_from_the_tool_no_tool_is_built() {
     let _alone = support::alone();
     let scene = Scene::new();
@@ -842,6 +882,9 @@ fn a_block_from_the_tool_with_a_stray_case_stops_the_run() {
     );
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("stray is no case"), "{out}");
+    // The layout names the stray entry, the run stops at it, and the cases of
+    // `check-demo` cannot run: each is counted.
+    assert!(out.ends_with("3 problem(s), each named above.\n"), "{out}");
 }
 
 #[test]
