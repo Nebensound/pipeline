@@ -907,6 +907,21 @@ fn a_configuration_of_stylelint_or_html_validate_that_does_not_read_says_why() {
     );
 }
 
+#[test]
+fn a_configuration_of_stylelint_the_disk_does_not_hold_says_so() {
+    let text = report_for(
+        WEB,
+        &[".nebensound/repo.toml", "site.css", ".stylelintrc.yml"],
+        &[],
+        Defaults::BUILT_IN,
+    );
+
+    assert_eq!(
+        after(&text, ".stylelintrc.yml"),
+        ["cannot be read: no such file"]
+    );
+}
+
 /// A declaration whose repository runs the check for Python, with a unit at
 /// `app` that names it again and one at `tools` that names it alone.
 const PYTHON: &str = "[repo]\naudience = \"public\"\npipeline = { check = [\"python\"] }\n\
