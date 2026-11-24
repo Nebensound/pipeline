@@ -170,6 +170,11 @@ identifier!(
     RuntimeName,
     "runtime name"
 );
+identifier!(
+    /// The name of a container image a build starts, in the central register.
+    ImageName,
+    "image name"
+);
 
 /// A file extension, written with its leading dot.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

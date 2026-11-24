@@ -76,7 +76,7 @@ only by the calls named beside it:
 | A program of the register                                                                    | only the check or build the register names it for                                                                |
 | The Rust toolchain that rustup provides (rustup, Cargo, rustc, rustfmt)                      | only the check for Rust and a build of Rust (and `nebensound-repo xtask`, which runs the repository's own xtask) |
 | The Python that uv provides                                                                  | only the check for Python                                                                                        |
-| Docker                                                                                       | only the image build (with #179)                                                                                 |
+| Docker with its Buildx                                                                       | only the image build                                                                                             |
 | Code of the repository (its tests, its build scripts, the commands of the package it builds) | only executing checks and builds                                                                                 |
 
 A reading check starts no toolchain of a language and no code of the
@@ -85,9 +85,8 @@ the tool writes from the keys of `lychee.toml` it knows, and a key that would
 start a command fails by name. The other linters still read the repository's
 configuration themselves, and some of their ways load code (see
 [What does not hold yet](docs/principles.md#what-does-not-hold-yet)). uv is
-pinned in the register; rustup comes from the machine, on
-GitHub Actions from the runner image. Until #179 the image build runs Docker
-from its block, not from the tool.
+pinned in the register; rustup and Docker come from the machine, on GitHub
+Actions from the runner image.
 
 ## Workflows and actions
 

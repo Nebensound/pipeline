@@ -4,7 +4,7 @@
 
 mod support;
 
-use xtask::action::{Action, Kind, Runs, Step};
+use xtask::action::Action;
 
 const FULL: &str = r"
 name: demo
@@ -12,114 +12,66 @@ inputs:
   given:
     description: An input without a default.
     required: true
-  number:
+  Plan:
     default: 24
-  real:
-    default: 1.26
-  flag:
-    default: false
-  empty:
-    default:
+  1: {}
+  1.5: {}
+  true: {}
 outputs:
   plan:
     value: ${{ steps.plan.outputs.plan }}
 runs:
   using: composite
   steps:
-    - name: First
-      id: plan
-      if: ${{ !cancelled() }}
-      shell: bash
-      working-directory: ${{ inputs.given }}
-      env:
-        A: one
-        B: 2
-      run: |
-        echo first
-        echo second
-    - uses: actions/setup-node@v7
-      with:
-        node-version: 24
     - shell: bash
-      run: echo third
+      run: echo first
+    - name: second
+      uses: actions/upload-artifact@v7
+      continue-on-error: true
 ";
 
 #[test]
-fn a_composite_action_is_read_whole() {
+fn the_inputs_of_an_action_are_read_in_order() {
     let action = Action::parse(FULL, "demo").unwrap();
-    let defaults: Vec<(&str, Option<&str>)> = action
-        .inputs
-        .iter()
-        .map(|input| (input.name.as_str(), input.default.as_deref()))
-        .collect();
-    assert_eq!(
-        defaults,
-        [
-            ("given", None),
-            ("number", Some("24")),
-            ("real", Some("1.26")),
-            ("flag", Some("false")),
-            ("empty", Some("")),
-        ]
-    );
-    assert_eq!(
-        action.outputs,
-        [(
-            "plan".to_owned(),
-            "${{ steps.plan.outputs.plan }}".to_owned()
-        )]
-    );
-    let Runs::Composite(steps) = &action.runs else {
-        panic!("{:?}", action.runs);
-    };
-    let first = &steps[0];
-    assert_eq!(first.name.as_deref(), Some("First"));
-    assert_eq!(first.id.as_deref(), Some("plan"));
-    assert_eq!(first.condition.as_deref(), Some("${{ !cancelled() }}"));
-    assert_eq!(
-        first.working_directory.as_deref(),
-        Some("${{ inputs.given }}")
-    );
-    assert_eq!(
-        first.env,
-        [
-            ("A".to_owned(), "one".to_owned()),
-            ("B".to_owned(), "2".to_owned())
-        ]
-    );
-    let Kind::Run { script, shell } = &first.kind else {
-        panic!("{:?}", first.kind);
-    };
-    assert_eq!(script, "echo first\necho second\n");
-    assert_eq!(shell.as_deref(), Some("bash"));
-    let Kind::Uses { action: used, with } = &steps[1].kind else {
-        panic!("{:?}", steps[1].kind);
-    };
-    assert_eq!(used, "actions/setup-node@v7");
-    assert_eq!(with, &[("node-version".to_owned(), "24".to_owned())]);
-
-    let titles: Vec<String> = steps.iter().map(Step::title).collect();
-    assert_eq!(titles, ["First", "actions/setup-node@v7", "echo third"]);
+    assert_eq!(action.inputs, ["given", "Plan", "1", "1.5", "true"]);
+    // GitHub reads input names without regard to case.
+    assert!(action.takes("plan"));
+    assert!(action.takes("GIVEN"));
+    assert!(!action.takes("working-directory"));
 }
 
 #[test]
-fn a_step_without_a_name_or_a_script_line_has_an_empty_title() {
-    let action = Action::parse(
-        "runs:\n  using: composite\n  steps:\n    - run: ''\n      shell: bash\n",
-        "demo",
-    )
-    .unwrap();
-    let Runs::Composite(steps) = &action.runs else {
-        panic!("{:?}", action.runs);
-    };
-    assert_eq!(steps[0].title(), "");
+fn the_keys_of_each_step_are_read_in_order() {
+    let action = Action::parse(FULL, "demo").unwrap();
+    assert_eq!(
+        action.steps,
+        [
+            vec!["shell", "run"],
+            vec!["name", "uses", "continue-on-error"]
+        ]
+    );
+    // An action that runs no steps carries none.
+    for yaml in [
+        "runs:\n  using: node24\n  main: index.js\n",
+        "runs:\n  using: composite\n  steps:\n",
+    ] {
+        assert!(
+            Action::parse(yaml, "demo").unwrap().steps.is_empty(),
+            "{yaml}"
+        );
+    }
 }
 
 #[test]
-fn an_action_on_node_is_named_by_what_it_runs_on() {
-    let action = Action::parse("runs:\n  using: node24\n  main: index.js\n", "demo").unwrap();
-    assert!(matches!(&action.runs, Runs::Other(using) if using == "node24"));
-    assert!(action.inputs.is_empty());
+fn an_action_without_inputs_takes_nothing() {
+    for yaml in [
+        "runs:\n  using: node24\n  main: index.js\n",
+        "inputs:\nruns:\n  using: node24\n",
+    ] {
+        let action = Action::parse(yaml, "demo").unwrap();
+        assert!(action.inputs.is_empty(), "{yaml}");
+        assert!(!action.takes("plan"), "{yaml}");
+    }
 }
 
 #[test]
@@ -128,14 +80,14 @@ fn an_action_is_loaded_from_either_file_name() {
     support::write(
         scene.path(),
         &[
-            ("yml/action.yml", "runs:\n  using: node24\n"),
-            ("yaml/action.yaml", "runs:\n  using: node20\n"),
+            ("yml/action.yml", "inputs:\n  short: {}\n"),
+            ("yaml/action.yaml", "inputs:\n  long: {}\n"),
         ],
     );
     let short = Action::load(&scene.path().join("yml")).unwrap();
-    assert!(matches!(&short.runs, Runs::Other(using) if using == "node24"));
+    assert_eq!(short.inputs, ["short"]);
     let long = Action::load(&scene.path().join("yaml")).unwrap();
-    assert!(matches!(&long.runs, Runs::Other(using) if using == "node20"));
+    assert_eq!(long.inputs, ["long"]);
     let missing = Action::load(&scene.path().join("none")).unwrap_err();
     assert!(missing.to_string().contains("cannot read"), "{missing}");
 }
@@ -143,79 +95,31 @@ fn an_action_is_loaded_from_either_file_name() {
 /// Every way an action can be beyond what the xtask reads.
 #[test]
 fn what_cannot_be_read_is_refused_with_its_place() {
-    let steps = |step: &str| {
-        format!(
-            "runs:\n  using: composite\n  steps:\n{}",
-            support::indent(step, 4)
-        )
-    };
     for (yaml, message) in [
-        ("key: [unclosed".to_owned(), "is no YAML"),
-        (String::new(), "is empty"),
+        ("key: [unclosed", "demo is no YAML"),
+        ("", "demo is empty"),
         (
-            "inputs: [1]\nruns:\n  using: node24\n".to_owned(),
+            "inputs: [1]\nruns:\n  using: node24\n",
             "inputs in demo is no mapping",
         ),
         (
-            "inputs:\n  ? - a\n  : {}\nruns:\n  using: node24\n".to_owned(),
+            "inputs:\n  ? - a\n  : {}\nruns:\n  using: node24\n",
             "inputs in demo is no single value",
         ),
         (
-            "inputs:\n  a:\n    default: [1]\nruns:\n  using: node24\n".to_owned(),
-            "the default of input `a`",
-        ),
-        (
-            "outputs:\n  a:\n    description: none\nruns:\n  using: node24\n".to_owned(),
-            "the value of output `a`",
-        ),
-        (
-            "outputs: [1]\nruns:\n  using: node24\n".to_owned(),
-            "outputs in demo is no mapping",
-        ),
-        ("runs: {}\n".to_owned(), "runs.using"),
-        (
-            "runs:\n  using: composite\n  steps: {}\n".to_owned(),
+            "runs:\n  using: composite\n  steps: run\n",
             "runs.steps in demo is no list",
         ),
-        (steps("- just text"), "step 1 in demo is no mapping"),
-        (steps("- {}"), "step 1 in demo is empty"),
         (
-            steps("- run: a\n  shell: bash\n  continue-on-error: true"),
-            "sets `continue-on-error`",
+            "runs:\n  using: composite\n  steps:\n    - run\n",
+            "step 1 in demo is no mapping",
         ),
         (
-            steps("- run: a\n  uses: b@c"),
-            "exactly one of `run` and `uses`",
-        ),
-        (steps("- name: nothing"), "exactly one of `run` and `uses`"),
-        (steps("- run: [a]"), "`run` of step 1"),
-        (steps("- uses: [a]"), "`uses` of step 1"),
-        (steps("- run: a\n  shell: [a]"), "`shell` of step 1"),
-        (steps("- run: a\n  name: [a]"), "`name` of step 1"),
-        (steps("- run: a\n  id: [a]"), "`id` of step 1"),
-        (steps("- run: a\n  if: [a]"), "`if` of step 1"),
-        (
-            steps("- run: a\n  working-directory: [a]"),
-            "`working-directory` of step 1",
-        ),
-        (
-            steps("- uses: a@b\n  with: [a]"),
-            "`with` of step 1 in demo is no mapping",
-        ),
-        (
-            steps("- uses: a@b\n  with:\n    a: [b]"),
-            "`with` of step 1 in demo is no single value",
-        ),
-        (
-            steps("- run: a\n  env: [a]"),
-            "`env` of step 1 in demo is no mapping",
-        ),
-        (
-            steps("- run: a\n  env:\n    a: [b]"),
-            "`env` of step 1 in demo is no single value",
+            "runs:\n  using: composite\n  steps:\n    - run: x\n    - ? [a]\n      : x\n",
+            "step 2 in demo is no single value",
         ),
     ] {
-        let error = Action::parse(&yaml, "demo").expect_err(&yaml);
+        let error = Action::parse(yaml, "demo").expect_err(yaml);
         assert!(error.to_string().contains(message), "{yaml}\n{error}");
     }
 }

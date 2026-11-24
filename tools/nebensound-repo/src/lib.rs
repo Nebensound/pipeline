@@ -228,9 +228,9 @@ pub enum Command {
         /// Change nothing; say what is missing or differs.
         #[arg(long)]
         check: bool,
-        /// Only the programs of these checks, as the register names them,
-        /// such as one building block needs. Without any, those of every
-        /// check the declaration starts.
+        /// Only the programs of these checks or builds, as the register
+        /// names them, such as one building block needs. Without any, those
+        /// of every check the declaration starts.
         #[arg(value_name = "CHECK")]
         checks: Vec<String>,
     },
@@ -254,12 +254,18 @@ pub enum Command {
         unit: String,
     },
     /// Run one build of one unit, as its building block runs it in the Build
-    /// phase: for the build cargo-package. Names the artifact it leaves as
-    /// outputs of the step.
-    // It starts Cargo and the Rust toolchain and unpacks what it built, so it
-    // is part of the feature `program`.
+    /// phase: for the builds cargo-package and docker. Names the artifact it
+    /// leaves as outputs of the step.
+    // It starts Cargo and the Rust toolchain, or Docker and Trivy, and unpacks
+    // what it built, so it is part of the feature `program`.
     #[cfg(feature = "program")]
     Build {
+        /// The version the build docker labels the image with: from a plan
+        /// `nebensound-repo plan` printed, for a checkout without the history
+        /// to resolve it from. Without it, it is resolved from the history,
+        /// as `plan` resolves it.
+        #[arg(long, value_name = "FILE")]
+        plan: Option<PathBuf>,
         /// The build, as the register names it.
         build: String,
         /// The path of the unit, as the plan names it.
@@ -459,7 +465,9 @@ pub enum Failure {
     Write(#[from] writer::WriteError),
     /// The build that was named is not one `build` carries out.
     #[cfg(feature = "program")]
-    #[error("`build` carries out the build cargo-package; {build:?} is not one of them")]
+    #[error(
+        "`build` carries out the builds cargo-package and docker; {build:?} is not one of them"
+    )]
     NotBuilt {
         /// What was named.
         build: String,
@@ -741,11 +749,12 @@ enum Job {
     /// Write the records of this commit's versions.
     #[cfg(feature = "program")]
     Release,
-    /// Run a build of a unit.
+    /// Run a build of a unit, with the versions of this plan if one is given.
     #[cfg(feature = "program")]
     Build {
         build: build::Build,
         unit: RelativePath,
+        plan: Option<PathBuf>,
     },
     /// Report the versions as the job Version does, for the pull request if
     /// there is one.
@@ -811,11 +820,12 @@ fn call(cli: &Cli, variables: &dyn Fn(&str) -> Option<String>) -> Result<Call, F
         #[cfg(feature = "program")]
         Some(Command::Release) => Job::Release,
         #[cfg(feature = "program")]
-        Some(Command::Build { build, unit }) => Job::Build {
+        Some(Command::Build { plan, build, unit }) => Job::Build {
             build: build::Build::of(build).ok_or_else(|| Failure::NotBuilt {
                 build: build.clone(),
             })?,
             unit: path_of(unit)?,
+            plan: plan.clone(),
         },
         #[cfg(feature = "program")]
         Some(Command::Declare) => {
@@ -892,7 +902,8 @@ fn versions_of(job: &Job) -> Option<&PullRequest> {
 /// come with the plan it hands on. Which programs `setup` needs follows from
 /// the checks the plan starts, never from a version, so a question about a
 /// release does not keep anyone from setting up the programs either. A check
-/// that writes versions reads the history only when no plan hands them in.
+/// that writes versions, and a build that labels what it builds with the
+/// version, read the history only when no plan hands them in.
 fn files_alone(job: &Job) -> bool {
     match job {
         Job::Files { .. }
@@ -903,7 +914,7 @@ fn files_alone(job: &Job) -> bool {
         #[cfg(feature = "program")]
         Job::Run { check, plan, .. } => plan.is_some() || !check.writes_versions(),
         #[cfg(feature = "program")]
-        Job::Build { .. } => true,
+        Job::Build { build, plan, .. } => plan.is_some() || !build.labels_version(),
         _ => false,
     }
 }
@@ -1066,9 +1077,10 @@ fn execute(context: &Execution<'_>, job: &Job, out: &mut dyn Write) -> Result<u8
         #[cfg(feature = "program")]
         Job::Release => return release_stage(&repository, &analysis, output, out),
         #[cfg(feature = "program")]
-        Job::Build { build, unit } => {
+        Job::Build { build, unit, plan } => {
+            let orders = orders(plan.as_ref(), &analysis, &central)?;
             let at = (&repository, &analysis, &central);
-            return Ok(build_unit(context, at, *build, unit, out));
+            return Ok(build_unit(context, at, (*build, unit), &orders, out));
         }
         #[cfg(feature = "program")]
         Job::ReportVersions(pull_request) => {
@@ -1088,8 +1100,8 @@ fn execute(context: &Execution<'_>, job: &Job, out: &mut dyn Write) -> Result<u8
     Ok(if analysis.failed() { FOUND } else { OK })
 }
 
-/// `setup`: the programs of the checks named, or of every check the
-/// declaration starts, found or installed on this computer.
+/// `setup`: the programs of the checks and builds named, or of every check
+/// the declaration starts, found or installed on this computer.
 #[cfg(feature = "program")]
 fn set_up(
     analysis: &Analysis,
@@ -1098,10 +1110,11 @@ fn set_up(
     named: &[String],
     out: &mut dyn Write,
 ) -> u8 {
+    let (builds, rest) = setup::builds_named(central.register(), named);
     let checks = if named.is_empty() {
         setup::started(&plan::plan(analysis, central))
     } else {
-        match setup::named(central.register(), named) {
+        match setup::named(central.register(), &rest) {
             Ok(checks) => checks,
             Err(unknown) => {
                 say(
@@ -1113,7 +1126,14 @@ fn set_up(
         }
     };
     let mut environment = setup::Environment::current();
-    setup::run(central.register(), &checks, options, &mut environment, out)
+    setup::run_for(
+        central.register(),
+        &checks,
+        &builds,
+        options,
+        &mut environment,
+        out,
+    )
 }
 
 /// The repository a check runs on, read: phase 0 on it, and the versions its
@@ -1378,19 +1398,19 @@ fn declare(
 fn build_unit(
     context: &Execution<'_>,
     (repository, analysis, central): (&Repository, &Analysis, &Central),
-    which: build::Build,
-    unit: &RelativePath,
+    (which, unit): (build::Build, &RelativePath),
+    orders: &[writer::Order],
     out: &mut dyn Write,
 ) -> u8 {
     let plan = plan::plan(analysis, central);
-    let started = plan.units.iter().any(|planned| {
+    let started = plan.units.iter().find(|planned| {
         planned.path == *unit
             && planned
                 .build
                 .as_ref()
                 .is_some_and(|name| name.as_str() == which.name())
     });
-    if !started {
+    let Some(started) = started else {
         say(
             out,
             &format!(
@@ -1400,17 +1420,34 @@ fn build_unit(
             ),
         );
         return FOUND;
-    }
+    };
     // The repository was read, so it is there.
     let root = fs::canonicalize(&context.cli.repository).unwrap_or(context.cli.repository.clone());
     let search_path = search_path(context.variables);
+    let mut environment = setup::Environment::current();
+    environment.search_path.clone_from(&search_path);
+    let component = match &started.name {
+        UnitName::Repository => None,
+        UnitName::Component(name) => Some(name.to_string()),
+    };
+    let version = orders
+        .iter()
+        .find(|order| order.path == *unit)
+        .and_then(|order| order.version.clone());
+    let temp = workflow::given(context.variables, "RUNNER_TEMP")
+        .map_or_else(std::env::temp_dir, PathBuf::from);
     let settings = build::Context {
         repository,
         root: &root,
         search_path: &search_path,
-        temp: &std::env::temp_dir(),
+        temp: &temp,
         workflow: context.output == Output::Workflow,
         variables: context.variables,
+        register: central.register(),
+        env: &environment,
+        machine: &build::Machine::current(),
+        component: component.as_deref(),
+        version: version.as_deref(),
     };
     build::run(&settings, which, unit, out)
 }
