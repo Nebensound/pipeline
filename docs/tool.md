@@ -71,7 +71,7 @@ nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branc
 | `version`           | The version of every unit that carries one, as a table: current version and the version of the commit at hand. `--markdown` prints it as the job `Version` writes it. See [The versions](#the-versions).                                                                                                                                                                                                                                                                                                                                                         |
 | `files`             | The files one check covers in one unit, less what `[[exclude]]` takes out: exactly what its building block checks. One per line, or each ended by a zero byte with `-z`.                                                                                                                                                                                                                                                                                                                                                                                         |
 | `run`               | Runs one check over the files `files` names for it in one unit, with the programs `setup` finds or installs, the way its building block runs it: for the checks `css`, `dockerfile`, `html`, `json`, `markdown`, `python`, `rust`, `toml` and `yaml`. The rust check writes the versions of `--plan <file>` before its package test, or, without it, the versions resolved from the history. Every finding names its file, and its line and column where the program gives them; in a workflow run it is an annotation. See [Running a check](#running-a-check). |
-| `build`             | Runs one build of one unit the way its building block runs it, for the builds `cargo-package` and `docker`, and names the artifact it leaves as outputs of the step. The build `docker` labels the image with the unit's version of `--plan <file>`, or, without it, the version resolved from the history. A unit the plan starts no such build for is refused. See [Running a build](#running-a-build).                                                                                                                                                        |
+| `build`             | Runs one build of one unit the way its building block runs it, for the builds `cargo-package`, `cargo-release` and `docker`, and names the artifact it leaves as outputs of the step. The builds `docker` and `cargo-release` take the unit's version of `--plan <file>`, or, without it, the version resolved from the history: `docker` labels the image with it, `cargo-release` holds the binary's `--version` to it. A unit the plan starts no such build for is refused. See [Running a build](#running-a-build).                                          |
 | `excluded-packages` | The Rust packages `[[exclude]]` takes out as a whole, each with its reason, as one line of JSON: what `check-rust` leaves out of every step, and what `declare` names in the summary of the run.                                                                                                                                                                                                                                                                                                                                                                 |
 | `write-versions`    | Writes the version of every unit with the version writer `cargo` into its `Cargo.toml`, the path dependencies on it and `Cargo.lock`, in the working tree; never committed. With `--plan <file>`, takes the versions from a printed plan instead of the history; with `--workspace <path>`, starts from the units of the workspace at that path.                                                                                                                                                                                                                 |
 | `setup`             | Finds or installs the programs that the checks the plan starts call, or those of the checks and builds named, as the register pins them: by default it uses those on the computer and installs the pinned version of what is missing; `--pinned` installs every one into its own folder; `--check` changes nothing. See [Setting up the programs](#setting-up-the-programs).                                                                                                                                                                                     |
@@ -396,9 +396,13 @@ findings as annotations in a workflow run and as lines elsewhere.
   plan, for the squash merge of the pull request if there is one, names a
   change of the audience on a pull request as a notice and in the summary,
   names every excluded package with its reason as a notice, and prints the two
-  matrices: the units that run a check, and the units that build in this run,
-  each with the version writers it selects; after a push to a pre-branch none
-  builds. The plan and the two matrices are its outputs `plan`, `units` and
+  matrices: the units that run a check, and the builds of this run, each with
+  the version writers its unit selects, the name of its job (`job`) and its
+  runner (`runs-on`). A build whose register entry lists targets stands once
+  per target, with the target (`target`), the runner the register names for
+  it, and the target in brackets behind the name of its job, as in
+  `Build repository (x86_64-unknown-linux-musl)`; any other build stands once,
+  on `ubuntu-latest`. After a push to a pre-branch none builds. The plan and the two matrices are its outputs `plan`, `units` and
   `builds`, one line of JSON each. With phase 0 errors nothing is handed on.
 - **`report-versions`** prints the table of `version` into the log and its
   Markdown into the summary, for the pull request of the run, and fails with
@@ -436,7 +440,7 @@ repository itself follows with the cut of the jobs.
 
 `build <build> <unit>` carries out one build of one unit the way its building
 block runs it, in the unit's job of the Build phase, after the version writers
-the unit selects: the builds `cargo-package` and `docker`. The unit has to be
+the unit selects: the builds `cargo-package`, `cargo-release` and `docker`. The unit has to be
 one the plan starts that build for; a repository with errors builds nothing. As
 for `run`, the gate decides, and every call of `build` outside a workflow run
 opens with the same line. A temporary folder a build makes lies in the folder
@@ -469,6 +473,57 @@ of the step, for `actions/upload-artifact`.
 
 rustup, rustc and Cargo start under
 [the rule for the Rust toolchain](#starting-the-rust-toolchain).
+
+`build cargo-release` builds the one binary of the Cargo package whose
+`Cargo.toml` stands at the unit's path, for one target, with the programs on
+the `PATH` and in the unit's folder. The register lists the targets of the
+build, each with the runner it is built on (see
+[Builds](register.md#builds)), and `declare` gives each target a job of its
+own on that runner. The tool builds for the one target whose processor and
+operating system are those of the machine it runs on: the first part of the
+target's name, and Linux for a target with `linux` in its name or macOS for
+one that ends in `-apple-darwin`. Only a machine of the target's platform can
+start the binary it built. The version is the unit's version of the run,
+taken from `--plan <file>`, as the block hands in the plan Declare printed,
+or, without it, resolved from the history as `plan` resolves it. Its steps,
+each in a group of the log, up to the first that fails:
+
+1. The target of this machine, named in the log; a machine the register lists
+   no target for, or more than one, is refused by name. Then the toolchain
+   the workspace pins, `rustup toolchain install`, the target added to it with
+   `rustup target add <target>`, and `rustc --version`.
+2. The binary of the unit, from `cargo metadata --locked --no-deps`: the one
+   binary of the package whose manifest is the unit's own `Cargo.toml`. A unit
+   without a `Cargo.toml` fails, and so does one whose `Cargo.toml` is a
+   workspace without a package of its own, naming the packages in it that
+   have a binary, and a package with no binary or with more than one, naming
+   them. The plan has to give the unit a version of this run. The artifact is
+   named `executable-<path>@<version>@<sha>@<target>`, the path
+   percent-encoded as for a crate and the commit `HEAD`.
+3. `cargo build --release --locked --target <target> --package <name> --bin
+<binary>`, with the package's default features.
+4. The binary started with `--version`, under the same rule as the toolchain,
+   with what it prints on both outputs in the log: it has to end within 30
+   seconds, with success, and print the version of the run as a word of its
+   own, on a pull request with `-pr.<number>` behind it.
+5. The archive `<binary>-<target>.tar.gz` beside the binary in Cargo's
+   `target/<target>/release`, holding the binary (mode `755`) and the licence
+   of the unit (mode `644`), each under its own name at the top. The licence is
+   every file whose name starts with `LICENSE`, `LICENCE` or `COPYING`, in any
+   case, in the first folder from the unit's own up to the repository root
+   that holds one; without one the build fails. The same files give the same
+   bytes: a tar archive in the ustar format, the binary first and then the
+   licence in the order of its file names, each with the modification time 0
+   and the owner and group 0 without names, compressed with gzip at the best
+   level with neither a time, a file name nor an operating system in its
+   header. Its SHA-256 is printed.
+
+Then it names the artifact and the file as the outputs `artifact` and
+`archive` of the step, for `actions/upload-artifact`.
+
+The target `x86_64-apple-darwin` is built on GitHub's Intel image of macOS.
+GitHub ends its Intel images of macOS in 2027; what happens to the target then
+is ruled when it comes.
 
 `build docker` builds the image of the unit's `deploy/Dockerfile`, with the
 build context at the repository root, and runs only on an `x86_64` Linux
@@ -538,7 +593,7 @@ database, `trivy-java-db`, the same way.
 Wherever the tool starts the Rust toolchain (rustup, Cargo, rustc, rustfmt,
 and with them what Cargo starts), it does so under one rule, and one place in
 the tool builds every such command: in [the Rust check](#the-rust-check), in
-[the build `cargo-package`](#running-a-build) and in
+[the builds `cargo-package` and `cargo-release`](#running-a-build) and in
 [`xtask`](#the-calls-of-a-workflow-run). Every such program runs without the
 variables of the computer whose names start with `CARGO` or `RUST`, other than
 `CARGO_HOME` and `RUSTUP_HOME`, which only say where Cargo and the toolchains

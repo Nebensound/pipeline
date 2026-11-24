@@ -1,0 +1,5 @@
+# A binary without a licence anywhere in the repository: the archive would
+# hand it on without the terms it may be used under.
+[repo]
+audience = "public"
+pipeline = "rust-binary"

@@ -94,6 +94,12 @@ pub struct Package {
 /// One target of a package.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Target {
+    /// Its name.
+    #[serde(default)]
+    pub name: String,
+    /// Its kinds, such as `bin` or `lib`.
+    #[serde(default)]
+    pub kind: Vec<String>,
     /// Its root file, as an absolute path.
     pub src_path: PathBuf,
     /// The edition it is written in.

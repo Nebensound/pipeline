@@ -1,0 +1,5 @@
+# A package with one binary that prints the version of the run, and a
+# licence beside it: built, started and packed with the licence.
+[repo]
+audience = "public"
+pipeline = "rust-binary"

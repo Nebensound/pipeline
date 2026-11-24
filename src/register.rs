@@ -169,6 +169,13 @@ pub struct Build {
     /// The container images it starts, each pinned under `[image.*]`.
     #[serde(default)]
     pub images: Vec<ImageName>,
+    /// The platforms it builds for, each as Rust names its target, such as
+    /// `x86_64-unknown-linux-musl`, with the label of the runner it is built
+    /// and tested on. A build with targets builds once per target, each in a
+    /// job of its own on that runner; one without builds once. They are no
+    /// publish targets (`[target.*]`).
+    #[serde(default)]
+    pub targets: BTreeMap<String, String>,
 }
 
 /// What a target takes.

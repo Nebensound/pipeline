@@ -791,7 +791,8 @@ field.
 Error. A unit declares a build, and does not select a version writer that build
 needs. What the build produces carries the version that writer puts in place
 (`cargo-package` packages the version in the unit's `Cargo.toml`, which the
-writer `cargo` sets), so without it the artifact would carry whatever version
+writer `cargo` sets, and `cargo-release` builds the binary that prints it), so
+without it the artifact would carry whatever version
 the sources hold instead of the one the run gives the unit. The register names
 the writers each build needs (see [Builds](register.md#builds)). Add the writer
 to the unit's `version` list, or choose a preset that selects it. A unit that

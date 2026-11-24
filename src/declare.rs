@@ -22,20 +22,24 @@
 //! 4. **The excluded packages**: every Rust package `[[exclude]]` takes out as
 //!    a whole, with its reason, as a notice, since the declaration gives the
 //!    reason. `check-rust` leaves such a package out of every step.
-//! 5. **The matrices**: the units that run a check (`units`), and the units
-//!    that build in this run (`builds`), each with the version writers it
-//!    selects. A matrix cannot leave out an entry, and a unit that runs no
-//!    check would get a job with nothing in it. A unit that builds carries a
-//!    version, and it builds only when the plan gives it a version of this
-//!    run: a unit the commit does not touch has no new artifact to hand on.
-//!    After a push to a pre-branch no unit builds: the run resolves no version
-//!    of its own.
+//! 5. **The matrices**: the units that run a check (`units`), and the builds
+//!    of this run (`builds`), each with the version writers its unit selects,
+//!    the name of its job and the runner it runs on. A matrix cannot leave
+//!    out an entry, and a unit that runs no check would get a job with nothing
+//!    in it. A unit that builds carries a version, and it builds only when the
+//!    plan gives it a version of this run: a unit the commit does not touch
+//!    has no new artifact to hand on. A build whose register entry lists
+//!    targets builds once per target, each on the runner the register names
+//!    beside it, with the target in the name of its job; any other build
+//!    builds once, on [`RUNNER`]. After a push to a pre-branch no unit builds:
+//!    the run resolves no version of its own.
 //!
 //! The plan and the two matrices are the outputs of the step, one line of
 //! JSON each.
 
 use serde_json::{Value, json};
 
+use crate::Register;
 use crate::audience::Visibility;
 use crate::packages::{self, Excluded};
 use crate::plan::Plan;
@@ -139,11 +143,18 @@ pub fn units(plan: &Value) -> Value {
         .collect()
 }
 
-/// The matrix of the units that build in this run: the units of the plan, as
-/// it prints them, that start a build and have a version of this run, each
-/// with the version writers it selects. None after a push to a pre-branch.
+/// The runner of a build whose register entry lists no targets: the one
+/// every other job of the workflow runs on.
+pub const RUNNER: &str = "ubuntu-latest";
+
+/// The matrix of the builds of this run: the units of the plan, as it prints
+/// them, that start a build and have a version of this run, each with the
+/// version writers it selects, the name of its job (`job`) and the runner it
+/// runs on (`runs-on`). A unit whose build lists targets in the register
+/// stands once per target, with the target (`target`) and its runner, and the
+/// target in the name of its job. None after a push to a pre-branch.
 #[must_use]
-pub fn builds(plan: &Value, pre_branch: bool) -> Value {
+pub fn builds(plan: &Value, pre_branch: bool, register: &Register) -> Value {
     if pre_branch {
         return json!([]);
     }
@@ -164,6 +175,34 @@ pub fn builds(plan: &Value, pre_branch: bool) -> Value {
             unit["writers"] = version["writers"].clone();
             Some(unit)
         })
+        .flat_map(|unit| {
+            let job = match unit["name"].as_str() {
+                Some(name) => format!("Build component {name}"),
+                None => "Build repository".to_owned(),
+            };
+            let targets = register
+                .build
+                .iter()
+                .find(|(name, _)| unit["build"].as_str() == Some(name.as_str()))
+                .map(|(_, build)| build.targets.clone())
+                .unwrap_or_default();
+            if targets.is_empty() {
+                let mut unit = unit;
+                unit["job"] = json!(job);
+                unit["runs-on"] = json!(RUNNER);
+                return vec![unit];
+            }
+            targets
+                .into_iter()
+                .map(|(target, runner)| {
+                    let mut entry = unit.clone();
+                    entry["job"] = json!(format!("{job} ({target})"));
+                    entry["runs-on"] = json!(runner);
+                    entry["target"] = json!(target);
+                    entry
+                })
+                .collect()
+        })
         .collect()
 }
 
@@ -171,6 +210,7 @@ pub fn builds(plan: &Value, pre_branch: bool) -> Value {
 /// should see: whether everything could be handed on.
 pub fn hand_on(
     plan: &Plan,
+    register: &Register,
     run: &Run,
     excluded: &[Excluded],
     variables: Variables<'_>,
@@ -205,7 +245,7 @@ pub fn hand_on(
     // The plan is JSON the tool wrote, so it reads.
     let value: Value = serde_json::from_str(&json).unwrap_or_default();
     let units = units(&value);
-    let builds = builds(&value, run.pre_branch);
+    let builds = builds(&value, run.pre_branch, register);
     log.command("::group::The units that run a check");
     log.lines(&format!("{units:#}"));
     log.command("::endgroup::");

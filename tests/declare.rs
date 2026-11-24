@@ -10,10 +10,10 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::PathBuf;
 
-use nebensound_repo::Audience;
 use nebensound_repo::declare::{self, Run};
 use nebensound_repo::output::Output;
 use nebensound_repo::plan::Plan;
+use nebensound_repo::{Audience, Register};
 use serde_json::{Value, json};
 use support::{Git, call_with};
 use tempfile::TempDir;
@@ -131,7 +131,8 @@ fn phase_0_passes_and_hands_on_the_plan_and_the_matrices() {
     assert_eq!(
         builds,
         json!([{"build": "cargo-package", "checks": [], "kind": "component", "name": "app",
-                "path": "app", "writers": ["cargo"]}])
+                "path": "app", "writers": ["cargo"], "job": "Build component app",
+                "runs-on": "ubuntu-latest"}])
     );
     for line in [
         "::group::The plan",
@@ -534,19 +535,53 @@ fn the_matrices_take_what_the_plan_starts() {
             {"kind": "component", "name": "b", "version": null, "writers": []}
         ]
     });
+    let register = Register::builtin().unwrap();
     assert_eq!(
         declare::units(&plan),
         json!([{"kind": "repository", "name": null, "path": ".", "checks": ["json"],
                 "build": null}])
     );
     assert_eq!(
-        declare::builds(&plan, false),
+        declare::builds(&plan, false, &register),
         json!([{"kind": "component", "name": "a", "path": "a", "checks": [], "build": "docker",
-                "writers": ["cargo"]}])
+                "writers": ["cargo"], "job": "Build component a", "runs-on": "ubuntu-latest"}])
     );
-    assert_eq!(declare::builds(&plan, true), json!([]));
+    assert_eq!(declare::builds(&plan, true, &register), json!([]));
     assert_eq!(declare::units(&json!({})), json!([]));
-    assert_eq!(declare::builds(&json!({}), false), json!([]));
+    assert_eq!(declare::builds(&json!({}), false, &register), json!([]));
+}
+
+#[test]
+fn a_build_with_targets_builds_once_per_target_on_its_runner() {
+    let plan = json!({
+        "units": [
+            {"kind": "repository", "name": null, "path": ".", "checks": [],
+             "build": "cargo-release"},
+            {"kind": "component", "name": "a", "path": "a", "checks": [], "build": "unknown"}
+        ],
+        "versions": [
+            {"kind": "repository", "name": null, "version": "1.0.0-pr.3", "writers": ["cargo"]},
+            {"kind": "component", "name": "a", "version": "2.0.0", "writers": []}
+        ]
+    });
+    let register = Register::builtin().unwrap();
+    let entry = |target: &str, runner: &str| {
+        json!({"kind": "repository", "name": null, "path": ".", "checks": [],
+               "build": "cargo-release", "writers": ["cargo"],
+               "job": format!("Build repository ({target})"), "runs-on": runner,
+               "target": target})
+    };
+    assert_eq!(
+        declare::builds(&plan, false, &register),
+        json!([
+            entry("aarch64-apple-darwin", "macos-latest"),
+            entry("x86_64-apple-darwin", "macos-26-intel"),
+            entry("x86_64-unknown-linux-musl", "ubuntu-latest"),
+            // A build the register does not know lists no targets either.
+            {"kind": "component", "name": "a", "path": "a", "checks": [], "build": "unknown",
+             "writers": [], "job": "Build component a", "runs-on": "ubuntu-latest"}
+        ])
+    );
 }
 
 #[test]

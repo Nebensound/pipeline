@@ -16,10 +16,11 @@
 //! hunting down the settings that come as files. The image build starts
 //! Docker and Trivy under a rule of the same kind ([`docker::steers`]).
 //!
-//! The builds are `cargo-package` ([`cargo_package`]) and `docker`
-//! ([`docker`](mod@docker)).
+//! The builds are `cargo-package` ([`cargo_package`]), `cargo-release`
+//! ([`cargo_release`]) and `docker` ([`docker`](mod@docker)).
 
 pub mod cargo_package;
+pub mod cargo_release;
 pub mod docker;
 
 use std::ffi::OsStr;
@@ -38,6 +39,9 @@ pub enum Build {
     /// The one Cargo package at the unit's path, packaged and tested from its
     /// own contents.
     CargoPackage,
+    /// The one binary of the Cargo package at the unit's path, built in
+    /// release for the target of this machine, started and archived.
+    CargoRelease,
     /// The image of the unit's `deploy/Dockerfile`, built, started, held to a
     /// user other than root and scanned.
     Docker,
@@ -49,6 +53,7 @@ impl Build {
     pub fn of(name: &str) -> Option<Self> {
         match name {
             "cargo-package" => Some(Self::CargoPackage),
+            "cargo-release" => Some(Self::CargoRelease),
             "docker" => Some(Self::Docker),
             _ => None,
         }
@@ -59,20 +64,23 @@ impl Build {
     pub fn name(self) -> &'static str {
         match self {
             Self::CargoPackage => "cargo-package",
+            Self::CargoRelease => "cargo-release",
             Self::Docker => "docker",
         }
     }
 
-    /// Whether it labels what it builds with the unit's version of the run,
-    /// which it then takes from the plan. A crate carries the version the
+    /// Whether it takes the unit's version of the run from the plan: the
+    /// image build labels the image with it, and the release build holds what
+    /// the binary's `--version` prints to it. A crate carries the version the
     /// writer wrote into its manifest instead.
     #[must_use]
-    pub fn labels_version(self) -> bool {
-        self == Self::Docker
+    pub fn takes_version(self) -> bool {
+        matches!(self, Self::Docker | Self::CargoRelease)
     }
 }
 
-/// The machine a build runs on, as far as the image build asks about it.
+/// The machine a build runs on, as far as the image build and the release
+/// build ask about it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Machine {
     /// Its operating system, as `std::env::consts::OS` names it.
@@ -85,11 +93,14 @@ pub struct Machine {
     pub patience: Duration,
     /// How long the build waits between two looks at it.
     pub interval: Duration,
+    /// How long a binary the release build made is given to answer
+    /// `--version`.
+    pub answer: Duration,
 }
 
 impl Machine {
     /// This machine: five minutes for an image to become healthy, looked at
-    /// every second.
+    /// every second, and thirty seconds for a binary to answer `--version`.
     #[must_use]
     pub fn current() -> Self {
         Self {
@@ -98,6 +109,7 @@ impl Machine {
             processes: PathBuf::from("/proc"),
             patience: Duration::from_secs(300),
             interval: Duration::from_secs(1),
+            answer: Duration::from_secs(30),
         }
     }
 }
@@ -134,6 +146,7 @@ pub struct Context<'a> {
 pub fn run(context: &Context<'_>, build: Build, unit: &RelativePath, log: &mut Log<'_>) -> u8 {
     let passed = match build {
         Build::CargoPackage => cargo_package::run(context, unit, log),
+        Build::CargoRelease => cargo_release::run(context, unit, log),
         Build::Docker => docker::run(context, unit, log),
     };
     u8::from(!passed)

@@ -314,10 +314,13 @@ jobs:
           WRITTEN: "[]"
         run: nebensound-repo unwritten targets --written "$WRITTEN" --plan /dev/stdin <<< "$PLAN"
 
-  # One job per unit that builds in this run, as Declare names them. Each starts
-  # only when Check passed: nothing is built from a tree that failed. The
-  # condition names the results itself, since the implicit success() would
-  # also skip the builds when `units` was skipped because no unit runs a check.
+  # One job per build of this run, as Declare names them: one per unit that
+  # builds, and for a build whose register entry lists targets one per target,
+  # on the runner the register names for it. Declare gives each its name, with
+  # the target in it, and its runner. Each starts only when Check passed:
+  # nothing is built from a tree that failed. The condition names the results
+  # itself, since the implicit success() would also skip the builds when
+  # `units` was skipped because no unit runs a check.
   #
   # The job first writes the unit's version with each version writer it
   # selects, and then builds. A unit starts one build, so one of the build steps
@@ -336,8 +339,10 @@ jobs:
   #     with:
   #       working-directory: ${{ matrix.path }}
   #
-  # A build that labels what it builds with the unit's version also gets
-  # `plan: ${{ needs.declare.outputs.plan }}`, and nothing else.
+  # A build that takes the unit's version of the run also gets
+  # `plan: ${{ needs.declare.outputs.plan }}`, and nothing else. A build with
+  # targets gets no target: the tool builds for the target of the machine it
+  # runs on, which is the runner Declare chose for that target.
   #
   # Neither runs after a step that failed: a build from versions that were not
   # written would hand on the wrong artifact. Each build block adds its step
@@ -346,9 +351,7 @@ jobs:
   # fails before any build starts. `cargo xtask check` fails until the
   # register, the blocks and these steps agree.
   builds:
-    name: >-
-      ${{ matrix.kind == 'repository' && 'Build repository'
-      || format('Build component {0}', matrix.name) }}
+    name: ${{ matrix.job }}
     needs:
       - declare
       - check
@@ -357,7 +360,7 @@ jobs:
       && needs.declare.result == 'success'
       && needs.check.result == 'success'
       && needs.declare.outputs.builds != '[]' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -370,7 +373,9 @@ jobs:
         with:
           persist-credentials: false
 
-      # From the cache `Declare` filled; the version writers call it.
+      # From the cache `Declare` filled; the version writers call it. On a
+      # runner of another system, such as a target's macOS runner, the cache
+      # holds no build for it, and the tool is built here.
       - name: Get the tool
         uses: $/.github/actions/tool
 
@@ -379,7 +384,7 @@ jobs:
       - name: Not written yet
         env:
           BUILD: ${{ matrix.build }}
-          WRITTEN_BUILDS: '["cargo-package", "docker"]'
+          WRITTEN_BUILDS: '["cargo-package", "cargo-release", "docker"]'
           UNIT_PATH: ${{ matrix.path }}
         run: nebensound-repo unwritten build --unit="$UNIT_PATH" --planned "$BUILD" --written "$WRITTEN_BUILDS"
 
@@ -394,6 +399,13 @@ jobs:
         uses: $/.github/actions/build-cargo-package
         with:
           working-directory: ${{ matrix.path }}
+
+      - name: cargo-release
+        if: ${{ matrix.build == 'cargo-release' }}
+        uses: $/.github/actions/build-cargo-release
+        with:
+          working-directory: ${{ matrix.path }}
+          plan: ${{ needs.declare.outputs.plan }}
 
       - name: docker
         if: ${{ matrix.build == 'docker' }}

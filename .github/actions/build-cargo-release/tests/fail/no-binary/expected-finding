@@ -1,0 +1,2 @@
+# The build says that the package has no binary.
+::error::The package case of '.' has 0 binaries (none), and cargo-release builds exactly one.

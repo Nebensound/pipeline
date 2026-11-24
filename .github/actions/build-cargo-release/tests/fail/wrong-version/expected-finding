@@ -1,0 +1,4 @@
+# The binary is built and started, and what it prints is not the version of
+# the run.
+case 9.9.9
+::error::'case --version' does not print the version of this run, *.
