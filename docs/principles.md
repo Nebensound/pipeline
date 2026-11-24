@@ -162,7 +162,7 @@ its jobs `contents: read`, and one job asks for more:
 | `Check`                               | read                                           | No. It takes the tool from the cache, gathers results and reads the plan.                                                           |
 | `Build repository`, `Build component` | read                                           | Yes: the builds compile the code, start what they built and build images, a build with targets in one job per target.               |
 | `Build`                               | read                                           | No. It takes the tool from the cache and gathers results.                                                                           |
-| `Publish`                             | `contents: write`, after a push to `main` only | No. It builds the tool from the pipeline's source and runs it, with Git and curl; it starts nothing of the repository.              |
+| `Publish`                             | `contents: write`, after a push to `main` only | No. It builds the tool from the pipeline's source and runs it, with Git and curl; it uploads the builds' archives and starts none.  |
 
 The table holds for a caller, which pins the workflow. In this repository the
 gate calls the workflow at its own commit, so on a pull request every job runs

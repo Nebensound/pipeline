@@ -24,25 +24,34 @@
 //! answer: the previous record and whether a newer one holds the commit. No
 //! version is read from them; the versions are the history's.
 //!
+//! A unit that publishes to `release-assets` takes the archives its build
+//! handed on. Before anything is written they are held against what its
+//! release needs ([`assets::found`]): every target of the build is there, and
+//! every archive belongs to the version and the commit of the run. Anything
+//! else stops the stage, named, and nothing is written.
+//!
 //! Then it writes, in this order: the tag and the release as a draft of every
-//! unit, then the place of the publish targets, while the releases still take
-//! files, then every release published. An immutable release takes no file
-//! once it is published, and GitHub honours the mark of the latest release
-//! only in the call that publishes. A re-run completes what an earlier attempt
-//! left undone and changes nothing else: a tag on the pushed commit is kept, a
-//! draft the attempt left is taken up, and a published release is left as it
-//! is. A published release that is not immutable gets a warning.
+//! unit, then the archives attached to the drafts, while the releases still
+//! take files, then every release published. An immutable release takes no
+//! file once it is published, and GitHub honours the mark of the latest
+//! release only in the call that publishes. A re-run completes what an earlier
+//! attempt left undone and changes nothing else: a tag on the pushed commit is
+//! kept, a draft the attempt left is taken up, an archive the draft holds with
+//! the same digest is kept and one with another is replaced, and a published
+//! release is left as it is. A published release that is not immutable gets a
+//! warning.
 //!
 //! Everything it does goes into the log, and the summary of the run lists every
 //! unit with what it got, or why it got nothing.
 
+pub mod assets;
 pub mod github;
 
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::console::Console;
 use crate::history::Tag;
@@ -50,6 +59,7 @@ use crate::repository::Records;
 use crate::run::{Level, annotation_at};
 use crate::{TagVersion, UnitName, UnitVersion};
 
+pub use assets::{Archive, Declared};
 pub use github::GitHub;
 
 /// The stage did what it had to.
@@ -64,6 +74,9 @@ pub struct Settings {
     pub github: GitHub,
     /// The file the summary of the run is appended to, if there is one.
     pub summary: Option<PathBuf>,
+    /// The folder the artifacts of the run's builds were fetched into, each in
+    /// a folder of its own named after it; [`None`] when none was handed in.
+    pub assets: Option<PathBuf>,
 }
 
 impl Settings {
@@ -71,7 +84,8 @@ impl Settings {
     /// `GITHUB_REPOSITORY` (`owner/name`), `GITHUB_API_URL`, `GITHUB_TOKEN`,
     /// the token that may write to the repository, which the workflow hands
     /// to this one step, and `GITHUB_STEP_SUMMARY`, which may be missing.
-    /// A request may use HTTPS only.
+    /// A request may use HTTPS only. The folder of the artifacts is not a
+    /// variable: the call names it.
     ///
     /// # Errors
     ///
@@ -114,6 +128,7 @@ impl Settings {
             summary: variable("GITHUB_STEP_SUMMARY")
                 .filter(|path| !path.is_empty())
                 .map(PathBuf::from),
+            assets: None,
         })
     }
 }
@@ -243,12 +258,15 @@ fn nearest(records: &Records, prefix: &str, wanted: impl Fn(TagVersion) -> bool)
         .map(|version| found_name(prefix, version))
 }
 
-/// Runs the stage: decides, writes, and appends the summary.
+/// Runs the stage: decides, writes, and appends the summary. `declared` names
+/// the units that publish to `release-assets` ([`assets::declared`]).
 ///
 /// Returns the exit code: 0 when the stage did what it had to, 1 when a tag
-/// stands in the way, a call failed, or the summary could not be written.
+/// stands in the way, the archives are not the ones a release needs, a call
+/// failed, or the summary could not be written.
 pub fn run(
     versions: &[UnitVersion],
+    declared: &[Declared],
     records: &Records,
     settings: &Settings,
     out: &mut Console<'_>,
@@ -257,7 +275,11 @@ pub fn run(
         out,
         summary: String::from("### The release stage on main\n\n"),
     };
-    let code = stage(versions, records, &settings.github, &mut report);
+    let handed = Handed {
+        declared,
+        folder: settings.assets.as_deref(),
+    };
+    let code = stage(versions, &handed, records, &settings.github, &mut report);
     let Some(path) = &settings.summary else {
         return code;
     };
@@ -279,9 +301,18 @@ pub fn run(
     }
 }
 
+/// What the stage was handed for the target `release-assets`.
+struct Handed<'a> {
+    /// The units that publish there.
+    declared: &'a [Declared],
+    /// Where the artifacts of the run's builds lie.
+    folder: Option<&'a Path>,
+}
+
 /// The stage without the summary file.
 fn stage(
     versions: &[UnitVersion],
+    handed: &Handed<'_>,
     records: &Records,
     github: &GitHub,
     report: &mut Report<'_, '_>,
@@ -338,7 +369,14 @@ fn stage(
         report.say("Nothing is released in this run.");
         return OK;
     }
-    match write(&releases, records, github, report) {
+    let Some(archives) = archives(&releases, handed, head, report) else {
+        report.say(
+            "Nothing is released in this run: the archives the builds handed on are not the ones \
+             the releases take.",
+        );
+        return FAILED;
+    };
+    match write(&releases, &archives, records, github, report) {
         Ok(()) => OK,
         Err(message) => {
             report.error(&message);
@@ -347,10 +385,52 @@ fn stage(
     }
 }
 
-/// Writes the records of the units to release: every tag and draft, then
-/// every release published.
+/// The archives of every unit to release that publishes to
+/// `release-assets`, held against what its release needs; [`None`] when they
+/// are not the ones, each reason named.
+fn archives<'p>(
+    releases: &[(&'p Planned, Option<&str>)],
+    handed: &Handed<'_>,
+    head: &str,
+    report: &mut Report<'_, '_>,
+) -> Option<Vec<(&'p UnitName, Vec<Archive>)>> {
+    let mut archives = Vec::new();
+    let mut refused = false;
+    for (unit, _) in releases {
+        let Some(declared) = handed
+            .declared
+            .iter()
+            .find(|declared| declared.name == unit.name)
+        else {
+            continue;
+        };
+        let label = &unit.name;
+        match assets::found(handed.folder, declared, &unit.version.to_string(), head) {
+            Ok(found) => {
+                let names: Vec<&str> = found.iter().map(|archive| archive.name.as_str()).collect();
+                report.line(&format!(
+                    "{label}: the archives for {} are {}.",
+                    unit.tag,
+                    names.join(", ")
+                ));
+                archives.push((&unit.name, found));
+            }
+            Err(problems) => {
+                for problem in problems {
+                    report.error(&format!("{label}: {problem}."));
+                }
+                refused = true;
+            }
+        }
+    }
+    (!refused).then_some(archives)
+}
+
+/// Writes the records of the units to release: every tag and draft, then the
+/// archives attached to the drafts, then every release published.
 fn write(
     releases: &[(&Planned, Option<&str>)],
+    archives: &[(&UnitName, Vec<Archive>)],
     records: &Records,
     github: &GitHub,
     report: &mut Report<'_, '_>,
@@ -380,11 +460,14 @@ fn write(
             github.create_tag(tag, head)?;
             report.line(&format!("{label}: tagged {head} as {tag}."));
         }
-        let id = if let Some(draft) = release(true) {
+        let draft = if let Some(draft) = release(true) {
             report.line(&format!(
                 "{label}: the draft of {tag} that an earlier attempt left is taken up."
             ));
-            draft.id
+            github::Draft {
+                id: draft.id,
+                upload: draft.upload.clone(),
+            }
         } else {
             let notes = match previous {
                 Some(previous) => github.generate_notes(tag, previous)?,
@@ -394,17 +477,21 @@ fn write(
                     unit.display
                 ),
             };
-            let id = github.create_draft(tag, head, &unit.title(), &notes)?;
+            let draft = github.create_draft(tag, head, &unit.title(), &notes)?;
             report.line(&format!("{label}: drafted the release {tag}."));
-            id
+            draft
         };
-        drafts.push((*unit, id));
+        drafts.push((*unit, draft));
     }
 
-    // The publish targets come here, while the releases are drafts that still
-    // take files. Every target without a building block fails Check before
-    // anything is built, so no unit that reaches the stage names one yet; the
-    // first block sets how it is called.
+    // The publish targets, while the releases are drafts that still take
+    // files: the archives of `release-assets`. Every other target fails Check
+    // before anything is built, so no unit that reaches the stage names one.
+    for (unit, draft) in &drafts {
+        if let Some((_, found)) = archives.iter().find(|(name, _)| **name == unit.name) {
+            attach(github, unit, draft, found, report)?;
+        }
+    }
 
     if drafts.is_empty() {
         report.line("No release is left to publish.");
@@ -414,11 +501,11 @@ fn write(
         .summary
         .push_str("\n### Published\n\n| Unit | Release | Kind |\n| ---- | ------- | ---- |\n");
     let mut warnings = Vec::new();
-    for (unit, id) in drafts {
+    for (unit, draft) in drafts {
         let label = &unit.name;
         let tag = &unit.tag;
-        github.publish(id, unit.latest())?;
-        let shown = github.release(id)?;
+        github.publish(draft.id, unit.latest())?;
+        let shown = github.release(draft.id)?;
         let kind = if unit.latest() {
             "full release, latest"
         } else {
@@ -443,6 +530,58 @@ fn write(
         for warning in warnings {
             let _ = writeln!(report.summary, "**Warning:** {warning}");
         }
+    }
+    Ok(())
+}
+
+/// Attaches the archives to the draft of the unit: an asset of the same name
+/// and digest that the draft holds is kept, one with another digest, or whose
+/// upload broke off, is replaced, and every other archive is uploaded.
+fn attach(
+    github: &GitHub,
+    unit: &Planned,
+    draft: &github::Draft,
+    archives: &[Archive],
+    report: &mut Report<'_, '_>,
+) -> Result<(), String> {
+    let label = &unit.name;
+    let tag = &unit.tag;
+    let present = github.assets(draft.id)?;
+    for archive in archives {
+        let name = &archive.name;
+        let digest = format!("sha256:{}", archive.sha256);
+        let held = present.iter().find(|asset| asset.name == *name);
+        if let Some(asset) = held {
+            if asset.uploaded && asset.digest.as_deref() == Some(digest.as_str()) {
+                report.line(&format!(
+                    "{label}: the draft of {tag} holds {name} with the same digest already."
+                ));
+                continue;
+            }
+            github.delete_asset(asset.id)?;
+        }
+        let uploaded = github.upload(&draft.upload, name, &archive.file)?;
+        let given = uploaded.digest.as_deref().unwrap_or(digest.as_str());
+        if !uploaded.uploaded || uploaded.name != *name || given != digest {
+            return Err(format!(
+                "GitHub holds the upload of {name} to the draft of {tag} as {} with the digest \
+                 {given}, {}, and the archive is {name} with {digest}",
+                uploaded.name,
+                if uploaded.uploaded {
+                    "uploaded"
+                } else {
+                    "not uploaded"
+                }
+            ));
+        }
+        let done = if held.is_some() {
+            "replaced"
+        } else {
+            "attached"
+        };
+        report.line(&format!(
+            "{label}: {done} {name} on the draft of {tag}, {digest}."
+        ));
     }
     Ok(())
 }

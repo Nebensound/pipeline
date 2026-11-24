@@ -30,8 +30,9 @@ license      = "EUPL-1.2"
 repository   = "https://github.com/Nebensound/pipeline"
 readme       = "docs/tool.md"
 
-# Not published. Whoever needs the tool gets it through the composite action; a
-# second distribution channel would be a second version that can fall behind.
+# Published to no registry. A release of this repository carries the binary of
+# its commit as assets (the target release-assets of its declaration), in the
+# version of that release; the composite action builds the tool from source.
 publish = false
 
 # The crate `cargo package` builds holds the tool and nothing else of the

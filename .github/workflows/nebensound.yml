@@ -306,12 +306,14 @@ jobs:
       # pull request, and not only in Publish once the merge has happened. A
       # target belongs to a unit that carries a version, and every unit that
       # names one fails here, whether the commit touches it or not. Each
-      # building block `publish-<target>` adds its target to the list.
+      # building block `publish-<target>` adds its target to the list, and so
+      # does a target the release stage carries out itself: release-assets,
+      # which attaches the archives to the drafts in Publish.
       - name: Publish targets not written yet
         if: ${{ !cancelled() }}
         env:
           PLAN: ${{ needs.declare.outputs.plan }}
-          WRITTEN: "[]"
+          WRITTEN: '["release-assets"]'
         run: nebensound-repo unwritten targets --written "$WRITTEN" --plan /dev/stdin <<< "$PLAN"
 
   # One job per build of this run, as Declare names them: one per unit that
@@ -446,9 +448,11 @@ jobs:
   # The release stage on main: after a push to main, and only there, never
   # after a push to a pre-branch, every unit the history gives a version of the
   # pushed commit gets its records, a tag on the commit and a GitHub Release, a
-  # full one: every merge into main is a full release. What it does, and in
-  # which order, is the tool's call `release`; this job only gets the tool and
-  # calls it.
+  # full one: every merge into main is a full release, and a unit that publishes
+  # to release-assets gets the archives of its build attached before its
+  # release is published. What it does, and in which order, is the tool's call
+  # `release`; this job only gets the tool, fetches the artifacts of the run's
+  # builds and calls it.
   #
   # It starts only when Declare, Check and Build passed. Check is named on its
   # own: Build is green when nothing builds, whatever Check found, and nothing
@@ -458,12 +462,15 @@ jobs:
   # group of the repository (see `concurrency`), so its checkout holds every
   # record the runs before it wrote.
   #
-  # Nothing another job wrote reaches it, only whether that job passed: it
-  # takes no job output and no artifact, it reads the versions from the history
-  # itself, and it builds the tool itself, from the source of this commit of
-  # the pipeline, without the cache. Every job of a branch may write the cache,
-  # a job that runs code of the repository among them, and what such a job
-  # left there is not to run with a token that can write.
+  # Of what another job wrote, only whether that job passed and the artifacts
+  # of the builds reach it: it takes no job output, it reads the versions from
+  # the history itself, and it builds the tool itself, from the source of this
+  # commit of the pipeline, without the cache. Every job of a branch may write
+  # the cache, a job that runs code of the repository among them, and what such
+  # a job left there is not to run with a token that can write. The artifacts
+  # are the products the builds tested, and they are data here: the tool holds
+  # each against the version and the commit of the run and uploads it, and
+  # nothing of them is started.
   publish:
     name: Publish
     needs:
@@ -496,9 +503,17 @@ jobs:
         with:
           cache: "false"
 
+      # Every artifact of this run, each into a folder of its own named after
+      # it, outside the checkout. Which of them a release takes, and whether
+      # they are the ones it needs, the tool decides.
+      - name: Fetch the artifacts of the builds
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/artifacts
+
       # The token goes to this step alone, and the tool hands it to curl on
       # its standard input, never on a command line.
       - name: Release
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: nebensound-repo -C "$GITHUB_WORKSPACE" release
+        run: nebensound-repo -C "$GITHUB_WORKSPACE" release --assets "$RUNNER_TEMP/artifacts"
