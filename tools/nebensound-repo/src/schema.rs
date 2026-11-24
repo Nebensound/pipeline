@@ -9,7 +9,10 @@
 //! pattern, the two forms of a pipeline — is described here, beside the rule
 //! it mirrors. Where a rule cannot be said in a schema, the schema says less
 //! than the parser and never more: it may let a file through that phase 0
-//! then rejects, but it does not reject one that phase 0 accepts.
+//! then rejects, but it does not reject one that phase 0 accepts. A path is
+//! refused one step later than the parser would: phase 0 reads a control
+//! character in it and then fails on it by a finding of its own
+//! ([`crate::control`]), and the schema refuses it where it is written.
 
 use std::borrow::Cow;
 
@@ -62,9 +65,19 @@ fn without_null(schema: &mut Schema) {
 /// pattern refuses `..` without a lookahead.
 const NAME: &str = r"[a-z0-9](?:(?:\.?[a-z0-9-])*\.?[a-z0-9])?";
 
-/// One segment of a path as `RelativePath::new` accepts it: not empty, not
-/// `.` or `..`, and neither `/` nor a backslash in it.
-const SEGMENT: &str = r"(?:[^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+)";
+/// The control characters phase 0 refuses in a path ([`crate::control`]),
+/// for a class of characters: Unicode's category `Cc`. Written as `\xHH`,
+/// which both a JSON Schema pattern and the `regex` crate read.
+const CONTROL: &str = r"\x00-\x1F\x7F-\x9F";
+
+/// One segment of a path as `RelativePath::new` accepts it and phase 0 lets
+/// through: not empty, not `.` or `..`, and neither `/`, a backslash nor a
+/// control character in it.
+fn segment() -> String {
+    let other = format!(r"[^/\\{CONTROL}]");
+    let first = format!(r"[^/\\.{CONTROL}]");
+    format!(r"(?:{first}{other}*|\.{first}{other}*|\.\.{other}+)")
+}
 
 /// One number of a version as `Version::parse` accepts it: `0`, or digits
 /// that do not start on `0`. The parser also refuses a number beyond `u64`,
@@ -83,7 +96,8 @@ fn name_schema(kind: &str) -> Schema {
 }
 
 fn path_pattern() -> String {
-    format!(r"^(?:\.|{SEGMENT}(?:/{SEGMENT})*/?)$")
+    let segment = segment();
+    format!(r"^(?:\.|{segment}(?:/{segment})*/?)$")
 }
 
 macro_rules! name_schema {
@@ -135,7 +149,8 @@ impl JsonSchema for RelativePath {
         json_schema!({
             "type": "string",
             "description": "A path inside the repository, separated by '/': '.' for the \
-                            repository itself, never absolute, no '.' or '..' segment.",
+                            repository itself, never absolute, no '.' or '..' segment, no \
+                            control character.",
             "pattern": path_pattern(),
         })
     }
@@ -216,10 +231,10 @@ impl JsonSchema for Pattern {
         json_schema!({
             "type": "string",
             "description": "A path inside the repository, a type ('*.png') or a name anywhere \
-                            ('**/LICENSE').",
+                            ('**/LICENSE'), without a control character.",
             "anyOf": [
                 { "pattern": format!(r"^\*\.{NAME}$") },
-                { "pattern": r"^\*\*/[^/]+$" },
+                { "pattern": format!(r"^\*\*/[^/{CONTROL}]+$") },
                 { "pattern": path_pattern() },
             ],
         })

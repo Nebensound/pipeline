@@ -229,10 +229,11 @@ fn a_name_that_could_forge_a_line_is_escaped() {
     let text = report::tree(&analysis);
 
     assert!(text.contains("forged\\nline.md"), "{text}");
+    // Phase 0 refuses the name, so the file carries that finding below it.
     assert_eq!(
         text.lines().count(),
-        5,
-        "one line per node, and the name does not add one: {text}"
+        6,
+        "one line per node and one for the finding, and the name does not add one: {text}"
     );
 
     let explained =

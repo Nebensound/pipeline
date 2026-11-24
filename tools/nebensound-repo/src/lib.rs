@@ -30,6 +30,7 @@ pub mod build;
 pub mod central;
 pub mod conformance;
 pub mod console;
+pub mod control;
 #[cfg(feature = "program")]
 pub mod declare;
 #[cfg(feature = "ui")]
@@ -1571,7 +1572,7 @@ fn orders(
 #[non_exhaustive]
 pub enum ReadError {
     /// The TOML did not read, or did not match the shape.
-    #[error("the declaration is not readable: {0}")]
+    #[error("the declaration is not readable: {}", quoted(.0))]
     Unreadable(#[from] toml::de::Error),
     /// The same pattern stands twice under `[[exclude]]`.
     #[error(
@@ -1595,8 +1596,8 @@ pub enum ReadError {
     },
     /// A repository made an exclusion depend on the file being empty.
     #[error(
-        "{} sets only-if-empty, which only the central list of what nobody checks may set. \
-         Here an exclusion takes its path out as it stands — leave the field out",
+        "{} sets only-if-empty, which only the central list of what nobody checks may set. Here \
+         an exclusion takes its path out as it stands — leave the field out",
         report::shown(.path)
     )]
     ConditionalExclusion {
@@ -1618,6 +1619,34 @@ pub enum ReadError {
         /// The number it names.
         edition: i64,
     },
+}
+
+/// The first words of what the TOML reader writes when it knows where it
+/// stopped: four lines of its own before the message.
+const READER_LAYOUT: &str = "TOML parse error at line ";
+
+/// What the TOML reader says of a declaration that does not read, with each
+/// control character in it written as [`report::shown`] writes it.
+///
+/// Where the reader knows where it stopped, it writes four lines of its own
+/// first: the position, a gutter, the line it stopped at and a caret under it.
+/// Those stay lines of their own. The quoted line can hold a raw carriage
+/// return, such as one in a path. Everything after them is the message, and it
+/// is written as one line: it can quote a string of the declaration as the
+/// reader decoded it, such as an unknown field or value, and a `\n` in that
+/// string is a real line break by then. Either would otherwise reach the log
+/// as it stands, before phase 0 could refuse a path by name ([`control`]).
+fn quoted(error: &toml::de::Error) -> String {
+    let text = error.to_string();
+    let text = text.strip_suffix('\n').unwrap_or(&text);
+    let layout = if text.starts_with(READER_LAYOUT) {
+        4
+    } else {
+        0
+    };
+    let mut lines: Vec<String> = text.splitn(layout + 1, '\n').map(report::shown).collect();
+    lines.push(String::new());
+    lines.join("\n")
 }
 
 /// The edition this tool reads: the only one there is. A declaration that

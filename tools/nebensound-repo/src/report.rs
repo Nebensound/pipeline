@@ -108,6 +108,8 @@ fn feat_types(analysis: &Analysis) -> String {
 }
 
 fn unit_lines(unit: &Unit) -> Vec<String> {
+    // A path can hold a control character until phase 0 refuses it, and this
+    // part of the report comes before the finding that does.
     let mut lines = vec![format!(
         "{}{}",
         column(2, &format!("{}", unit.name)),

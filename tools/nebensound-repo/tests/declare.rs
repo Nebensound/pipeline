@@ -238,6 +238,57 @@ fn phase_0_errors_hand_nothing_on() {
     assert!(!text.contains("::group::The plan"), "{text}");
 }
 
+/// Declare on a repository that phase 0 refuses: it fails, hands nothing on,
+/// and writes no line of the repository's text as a line of its own.
+fn refused(git: &Git) -> String {
+    let files = Files::new();
+    let (text, code) = declare(git, &files, &[("NEBENSOUND_VISIBILITY", "public")]);
+    assert_eq!(code, 1, "{text}");
+    assert_eq!(Files::read(&files.output()), "");
+    assert!(!text.contains("::group::The plan"), "{text}");
+    for forged in ["b.md", "::warning::forged"] {
+        assert!(
+            !text.lines().any(|line| line.starts_with(forged)),
+            "{forged}\n{text}"
+        );
+    }
+    text
+}
+
+#[test]
+fn a_tracked_file_whose_name_holds_a_line_break_stops_phase_0_by_name() {
+    let git = repository();
+    git.write(&[("docs/a\nb.md", "# a\n")]);
+    git.commit("docs: a name with a line break");
+
+    let text = refused(&git);
+    let line = "::error file=docs/a\\nb.md,title=control-character::[control-character] at \
+                docs/a\\nb.md: the name of this file holds a control character, shown here as \
+                an escape. A tool that takes names one per line, or as the value of a step \
+                output, would misread it; rename the file";
+    assert!(text.lines().any(|found| found == line), "{text}");
+}
+
+#[test]
+fn a_declared_path_that_holds_a_line_break_stops_phase_0_by_name() {
+    let git = repository();
+    git.write(&[(
+        ".nebensound/repo.toml",
+        &format!(
+            "{}\n[[exclude]]\npath = \"app/a\\n::warning::forged\"\nreason = \"x\"\n",
+            declared("public")
+        ),
+    )]);
+    git.commit("chore: a path with a line break");
+
+    let text = refused(&git);
+    let line = "::error file=.nebensound/repo.toml,title=control-character::[control-character] \
+                at .nebensound/repo.toml: the path of [[exclude]] entry 2 is \
+                \"app/a\\n::warning::forged\", which holds a control character, shown here as \
+                an escape. No tracked file may carry it either; write the path without it";
+    assert!(text.lines().any(|found| found == line), "{text}");
+}
+
 #[test]
 fn a_pull_request_whose_merge_cannot_be_given_a_version_gets_no_plan() {
     let git = Git::new();

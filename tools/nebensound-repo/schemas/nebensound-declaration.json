@@ -222,13 +222,13 @@
           "pattern": "^\\*\\.[a-z0-9](?:(?:\\.?[a-z0-9-])*\\.?[a-z0-9])?$"
         },
         {
-          "pattern": "^\\*\\*/[^/]+$"
+          "pattern": "^\\*\\*/[^/\\x00-\\x1F\\x7F-\\x9F]+$"
         },
         {
-          "pattern": "^(?:\\.|(?:[^/\\\\.][^/\\\\]*|\\.[^/\\\\.][^/\\\\]*|\\.\\.[^/\\\\]+)(?:/(?:[^/\\\\.][^/\\\\]*|\\.[^/\\\\.][^/\\\\]*|\\.\\.[^/\\\\]+))*/?)$"
+          "pattern": "^(?:\\.|(?:[^/\\\\.\\x00-\\x1F\\x7F-\\x9F][^/\\\\\\x00-\\x1F\\x7F-\\x9F]*|\\.[^/\\\\.\\x00-\\x1F\\x7F-\\x9F][^/\\\\\\x00-\\x1F\\x7F-\\x9F]*|\\.\\.[^/\\\\\\x00-\\x1F\\x7F-\\x9F]+)(?:/(?:[^/\\\\.\\x00-\\x1F\\x7F-\\x9F][^/\\\\\\x00-\\x1F\\x7F-\\x9F]*|\\.[^/\\\\.\\x00-\\x1F\\x7F-\\x9F][^/\\\\\\x00-\\x1F\\x7F-\\x9F]*|\\.\\.[^/\\\\\\x00-\\x1F\\x7F-\\x9F]+))*/?)$"
         }
       ],
-      "description": "A path inside the repository, a type ('*.png') or a name anywhere ('**/LICENSE').",
+      "description": "A path inside the repository, a type ('*.png') or a name anywhere ('**/LICENSE'), without a control character.",
       "type": "string"
     },
     "Pipeline": {
@@ -277,8 +277,8 @@
       "type": "string"
     },
     "RelativePath": {
-      "description": "A path inside the repository, separated by '/': '.' for the repository itself, never absolute, no '.' or '..' segment.",
-      "pattern": "^(?:\\.|(?:[^/\\\\.][^/\\\\]*|\\.[^/\\\\.][^/\\\\]*|\\.\\.[^/\\\\]+)(?:/(?:[^/\\\\.][^/\\\\]*|\\.[^/\\\\.][^/\\\\]*|\\.\\.[^/\\\\]+))*/?)$",
+      "description": "A path inside the repository, separated by '/': '.' for the repository itself, never absolute, no '.' or '..' segment, no control character.",
+      "pattern": "^(?:\\.|(?:[^/\\\\.\\x00-\\x1F\\x7F-\\x9F][^/\\\\\\x00-\\x1F\\x7F-\\x9F]*|\\.[^/\\\\.\\x00-\\x1F\\x7F-\\x9F][^/\\\\\\x00-\\x1F\\x7F-\\x9F]*|\\.\\.[^/\\\\\\x00-\\x1F\\x7F-\\x9F]+)(?:/(?:[^/\\\\.\\x00-\\x1F\\x7F-\\x9F][^/\\\\\\x00-\\x1F\\x7F-\\x9F]*|\\.[^/\\\\.\\x00-\\x1F\\x7F-\\x9F][^/\\\\\\x00-\\x1F\\x7F-\\x9F]*|\\.\\.[^/\\\\\\x00-\\x1F\\x7F-\\x9F]+))*/?)$",
       "type": "string"
     },
     "Repo": {

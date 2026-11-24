@@ -945,6 +945,7 @@ fn every_rule_has_a_code_of_its_own() {
         Rule::NoRequestableDefault,
         Rule::RepositoryWithoutVersion,
         Rule::MissingPath,
+        Rule::ControlCharacter,
         Rule::LanguageWithoutCheck,
         Rule::ChildlessGenerator,
         Rule::UngeneratableName,
