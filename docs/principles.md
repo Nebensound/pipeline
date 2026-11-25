@@ -26,8 +26,9 @@ not add a special path to the workflow.
 is one more case to think through in each later change, and one more place
 where a change can go wrong in every repository at once.
 
-**Today.** `Declare` is the preparing job: it runs phase 0 and hands the plan to
-the jobs after it, except `Publish`, which works out the versions itself. The
+**Today.** `Declare` is the preparing job: it runs phase 0, reports the versions
+and hands the plan to the jobs after it, except `Publish`, which works out the
+versions itself. The
 checks are cut differently: one job per unit, with one step per check, so
 reading checks and checks that run code share a job. Every check adds a step of
 its own to `nebensound.yml` and its name to a list there.
@@ -168,7 +169,6 @@ its jobs `contents: read`, and one job asks for more:
 | Job                                   | Token                                          | Runs code of the repository                                                                                                                                                       |
 | ------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Declare`                             | read                                           | No. The tool reads the files and the history; when the event does not name the visibility, phase 0 asks for it with the read token.                                               |
-| `Version`                             | read                                           | No. The tool reads the history.                                                                                                                                                   |
 | `Check repository`, `Check component` | read                                           | Yes: `check-rust`, `check-python` and `cargo xtask check --all`.                                                                                                                  |
 | `Check`                               | read                                           | No. It gets the tool, gathers results and reads the plan.                                                                                                                         |
 | `Build repository`, `Build component` | read                                           | Yes: the builds compile the code, start what they built and build images, a build with targets in one job per target.                                                             |

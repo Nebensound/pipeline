@@ -6,6 +6,10 @@
 //! `Build` each turn the results of the jobs they wait for into one. They read
 //! nothing of the repository: what they are handed is what GitHub says of
 //! those jobs, and for the builds the list Declare handed the build matrix.
+//!
+//! The preparing job `Declare` decides which jobs start. When it does not
+//! pass, whether for an error of phase 0 or for one in the versions of a pull
+//! request, nothing starts, and both fail and name it as the place to look.
 
 use clap::ValueEnum;
 
@@ -38,13 +42,14 @@ impl Outcome {
     }
 }
 
-/// The result of the checks, from how phase 0 (`declare`) and the jobs of the
-/// units (`checks`) ended: whether it passes. A plan that starts no check
+/// The result of the checks, from how the preparing job (`declare`) and the
+/// jobs of the units (`checks`) ended: whether it passes. A plan that starts no check
 /// skips the jobs of the units, and that passes.
 pub fn checks(declare: Outcome, checks: Outcome, log: &mut Log<'_>) -> bool {
     if declare != Outcome::Success {
         log.error(&format!(
-            "Phase 0 did not pass ({}), so nothing was checked.",
+            "The preparing job Declare did not pass ({}), so nothing was checked. Its \
+             log says why.",
             declare.as_str()
         ));
         return false;
@@ -71,7 +76,7 @@ pub fn checks(declare: Outcome, checks: Outcome, log: &mut Log<'_>) -> bool {
 /// How the builds of a run went.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Builds<'a> {
-    /// How phase 0 ended.
+    /// How the preparing job ended.
     pub declare: Outcome,
     /// How the closing job of the checks ended.
     pub check: Outcome,
@@ -92,7 +97,8 @@ pub struct Builds<'a> {
 pub fn builds(builds: &Builds<'_>, log: &mut Log<'_>) -> bool {
     if builds.declare != Outcome::Success {
         log.error(&format!(
-            "Phase 0 did not pass ({}), so nothing was built.",
+            "The preparing job Declare did not pass ({}), so nothing was built. Its log \
+             says why.",
             builds.declare.as_str()
         ));
         return false;

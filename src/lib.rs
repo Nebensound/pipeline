@@ -296,22 +296,17 @@ pub enum Command {
         #[arg(long, value_name = "DIR")]
         assets: Option<PathBuf>,
     },
-    /// Run phase 0 as the job Declare does, and hand on the plan, the units
-    /// that run a check and the units that build as outputs of the step.
+    /// Run the preparing job Declare: phase 0, the versions as a table into
+    /// the log and the summary of the run, for a pull request what a release
+    /// would need of them, and the plan, the units that run a check and the
+    /// units that build handed on as outputs of the step. After a push to a
+    /// pre-branch it says why no version is resolved instead of the table.
     /// Takes what the event says of the repository and its pull request from
     /// the variables of a workflow run, and asks GitHub for the visibility
     /// when the event names none.
     // It may call GitHub through curl, so it is part of the feature `program`.
     #[cfg(feature = "program")]
     Declare,
-    /// Report the version of every unit as the job Version does: the table
-    /// into the log and as Markdown into the summary of the run, for the pull
-    /// request the variables of the run name. After a push to a pre-branch it
-    /// says why there is none.
-    // It writes into the files of a workflow run, so it is part of the
-    // feature `program`, as `release` is.
-    #[cfg(feature = "program")]
-    ReportVersions,
     /// Fail by name for what the register knows and nobody has written a
     /// building block for yet, as the steps `Not written yet` do.
     // Only a workflow run calls it, so it is part of the feature `program`.
@@ -686,8 +681,8 @@ enum Call {
     /// A call of a workflow run that needs no phase 0.
     #[cfg(feature = "program")]
     Alone(Alone),
-    /// Run phase 0 as Declare does and hand on the plan, for the pull
-    /// request if there is one.
+    /// Run the preparing job Declare: phase 0, the versions, and the plan
+    /// handed on, for the pull request if there is one.
     #[cfg(feature = "program")]
     Declare(Option<PullRequest>),
     /// Something about the repository.
@@ -711,8 +706,6 @@ enum Alone {
     Unwritten(Unwritten),
     /// Turn the results of the jobs a closing job waits for into one.
     Gather(Gather),
-    /// Say why a run after a push to this pre-branch resolves no version.
-    PreBranch(String),
     /// Run the repository's xtask.
     Xtask,
 }
@@ -780,10 +773,6 @@ enum Job {
         unit: RelativePath,
         plan: Option<PathBuf>,
     },
-    /// Report the versions as the job Version does, for the pull request if
-    /// there is one.
-    #[cfg(feature = "program")]
-    ReportVersions(Option<PullRequest>),
     /// Open the interface.
     #[cfg(feature = "ui")]
     Ui,
@@ -859,15 +848,6 @@ fn call(cli: &Cli, variables: &dyn Fn(&str) -> Option<String>) -> Result<Call, F
             ));
         }
         #[cfg(feature = "program")]
-        Some(Command::ReportVersions) => {
-            if workflow::pre_branch(variables) {
-                return Ok(Call::Alone(Alone::PreBranch(
-                    variables("GITHUB_REF_NAME").unwrap_or_default(),
-                )));
-            }
-            Job::ReportVersions(workflow::pull_request(variables).map_err(Failure::Run)?)
-        }
-        #[cfg(feature = "program")]
         Some(Command::Unwritten { what }) => {
             return Ok(Call::Alone(Alone::Unwritten(what.clone())));
         }
@@ -913,8 +893,6 @@ fn repository_of(cli: &Cli, job: &Job) -> Repository {
 fn versions_of(job: &Job) -> Option<&PullRequest> {
     match job {
         Job::Version { pull_request, .. } => pull_request.as_ref(),
-        #[cfg(feature = "program")]
-        Job::ReportVersions(pull_request) => pull_request.as_ref(),
         _ => None,
     }
 }
@@ -1116,15 +1094,6 @@ fn execute(context: &Execution<'_>, job: &Job, out: &mut Console<'_>) -> Result<
             let at = (&repository, &analysis, &central);
             return Ok(build_unit(context, at, (*build, unit), &orders, out));
         }
-        #[cfg(feature = "program")]
-        Job::ReportVersions(pull_request) => {
-            return Ok(report_versions(
-                context,
-                &analysis,
-                pull_request.as_ref(),
-                out,
-            ));
-        }
         #[cfg(feature = "ui")]
         Job::Ui => {
             terminal::open(&analysis, context.output)
@@ -1310,19 +1279,6 @@ fn alone_call(
             },
             log,
         ),
-        Alone::PreBranch(branch) => {
-            let line = format!(
-                "This run follows a push to the pre-branch `{branch}`. Versions and pre-releases \
-                 of pre-branches are not built yet, so no version is resolved, nothing is built \
-                 and nothing is published."
-            );
-            log.command(&workflow::notice("Pre-branch", &line));
-            if let Err(message) = workflow::summary(variables, &format!("{line}\n")) {
-                log.error(&message);
-                return FOUND;
-            }
-            true
-        }
         Alone::Xtask => xtask::run(&cli.repository, &search_path(variables), log),
     };
     if passed { OK } else { FOUND }
@@ -1373,7 +1329,8 @@ fn unwritten_call(what: &Unwritten, log: &mut workflow::Log<'_>) -> Result<bool,
 }
 
 /// `declare`: phase 0 with what the run knows of the repository, then, when
-/// it passed, the plan and the matrices handed on.
+/// it passed, the versions reported, held against the records on a pull
+/// request, and the plan and the matrices handed on.
 #[cfg(feature = "program")]
 fn declare(
     context: &Execution<'_>,
@@ -1408,14 +1365,21 @@ fn declare(
                 read(context, &planned).map(Some)
             }
         })?;
-    let Some((repository, central, analysis)) = read_for_plan else {
+    let Some((repository, central, mut analysis)) = read_for_plan else {
         return Ok(FOUND);
     };
-    if analysis.failed() {
-        say(
-            out,
-            "there is no plan: phase 0 found errors, and `check` says which\n",
-        );
+    // What a release of the pull request's merge would need has a release
+    // already, unless the read for it found errors: a version read off a
+    // declaration with errors could be one the history does not give.
+    if let Some(pull_request) = pull_request
+        && !analysis.failed()
+    {
+        let found = requirements::findings(&repository, &analysis, &central, pull_request.number)?;
+        analysis.loose.extend(found);
+    }
+    // A finding of either kind fails the job, which starts nothing after it:
+    // the versions say which.
+    if !report_versions(context, &analysis, &run, pull_request, out) || analysis.failed() {
         return Ok(FOUND);
     }
     let mut plan = plan::plan(&analysis, &central);
@@ -1495,23 +1459,42 @@ fn build_unit(
     build::run(&settings, which, unit, out)
 }
 
-/// `report-versions`: the table into the log and as Markdown into the
-/// summary of the run. With phase 0 errors both say which, as for `version`,
-/// and the step fails.
+/// The versions of the run: the table of `version` into the log and as
+/// Markdown into the summary of the run, for the pull request if there is
+/// one; with errors, which instead. Whether the summary was written.
+///
+/// After a push to a pre-branch no version is resolved: the tool would read
+/// the branch's own commits as commits of `main` and give them full versions
+/// that `main` never gives. It says so instead, as a notice and as a line in
+/// the summary.
 #[cfg(feature = "program")]
 fn report_versions(
     context: &Execution<'_>,
     analysis: &Analysis,
+    run: &declare::Run,
     pull_request: Option<&PullRequest>,
     out: &mut Console<'_>,
-) -> u8 {
-    say(out, &versions::report(analysis, false, pull_request));
-    let markdown = versions::report(analysis, true, pull_request);
-    if let Err(message) = workflow::summary(context.variables, &markdown) {
-        say(out, &format!("{}\n", report::shown(&message)));
-        return FOUND;
+) -> bool {
+    let summary = if run.pre_branch {
+        let branch = (context.variables)("GITHUB_REF_NAME").unwrap_or_default();
+        let line = format!(
+            "This run follows a push to the pre-branch `{branch}`. Versions and pre-releases of \
+             pre-branches are not built yet, so no version is resolved, nothing is built and \
+             nothing is published."
+        );
+        out.command(&workflow::notice("Pre-branch", &line));
+        format!("{line}\n")
+    } else {
+        say(out, &versions::report(analysis, false, pull_request));
+        versions::report(analysis, true, pull_request)
+    };
+    match workflow::summary(context.variables, &summary) {
+        Ok(()) => true,
+        Err(message) => {
+            out.error(&message);
+            false
+        }
     }
-    if analysis.failed() { FOUND } else { OK }
 }
 
 /// The whole report of phase 0, ended by a line break, with what departs from
