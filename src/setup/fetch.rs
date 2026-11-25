@@ -100,18 +100,36 @@ pub fn digest_of(file: &Path, algorithm: Algorithm) -> io::Result<String> {
     let mut source = File::open(file)?;
     let bytes = match algorithm {
         Algorithm::Sha256 => {
-            let mut hasher = <Sha256 as sha2::Digest>::new();
+            let mut hasher = Hashing(<Sha256 as sha2::Digest>::new());
             io::copy(&mut source, &mut hasher)?;
-            sha2::Digest::finalize(hasher).to_vec()
+            sha2::Digest::finalize(hasher.0).to_vec()
         }
         Algorithm::Sha512 => {
-            let mut hasher = <Sha512 as sha2::Digest>::new();
+            let mut hasher = Hashing(<Sha512 as sha2::Digest>::new());
             io::copy(&mut source, &mut hasher)?;
-            sha2::Digest::finalize(hasher).to_vec()
+            sha2::Digest::finalize(hasher.0).to_vec()
         }
     };
     Ok(bytes.iter().fold(String::new(), |mut hex, byte| {
         let _ = write!(hex, "{byte:02x}");
         hex
     }))
+}
+
+/// A hash function that bytes can be written into, so that [`io::copy`]
+/// feeds it a file piece by piece instead of reading the whole file into
+/// memory. Every byte written goes into the hash function, and all of them are
+/// taken: the hash functions of `sha2` up to 0.10 were writers themselves in
+/// just this way, and from 0.11 on they are not.
+pub struct Hashing<D>(pub D);
+
+impl<D: sha2::Digest> io::Write for Hashing<D> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.update(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
