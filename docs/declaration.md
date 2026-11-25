@@ -612,6 +612,72 @@ else of the file, so a declaration written for a newer pipeline says so instead
 of failing on a field this reader does not know. It is a failure to read the
 file, not a finding (see [When the file cannot be read](#when-the-file-cannot-be-read)).
 
+## Markers of open tasks
+
+No open task hides in a comment: `check` holds every `TODO` and `FIXME` in the
+repository to one rule, and a marker names the issue that tracks its task. It
+reads every file Git tracks that is text and that no `[[exclude]]` entry takes
+out, each once. This is phase 0 and the tool alone: no program is started and no
+network is used, so whether the issue a marker names exists, or is still open,
+is not asked.
+
+| Form                                                                                                       | Result                                                                                                         |
+| ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `TODO(#123): text`, the same with `FIXME` <!-- nebensound:allow(todo) an example of the form -->           | stays: it names an issue of the repository                                                                     |
+| `TODO(owner/repo#123): text`, the same with `FIXME` <!-- nebensound:allow(todo) an example of the form --> | stays: it names an issue of another repository                                                                 |
+| `TODO(init)` <!-- nebensound:allow(todo) names the marker init writes -->                                  | the error [`unresolved-init-marker`](#unresolved-init-marker), always: it is resolved before the switch merges |
+| `TODO` or `FIXME` without a reference                                                                      | the error [`unreferenced-marker`](#unreferenced-marker): the way out is an issue and its number                |
+| any of them on a line with an allowance, or on the line directly below one                                 | stays                                                                                                          |
+
+**A marker** is the word `TODO` or `FIXME` in capitals, directly followed by
+`(` or `:`, with the start of the line or a character that is no letter, digit
+or `_` before the word: a space, `#`, `/`, a quote or a backtick, for example.
+A sentence that uses the word holds no marker, and neither does the word
+followed by a space or a dot, the word in small letters (Rust's `todo!` among
+them) or the word inside a longer one.
+
+**A reference** stands alone in the parentheses directly after the word: `#`
+and the number of an issue, with its repository as `owner/repo` in front for an
+issue in another repository. The number has no leading zero, the owner holds
+ASCII letters, digits and `-`, and the repository's name ASCII letters, digits,
+`-`, `_` and `.`. Anything else in the parentheses is none, a name or two issues
+among them, and so is a link to an issue: one form reads the same in every file
+and every repository, and a link could name any host. What follows the
+parentheses is free.
+
+**An allowance** lets a marker stay without an issue, such as in an example or
+in a test that shows one. It is `nebensound:allow(todo)` followed by white space
+and the reason, inside whatever comment the language of the file has, on the
+marker's line or on the line directly above it:
+
+```rust
+// nebensound:allow(todo) the test holds the line the parser has to find
+let line = "// TODO: read the rest";
+```
+
+- It counts where it stands as a word, like a marker, and is followed by white
+  space or the end of the line. Inside a string or a code span that it ends,
+  as in this paragraph, it is none.
+- Its reason is the rest of its line, and has to hold a letter or a digit, so
+  that the mark that closes a comment, such as `-->` or `*/`, is no reason. An
+  allowance without one is the error
+  [`allowance-without-reason`](#allowance-without-reason); the markers it
+  stands for stay, so that the one finding names what is missing.
+- It reaches its own line and the line directly below, no further: a blank line
+  or another line between it and the marker breaks the tie. An allowance with no
+  marker on its line or the line below is the error
+  [`pointless-allowance`](#pointless-allowance), so that dead allowances do not
+  pile up.
+- It allows a single place, never a whole file. A file is taken out only by an
+  `[[exclude]]` entry, with its reason, and then out of every check.
+
+**The files read** are those Git tracks, less what an `[[exclude]]` entry takes
+out, a repository's own as well as those of the defaults
+([Excluded everywhere](register.md#excluded-everywhere)). A file is text when no
+NUL byte stands among its first 8000 bytes, as Git decides it, and it is valid
+UTF-8. Any other file is passed over, as is a file that cannot be read, such as
+one behind a link; the findings about it say why.
+
 ## Findings
 
 Phase 0 reports what is wrong with a declaration as findings. Each carries a
@@ -628,8 +694,12 @@ stable code; the wording of its message may improve, the code does not change.
   `nonconforming-default-branch`, `missing-minimum-file`, `stale-dependabot`).
   `check` reports these four; the other calls do not look for them.
 
-[`unresolved-init-marker`](#unresolved-init-marker) is an error that only
-`check` looks for, and so `declare`, which runs it; the other calls do not.
+The findings about [markers of open tasks](#markers-of-open-tasks),
+[`unresolved-init-marker`](#unresolved-init-marker),
+[`unreferenced-marker`](#unreferenced-marker),
+[`allowance-without-reason`](#allowance-without-reason) and
+[`pointless-allowance`](#pointless-allowance), are errors that only `check`
+looks for, and so `declare`, which runs it; the other calls do not.
 
 A finding reads like `error[uncovered-file] at src/main.rs: …`: the severity, the
 code, the unit or path it is about, and a sentence. A finding that points at a
@@ -1073,21 +1143,45 @@ watch the wrong folders.
 
 ### `unresolved-init-marker`
 
-Error. A `TODO(init)` marker stands in one of the files
-`nebensound-repo init` writes: `.nebensound/repo.toml`,
-`.github/workflows/nebensound.yml` or `.github/dependabot.yml`. `init` writes
-one for each decision it cannot take from the tree or the call, such as for
-whom the repository is meant, the pin of a tool that belongs to no release, or
-which Cargo packages are components of their own (see
+Error. A `TODO(init)` marker stands in a file of the repository. <!-- nebensound:allow(todo) names the marker init writes -->
+`nebensound-repo init` writes one into the files it writes,
+`.nebensound/repo.toml`, `.github/workflows/nebensound.yml` and
+`.github/dependabot.yml`, for each decision it cannot take from the tree or the
+call, such as for whom the repository is meant, the pin of a tool that belongs
+to no release, or which Cargo packages are components of their own (see
 [the tool](tool.md#switching-a-repository-to-the-pipeline)). There is one
 finding for each marker, at its line and column, and its message quotes the
 rest of the marker's line. Take the decision, write it in place of the marker
 and remove the marker.
 
-Only these three files are read, and only where Git tracks them: a marker in
-any other file, such as a document that mentions it, is no finding. Since
-`declare` runs `check`, `nebensound / Declare` fails on the pull request that
-switches a repository while a marker is left.
+Every file is read as [Markers of open tasks](#markers-of-open-tasks) describes,
+not only the three that `init` writes, so a marker copied elsewhere is held as
+well; a document that names the marker carries an allowance. Since `declare`
+runs `check`, `nebensound / Declare` fails on the pull request that switches a
+repository while a marker is left.
+
+### `unreferenced-marker`
+
+Error. A `TODO` or `FIXME` marker names no issue that tracks its task (see
+[Markers of open tasks](#markers-of-open-tasks)). There is one finding for each
+marker, at its line and column, and its message quotes the marker and the rest
+of its line. Open an issue for the task and write its number into the marker,
+as `TODO(#123)`, or `TODO(owner/repo#123)` for an issue in another repository, <!-- nebensound:allow(todo) an example of the form -->
+or do the task and remove the marker. Where the marker has to stay as it is,
+an allowance with its reason lets it.
+
+### `allowance-without-reason`
+
+Error. An allowance gives no reason: nothing with a letter or a digit follows
+it on its line. Write behind it why the marker may stay without an issue. The
+markers it stands for stay all the same, so that this is the one finding.
+
+### `pointless-allowance`
+
+Error. An allowance stands on no line with a marker and above none, so it lets
+nothing stay: the marker it was written for is gone, or a blank line or another
+line stands between them. Remove it, or move it onto the marker's line or the
+line directly above it.
 
 ### When the file cannot be read
 

@@ -47,6 +47,7 @@ pub mod init;
 pub mod linter_config;
 pub mod lockfiles;
 pub mod lychee_config;
+pub mod marker;
 pub mod model;
 pub mod names;
 pub mod output;
@@ -157,6 +158,7 @@ pub enum Command {
     },
     /// Write the first draft of the switch to the pipeline: the declaration,
     /// the caller of the workflow and the Dependabot configuration, each only
+    // nebensound:allow(todo) the help of init names the marker it writes
     /// where it is missing, with a `TODO(init)` marker for every decision it
     /// cannot take, and say what it did. Asks nothing, overwrites nothing,
     /// stages nothing and starts no program but Git.
@@ -1547,8 +1549,8 @@ fn report_versions(
 }
 
 /// The whole report of phase 0, ended by a line break, with what departs from
-/// the organization's conventions and every decision `init` left open in a
-/// file it writes among the findings. The Dependabot
+/// the organization's conventions and every marker of an open task that
+/// names no issue among the findings ([`marker`]). The Dependabot
 /// configuration is compared only when phase 0 found no error: what a
 /// declaration with errors gives could watch the wrong folders. In a workflow
 /// run every finding is an annotation, a command of the tool's own; everything
@@ -1578,13 +1580,13 @@ fn check(
     }
     // After the comparison, so that a marker left in the Dependabot
     // configuration does not hide how the rest of it departs.
-    found.extend(init::findings(
+    found.extend(marker::findings(
         analysis
             .tree
             .files()
             .into_iter()
-            .map(|(node, _)| &node.path),
-        &repository.reader(),
+            .map(|(node, coverage)| (&node.path, coverage)),
+        &repository.byte_reader(),
     ));
     let loose = analysis.tree.attach(found);
     analysis.loose.extend(loose);

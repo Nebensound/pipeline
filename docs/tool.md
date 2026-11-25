@@ -69,7 +69,7 @@ nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branc
 | Call                | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `check`             | Runs phase 0 and prints all of it: the resolved configuration, the linter rules laid over the defaults, the tree, the findings (annotations in a workflow run) and the counts. Warns where the name or default branch (`--name`, `--default-branch`, else Git) or a minimum file departs from the conventions. With `--visibility`, how GitHub shows the repository, it holds the declared audience against it, as `declare` does; without it nothing is compared. The default; `declare` runs it.                                                               |
-| `init`              | Writes the first draft of a repository's switch to the pipeline where it is missing: the declaration, the caller `.github/workflows/nebensound.yml` and the Dependabot configuration, with a `TODO(init)` marker for every decision it cannot take, and says what it did. Asks nothing and overwrites nothing. See [Switching a repository to the pipeline](#switching-a-repository-to-the-pipeline).                                                                                                                                                            |
+| `init`              | Writes the first draft of a repository's switch to the pipeline where it is missing: the declaration, the caller `.github/workflows/nebensound.yml` and the Dependabot configuration, with a `TODO(init)` marker for every decision it cannot take, and says what it did. Asks nothing and overwrites nothing. See [Switching a repository to the pipeline](#switching-a-repository-to-the-pipeline). <!-- nebensound:allow(todo) names the marker init writes -->                                                                                               |
 | `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `explain <path>`    | What holds for one path and why: for whom the repository is meant, which units contain it, the minimum version of each of them, which commit types count like `feat`, which checks are in force, how its coverage stands.                                                                                                                                                                                                                                                                                                                                        |
 | `dependabot`        | The `.github/dependabot.yml` the declaration and the organization's [Dependabot policy](register.md#dependabot-policy) give: one entry per watched ecosystem, listing the folders that hold its manifests. Reads no history, and prints nothing but a sentence when phase 0 finds an error. `check` warns where the file in the tree departs from it ([`stale-dependabot`](declaration.md#stale-dependabot)).                                                                                                                                                    |
@@ -123,10 +123,10 @@ path yet:
 It never overwrites a file, so a second run writes nothing. A file whose write
 fails halfway is removed again, so that the next run writes it whole. It asks
 nothing, whether a terminal is attached or not. Where it cannot take a decision
-from the tree or the call, it writes a `TODO(init)` marker into the file, a
+from the tree or the call, it writes a `TODO(init)` marker into the file, a <!-- nebensound:allow(todo) names the marker init writes -->
 comment that says what is open, and names it in its report;
-[`check`](declaration.md#unresolved-init-marker) reports every marker left in
-the three files as an error, with its line and column. It stages, commits and
+[`check`](declaration.md#unresolved-init-marker) reports every such marker left
+in a file of the repository as an error, with its line and column. It stages, commits and
 pushes nothing, starts no program but Git, and uses no network.
 
 What the declaration says, and where it comes from:
@@ -145,7 +145,7 @@ The caller of a tool that belongs to no release, one built from source that
 prints `0.0.0` or the build of a pull request, carries a marker on the line of
 its reference:
 
-```yaml
+```yaml nebensound:allow(todo) the line init writes into a caller it cannot pin
 uses: Nebensound/pipeline/.github/workflows/nebensound.yml@TODO..init # TODO(init): pin the tag of a release of the pipeline, vX.Y.Z; this nebensound-repo belongs to no release
 ```
 

@@ -136,7 +136,7 @@ declaration from what it recognises in the tree, this file as
 `.github/workflows/nebensound.yml`, named `nebensound` and pinned to the tag of
 the release the tool belongs to, and the Dependabot configuration. It writes
 each file only where it is missing and marks every decision it cannot take with
-`TODO(init)`, which `check` reports until it is taken (see
+`TODO(init)`, which `check` reports until it is taken (see <!-- nebensound:allow(todo) names the marker init writes -->
 [the tool](docs/tool.md#switching-a-repository-to-the-pipeline)).
 
 The file already holds what the parts planned after `v0.1.0` need, pre-branches
