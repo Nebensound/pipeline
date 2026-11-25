@@ -1509,6 +1509,121 @@ fn a_dependency_the_commit_does_not_touch_is_required_at_its_current_version_on_
     package_test(git.path(), &[("lib", "0.0.1"), ("app", "0.0.2-pr.5")], &[]);
 }
 
+/// The working tree's manifests and lockfile, by path.
+#[cfg(feature = "program")]
+fn written(root: &Path) -> Vec<(String, String)> {
+    [
+        "Cargo.lock",
+        "crates/app/Cargo.toml",
+        "crates/lib/Cargo.toml",
+    ]
+    .iter()
+    .map(|path| ((*path).to_owned(), read(root, path)))
+    .collect()
+}
+
+// Only the program runs in a workflow, so only it reads the event.
+#[cfg(feature = "program")]
+#[test]
+fn without_a_plan_a_pull_request_is_read_from_the_event_as_the_plan_reads_it() {
+    // The pull request of the test above, written once with the plan the
+    // preparing job prints for it and once without a plan, with the pull
+    // request the event of the run names: the same versions, `-pr.5` behind
+    // the one the merge would get.
+    let git = app_changed_after_a_release();
+    git.run(&["checkout", "--quiet", "-b", "topic"]);
+    git.run(&["reset", "--quiet", "--hard", "HEAD~1"]);
+    git.run(&["branch", "--quiet", "--force", "main", "HEAD"]);
+    git.write(&[(
+        "crates/app/src/main.rs",
+        "//! An app, changed.\n\nfn main() {\n    println!(\"{}\", lib::one());\n}\n",
+    )]);
+    git.commit("wip");
+    git.run(&["checkout", "--quiet", "--detach", "main"]);
+    git.run(&[
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "--message",
+        "Merge topic",
+        "topic",
+    ]);
+    let (plan, code) = call(&[
+        "nebensound-repo",
+        "-C",
+        git.root(),
+        "plan",
+        "--pull-request",
+        "5",
+        "--message",
+        "fix: change the app\n\nWith a description.",
+    ]);
+    assert_eq!(code, 0, "{plan}");
+    let handed = tempfile::tempdir().expect("a folder for the plan");
+    let file = handed.path().join("plan.json");
+    fs::write(&file, &plan).expect("the plan is written");
+
+    let (with_plan, code) = call(&[
+        "nebensound-repo",
+        "-C",
+        git.root(),
+        "write-versions",
+        "--plan",
+        file.to_str().expect("a path in UTF-8"),
+    ]);
+    assert_eq!(code, 0, "{with_plan}");
+    let from_plan = written(git.path());
+    git.run(&["checkout", "--quiet", "--", "."]);
+
+    let (from_event, code) = support::call_with(
+        &["nebensound-repo", "-C", git.root(), "write-versions"],
+        &[
+            ("NEBENSOUND_PULL_REQUEST", "5"),
+            ("NEBENSOUND_TITLE", "fix: change the app"),
+            ("NEBENSOUND_BODY", "With a description."),
+        ],
+        nebensound_repo::output::Output::Elsewhere,
+    );
+    assert_eq!(code, 0, "{from_event}");
+    assert_eq!(from_event, with_plan);
+    assert_eq!(written(git.path()), from_plan);
+    assert!(
+        from_event.contains("component app: the package app at crates/app gets 0.0.2-pr.5"),
+        "{from_event}"
+    );
+    git.run(&["checkout", "--quiet", "--", "."]);
+
+    // Without the event's pull request, the merge commit is read as it
+    // stands: a version of its own, without `-pr.5`.
+    let (text, code) = call(&["nebensound-repo", "-C", git.root(), "write-versions"]);
+    assert_eq!(code, 0, "{text}");
+    assert!(!text.contains("-pr."), "{text}");
+    git.run(&["checkout", "--quiet", "--", "."]);
+    // A number that is none is a misuse, and nothing is written.
+    let (text, code) = support::call_with(
+        &["nebensound-repo", "-C", git.root(), "write-versions"],
+        &[("NEBENSOUND_PULL_REQUEST", "0")],
+        nebensound_repo::output::Output::Elsewhere,
+    );
+    assert_eq!(code, 2, "{text}");
+    assert!(text.contains("NEBENSOUND_PULL_REQUEST is \"0\""), "{text}");
+    // With a plan, the event is not read at all.
+    let (text, code) = support::call_with(
+        &[
+            "nebensound-repo",
+            "-C",
+            git.root(),
+            "write-versions",
+            "--plan",
+            file.to_str().expect("a path in UTF-8"),
+        ],
+        &[("NEBENSOUND_PULL_REQUEST", "0")],
+        nebensound_repo::output::Output::Elsewhere,
+    );
+    assert_eq!(code, 0, "{text}");
+    assert_eq!(text, with_plan);
+}
+
 #[test]
 fn a_dependency_not_touched_gets_its_current_version_without_any_tag() {
     // No tag at all: the repository passes from its first commits on. `lib`

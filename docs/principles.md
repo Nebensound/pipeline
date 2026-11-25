@@ -213,13 +213,19 @@ yet, it says so.
 - **The cut of the jobs** (rules 1 and 2). The checks run in one job per unit,
   reading and executing together, and each check adds a step to
   `nebensound.yml` and its name to the list in `Not written yet`. The
-  [phases](phases.md#one-job-per-unit) and the README describe this cut. No
-  issue exists yet.
+  [phases](phases.md#one-job-per-unit) and the README describe this cut. The
+  tool's side of the new cut is there: the register names the side of every
+  check the tool runs, `declare` hands on the entries of the checks, and
+  `nebensound-repo job` runs one of them (see
+  [the tool](tool.md#the-entries-of-the-checks)); no job runs it yet. The
+  workflow switches with #191, the builds follow with #232.
 - **Every job works out what it starts from** (rule 1). Only `Publish` does so
   today; the other jobs follow with the cut of the jobs. Until then the
-  matrices, the version writers, the Rust check and the steps of `Check` that
-  look at the version writers and publish targets take the plan `Declare`
-  hands on.
+  matrices, the version writers, the Rust check, the builds and the steps of
+  `Check` that look at the version writers and publish targets take the plan
+  `Declare` hands on. The calls no longer need it: without a plan, `run`,
+  `build` and `write-versions` resolve the versions from the history and read
+  the pull request from the variables of the run, as `declare` does.
 - **The rule on building blocks** in `AGENTS.md` and the README: a block
   performs one step and is named after its register entry with the category in
   front. It describes the cut above, one named block per step. No issue exists

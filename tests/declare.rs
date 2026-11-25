@@ -126,7 +126,7 @@ fn phase_0_passes_and_hands_on_the_plan_and_the_matrices() {
     assert_eq!(code, 0, "{text}");
     let outputs = files.outputs();
     let names: Vec<&str> = outputs.iter().map(|(name, _)| name.as_str()).collect();
-    assert_eq!(names, ["plan", "units", "builds"]);
+    assert_eq!(names, ["plan", "units", "builds", "entries"]);
     let plan: Value = serde_json::from_str(&outputs[0].1).unwrap();
     assert_eq!(plan["audience"], "public");
     let units: Value = serde_json::from_str(&outputs[1].1).unwrap();
@@ -155,9 +155,18 @@ fn phase_0_passes_and_hands_on_the_plan_and_the_matrices() {
          step of check-rust: code of others, 100%25 as it came",
         "::group::The units that run a check",
         "::group::The units that build",
+        "::group::The entries of the checks",
     ] {
         assert!(text.lines().any(|found| found == line), "{line}\n{text}");
     }
+    // The entries of the checks: no unit runs an executing check, so the
+    // reading checks of every unit in one entry, and nothing else.
+    let entries: Value = serde_json::from_str(&outputs[3].1).unwrap();
+    assert_eq!(
+        entries,
+        json!([{"entry": "reading", "job": "Check files", "runs-on": "ubuntu-latest",
+                "fetch-depth": 1}])
+    );
     // The report of phase 0 comes first, as `check` prints it, then the
     // table of the versions, then what is handed on.
     let table = version(&git, &[]);
@@ -337,10 +346,13 @@ fn a_change_of_the_audience_that_cannot_be_named_in_the_summary_fails() {
     let mut out = Vec::new();
     let mut log = Log::new(&mut out, true);
     let handed_on = declare::hand_on(
-        &plan(Some(Audience::Public), None),
+        &declare::Handed {
+            plan: &plan(Some(Audience::Public), None),
+            entries: &json!([]),
+            excluded: &[],
+        },
         &Register::builtin().unwrap(),
         &run,
-        &[],
         &variables,
         &mut log,
     );
