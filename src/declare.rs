@@ -1,5 +1,5 @@
-//! `nebensound-repo declare`: phase 0 as the job `Declare` runs it, and what it
-//! hands the jobs after it.
+//! `nebensound-repo declare`: the preparing job `Declare`, one call: phase 0,
+//! the versions, and what it hands the jobs after it.
 //!
 //! In this order:
 //!
@@ -10,19 +10,26 @@
 //!    the run may always read the repository's metadata from. When phase 0
 //!    finds errors, nothing else follows and nothing is handed on: then
 //!    nothing is to be started.
-//! 2. **The plan** (`plan`), on a pull request for its squash merge, as the
-//!    job `Version` reads it: every version in it is the one that merge would
-//!    get, with `-pr.<number>` behind it, so that the version writers and the
-//!    package test of `check-rust` prove what a merge would publish.
-//! 3. **A change of the audience**, on a pull request: the old and the new
+//! 2. **The versions**, read on a pull request for its squash merge: every
+//!    version is the one that merge would get, with `-pr.<number>` behind it.
+//!    On a pull request what a release of its merge would need is held
+//!    against the records first ([`requirements`](mod@crate::requirements)).
+//!    The table goes into the log and, as Markdown, into the summary of the
+//!    run; with a finding, which instead, and nothing is handed on, as after
+//!    errors of phase 0. After a push to a pre-branch no version is resolved,
+//!    and a notice and a line in the summary say so instead of the table.
+//! 3. **The plan** (`plan`), with the same versions, so that the version
+//!    writers and the package test of `check-rust` prove what a merge would
+//!    publish.
+//! 4. **A change of the audience**, on a pull request: the old and the new
 //!    value as a notice and in the summary of the run, since the value decides
 //!    which rules hold for the repository, and a reviewer should not have to
 //!    find it in the diff. Before the excluded packages: GitHub keeps only the
 //!    first annotations of a job, and a long list of them would hide this one.
-//! 4. **The excluded packages**: every Rust package `[[exclude]]` takes out as
+//! 5. **The excluded packages**: every Rust package `[[exclude]]` takes out as
 //!    a whole, with its reason, as a notice, since the declaration gives the
 //!    reason. `check-rust` leaves such a package out of every step.
-//! 5. **The matrices**: the units that run a check (`units`), and the builds
+//! 6. **The matrices**: the units that run a check (`units`), and the builds
 //!    of this run (`builds`), each with the version writers its unit selects,
 //!    the name of its job and the runner it runs on. A matrix cannot leave
 //!    out an entry, and a unit that runs no check would get a job with nothing

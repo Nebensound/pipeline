@@ -3,8 +3,8 @@
 //!
 //! `nebensound.yml` sets `NEBENSOUND_PRE_BRANCH` for the whole run, and the
 //! calls of the tool that would read the versions of the branch as those of
-//! `main` read it: `declare`, `report-versions` and `gather builds`, whose
-//! tests show what they do with it.
+//! `main` read it: `declare` and `gather builds`, whose tests show what they do
+//! with it.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 

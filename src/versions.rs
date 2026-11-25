@@ -1,5 +1,5 @@
 //! The versions as a table: what `nebensound-repo version` prints, and what the
-//! job `Version` writes into the summary of a run.
+//! preparing job `Declare` writes into the summary of a run.
 //!
 //! One table in two forms, text for a terminal and Markdown for the summary,
 //! built from the same rows, so that the two cannot say different things about
@@ -9,7 +9,8 @@ use crate::{Analysis, Rule, TagVersion, UnitVersion};
 
 use crate::report::{self, shown};
 
-/// A pull request, as the job `Version` names it.
+/// A pull request, as the variables of a run or the options of a call name
+/// it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PullRequest {
     /// Its number.
@@ -140,8 +141,8 @@ pub fn markdown(versions: &[UnitVersion], pull_request: Option<u64>) -> String {
 /// What stopped the table.
 ///
 /// The test of what a pull request's registry packages require runs only when
-/// phase 0 found no errors, so its finding alone means phase 0 passed and the
-/// job `Declare` is green: the refusal must not send the reader there.
+/// phase 0 found no errors, so its finding alone means phase 0 passed: the
+/// refusal must not send the reader to the findings of phase 0.
 fn reason(analysis: &Analysis) -> &'static str {
     if analysis
         .findings()

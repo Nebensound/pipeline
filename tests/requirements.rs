@@ -3,8 +3,8 @@
 //! release already, or the pull request fails.
 //!
 //! The fixtures are real Git repositories, built commit by commit, and the
-//! pull request is the merge commit GitHub builds for it, read as the job
-//! `Version` reads it.
+//! pull request is the merge commit GitHub builds for it, read as the
+//! preparing job `Declare` reads it.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
@@ -94,7 +94,7 @@ fn pull_request(git: &Git, files: &[(&str, &str)]) {
     ]);
 }
 
-/// `version` as the job `Version` calls it on the pull request, with these
+/// `version` on the pull request, as the preparing job reads it, with these
 /// arguments in front.
 fn version(git: &Git, args: &[&str]) -> (String, u8) {
     let mut all = vec!["nebensound-repo", "-C", git.root(), "version"];

@@ -2,8 +2,8 @@
 //! back: the variables of the run, the files a step writes its outputs and its
 //! summary to, and the log of the run.
 //!
-//! The calls that only a workflow run makes (`declare`, `report-versions`,
-//! `build`, `unwritten`, `gather`, `xtask`) read the run from its variables.
+//! The calls that only a workflow run makes (`declare`, `build`, `unwritten`,
+//! `gather`, `xtask`) read the run from its variables.
 //! The workflow names in each step what it hands in, through the step's `env`,
 //! never inside a script, so that text from the event is never read as shell:
 //!

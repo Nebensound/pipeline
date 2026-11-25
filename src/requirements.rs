@@ -17,7 +17,8 @@
 //! current version, a tag `<prefix><version>`; otherwise the error
 //! `unreleased-requirement` names the package, the unit, the version and the
 //! way out. The test runs where the versions of a pull request are read, in
-//! the job `Version`, and not on `main`, where it would come after the merge.
+//! the preparing job `Declare`, and not on `main`, where it would come after
+//! the merge.
 
 use crate::finding::{Finding, Rule};
 use crate::history::DECLARATION;

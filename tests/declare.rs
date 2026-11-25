@@ -1,5 +1,5 @@
-//! `nebensound-repo declare`: phase 0 as the job Declare runs it, and what it
-//! hands the jobs after it.
+//! `nebensound-repo declare`: the preparing job Declare, one call: phase 0,
+//! the versions, and what it hands the jobs after it.
 
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
@@ -10,9 +10,11 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::PathBuf;
 
+use nebensound_repo::audience::Visibility;
 use nebensound_repo::declare::{self, Run};
 use nebensound_repo::output::Output;
 use nebensound_repo::plan::Plan;
+use nebensound_repo::workflow::Log;
 use nebensound_repo::{Audience, Register};
 use serde_json::{Value, json};
 use support::{Git, call_with};
@@ -106,6 +108,17 @@ fn declare_log(git: &Git, files: &Files, variables: &[(&str, &str)]) -> (String,
     (text, code)
 }
 
+/// What `version` prints on `git` with these arguments behind it, as the
+/// preparing job reports it.
+fn version(git: &Git, args: &[&str]) -> String {
+    let mut all = vec!["nebensound-repo", "-C", git.root(), "version"];
+    all.extend(args);
+    let (text, code) = call_with(&all, &[], Output::Workflow);
+    let text = support::printed(&text);
+    assert_eq!(code, 0, "{text}");
+    text
+}
+
 #[test]
 fn phase_0_passes_and_hands_on_the_plan_and_the_matrices() {
     let git = repository();
@@ -146,31 +159,86 @@ fn phase_0_passes_and_hands_on_the_plan_and_the_matrices() {
     ] {
         assert!(text.lines().any(|found| found == line), "{line}\n{text}");
     }
-    // The report of phase 0 comes first, as `check` prints it.
-    assert!(text.find("Tree").unwrap() < text.find("::group::The plan").unwrap());
-    // No pull request, no change of the audience to name.
+    // The report of phase 0 comes first, as `check` prints it, then the
+    // table of the versions, then what is handed on.
+    let table = version(&git, &[]);
+    let at = text.find(&table).unwrap();
+    assert!(text.find("Tree").unwrap() < at, "{text}");
+    assert!(at < text.find("::group::The plan").unwrap(), "{text}");
+    // The same table as Markdown into the summary. No pull request, no change
+    // of the audience to name.
     assert!(!text.contains("Audience changed"), "{text}");
-    assert_eq!(Files::read(&files.summary()), "");
+    assert_eq!(
+        Files::read(&files.summary()),
+        version(&git, &["--markdown"])
+    );
+
+    // Without a summary file, as outside a run, only the log.
+    let (text, code) = call_with(
+        &["nebensound-repo", "-C", git.root(), "declare"],
+        &[("NEBENSOUND_VISIBILITY", "public")],
+        Output::Workflow,
+    );
+    let text = support::printed(&text);
+    assert_eq!(code, 0, "{text}");
+    assert!(text.contains(&table), "{text}");
 }
 
 #[test]
-fn after_a_push_to_a_pre_branch_no_unit_builds() {
+fn after_a_push_to_a_pre_branch_no_version_is_resolved_and_no_unit_builds() {
     let git = repository();
     let files = Files::new();
-    let (text, code) = declare(
-        &git,
-        &files,
-        &[
-            ("NEBENSOUND_VISIBILITY", "public"),
-            ("NEBENSOUND_PRE_BRANCH", "true"),
-        ],
-    );
+    let pre_branch = [
+        ("NEBENSOUND_VISIBILITY", "public"),
+        ("NEBENSOUND_PRE_BRANCH", "true"),
+        ("GITHUB_REF_NAME", "pre-x%1"),
+    ];
+    let (text, code) = declare(&git, &files, &pre_branch);
     assert_eq!(code, 0, "{text}");
     assert_eq!(files.outputs()[2], ("builds".to_owned(), "[]".to_owned()));
     assert!(
         text.contains("A push to a pre-branch resolves no version, so no unit builds."),
         "{text}"
     );
+    // No table: the sentence why, as a notice and in the summary.
+    assert!(!text.contains("This commit"), "{text}");
+    assert!(
+        text.contains(
+            "::notice title=Pre-branch::This run follows a push to the pre-branch `pre-x%251`."
+        ),
+        "{text}"
+    );
+    let written = Files::read(&files.summary());
+    for part in [
+        "`pre-x%1`",
+        "not built yet",
+        "no version is resolved",
+        "nothing is built",
+        "nothing is published",
+    ] {
+        assert!(written.contains(part), "{written}");
+    }
+    assert!(!written.contains("## Versions"), "{written}");
+
+    // A summary that cannot be written fails the call, and nothing is handed
+    // on.
+    let unwritable = Files::new();
+    let dir = unwritable.dir.path().to_str().unwrap();
+    let output = unwritable.output();
+    let mut variables = pre_branch.to_vec();
+    variables.push(("GITHUB_STEP_SUMMARY", dir));
+    variables.push(("GITHUB_OUTPUT", output.to_str().unwrap()));
+    let (text, code) = call_with(
+        &["nebensound-repo", "-C", git.root(), "declare"],
+        &variables,
+        Output::Workflow,
+    );
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains("::error::the summary of the run cannot be written to "),
+        "{text}"
+    );
+    assert_eq!(Files::read(&output), "");
 }
 
 #[test]
@@ -193,13 +261,29 @@ fn a_pull_request_that_changes_the_audience_names_it() {
         text.contains(&format!("::notice title=Audience changed::{line}\n")),
         "{text}"
     );
-    assert_eq!(Files::read(&files.summary()), format!("{line}\n"));
-    // The versions are those of the pull request.
+    // The versions are those of the pull request, in the table and in the
+    // plan.
+    let message = [
+        "--pull-request",
+        "7",
+        "--message",
+        "chore: make it internal",
+    ];
+    let table = version(&git, &message);
+    assert!(table.contains("-pr.7"), "{table}");
+    assert!(text.contains(&table), "{text}");
+    let mut markdown = vec!["--markdown"];
+    markdown.extend(message);
+    assert_eq!(
+        Files::read(&files.summary()),
+        format!("{}{line}\n", version(&git, &markdown))
+    );
     let plan: Value = serde_json::from_str(&files.outputs()[0].1).unwrap();
     let version = plan["versions"][0]["version"].as_str().unwrap();
     assert!(version.ends_with("-pr.7"), "{plan}");
 
-    // A summary that cannot be written fails the call.
+    // A summary that cannot be written fails the call, and nothing is handed
+    // on.
     let unwritable = Files::new();
     let dir = unwritable.dir.path().to_str().unwrap();
     let mut variables = pull_request.to_vec();
@@ -216,6 +300,7 @@ fn a_pull_request_that_changes_the_audience_names_it() {
         text.contains("::error::the summary of the run cannot be written to "),
         "{text}"
     );
+    assert_eq!(Files::read(&output), "");
 
     // A pull request that leaves it as it is names nothing.
     git.write(&[("README.md", "# y\n")]);
@@ -233,7 +318,41 @@ fn a_pull_request_that_changes_the_audience_names_it() {
     );
     assert_eq!(code, 0, "{text}");
     assert!(!text.contains("Audience changed"), "{text}");
-    assert_eq!(Files::read(&files.summary()), "");
+    assert!(
+        !Files::read(&files.summary()).contains("audience"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_change_of_the_audience_that_cannot_be_named_in_the_summary_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let summary = dir.path().to_str().unwrap().to_owned();
+    let variables = |name: &str| (name == "GITHUB_STEP_SUMMARY").then(|| summary.clone());
+    let run = Run {
+        name: None,
+        default_branch: None,
+        visibility: Visibility::Public,
+        pre_branch: false,
+    };
+    let mut out = Vec::new();
+    let mut log = Log::new(&mut out, true);
+    let handed_on = declare::hand_on(
+        &plan(Some(Audience::Public), None),
+        &Register::builtin().unwrap(),
+        &run,
+        &[],
+        &variables,
+        &mut log,
+    );
+    drop(log);
+    let text = support::printed(&String::from_utf8(out).unwrap());
+    assert!(!handed_on, "{text}");
+    assert!(
+        text.contains("::error::the summary of the run cannot be written to "),
+        "{text}"
+    );
+    assert!(!text.contains("::group::The units"), "{text}");
 }
 
 #[test]
@@ -246,6 +365,10 @@ fn phase_0_errors_hand_nothing_on() {
     assert!(text.contains("::error"), "{text}");
     assert_eq!(Files::read(&files.output()), "");
     assert!(!text.contains("::group::The plan"), "{text}");
+    // The findings are annotations of the report of phase 0; no table of
+    // versions follows, in the log or in the summary.
+    assert!(!text.contains("there are no versions"), "{text}");
+    assert_eq!(Files::read(&files.summary()), "");
 }
 
 /// Declare on a repository that phase 0 refuses: it fails, hands nothing on,
@@ -343,11 +466,121 @@ fn a_pull_request_whose_merge_cannot_be_given_a_version_gets_no_plan() {
         ],
     );
     assert_eq!(code, 1, "{text}");
+    // Phase 0 on the commit at hand passed; the versions of the merge say
+    // why there are none, in the log and in the summary.
     assert!(
-        text.ends_with("there is no plan: phase 0 found errors, and `check` says which\n"),
+        text.contains("there are no versions: phase 0 found errors\n"),
+        "{text}"
+    );
+    assert!(
+        Files::read(&files.summary())
+            .starts_with("## Versions\n\nThere are no versions: phase 0 found errors.\n"),
         "{text}"
     );
     assert_eq!(Files::read(&files.output()), "");
+    assert!(!text.contains("::group::The plan"), "{text}");
+}
+
+/// A repository whose component `app`, a library for the private registry,
+/// requires `lib` by path, and the merge commit GitHub builds for a pull
+/// request that writes `changed` below `app` alone. Nothing records `lib`'s
+/// version.
+fn unreleased_requirement(changed: &[(&str, &str)]) -> Git {
+    let git = Git::new();
+    git.write(&[
+        (
+            ".nebensound/repo.toml",
+            "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.app]\npath = \
+             \"app\"\npipeline = \"rust-library-package\"\n\n[component.lib]\npath = \
+             \"lib\"\npipeline = \"rust-library-package\"\n",
+        ),
+        ("README.md", "# Packages\n"),
+        (
+            "app/Cargo.toml",
+            "[package]\nname = \"app\"\nedition = \"2024\"\n\n[dependencies]\nlib = { path = \
+             \"../lib\" }\n",
+        ),
+        (
+            "lib/Cargo.toml",
+            "[package]\nname = \"lib\"\nedition = \"2024\"\n",
+        ),
+    ]);
+    git.commit("chore: start");
+    git.run(&["checkout", "--quiet", "-b", "topic"]);
+    git.write(changed);
+    git.commit("wip");
+    git.run(&["checkout", "--quiet", "--detach", "main"]);
+    git.run(&[
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "--message",
+        "Merge topic",
+        "topic",
+    ]);
+    git
+}
+
+#[test]
+fn a_pull_request_whose_release_would_require_an_unreleased_version_fails_and_hands_nothing_on() {
+    let git = unreleased_requirement(&[("app/README.md", "# App\n")]);
+    let files = Files::new();
+    let (text, code) = declare(&git, &files, &PULL_REQUEST);
+    assert_eq!(code, 1, "{text}");
+    // Phase 0 passed, and the versions of the pull request say why the job
+    // fails.
+    assert!(
+        text.contains(
+            "there are no versions: a release would require a version that was never released\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("error[unreleased-requirement] component app: the package app goes to"),
+        "{text}"
+    );
+    let summary = Files::read(&files.summary());
+    assert!(
+        summary.starts_with(
+            "## Versions\n\nThere are no versions: a release would require a version that was \
+             never released.\n\n"
+        ),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("- error\\[unreleased\\-requirement\\] component app"),
+        "{summary}"
+    );
+    assert_eq!(Files::read(&files.output()), "");
+    assert!(!text.contains("::group::The plan"), "{text}");
+
+    // After the merge, on `main`, nothing is held to it.
+    git.run(&["checkout", "--quiet", "main"]);
+    git.run(&["merge", "--quiet", "--squash", "topic"]);
+    git.commit("fix(app): the change");
+    let files = Files::new();
+    let (text, code) = declare(&git, &files, &[("NEBENSOUND_VISIBILITY", "public")]);
+    assert_eq!(code, 0, "{text}");
+    assert!(!text.contains("unreleased-requirement"), "{text}");
+}
+
+/// The variables of pull request 7.
+const PULL_REQUEST: [(&str, &str); 4] = [
+    ("NEBENSOUND_VISIBILITY", "public"),
+    ("NEBENSOUND_PULL_REQUEST", "7"),
+    ("NEBENSOUND_TITLE", "fix(app): the change"),
+    ("NEBENSOUND_BODY", ""),
+];
+
+#[test]
+fn a_manifest_the_requirements_cannot_read_fails_the_call() {
+    let git = unreleased_requirement(&[("app/Cargo.toml", "[package\n")]);
+    let files = Files::new();
+    let (text, code) = declare(&git, &files, &PULL_REQUEST);
+    assert_eq!(code, 1, "{text}");
+    assert!(text.contains("app/Cargo.toml is not TOML: "), "{text}");
+    assert_eq!(Files::read(&files.output()), "");
+    assert_eq!(Files::read(&files.summary()), "");
 }
 
 #[test]

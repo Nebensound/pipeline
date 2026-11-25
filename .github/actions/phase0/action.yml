@@ -1,8 +1,9 @@
 name: phase0
 description: >-
   Reads the declaration of the calling repository, resolves it and checks it
-  against what the repository holds: phase 0 of the pipeline. Hands on the
-  plan and the matrices of the jobs after it.
+  against what the repository holds: phase 0 of the pipeline. Reports the
+  versions, holds them against the records on a pull request, and hands on
+  the plan and the matrices of the jobs after it.
 
 # No inputs. What a repository is stands in its .nebensound/repo.toml, and this
 # action reads it there.
@@ -17,37 +18,41 @@ outputs:
     description: >-
       Which unit runs which check, as one line of JSON (`nebensound-repo plan`),
       with the versions a pull request's merge would get on a pull request.
-      Empty when phase 0 found errors: then nothing is to be started.
+      Empty when phase 0 or the versions found errors: then nothing is to be
+      started.
     value: ${{ steps.phase0.outputs.plan }}
   units:
     description: >-
       The units of the plan that run a check, as one line of JSON: the matrix
-      of the jobs of the units. Empty when phase 0 found errors.
+      of the jobs of the units. Empty when phase 0 or the versions found
+      errors.
     value: ${{ steps.phase0.outputs.units }}
   builds:
     description: >-
       The units of the plan that build in this run, each with the version
       writers it selects, as one line of JSON: the matrix of the jobs of the
-      builds. Empty when phase 0 found errors.
+      builds. Empty when phase 0 or the versions found errors.
     value: ${{ steps.phase0.outputs.builds }}
 
 runs:
   using: composite
   steps:
     # One call of the tool: phase 0 with what the event says of the
-    # repository, then the plan, a change of the audience on a pull request,
-    # the excluded packages and the two matrices, as `nebensound-repo declare`
-    # describes them. In a run the tool reports every finding as an
-    # annotation.
+    # repository, then the versions as a table into the log and the summary of
+    # the run (on a pull request held against the records, after a push to a
+    # pre-branch the sentence why there is none), the plan, a change of the
+    # audience on a pull request, the excluded packages and the two matrices,
+    # as `nebensound-repo declare` describes them. In a run the tool reports
+    # every finding of phase 0 as an annotation.
     #
     # The repository's name, default branch and visibility are not declared:
     # GitHub holds them, and the event of the run names them. The pull
     # request's number, title and description make the message of its squash
-    # merge, which the plan is built for. All of it goes in through the
-    # environment, never into the script. An event without the name or the
-    # branch leaves the tool to read them from Git; one without the
-    # visibility is answered by the API, which the token may always read the
-    # repository's metadata from.
+    # merge, which the versions and the plan are built for. All of it goes in
+    # through the environment, never into the script. An event without the
+    # name or the branch leaves the tool to read them from Git; one without
+    # the visibility is answered by the API, which the token may always read
+    # the repository's metadata from.
     - name: Run phase 0
       id: phase0
       shell: bash
