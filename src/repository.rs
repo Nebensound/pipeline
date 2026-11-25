@@ -531,6 +531,26 @@ impl Repository {
         })
     }
 
+    /// Every tag that stands on a commit `HEAD` contains, a tag on `HEAD`
+    /// itself among them: the records a repository made before it called the
+    /// pipeline, as `init` reads them. None in a repository without a commit.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Git`] when git does not run or does not answer.
+    pub fn tags_held_by_head(&self) -> Result<Vec<Tag>, Error> {
+        let Some(head) = self.commit("HEAD")? else {
+            return Ok(Vec::new());
+        };
+        Ok(tags(&self.git_output(&[
+            "for-each-ref",
+            TAG_FORMAT,
+            "--merged",
+            head.as_str(),
+            "refs/tags/",
+        ])?))
+    }
+
     /// The repository's name and default branch: as given, and otherwise as
     /// Git knows them.
     ///

@@ -63,12 +63,13 @@ action builds the tool from the source of that commit, which prints `0.0.0`.
 ## Calls
 
 ```text
-nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branch>] [--visibility <public|private|internal>] | tree | explain <path> | dependabot | plan [--pull-request <number> --message <message>] | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | run [--plan <file>] <check> <unit> | build [--plan <file>] <build> <unit> | excluded-packages | write-versions [--plan <file>] [--workspace <path>] | setup [--pinned] [--with-runtimes] [--check] [<check or build> ...] | declare | job <entry> | unwritten <checks|build|writers|targets> … | gather <checks|builds> … | xtask | release [--assets <folder>] | schema | register | ui]
+nebensound-repo [-C <directory>] [check [--name <name>] [--default-branch <branch>] [--visibility <public|private|internal>] | init [--visibility <public|private|internal>] | tree | explain <path> | dependabot | plan [--pull-request <number> --message <message>] | version [--markdown] [--pull-request <number> --message <message>] | files [-z] <check> <unit> | run [--plan <file>] <check> <unit> | build [--plan <file>] <build> <unit> | excluded-packages | write-versions [--plan <file>] [--workspace <path>] | setup [--pinned] [--with-runtimes] [--check] [<check or build> ...] | declare | job <entry> | unwritten <checks|build|writers|targets> … | gather <checks|builds> … | xtask | release [--assets <folder>] | schema | register | ui]
 ```
 
 | Call                | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `check`             | Runs phase 0 and prints all of it: the resolved configuration, the linter rules laid over the defaults, the tree, the findings (annotations in a workflow run) and the counts. Warns where the name or default branch (`--name`, `--default-branch`, else Git) or a minimum file departs from the conventions. With `--visibility`, how GitHub shows the repository, it holds the declared audience against it, as `declare` does; without it nothing is compared. The default; `declare` runs it.                                                                                                                                       |
+| `init`              | Writes the first draft of a repository's switch to the pipeline where it is missing: the declaration, the caller `.github/workflows/nebensound.yml` and the Dependabot configuration, with a `TODO(init)` marker for every decision it cannot take, and says what it did. Asks nothing and overwrites nothing. See [Switching a repository to the pipeline](#switching-a-repository-to-the-pipeline).                                                                                                                                                                                                                                    |
 | `tree`              | The annotated tree and nothing else.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `explain <path>`    | What holds for one path and why: for whom the repository is meant, which units contain it, the minimum version of each of them, which commit types count like `feat`, which checks are in force, how its coverage stands.                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `dependabot`        | The `.github/dependabot.yml` the declaration and the organization's [Dependabot policy](register.md#dependabot-policy) give: one entry per watched ecosystem, listing the folders that hold its manifests. Reads no history, and prints nothing but a sentence when phase 0 finds an error. `check` warns where the file in the tree departs from it ([`stale-dependabot`](declaration.md#stale-dependabot)).                                                                                                                                                                                                                            |
@@ -97,6 +98,75 @@ nothing** — it says that a statement is untrue, not that something is broken.
 Everything goes to standard output, including what went wrong. The result is a
 log, and a log that stands in two places is read together by nobody; whether
 something went wrong is what the exit code is for.
+
+## Switching a repository to the pipeline
+
+`init` writes the first draft of a repository's switch to the pipeline, the
+three files a repository needs to call it, each only where nothing stands at its
+path yet:
+
+- `.nebensound/repo.toml`, with the `#:schema` line and three lines that point
+  at [the declaration](declaration.md), from what `init` recognises in the files
+  Git tracks and from the call;
+- `.github/workflows/nebensound.yml`, the caller of
+  [the README](../README.md#calling-the-pipeline), named `nebensound` and pinned
+  to the tag of the release this tool belongs to (see
+  [Calling the workflow](calling.md#pinning)). The tool holds the caller as one
+  template, which a test holds to the README's line for line, but for the name
+  and the pin;
+- `.github/dependabot.yml`, what [`dependabot`](#calls) prints for the
+  declaration in place, the draft `init` has just written included, also while
+  it still holds markers: the folders follow from the units, their pipelines
+  and the exclusions alone. A file at `.github/dependabot.yaml` counts as one in
+  place. Where no declaration that reads is in place, because the one there
+  does not read or the draft could not be written, it writes none.
+
+It never overwrites a file, so a second run writes nothing. A file whose write
+fails halfway is removed again, so that the next run writes it whole. It asks
+nothing, whether a terminal is attached or not. Where it cannot take a decision
+from the tree or the call, it writes a `TODO(init)` marker into the file, a
+comment that says what is open, and names it in its report;
+[`check`](declaration.md#unresolved-init-marker) reports every marker left in
+the three files as an error, with its line and column. It stages, commits and
+pushes nothing, starts no program but Git, and uses no network.
+
+What the declaration says, and where it comes from:
+
+| Field                 | Written as                                                                                                                                                                                                                                                                                                                                |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `audience`            | `"public"` with `--visibility public`, the only audience a public repository can have ([`mismatched-audience`](declaration.md#mismatched-audience)). With `private` or `internal`, a marker for `"internal"` or `"customer"`; without `--visibility`, a marker for all three. GitHub's visibility is taken from the call, never guessed.  |
+| `minimum-version`     | Above the highest release that the tags on commits `HEAD` contains record, read as phase 0 reads the records of the repository, `vX.Y.Z` and `vX.Y.Z-pre.N`: the next patch above a full release, the three numbers of a pre-release. Left out where no such tag stands; a marker where no version follows the tag.                       |
+| the pipeline          | The preset the files at the root fit, with the reason in the report: Rust by `Cargo.toml` (no `[package]`: `rust-workspace`; beside `deploy/Dockerfile`: `rust-service`; with `src/main.rs`, a file below `src/bin/` or `[[bin]]`: `rust-binary`; otherwise `rust-library`), then `uv.lock` beside `deploy/Dockerfile`: `python-service`. |
+| publication           | Nothing: a preset that publishes is written out as `[repo.pipeline]` with `publish = false` and its version writers, checks, build and Dependabot ecosystems, a decision the report names, without a marker. A preset that publishes nothing is written by its name.                                                                      |
+| more presets that fit | A marker for each beside the first, which is written.                                                                                                                                                                                                                                                                                     |
+| no preset fits        | `pipeline = "none"`: only the base set runs, and the report names the files no check covers yet, by the check that would cover them.                                                                                                                                                                                                      |
+| components            | None. Where Cargo packages stand below the root, a marker lists their folders: each can be a component of its own, with its own version.                                                                                                                                                                                                  |
+
+The caller of a tool that belongs to no release, one built from source that
+prints `0.0.0` or the build of a pull request, carries a marker on the line of
+its reference:
+
+```yaml
+uses: Nebensound/pipeline/.github/workflows/nebensound.yml@TODO..init # TODO(init): pin the tag of a release of the pipeline, vX.Y.Z; this nebensound-repo belongs to no release
+```
+
+The file stays a valid workflow, but no branch, tag or commit can be named
+`TODO..init`, so a run of it fails at once.
+
+The report names what was written, what was left alone and why, what was
+recognised and from what, every marker with its file, line and column, the
+files no check covers yet, the minimum files the repository does not hold, and
+the workflows `init` did not touch, which it deletes none of. It ends with the
+next steps: take the decisions the markers name, add the files, since phase 0
+reads only what Git tracks, run `check`, decide about the workflows it did not
+touch, and open the pull request. Then the steps of the organization's owner on
+the day the repository switches: the
+[merge settings](repository-settings.md#every-repository-of-the-organization)
+and [the steps of that day](organization/README.md#the-day-a-repository-switches).
+
+Exit code: `0` when it ran, markers or not; `1` when the repository or the
+central data cannot be read, or a file cannot be written, which the report
+names; `2` when the call was wrong.
 
 ## The plan
 

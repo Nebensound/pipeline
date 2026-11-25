@@ -48,6 +48,7 @@ include = [
   "/schemas/",
   "/src/",
   "/tests/",
+  "!/tests/caller_template.rs",
   "!/tests/declaration.rs",
   "!/tests/job.rs",
   "!/tests/presets.rs",
