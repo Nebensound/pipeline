@@ -621,13 +621,13 @@ out, each once. This is phase 0 and the tool alone: no program is started and no
 network is used, so whether the issue a marker names exists, or is still open,
 is not asked.
 
-| Form                                                                                                       | Result                                                                                                         |
-| ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `TODO(#123): text`, the same with `FIXME` <!-- nebensound:allow(todo) an example of the form -->           | stays: it names an issue of the repository                                                                     |
-| `TODO(owner/repo#123): text`, the same with `FIXME` <!-- nebensound:allow(todo) an example of the form --> | stays: it names an issue of another repository                                                                 |
-| `TODO(init)` <!-- nebensound:allow(todo) names the marker init writes -->                                  | the error [`unresolved-init-marker`](#unresolved-init-marker), always: it is resolved before the switch merges |
-| `TODO` or `FIXME` without a reference                                                                      | the error [`unreferenced-marker`](#unreferenced-marker): the way out is an issue and its number                |
-| any of them on a line with an allowance, or on the line directly below one                                 | stays                                                                                                          |
+| Form                                                                                                       | Result                                                                                                                                |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `TODO(#123): text`, the same with `FIXME` <!-- nebensound:allow(todo) an example of the form -->           | stays: it names an issue of the repository                                                                                            |
+| `TODO(owner/repo#123): text`, the same with `FIXME` <!-- nebensound:allow(todo) an example of the form --> | stays: it names an issue of another repository                                                                                        |
+| `TODO(init)` <!-- nebensound:allow(todo) names the marker init writes -->                                  | the error [`unresolved-init-marker`](#unresolved-init-marker), unless an allowance covers it: it is resolved before the switch merges |
+| `TODO` or `FIXME` without a reference                                                                      | the error [`unreferenced-marker`](#unreferenced-marker): the way out is an issue and its number                                       |
+| any of them on a line with an allowance, or on the line directly below one                                 | stays                                                                                                                                 |
 
 **A marker** is the word `TODO` or `FIXME` in capitals, directly followed by
 `(` or `:`, with the start of the line or a character that is no letter, digit
