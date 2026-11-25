@@ -1,0 +1,4 @@
+# A syntax of the repository, which the check refuses by name.
+customSyntax: ./syntax.mjs
+rules:
+  color-hex-length: long

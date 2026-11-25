@@ -1,0 +1,1 @@
+::error file=.stylelintrc.json::`plugins` is not handed to Stylelint: it names modules of rules, which would be loaded and run, and the CSS check runs no code of the repository

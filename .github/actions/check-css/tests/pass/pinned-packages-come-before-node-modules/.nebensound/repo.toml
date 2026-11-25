@@ -1,0 +1,12 @@
+# A repository that commits a node_modules folder with packages of the same
+# names as those the pipeline's default extends and reads SCSS with, each of
+# which stops the run when it is loaded. The check hands Stylelint the pinned
+# ones by their place in the pinned install, so the stylesheet and the SCSS
+# file are checked with them and pass.
+[repo]
+audience = "public"
+pipeline = { check = ["css"] }
+
+[[exclude]]
+path   = "node_modules"
+reason = "the packages under test, which no check of the case covers"

@@ -1,0 +1,6 @@
+{
+  "extends": ["./shared.mjs"],
+  "rules": {
+    "color-hex-length": "long"
+  }
+}

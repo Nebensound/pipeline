@@ -1,0 +1,2 @@
+# The syntax is never loaded, so nothing stands at the stylesheet.
+::error file=site.css*

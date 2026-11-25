@@ -1,0 +1,2 @@
+# Loading the module would stop the check of the stylesheet.
+::error file=site.css::Stylelint cannot check it*

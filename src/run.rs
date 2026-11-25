@@ -187,14 +187,14 @@ pub struct Context<'a> {
     /// removes again.
     pub temp: &'a Path,
     /// What the Rust check reads of the repository beyond its files, and
-    /// what the Markdown check reads for markdownlint's configuration; the
-    /// other checks read none of it.
+    /// what the Markdown and the CSS check read for the configuration of
+    /// markdownlint and Stylelint; the other checks read none of it.
     pub packages: Packages<'a>,
 }
 
 /// What the Rust check reads of the repository beyond its files, and what
-/// the Markdown check reads for markdownlint's configuration
-/// ([`crate::linter_config::markdownlint`]).
+/// the Markdown and the CSS check read for the configuration of markdownlint
+/// and Stylelint ([`crate::linter_config`]).
 pub struct Packages<'a> {
     /// The repository, into whose manifests the package test writes the
     /// versions, and from which the configuration is read.

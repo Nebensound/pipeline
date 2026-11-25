@@ -1,0 +1,1 @@
+::error file=.stylelintrc.json::`extends` is not handed to Stylelint: it names further configuration, a module or another file, which would be loaded, and the tool reads one file

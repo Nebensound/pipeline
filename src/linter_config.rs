@@ -29,7 +29,10 @@
 //! [`markdownlint`] is the first linter under the rule. The check reads
 //! through it and hands the linter the result, the rules report shows the
 //! same result ([`crate::rules`]), and phase 0 names every file that is not
-//! read ([`findings`]), so what the report shows is what runs.
+//! read ([`findings`]), so what the report shows is what runs. [`stylelint`]
+//! follows it the same way in the CSS check: the check hands Stylelint a
+//! configuration object the tool built, and every package it loads by its
+//! place in the pinned install.
 //!
 //! The link check's configuration ([`crate::lychee_config`]) follows the same
 //! shape and is older: lychee's `lychee.toml` is data by design and lychee
@@ -46,8 +49,8 @@
 //! tool hands the keys on in the order the repository wrote them and never
 //! changes what the file means.
 //!
-//! The other linters still read their configuration themselves (see
-//! `docs/principles.md`).
+//! The linters not named here still read their configuration themselves
+//! (see `docs/principles.md`).
 //!
 //! Phase 0 names through [`findings`] one more kind of file that is not
 //! read: the configuration of a program that no check starts any more
@@ -57,6 +60,7 @@
 //! follow them, so each is a warning, not an error.
 
 pub mod markdownlint;
+pub mod stylelint;
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -68,6 +72,7 @@ use yaml_rust2::{Yaml, YamlLoader};
 use crate::Analysis;
 use crate::annotate::Coverage;
 use crate::finding::{Finding, Rule};
+use crate::ignored::Read;
 use crate::names::ProgramName;
 use crate::path::RelativePath;
 use crate::programs::Program;
@@ -186,8 +191,9 @@ impl<'de> Visitor<'de> for WrittenVisitor {
 }
 
 /// The value a file of a linter's configuration holds, its keys in the
-/// order written, read as [`rules::parse`] reads it. A file in JavaScript is
-/// never handed here. An empty file of YAML holds null.
+/// order written: JSON with comments, or YAML, its values as
+/// [`rules::json`] gives them. A file in JavaScript is never handed here. An
+/// empty file of YAML holds null.
 ///
 /// # Errors
 ///
@@ -225,6 +231,16 @@ fn written(yaml: &Yaml) -> Written {
         Yaml::Array(items) => Written::List(items.iter().map(written).collect()),
         other => Written::Scalar(rules::json(other)),
     }
+}
+
+/// Something in a linter's configuration that is not handed over, which
+/// fails the check that runs the linter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Problem {
+    /// The file it is in.
+    pub file: RelativePath,
+    /// What is wrong, naming the key.
+    pub message: String,
 }
 
 /// A file of a linter's configuration that the tool does not read.
@@ -318,13 +334,14 @@ pub fn locate<'a>(
 
 /// Every file of a linter's configuration in the repository that the tool
 /// does not read, for every program the register names files of its
-/// configuration for: each one an error of phase 0
-/// ([`Rule::UnreadConfiguration`]), since the linter would follow it
-/// wherever it runs by hand, and the check never does. After them, each
-/// configuration of a program that no check starts any more, a warning
-/// ([`crate::unread::findings`]).
+/// configuration for, and beside them the other files Stylelint would read
+/// ([`stylelint::beside`]), read through `read` where their content decides
+/// it: each one an error of phase 0 ([`Rule::UnreadConfiguration`]), since
+/// the linter would follow it wherever it runs by hand, and the check never
+/// does. After them, each configuration of a program that no check starts
+/// any more, a warning ([`crate::unread::findings`]).
 #[must_use]
-pub fn findings(analysis: &Analysis, register: &Register) -> Vec<Finding> {
+pub fn findings(analysis: &Analysis, register: &Register, read: &Read<'_>) -> Vec<Finding> {
     let nodes = analysis.tree.files();
     let files: Vec<&RelativePath> = nodes.iter().map(|(node, _)| &node.path).collect();
     let excluded: BTreeSet<&RelativePath> = nodes
@@ -336,7 +353,13 @@ pub fn findings(analysis: &Analysis, register: &Register) -> Vec<Finding> {
     let mut found: Vec<Finding> = register
         .program
         .iter()
-        .flat_map(|(name, program)| locate(&files, &kept, name, program).unread)
+        .flat_map(|(name, program)| {
+            let mut unread = locate(&files, &kept, name, program).unread;
+            if name.as_str() == stylelint::NAME {
+                unread.extend(stylelint::beside(&files, &kept, read));
+            }
+            unread
+        })
         .map(|unread| Finding::error(Rule::UnreadConfiguration, unread.why).at(unread.file))
         .collect();
     found.extend(crate::unread::findings(analysis));

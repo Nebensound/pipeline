@@ -1,0 +1,2 @@
+# The module is not loaded: the rule it would switch off still fails.
+::error file=site.css,line=2,col=10::Expected "#00aa77" to be "#0a7" (color-hex-length)

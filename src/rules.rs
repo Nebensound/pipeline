@@ -17,11 +17,11 @@
 //!   with its differences by pattern, and every file of its configuration
 //!   the check does not read, and every key it does not hand over, each
 //!   with why. The check prints the same lines ([`markdownlint`]).
-//! - Stylelint: `rules` in the configuration nearest to a file the css check
-//!   covers, the first of the names Stylelint looks for in that file's folder
-//!   or in the nearest folder above it (`package.json` only where it holds a
-//!   `stylelint` key). `run` lays it over the default; a nearer one takes
-//!   the place of one farther up, not its rules.
+//! - Stylelint: the one file of its configuration at the root, read as the
+//!   CSS check reads it ([`crate::linter_config::stylelint`]), with its
+//!   differences by pattern, and every file of its configuration the check
+//!   does not read, and every key it does not hand over, each with why. The
+//!   check prints the same lines ([`stylelint`]).
 //! - html-validate: `rules` in every `.htmlvalidate.json` (`.mjs`, `.cjs`,
 //!   `.js`) of a folder that holds a file the html check covers, or holds one
 //!   below it, up to a folder whose `.htmlvalidate.json` says `root: true`.
@@ -49,11 +49,11 @@ use crate::Analysis;
 use crate::annotate::Coverage;
 use crate::path::RelativePath;
 use serde_json::{Number, Value};
-use yaml_rust2::{Yaml, YamlLoader};
+use yaml_rust2::Yaml;
 
 use crate::ignored::{Read, folder};
 use crate::linter_config::markdownlint::{Combine, Handed, Problem, Rules};
-use crate::linter_config::{self, Written};
+use crate::linter_config::{self, Written, stylelint as styled};
 use crate::register::Register;
 use crate::report::{column, shown};
 
@@ -194,32 +194,6 @@ const MARKDOWNLINT_NAMES: &[(&[&str], &[&str])] = &[
     (&["MD060", "table-column-style"], &["table"]),
 ];
 
-/// The configuration files of Stylelint in a folder, in the order its
-/// `cosmiconfig` looks for them.
-const STYLELINT_FILES: &[&str] = &[
-    "package.json",
-    ".stylelintrc",
-    ".stylelintrc.json",
-    ".stylelintrc.yaml",
-    ".stylelintrc.yml",
-    ".stylelintrc.js",
-    ".stylelintrc.ts",
-    ".stylelintrc.cjs",
-    ".stylelintrc.mjs",
-    ".config/stylelintrc",
-    ".config/stylelintrc.json",
-    ".config/stylelintrc.yaml",
-    ".config/stylelintrc.yml",
-    ".config/stylelintrc.js",
-    ".config/stylelintrc.ts",
-    ".config/stylelintrc.cjs",
-    ".config/stylelintrc.mjs",
-    "stylelint.config.js",
-    "stylelint.config.ts",
-    "stylelint.config.cjs",
-    "stylelint.config.mjs",
-];
-
 /// The configuration files of html-validate in a folder, all of which it
 /// reads, in this order.
 const HTML_VALIDATE_FILES: &[&str] = &[
@@ -260,8 +234,11 @@ impl Program {
     fn default(self, text: &str) -> Result<Config, String> {
         match self {
             Self::Markdownlint => config(linter_config::parse(Format::Jsonc, text)?),
-            Self::Stylelint => rules_of(parse(Format::Yaml, text)?),
-            Self::HtmlValidate => rules_of(parse(Format::Jsonc, text)?),
+            Self::Stylelint => styled::pinned(text).map(|pinned| Config {
+                extends: Some(pinned.base.extends.join(", ")).filter(|names| !names.is_empty()),
+                rules: pinned.base.rules,
+            }),
+            Self::HtmlValidate => rules_of(parse(text)?),
         }
     }
 
@@ -407,18 +384,10 @@ fn text(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
-/// The value a file holds. A file in JavaScript is never handed here.
-pub(crate) fn parse(format: Format, source: &str) -> Result<Value, String> {
-    match format {
-        Format::Jsonc => {
-            jsonc_parser::parse_to_serde_value(source, &jsonc_parser::ParseOptions::default())
-                .map_err(text)
-        }
-        Format::Yaml | Format::Script => {
-            let documents = YamlLoader::load_from_str(source).map_err(text)?;
-            Ok(documents.first().map_or(Value::Null, json))
-        }
-    }
+/// The value a file of html-validate's configuration holds, which is JSON
+/// with comments. A file in JavaScript is never handed here.
+fn parse(source: &str) -> Result<Value, String> {
+    jsonc_parser::parse_to_serde_value(source, &jsonc_parser::ParseOptions::default()).map_err(text)
 }
 
 /// A YAML value as the JSON value it stands for. A key that is not text is
@@ -509,124 +478,40 @@ enum Place {
     /// Laid over the default, and over what lies above it.
     Over,
     /// Laid over the default, in place of any configuration in a folder
-    /// above it: Stylelint's for the files it is the nearest configuration
-    /// of, html-validate's in a folder that says `root: true`.
+    /// above it: html-validate's in a folder that says `root: true`.
     Nearest,
 }
 
-/// How a file's rules are read.
-#[derive(Clone, Copy)]
-enum Kind {
-    /// Stylelint's own file, or the `stylelint` key of `package.json`.
-    Stylelint,
-    StylelintPackage,
-    HtmlValidate,
-}
-
-/// One file of the repository that is laid over the default.
+/// One file of html-validate's configuration that is laid over the default.
 struct Layer {
     file: RelativePath,
     place: Place,
-    kind: Kind,
 }
 
 impl Layer {
-    /// The folder whose files it is for: its own, and for a file of Stylelint
-    /// in a folder `.config` the folder above that.
+    /// The folder whose files it is for: its own.
     fn owner(&self) -> RelativePath {
-        let dir = folder(&self.file);
-        match self.kind {
-            Kind::Stylelint if dir.file_name() == Some(".config") => folder(&dir),
-            _ => dir,
-        }
+        folder(&self.file)
     }
 
     /// What it names, or [`None`] for a file in JavaScript.
     fn read(&self, read: &Read<'_>) -> Result<Option<Config>, String> {
-        let format = format(&self.file);
-        if let Format::Script = format {
+        if let Format::Script = format(&self.file) {
             return Ok(None);
         }
         let source = read(&self.file)?;
-        match self.kind {
-            Kind::Stylelint | Kind::HtmlValidate => rules_of(parse(format, &source)?),
-            Kind::StylelintPackage => rules_of(
-                parse(format, &source)?
-                    .get("stylelint")
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-        }
-        .map(Some)
+        rules_of(parse(&source)?).map(Some)
     }
 }
 
-/// A file of a folder, the name of which may hold a folder of its own, such
-/// as `.config/stylelintrc`.
+/// A file of a folder, by its name.
 fn file_in<'a>(
     files: &[&'a RelativePath],
     dir: &RelativePath,
     name: &str,
 ) -> Option<&'a RelativePath> {
-    let wanted = name
-        .split('/')
-        .fold(dir.clone(), |path, segment| path.join(segment));
+    let wanted = dir.join(name);
     files.iter().find(|file| ***file == wanted).copied()
-}
-
-/// Whether `package.json` holds a configuration of Stylelint. One that does
-/// not read is taken to hold one, so that the report says it cannot be read.
-fn has_stylelint_key(file: &RelativePath, read: &Read<'_>) -> bool {
-    read(file)
-        .ok()
-        .and_then(|source| parse(Format::Jsonc, &source).ok())
-        .is_none_or(|value| value.get("stylelint").is_some())
-}
-
-/// The configuration Stylelint reads for each file the css check covers: the
-/// first of its names in the file's folder, else in the nearest folder above
-/// it, each once, the root first.
-fn stylelint_layers(
-    files: &[&RelativePath],
-    styled: &[&RelativePath],
-    read: &Read<'_>,
-) -> Vec<Layer> {
-    let mut found: BTreeSet<RelativePath> = BTreeSet::new();
-    for file in styled {
-        let mut dir = folder(file);
-        loop {
-            let first = STYLELINT_FILES.iter().find_map(|name| {
-                file_in(files, &dir, name)
-                    .filter(|config| *name != "package.json" || has_stylelint_key(config, read))
-            });
-            if let Some(config) = first {
-                found.insert(config.clone());
-                break;
-            }
-            if dir.is_root() {
-                break;
-            }
-            dir = folder(&dir);
-        }
-    }
-    found
-        .into_iter()
-        .map(|file| {
-            let mut layer = Layer {
-                kind: if file.file_name() == Some("package.json") {
-                    Kind::StylelintPackage
-                } else {
-                    Kind::Stylelint
-                },
-                file,
-                place: Place::Over,
-            };
-            if !layer.owner().is_root() {
-                layer.place = Place::Nearest;
-            }
-            layer
-        })
-        .collect()
 }
 
 /// Whether a configuration of html-validate says `root: true`, so that
@@ -636,7 +521,7 @@ fn says_root(file: &RelativePath, read: &Read<'_>) -> bool {
     file.file_name() == Some(".htmlvalidate.json")
         && read(file)
             .ok()
-            .and_then(|source| parse(Format::Jsonc, &source).ok())
+            .and_then(|source| parse(&source).ok())
             .and_then(|value| value.get("root").and_then(Value::as_bool))
             == Some(true)
 }
@@ -686,7 +571,6 @@ fn html_validate_layers(
             in_folder(dir).into_iter().map(move |file| Layer {
                 file: file.clone(),
                 place,
-                kind: Kind::HtmlValidate,
             })
         })
         .collect()
@@ -780,53 +664,104 @@ fn rule_lines(program: Program, rules: &[(String, Value)], default: &Config) -> 
 /// file.
 #[must_use]
 pub fn markdownlint(default: &str, handed: &Handed, problems: &[Problem]) -> Vec<String> {
-    let program = Program::Markdownlint;
+    let mut layers = vec![(
+        "laid over the default rule by rule".to_owned(),
+        handed.rules.as_slice(),
+    )];
+    for entry in &handed.overrides {
+        let place = match entry.combine {
+            Combine::Merge => "laid over the default and the rules above, rule by rule",
+            Combine::Replace => "laid over the default rule by rule, in place of the rules above",
+        };
+        layers.push((
+            format!("for {}: {place}", patterns(&entry.filter)),
+            entry.rules.as_slice(),
+        ));
+    }
+    handed_lines(
+        Program::Markdownlint,
+        default,
+        handed.file.as_ref(),
+        &layers,
+        problems,
+    )
+}
+
+/// The lines of Stylelint, which the rules report shows and the CSS check
+/// prints, both from what the check hands over: the file laid over the
+/// default and how each of its rules stands to it, each difference by
+/// pattern the same way, and every problem with the configuration, at its
+/// file.
+#[must_use]
+pub fn stylelint(default: &str, handed: &styled::Handed, problems: &[Problem]) -> Vec<String> {
+    let mut layers = vec![(
+        "laid over the default rule by rule".to_owned(),
+        handed.rules.as_slice(),
+    )];
+    for entry in &handed.overrides {
+        layers.push((
+            format!(
+                "for {}: laid over the default and the rules above, rule by rule",
+                patterns(&entry.patterns.written)
+            ),
+            entry.rules.as_slice(),
+        ));
+    }
+    handed_lines(
+        Program::Stylelint,
+        default,
+        handed.file.as_ref(),
+        &layers,
+        problems,
+    )
+}
+
+/// Patterns as the report shows them, each in backticks.
+fn patterns(written: &[String]) -> String {
+    written
+        .iter()
+        .map(|pattern| format!("`{}`", shown(pattern)))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The lines of a linter whose configuration the tool reads in one place
+/// ([`crate::linter_config`]): the file laid over the default, each of its
+/// layers with the place it takes and how each rule stands to the default,
+/// and every problem with the configuration, at its file.
+fn handed_lines(
+    program: Program,
+    default: &str,
+    file: Option<&RelativePath>,
+    layers: &[(String, &[(String, Value)])],
+    problems: &[Problem],
+) -> Vec<String> {
     let head = column(2, program.check());
+    let name = program.name();
     let default = match program.default(default) {
         Ok(default) => default,
         Err(error) => {
             return vec![format!(
-                "{head}{}: the pipeline's default does not read: {}",
-                program.name(),
+                "{head}{name}: the pipeline's default does not read: {}",
                 shown(&error)
             )];
         }
     };
     let mut lines = Vec::new();
-    match &handed.file {
-        None => lines.push(format!(
-            "{head}Markdownlint: the default, nothing laid over it"
-        )),
+    match file {
+        None => lines.push(format!("{head}{name}: the default, nothing laid over it")),
         Some(file) => {
             lines.push(format!(
-                "{head}Markdownlint: the default, with these laid over it"
+                "{head}{name}: the default, with these laid over it"
             ));
             let file = column(6, &shown(&file.to_string()));
-            let mut layer = |place: String, rules: &[(String, Value)]| {
+            for (place, rules) in layers {
                 if rules.is_empty() {
                     lines.push(format!("{file}{place}; it names no rule"));
                 } else {
                     lines.push(format!("{file}{place}"));
                     lines.extend(rule_lines(program, rules, &default));
                 }
-            };
-            layer(
-                "laid over the default rule by rule".to_owned(),
-                &handed.rules,
-            );
-            for entry in &handed.overrides {
-                let place = match entry.combine {
-                    Combine::Merge => "laid over the default and the rules above, rule by rule",
-                    Combine::Replace => {
-                        "laid over the default rule by rule, in place of the rules above"
-                    }
-                };
-                let filter: Vec<String> = entry
-                    .filter
-                    .iter()
-                    .map(|pattern| format!("`{}`", shown(pattern)))
-                    .collect();
-                layer(format!("for {}: {place}", filter.join(", ")), &entry.rules);
             }
         }
     }
@@ -867,21 +802,12 @@ pub fn report(
             .collect()
     };
     let mut lines = vec!["Rules".to_owned(), String::new()];
-    let (handed, problems) = linter_config::markdownlint::read_in(
-        register,
-        &files,
-        &|file| !excluded.contains(file),
-        read,
-    );
+    let kept = |file: &RelativePath| !excluded.contains(file);
+    let (handed, problems) = linter_config::markdownlint::read_in(register, &files, &kept, read);
     lines.extend(markdownlint(defaults.markdownlint, &handed, &problems));
-    let styled = covered(Program::Stylelint);
-    if !styled.is_empty() {
-        lines.extend(section(
-            Program::Stylelint,
-            defaults.stylelint,
-            &stylelint_layers(&files, &styled, read),
-            read,
-        ));
+    if !covered(Program::Stylelint).is_empty() {
+        let (handed, problems) = styled::read_in(register, &files, &kept, read);
+        lines.extend(stylelint(defaults.stylelint, &handed, &problems));
     }
     let pages = covered(Program::HtmlValidate);
     if !pages.is_empty() {

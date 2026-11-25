@@ -1,0 +1,6 @@
+{
+  "plugins": ["./plugin.mjs"],
+  "rules": {
+    "color-hex-length": "long"
+  }
+}

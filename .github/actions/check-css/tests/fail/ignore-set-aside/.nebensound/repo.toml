@@ -1,5 +1,5 @@
 # A configuration whose ignoreFiles would take every stylesheet out. It is
-# JavaScript, which phase 0 does not read; the block sets it aside, so the
+# JavaScript, which the tool never reads and Stylelint never loads, so the
 # stylesheet is checked and fails.
 [repo]
 audience = "public"
