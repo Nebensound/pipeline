@@ -275,7 +275,7 @@ fn a_pull_request_that_changes_the_audience_names_it() {
     markdown.extend(message);
     assert_eq!(
         Files::read(&files.summary()),
-        format!("{}{line}\n", version(&git, &markdown))
+        format!("{}\n{line}\n", version(&git, &markdown))
     );
     let plan: Value = serde_json::from_str(&files.outputs()[0].1).unwrap();
     let version = plan["versions"][0]["version"].as_str().unwrap();

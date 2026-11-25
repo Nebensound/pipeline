@@ -231,7 +231,9 @@ pub fn hand_on(
         && let Some(line) = audience_change(plan)
     {
         log.command(&workflow::notice("Audience changed", &line));
-        if let Err(message) = workflow::summary(variables, &format!("{line}\n")) {
+        // A paragraph of its own: the table of versions before it in the
+        // summary ends without a blank line.
+        if let Err(message) = workflow::summary(variables, &format!("\n{line}\n")) {
             log.error(&message);
             return false;
         }
