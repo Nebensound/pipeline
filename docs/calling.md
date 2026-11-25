@@ -5,18 +5,18 @@ that the workflow's reference does not state elsewhere. The caller file itself
 is in [the README](../README.md#calling-the-pipeline); what runs and under which name is
 in [the phases](phases.md).
 
-## Pinning before `v0.1.0`
+## Pinning
 
-The reference in the caller file is pinned to an exact version. This
-repository releases every merge to `main`, as `v0.0.N` until `v0.1.0`, the
-first version meant for callers. Until then, pin the full 40-character SHA of a
-commit on `main` and write the commit's date behind it as a comment, so that a
-reader sees how old the pin is without looking the commit up:
+The reference in the caller file is pinned to an exact version: the tag of a
+release of this repository, `vX.Y.Z`. Every merge to `main` is a release, as
+`v0.0.N` until `v0.1.0`. A release cannot be changed once it is published, and
+the organization's ruleset [`version-tags`](organization/README.md#version-tags)
+keeps its tag from being moved or deleted, so the tag names one commit for good:
 
 ```yaml
 jobs:
   nebensound:
-    uses: Nebensound/pipeline/.github/workflows/nebensound.yml@<full commit SHA> # 2026-11-19
+    uses: Nebensound/pipeline/.github/workflows/nebensound.yml@v0.0.83
     permissions:
       contents: write
       pull-requests: read
@@ -26,10 +26,28 @@ jobs:
       deployments: write
 ```
 
-The date is the commit's, as `git log -1 --format=%cs <SHA>` prints it, not the
-day of the pin. A shortened SHA or a branch name is not a pin. Raise the pin by
-hand, to the then current commit of `main`. From `v0.1.0` on, pin the release
-tag, which Dependabot raises as a pull request.
+Every job of the run fetches the binary of the release on the commit the tag
+stands on and verifies it (see [the tool](tool.md#layout)). A branch name or a
+shortened SHA is not a pin. Dependabot's entry for `github-actions` keeps the
+pin out of its group, so that every raise of it is a pull request of its own
+(see [the Dependabot policy](register.md#dependabot-policy)).
+
+`nebensound-repo init` writes the tag of the release it belongs to: a binary
+from the archive of a release prints that release's version (see
+[The tool on a computer](../README.md#the-tool-on-a-computer)). A tool built
+from source prints `0.0.0`, and the build of a pull request or a pre-release
+carries more than three numbers; neither belongs to a release, so `init` writes
+in place of the tag a reference that no branch, tag or commit can have, with a
+`TODO(init)` marker as the comment of the line (see
+[the tool](tool.md#switching-a-repository-to-the-pipeline)). The run fails on it
+at once, and `check` reports it as
+[`unresolved-init-marker`](declaration.md#unresolved-init-marker).
+
+A caller pinned to the full 40-character SHA of a commit keeps working as it is:
+its jobs fetch the binary of the release on that commit in the same way, and
+build the tool from source where the commit carries no release. Nothing changes
+for it until its pin is raised; raised to the tag of the same release, it runs
+the same.
 
 ## When it runs
 

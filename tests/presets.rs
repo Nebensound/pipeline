@@ -38,23 +38,36 @@ const MINIMUM: &[(&str, &str)] = &[
     ),
 ];
 
-/// The caller of the workflow, pinned to a commit as the README shows it.
-const CALLER: &str = r"name: gate
+/// The caller of the workflow as `init` writes it for a tool of `v0.0.83`:
+/// the README's caller, pinned to the tag of a release.
+const CALLER: &str = r"name: nebensound
 
 on:
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
   push:
     branches:
       - main
+      - pre
+      - pre-*
 
 permissions:
   contents: read
 
 jobs:
   nebensound:
-    uses: Nebensound/pipeline/.github/workflows/nebensound.yml@5ca52fe5ec8089bbda9ad056cdb83ebe0c09e07c # 2026-11-21
+    uses: Nebensound/pipeline/.github/workflows/nebensound.yml@v0.0.83
     permissions:
-      contents: read
+      contents: write
+      pull-requests: read
+      id-token: write
+      packages: write
+      attestations: write
+      deployments: write
 ";
 
 /// A small HTTP service in Python: a uv project with its lockfile, the Python
@@ -108,7 +121,7 @@ updates:
       prefix: docker(deps)
 ",
     ),
-    (".github/workflows/gate.yml", CALLER),
+    (".github/workflows/nebensound.yml", CALLER),
     (".python-version", "3.14\n"),
     (
         "pyproject.toml",
@@ -395,6 +408,12 @@ fn names(value: &Value) -> Vec<&str> {
         .iter()
         .map(|name| name.as_str().expect("a name"))
         .collect()
+}
+
+#[test]
+fn the_caller_is_the_one_init_writes() {
+    let release = nebensound_repo::init::release("0.0.83");
+    assert_eq!(CALLER, nebensound_repo::init::caller(release));
 }
 
 #[test]

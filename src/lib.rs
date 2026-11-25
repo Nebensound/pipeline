@@ -43,6 +43,7 @@ pub mod finding;
 pub mod gather;
 pub mod history;
 pub mod ignored;
+pub mod init;
 pub mod linter_config;
 pub mod lockfiles;
 pub mod lychee_config;
@@ -151,6 +152,18 @@ pub enum Command {
         /// How GitHub shows the repository, as a run knows it: phase 0 then
         /// holds the declared audience against it. Left out, as on a
         /// developer's machine, nothing is compared.
+        #[arg(long, value_enum)]
+        visibility: Option<Visibility>,
+    },
+    /// Write the first draft of the switch to the pipeline: the declaration,
+    /// the caller of the workflow and the Dependabot configuration, each only
+    /// where it is missing, with a `TODO(init)` marker for every decision it
+    /// cannot take, and say what it did. Asks nothing, overwrites nothing,
+    /// stages nothing and starts no program but Git.
+    Init {
+        /// How GitHub shows the repository: `public` writes the audience
+        /// `public`, the only one a public repository can have. Otherwise, and
+        /// left out, the audience is a marker.
         #[arg(long, value_enum)]
         visibility: Option<Visibility>,
     },
@@ -634,6 +647,7 @@ fn dispatch(
                 }
             };
         }
+        Ok(Call::Init(visibility)) => return init_call(cli, register, defaults, visibility, out),
         #[cfg(feature = "program")]
         Ok(Call::Alone(alone)) => return alone_call(cli, &alone, variables, out),
         #[cfg(feature = "program")]
@@ -665,6 +679,37 @@ fn dispatch(
     }
 }
 
+/// `init`: the three files written where they are missing, and the report of
+/// what was done. A file that could not be written, a repository that could
+/// not be read and central data that does not read are a problem of the
+/// repository or of the tool, not of the call.
+fn init_call(
+    cli: &Cli,
+    register: &str,
+    defaults: &str,
+    visibility: Option<Visibility>,
+    out: &mut Console<'_>,
+) -> u8 {
+    let done = central_from(register, defaults).and_then(|central| {
+        init::run(
+            &Repository::at(&cli.repository),
+            &central,
+            visibility,
+            env!("CARGO_PKG_VERSION"),
+        )
+    });
+    match done {
+        Ok(outcome) => {
+            say(out, &outcome.report);
+            if outcome.failed { FOUND } else { OK }
+        }
+        Err(failure) => {
+            say(out, &format!("{failure}\n"));
+            FOUND
+        }
+    }
+}
+
 /// Writes text: in a workflow run inside a stopped stretch ([`Console`]).
 fn say(out: &mut Console<'_>, text: &str) {
     out.text(text);
@@ -678,6 +723,9 @@ enum Call {
     Schema,
     /// Print the register as a page. It is the same for every repository too.
     Register,
+    /// Write the first draft of the switch to the pipeline. The repository has
+    /// no declaration yet, so it runs no phase 0.
+    Init(Option<Visibility>),
     /// A call of a workflow run that needs no phase 0.
     #[cfg(feature = "program")]
     Alone(Alone),
@@ -786,6 +834,7 @@ fn call(cli: &Cli, variables: &dyn Fn(&str) -> Option<String>) -> Result<Call, F
         #[cfg(feature = "program")]
         Some(Command::Schema) => return Ok(Call::Schema),
         Some(Command::Register) => return Ok(Call::Register),
+        Some(Command::Init { visibility }) => return Ok(Call::Init(*visibility)),
         None => Job::Check(IdentityArgs::default(), None),
         Some(Command::Check {
             identity,
@@ -1498,7 +1547,8 @@ fn report_versions(
 }
 
 /// The whole report of phase 0, ended by a line break, with what departs from
-/// the organization's conventions among the findings. The Dependabot
+/// the organization's conventions and every decision `init` left open in a
+/// file it writes among the findings. The Dependabot
 /// configuration is compared only when phase 0 found no error: what a
 /// declaration with errors gives could watch the wrong folders. In a workflow
 /// run every finding is an annotation, a command of the tool's own; everything
@@ -1526,6 +1576,16 @@ fn check(
             &repository.reader(),
         ));
     }
+    // After the comparison, so that a marker left in the Dependabot
+    // configuration does not hide how the rest of it departs.
+    found.extend(init::findings(
+        analysis
+            .tree
+            .files()
+            .into_iter()
+            .map(|(node, _)| &node.path),
+        &repository.reader(),
+    ));
     let loose = analysis.tree.attach(found);
     analysis.loose.extend(loose);
     say(

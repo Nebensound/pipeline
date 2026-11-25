@@ -81,8 +81,8 @@ not until the flag is removed.
   from the register compiled into the tool.
 - [The phases](docs/phases.md): what runs, under which name, on a pull request
   and on a push.
-- [Calling the workflow](docs/calling.md): how to pin before `v0.1.0`, when
-  the caller starts the workflow, which permissions it grants and why, why the
+- [Calling the workflow](docs/calling.md): how to pin, when the caller
+  starts the workflow, which permissions it grants and why, why the
   schema line can run ahead of the pin, and how to change one linter rule in
   one place.
 - [The tool](docs/tool.md): every call of `nebensound-repo`, the package at the
@@ -114,7 +114,7 @@ permissions:
 
 jobs:
   nebensound:
-    uses: Nebensound/pipeline/.github/workflows/nebensound.yml@<full commit SHA>
+    uses: Nebensound/pipeline/.github/workflows/nebensound.yml@<release tag>
     permissions:
       contents: write
       pull-requests: read
@@ -126,10 +126,18 @@ jobs:
 
 One job, no inputs: what the repository is stands in its declaration, and the
 workflow reads it there. The reference is pinned to an exact version, so that a
-change to the pipeline never reaches a repository as a silent switch. Until
-`v0.1.0`, the first version meant for callers, it is pinned to the full
-40-character SHA of a commit on `main` and raised by hand; from then on to a
-release tag, which Dependabot raises as a pull request.
+change to the pipeline never reaches a repository as a silent switch: the tag of
+a release of this repository, `vX.Y.Z`, which names one commit for good. A
+caller pinned to the full SHA of a commit keeps working as it is (see
+[Calling the workflow](docs/calling.md#pinning)).
+
+`nebensound-repo init` writes the first draft of a repository's switch: the
+declaration from what it recognises in the tree, this file as
+`.github/workflows/nebensound.yml`, named `nebensound` and pinned to the tag of
+the release the tool belongs to, and the Dependabot configuration. It writes
+each file only where it is missing and marks every decision it cannot take with
+`TODO(init)`, which `check` reports until it is taken (see
+[the tool](docs/tool.md#switching-a-repository-to-the-pipeline)).
 
 The file already holds what the parts planned after `v0.1.0` need, pre-branches
 among them, so that they need no change to it. It starts the workflow on every
