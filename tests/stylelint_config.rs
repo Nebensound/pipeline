@@ -14,8 +14,8 @@ use std::collections::BTreeMap;
 
 use nebensound_repo::Register;
 use nebensound_repo::linter_config::stylelint::{
-    CARRIED, Handed, Layer, Pinned, REFUSED, RULES, SCSS_RULES, SET_ASIDE, WARNING, beside,
-    is_rule, pinned, read, read_in,
+    CARRIED, Handed, Layer, Pinned, REFUSED, RULES, SCSS_PLUGIN_BROUGHT_BY, SCSS_RULES, SET_ASIDE,
+    WARNING, beside, is_rule, pinned, read, read_in,
 };
 use nebensound_repo::linter_config::{Problem, findings, locate};
 use nebensound_repo::names::ProgramName;
@@ -207,6 +207,7 @@ fn the_default_compiled_in_reads_as_the_check_hands_it_over() {
     assert!(patterns.matches("theme.scss") && patterns.matches("web/admin/theme.scss"));
     assert!(!patterns.matches("site.css"));
     assert_eq!(layer.extends, ["stylelint-config-standard-scss"]);
+    assert_eq!(layer.extends, [SCSS_PLUGIN_BROUGHT_BY]);
     assert_eq!(layer.custom_syntax.as_deref(), Some("postcss-scss"));
 }
 
@@ -556,6 +557,39 @@ fn the_rules_of_a_file_are_laid_as_stylelint_lays_them() {
     );
     assert_eq!(job.matches("\"files\":").count(), 2, "{job}");
     assert!(job.contains("\"files\":[\"a.css\",\"b.css\"]"), "{job}");
+}
+
+#[test]
+fn a_rule_of_the_plugin_for_scss_counts_only_for_the_files_read_as_scss() {
+    // Stylelint knows no rule of the plugin where the plugin is not loaded,
+    // and reports one handed over as unknown, even one switched off.
+    let default = default();
+    let (handed, problems) = configured(&[(
+        ".stylelintrc.json",
+        "{\n\
+           \"rules\": { \"scss/dollar-variable-pattern\": null, \"color-named\": null },\n\
+           \"overrides\": [\n\
+             { \"files\": [\"**\"], \"rules\": { \"scss/comment-no-empty\": true } }\n\
+           ]\n\
+         }",
+    )]);
+    assert!(problems.is_empty(), "{problems:?}");
+
+    let css = handed.layer_for(&default, "site.css");
+    assert_eq!(rules(&css), "{\"color-named\":null}");
+
+    let scss = handed.layer_for(&default, "web/theme.scss");
+    assert_eq!(
+        rules(&scss),
+        "{\"scss/dollar-variable-pattern\":null,\"color-named\":null,\
+         \"scss/comment-no-empty\":true}"
+    );
+
+    let job = handed.job(
+        &default,
+        &["site.css".to_owned(), "web/theme.scss".to_owned()],
+    );
+    assert_eq!(job.matches("scss/").count(), 2, "{job}");
 }
 
 #[test]

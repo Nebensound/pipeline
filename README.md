@@ -879,7 +879,8 @@ of `.stylelintrc`, `.stylelintrc.json`, `.stylelintrc.yaml` and
 there, as data, and hands Stylelint the rules of each stylesheet. It carries
 over `rules`, `overrides` entries that hold `files` and `rules`, and options
 that are data, such as `reportNeedlessDisables`; every rule is one of the
-pinned Stylelint or of its plugin for SCSS. Another of the files at the root,
+pinned Stylelint or of its plugin for SCSS, whose rules count for the `.scss`
+files only. Another of the files at the root,
 one in a folder below it, one written in JavaScript and the `stylelint` key of
 a `package.json` are not read and are named, and every key that names a module
 or another file (`extends`, `plugins`, `customSyntax`, `processors`,

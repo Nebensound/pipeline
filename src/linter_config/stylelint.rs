@@ -33,7 +33,10 @@
 //! value in place of an earlier one ([`Handed::layer_for`]): the pipeline's
 //! default ([`Pinned`]) with the entries of its own `overrides` that match the
 //! file, then the repository's rules, then the entries of its `overrides`
-//! that match the file. Stylelint takes the value of a rule as a whole and
+//! that match the file. A rule of the plugin for SCSS counts only for a file
+//! whose configuration loads the plugin ([`SCSS_PLUGIN_BROUGHT_BY`]), a file
+//! read as SCSS; for any other it is left out, wherever it was written.
+//! Stylelint takes the value of a rule as a whole and
 //! looks each rule up by its name, so the order of the keys carries no
 //! meaning; the tool keeps them in the order written all the same.
 //!
@@ -295,6 +298,14 @@ pub const SCSS_RULES: &[&str] = &[
     "selector-no-redundant-nesting-selector",
     "selector-no-union-class-name",
 ];
+
+/// The package of the pipeline's default that brings the plugin for SCSS
+/// along, for the files it extends. A file whose configuration extends it
+/// not, a `.css` file, has no rule of the plugin: Stylelint would report one
+/// handed to it as unknown, even one switched off, so a rule of
+/// [`SCSS_RULES`] counts only where this package is extended
+/// ([`Handed::layer_for`]).
+pub const SCSS_PLUGIN_BROUGHT_BY: &str = "stylelint-config-standard-scss";
 
 /// Whether a key of `rules` names a rule the tool carries over: one of
 /// [`RULES`], or one of [`SCSS_RULES`] written `scss/<name>`.
@@ -633,7 +644,10 @@ impl Handed {
     /// reads the file with, from the default and the entries of the default's
     /// `overrides` that match the file, each later one appended to what it
     /// extends and in place of the syntax; and the rules, laid as [`super`]
-    /// says.
+    /// says. A rule of the plugin for SCSS, written `scss/<name>`, is left
+    /// out where the file does not extend [`SCSS_PLUGIN_BROUGHT_BY`], which
+    /// loads the plugin, wherever it was written: such a rule counts only for
+    /// the files read as SCSS.
     #[must_use]
     pub fn layer_for(&self, pinned: &Pinned, file: &str) -> Layer {
         let mut laid = pinned.base.clone();
@@ -651,6 +665,13 @@ impl Handed {
             if entry.patterns.matches(file) {
                 lay(&mut laid.rules, &entry.rules);
             }
+        }
+        if !laid
+            .extends
+            .iter()
+            .any(|name| name == SCSS_PLUGIN_BROUGHT_BY)
+        {
+            laid.rules.retain(|(rule, _)| !rule.starts_with("scss/"));
         }
         laid
     }

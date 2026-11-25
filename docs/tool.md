@@ -1450,7 +1450,11 @@ overrides:
 
 The rules of a stylesheet are laid rule by rule, a later value in place of an
 earlier one: the default, with its own entry for `.scss`, then the file's
-rules, then each entry of its `overrides` that matches.
+rules, then each entry of its `overrides` that matches. A rule of the plugin
+for SCSS (`scss/<name>`) counts only for a stylesheet the default reads as
+SCSS, since only there it loads the plugin; for a `.css` file it is left out,
+wherever it was written. Stylelint would report it there as an unknown rule,
+even switched off.
 
 Not read, and named (`unread-configuration`): another of the names at the
 root, one in a folder below it, a configuration in JavaScript or TypeScript
@@ -1459,7 +1463,8 @@ and the `stylelint` key of a `package.json`, wherever it lies.
 
 What a repository can make Stylelint do is therefore: switch a rule of the
 default off, set it to warn, set its options, or switch on a rule of the pinned
-Stylelint or of its plugin for SCSS, for the whole repository or by pattern;
+Stylelint, for the whole repository or by pattern, and the same for a rule of
+its plugin for SCSS, which counts for the `.scss` files among them;
 report its disable comments or ignore them; and teach the syntax checks what
 its CSS knows beyond the standard. It cannot make Stylelint load or run
 anything, read another file, leave a stylesheet out, or turn every rule into a
