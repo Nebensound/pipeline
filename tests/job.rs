@@ -384,9 +384,12 @@ pipeline = { check = ["cpp"], version = ["cargo", "asciidoc"], build = "platform
     let plan = plan::plan(&analysis, &support::central());
     let found = entry::unwritten(&plan, &analysis.units, &Register::builtin().unwrap());
     assert_eq!(
-        found,
+        found.checks,
+        ["The check 'cpp' is not written yet, so the component fw is not checked for it."]
+    );
+    assert_eq!(
+        found.others,
         [
-            "The check 'cpp' is not written yet, so the component fw is not checked for it.",
             "The build 'platformio' is not written yet, so the component fw is not built.",
             "The version writer 'asciidoc' is not written yet, so the version of the component \
              fw is not written.",
@@ -394,6 +397,8 @@ pipeline = { check = ["cpp"], version = ["cargo", "asciidoc"], build = "platform
              there.",
         ]
     );
+    assert!(!found.is_empty());
+    assert_eq!(found.iter().count(), 4);
     let checks: Vec<String> = entry::reading_checks(&plan, &Register::builtin().unwrap())
         .iter()
         .map(ToString::to_string)
@@ -456,13 +461,13 @@ fn the_call_refuses_what_is_no_entry_of_the_plan() {
 }
 
 /// A repository whose reading checks find a file unformatted, with a
-/// component whose check is not written yet.
+/// component whose check and build are not written yet.
 fn unformatted() -> TempDir {
     support::repository(&[
         (
             ".nebensound/repo.toml",
             "[repo]\naudience = \"public\"\npipeline = \"none\"\n\n[component.fw]\npath = \
-             \"fw\"\npipeline = { check = [\"cpp\"] }\n",
+             \"fw\"\npipeline = { check = [\"cpp\"], build = \"platformio\" }\n",
         ),
         ("unformatted.json", "{}\n"),
         ("fw/main.c", "int main(void) { return 0; }\n"),
@@ -500,6 +505,13 @@ fn the_reading_entry_runs_every_reading_check_and_writes_a_table() {
         ),
         "{text}"
     );
+    assert!(
+        text.contains(
+            "::error::The build 'platformio' is not written yet, so the component fw is not \
+             built."
+        ),
+        "{text}"
+    );
     assert!(text.contains("json in the repository:"), "{text}");
     assert!(text.contains("[warn] unformatted.json"), "{text}");
     let table = "| Check | repository | component fw |\n\
@@ -516,8 +528,8 @@ fn the_reading_entry_runs_every_reading_check_and_writes_a_table() {
     assert_eq!(
         computer.summary(),
         format!(
-            "### Reading checks\n\n{table}\n- The check 'cpp' is not written yet, so the \
-             component fw is not checked for it.\n"
+            "### Reading checks\n\n{table}\n- The build 'platformio' is not written yet, so \
+             the component fw is not built.\n"
         )
     );
 }

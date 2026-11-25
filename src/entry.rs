@@ -385,20 +385,45 @@ pub fn writes_versions(given: &Value) -> bool {
 }
 
 /// What the reading entry finds that the run asks for and nobody has
-/// written yet, one sentence each: every check of a unit of the plan that is
-/// not written, every build the plan names for a unit that the tool does not
-/// carry out, and every version writer and publish target a unit that
-/// carries a version names that the tool does not carry out. The entry has
-/// the checkout but not the history, so a build counts whether or not the
-/// unit builds in this run, as a publish target does.
+/// written yet, one sentence each, split by where the summary shows it.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Unwritten {
+    /// Every check of a unit of the plan that is not written. The table of
+    /// the summary shows each as a cell `not written yet`.
+    pub checks: Vec<String>,
+    /// Every build, version writer and publish target the run names and the
+    /// tool does not carry out. The summary lists them below the table.
+    pub others: Vec<String>,
+}
+
+impl Unwritten {
+    /// Whether everything the run asks for is written.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.checks.is_empty() && self.others.is_empty()
+    }
+
+    /// Every sentence, the checks first.
+    pub fn iter(&self) -> impl Iterator<Item = &String> {
+        self.checks.iter().chain(&self.others)
+    }
+}
+
+/// What the reading entry finds that the run asks for and nobody has
+/// written yet: every check of a unit of the plan that is not written, every
+/// build the plan names for a unit that the tool does not carry out, and
+/// every version writer and publish target a unit that carries a version
+/// names that the tool does not carry out. The entry has the checkout but not
+/// the history, so a build counts whether or not the unit builds in this run,
+/// as a publish target does.
 #[must_use]
-pub fn unwritten(plan: &Plan, units: &[Unit], register: &Register) -> Vec<String> {
-    let mut found = Vec::new();
+pub fn unwritten(plan: &Plan, units: &[Unit], register: &Register) -> Unwritten {
+    let mut found = Unwritten::default();
     for unit in &plan.units {
         let label = label(&unit.name);
         for check in &unit.checks {
             if placed(register, check.as_str()) == Placed::Unwritten {
-                found.push(format!(
+                found.checks.push(format!(
                     "The check '{check}' is not written yet, so the {label} is not checked for it."
                 ));
             }
@@ -406,7 +431,7 @@ pub fn unwritten(plan: &Plan, units: &[Unit], register: &Register) -> Vec<String
         if let Some(name) = &unit.build
             && build::Build::of(name.as_str()).is_none()
         {
-            found.push(format!(
+            found.others.push(format!(
                 "The build '{name}' is not written yet, so the {label} is not built."
             ));
         }
@@ -419,7 +444,7 @@ pub fn unwritten(plan: &Plan, units: &[Unit], register: &Register) -> Vec<String
             .iter()
             .filter(|name| name.as_str() != writer::CARGO)
         {
-            found.push(format!(
+            found.others.push(format!(
                 "The version writer '{name}' is not written yet, so the version of the {label} is \
                  not written."
             ));
@@ -430,7 +455,7 @@ pub fn unwritten(plan: &Plan, units: &[Unit], register: &Register) -> Vec<String
             .iter()
             .filter(|name| name.as_str() != release::assets::TARGET)
         {
-            found.push(format!(
+            found.others.push(format!(
                 "The publish target '{name}' is not written yet, so the {label} is not published \
                  there."
             ));
@@ -494,8 +519,8 @@ impl Cell {
 /// programs of every reading check the plan starts, set up by `set_up`, and
 /// then each reading check in every unit the plan starts it at, by
 /// `check`, the log in one group per check. Last a table of check by unit,
-/// into the log and into the summary of the run, with what is not written
-/// yet below it. When the programs cannot be set up, no check runs.
+/// into the log and into the summary of the run, with what else is not
+/// written yet below it. When the programs cannot be set up, no check runs.
 pub fn reading(
     reading: &Reading<'_>,
     set_up: &mut dyn FnMut(&[CheckName], &mut Log<'_>) -> bool,
@@ -513,7 +538,7 @@ pub fn reading(
     if missing.is_empty() {
         log.line("Everything the run asks for is written.");
     }
-    for sentence in &missing {
+    for sentence in missing.iter() {
         log.error(sentence);
     }
     log.command("::endgroup::");
@@ -591,9 +616,10 @@ pub fn reading(
         table.push('\n');
     }
     let mut summary = format!("### Reading checks\n\n{table}");
-    if !missing.is_empty() {
+    // A check not written yet already stands in the table.
+    if !missing.others.is_empty() {
         summary.push('\n');
-        for sentence in &missing {
+        for sentence in &missing.others {
             let _ = writeln!(summary, "- {sentence}");
         }
     }
