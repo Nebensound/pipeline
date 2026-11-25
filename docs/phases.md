@@ -29,11 +29,21 @@ its whole history and every branch and tag, runs the tool `nebensound-repo` on
 it and hands the result on. Phase 0 is one call, `nebensound-repo declare`,
 which does steps 2 to 6 below:
 
-1. The tool is built from the same commit of this repository as the workflow,
-   and kept in the cache under a fingerprint of its sources, so two runs of the
-   same tool share one build, and every later job of the run takes it from there
-   ([`.github/actions/tool`](../.github/actions/tool)). Publish alone builds
-   its own (see [Publish](#publish)).
+1. The tool comes from the same commit of this repository as the workflow
+   ([`.github/actions/tool`](../.github/actions/tool)), and every job of the
+   run gets it the same way. Where that commit carries a release of this
+   repository, the job fetches the release's binary for its system
+   (`nebensound-repo-<target>.tar.gz`), verifies it with
+   `gh release verify-asset` against the release's attestation and runs it; a
+   binary that does not verify fails the job, and nothing of it is cached.
+   Where there is none, such as on a pull request or a push of this
+   repository, on a pin between two releases or on a system the release has no
+   binary for, or where `gh` is missing or older than 2.93.0 or the API has too
+   few requests left to verify it, a warning names why and the tool is built
+   from source, as before: kept in the cache under a fingerprint of its sources
+   and the runner's image, so two jobs of the same tool and image share one
+   build. Publish alone never takes it from the cache (see
+   [Publish](#publish)).
 2. Phase 0, as `nebensound-repo check` runs it, reads `.nebensound/repo.toml`,
    resolves it against the register and checks it against what Git tracks, and
    resolves the version of every unit from the history, holding the tags against
@@ -77,8 +87,8 @@ nothing.
 
 The job `nebensound / Version` reports which version every unit carries. It
 writes nothing and tags nothing. It checks the repository out the way Declare
-does, with its whole history and every branch and tag, takes the tool from the
-cache Declare filled and runs `nebensound-repo report-versions`: the text
+does, with its whole history and every branch and tag, gets the tool as
+Declare does and runs `nebensound-repo report-versions`: the text
 table of `nebensound-repo version` goes into the log, and the same table as
 Markdown into the summary of the run, one row per unit that carries a version:
 
@@ -120,7 +130,8 @@ such a target also fails by name in `Check` until they are.
 
 The job runs whatever Declare's result. When phase 0 finds an error, such as a
 shallow clone, there is no table: the log and the summary list every finding
-and the job fails. It waits for Declare only to take the tool from the cache.
+and the job fails. It waits for Declare only so that a tool built from source
+comes from the cache Declare filled.
 A cancelled run skips it.
 
 After a push to a pre-branch, `pre` or `pre-*`, the job resolves no version and
@@ -139,8 +150,9 @@ Every unit that starts a check gets a job of its own, named
 `nebensound / Check repository` for the repository and
 `nebensound / Check component <name>` for a component. A check runs once, at the
 outermost unit it is in force for, so a unit whose checks all run further out
-gets no job. The job first takes the tool from the cache Declare filled, and
-builds it only when the cache misses. Then its steps:
+gets no job. The job first gets the tool as Declare does; built from source,
+it comes from the cache Declare filled, and is built only when the cache
+misses. Then its steps:
 
 1. **Not written yet.** It fails, by name, for every check of the unit that has
    no building block yet, so that a pull request says what is missing instead of
@@ -164,7 +176,7 @@ builds it only when the cache misses. Then its steps:
 ### Where a failed check is found
 
 The job `nebensound / Check` only gathers: it reports that something failed and
-holds no finding. It checks nothing out; it takes the tool from the cache and
+holds no finding. It checks nothing out; it gets the tool as Declare does and
 calls it with what it is handed (`nebensound-repo gather` and `nebensound-repo
 unwritten`). The finding is in the job of the unit that failed, in the step
 of the check, where it is written to the log and, where the check can point at
@@ -217,8 +229,8 @@ version of the run when the commit touches it. A unit the commit does not touch
 has no new artifact to hand on and gets no build job, also where a version
 writer writes its current version for a package that depends on it. A
 build job starts only when Declare and `nebensound / Check` passed: nothing is
-built from a tree whose checks failed. It checks the repository out, takes the
-tool from the cache Declare filled, and runs its steps:
+built from a tree whose checks failed. It checks the repository out, gets the
+tool as Declare does, and runs its steps:
 
 1. **Not written yet.** It fails, by name, when the unit's build has no
    building block yet, so that a pull request says what is missing. The builds
@@ -338,8 +350,9 @@ that listens to tags or releases is not started by Publish.
 
 Of what another job wrote, only whether that job passed and the artifacts of
 the builds reach Publish: it takes no job output, reads the versions from the
-history itself, and builds the tool itself, from the source of the pipeline at
-the commit the caller pins, without the cache
+history itself, and gets the tool itself: the verified binary of the release
+on the commit the caller pins, as every job does, or else a build from the
+source of the pipeline at that commit, without the cache
 ([`.github/actions/tool`](../.github/actions/tool) with `cache: "false"`). Every
 job of a branch may write the cache, a job that runs code of the repository
 among them, so nothing in it is to run with a token that can write. The
@@ -348,10 +361,11 @@ the tool holds each against the version and the commit of the run and uploads
 it, and never starts one. What does run with that token is the tool, the Rust
 crates it is built from, as its `Cargo.lock` pins them, and the toolchain its
 `rust-toolchain.toml` names. It is built with its default features alone,
-which leave out the terminal interface (`ui`). Before it, the job runs
-`actions/download-artifact`, which is not handed the token. The token goes to
-the one step that calls the tool, and the tool hands it to curl on curl's
-standard input, never on a command line.
+which leave out the terminal interface (`ui`). Before the release, the job
+runs `actions/download-artifact`, which is not handed the token. The token goes
+to the step that fetches the released binary, whose gh only reads with it, and
+to the one step that calls the tool, which hands it to curl on curl's standard
+input, never on a command line.
 
 ## Check names
 

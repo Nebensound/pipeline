@@ -83,8 +83,13 @@ release stage in `Publish` and every other step of `nebensound.yml` are one
 call of the tool each; a test of the xtask holds every step to that. The Python
 check runs Python in three places, each because only the interpreter can
 answer: whether pytest imports, whether a file holds a statement, and whether a
-package of the wheel imports. The action `tool`, which every job runs, is still
-shell.
+package of the wheel imports. The action `tool`, which every job runs, is the
+one exception: it gets the tool, so it cannot call it. Its step that fetches
+the release's binary holds only what cannot be done without the tool: name the
+archive of the runner's system, find the release on the pipeline's commit, ask
+whether `gh` can verify, fetch the archive, verify it and unpack it. A test of
+the xtask runs that step against cases of its own. The fingerprint and the
+build from source, for a commit that carries no release, are shell as well.
 
 ## 4. External programs are the exception and are started from the tool
 
@@ -108,7 +113,9 @@ version and the digest of every download, and the tool refuses a download
 without that digest. Dependabot does not read the register. Actions are pinned
 to a major version. The Dependabot file of the repository covers the actions of
 the workflows, not those used inside the actions under `.github/actions/`. Git,
-curl, Cargo, rustup and Docker come from the runner image, unpinned. The
+curl, Cargo, rustup and Docker come from the runner image, unpinned, and so
+does `gh`, with which the action `tool` verifies the release's binary, at
+least in version 2.93.0. The
 image build's BuildKit and Trivy stand in the register and nowhere else; the
 database Trivy scans with is fetched in every run and pinned nowhere.
 
@@ -158,20 +165,32 @@ code has been reviewed, and only then may a job with more rights act on it.
 [the README](../README.md#calling-the-pipeline) passes none. The workflow grants
 its jobs `contents: read`, and one job asks for more:
 
-| Job                                   | Token                                          | Runs code of the repository                                                                                                         |
-| ------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `Declare`                             | read                                           | No. The tool reads the files and the history; when the event does not name the visibility, phase 0 asks for it with the read token. |
-| `Version`                             | read                                           | No. The tool reads the history.                                                                                                     |
-| `Check repository`, `Check component` | read                                           | Yes: `check-rust`, `check-python` and `cargo xtask check --all`.                                                                    |
-| `Check`                               | read                                           | No. It takes the tool from the cache, gathers results and reads the plan.                                                           |
-| `Build repository`, `Build component` | read                                           | Yes: the builds compile the code, start what they built and build images, a build with targets in one job per target.               |
-| `Build`                               | read                                           | No. It takes the tool from the cache and gathers results.                                                                           |
-| `Publish`                             | `contents: write`, after a push to `main` only | No. It builds the tool from the pipeline's source and runs it, with Git and curl; it uploads the builds' archives and starts none.  |
+| Job                                   | Token                                          | Runs code of the repository                                                                                                                                                       |
+| ------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Declare`                             | read                                           | No. The tool reads the files and the history; when the event does not name the visibility, phase 0 asks for it with the read token.                                               |
+| `Version`                             | read                                           | No. The tool reads the history.                                                                                                                                                   |
+| `Check repository`, `Check component` | read                                           | Yes: `check-rust`, `check-python` and `cargo xtask check --all`.                                                                                                                  |
+| `Check`                               | read                                           | No. It gets the tool, gathers results and reads the plan.                                                                                                                         |
+| `Build repository`, `Build component` | read                                           | Yes: the builds compile the code, start what they built and build images, a build with targets in one job per target.                                                             |
+| `Build`                               | read                                           | No. It gets the tool and gathers results.                                                                                                                                         |
+| `Publish`                             | `contents: write`, after a push to `main` only | No. It runs the tool, fetched or built without the cache, with Git and curl, and gh, which only reads, to verify a fetched tool; it uploads the builds' archives and starts none. |
 
 The table holds for a caller, which pins the workflow. In this repository the
 gate calls the workflow at its own commit, so on a pull request every job runs
 code of the pull request: the tool is built from its source and every step is
 its own. Each of those jobs holds only the read token.
+
+Every job of a caller gets the tool the same way: where the pinned commit
+carries a release of the pipeline, the release's binary for the runner's
+system, verified with `gh release verify-asset` against the attestation GitHub
+signs for the immutable release, and never taken from a cache. That proves that
+the file is an asset of exactly that release and that its tag stood on that
+commit; it does not prove what the binary was built from, which rests on the
+pipeline's own Build and Publish. gh gets the job's token for it, in `Publish`
+the one that can write, and only reads with it. Where no release carries a
+binary for the job, the tool is built from the pipeline's source as in this
+repository, with a warning that names why, and a binary that does not verify
+fails the job.
 
 So on `main` today, no job that runs code of the repository holds a token that
 can write, and the one job that can write runs only after a push to `main`, when
@@ -200,15 +219,15 @@ yet, it says so.
   today; the other jobs follow with the cut of the jobs. Until then the
   matrices, the version writers, the Rust check and the steps of `Check` that
   look at the version writers and publish targets take the plan `Declare`
-  hands on, and until the tool is a release binary (#24) the jobs other than
-  `Publish` take the tool from the cache.
+  hands on.
 - **The rule on building blocks** in `AGENTS.md` and the README: a block
   performs one step and is named after its register entry with the category in
   front. It describes the cut above, one named block per step. No issue exists
   yet that replaces it.
-- **The action `tool`** holds logic in shell: the fingerprint and the build of
-  the tool from source (rule 3). The build from source in a caller: #24. The
-  fingerprint: no issue exists yet.
+- **The action `tool`** holds logic in shell (rule 3): the step that fetches
+  the release's binary, which cannot be anything else, and the fingerprint and
+  the build of the tool from source, for a commit that carries no release. No
+  issue exists yet for the fingerprint and the build.
 - **Linters read their configuration themselves** (rule 2). markdownlint and
   the link check get their configuration from the tool. The other linters find
   the repository's configuration and read it, and some of their ways load code

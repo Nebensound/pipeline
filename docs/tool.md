@@ -55,9 +55,10 @@ text.
 The tool is published to no registry. Each release of this repository carries
 its binary for the targets of the build `cargo-release` as assets, built from
 the commit of the release and printing its version, so it is the same tool in
-the same version, not a second one that can fall behind. The composite action
-under `.github/actions/tool` still builds the tool from the source of the
-commit a caller pins; fetching the binary of the release instead is #24.
+the same version, not a second one that can fall behind. Every job of a
+caller's run fetches the binary of the release on the commit it pins and
+verifies it (`.github/actions/tool`); where that commit carries no release, the
+action builds the tool from the source of that commit, which prints `0.0.0`.
 
 ## Calls
 

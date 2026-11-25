@@ -1233,8 +1233,9 @@ fn yaml_files_parse_are_formatted_and_pass_their_linters() {
         &fs::read_to_string(bin.join("actionlint.args")).unwrap(),
         "actionlint -ignore ^specifying action \"\\$/[^\"]+\" in invalid format because ref is \
          missing -ignore ^reusable workflow call \"\\$/[^\"]+\" at \"uses\" is not following the \
-         format -ignore ^unexpected key \"queue\" for \"concurrency\" section\\.  -format \
-         {{json .}} -- .github/workflows/ci.yml",
+         format -ignore ^unexpected key \"queue\" for \"concurrency\" section\\.  -ignore \
+         ^property \"workflow_(repository|sha)\" is not defined in object type \\{check_run_id: \
+         number;  -format {{json .}} -- .github/workflows/ci.yml",
     );
 }
 
