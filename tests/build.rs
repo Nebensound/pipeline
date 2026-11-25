@@ -17,9 +17,7 @@ mod support;
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use nebensound_repo::Register;
 use nebensound_repo::build::cargo_package::{artifact, encoded};
@@ -30,16 +28,8 @@ use nebensound_repo::path::RelativePath;
 use nebensound_repo::repository::Repository;
 use nebensound_repo::run;
 use serde_json::{Value, json};
-use support::{Git, call_with};
+use support::{Git, call_with, program::executable};
 use tempfile::TempDir;
-
-/// Held by every test of this file that starts the programs below: Linux
-/// refuses to start a file another process holds open for writing.
-static ALONE: Mutex<()> = Mutex::new(());
-
-fn alone() -> MutexGuard<'static, ()> {
-    ALONE.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 /// Whether a call fails: a line of the fixture's `fail` file is part of what
 /// it was called with.
@@ -94,12 +84,6 @@ failing "rustc $*" && exit 1
 exit 0
 "#;
 
-fn executable(file: &Path, script: &str) {
-    fs::create_dir_all(file.parent().unwrap()).unwrap();
-    fs::write(file, script).unwrap();
-    fs::set_permissions(file, fs::Permissions::from_mode(0o755)).unwrap();
-}
-
 /// A `.crate`: a tar archive compressed with gzip, of these files.
 fn crate_of(entries: &[(&str, &str)]) -> Vec<u8> {
     let mut builder = tar::Builder::new(Vec::new());
@@ -133,7 +117,7 @@ impl Fixture {
         for (name, script) in [("cargo", CARGO), ("rustup", RUSTUP), ("rustc", RUSTC)] {
             executable(
                 &bin.join(name),
-                &format!("#!/bin/sh\n{FAILING}{SEES}{script}"),
+                format!("#!/bin/sh\n{FAILING}{SEES}{script}"),
             );
         }
         let utilities = base.path().join("utilities");
@@ -332,7 +316,6 @@ fn the_artifact_carries_the_path_encoded_the_version_and_the_commit() {
 
 #[test]
 fn every_step_runs_in_its_order_and_names_the_artifact() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let (code, text) = fixture.build("app");
     assert_eq!(code, 0, "{text}");
@@ -385,7 +368,6 @@ fn every_step_runs_in_its_order_and_names_the_artifact() {
 
 #[test]
 fn every_program_starts_without_the_variables_that_steer_the_toolchain() {
-    let _alone = alone();
     assert!(
         std::env::var_os("CARGO_MANIFEST_DIR").is_some(),
         "the test needs a variable the build takes out; Cargo sets this one for its tests"
@@ -417,7 +399,6 @@ fn every_program_starts_without_the_variables_that_steer_the_toolchain() {
 
 #[test]
 fn a_package_without_local_dependencies_patches_nothing() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .mark("crate-name", "lib-1.2.3.crate")
@@ -444,7 +425,6 @@ fn a_package_without_local_dependencies_patches_nothing() {
 
 #[test]
 fn the_first_step_that_fails_ends_the_build() {
-    let _alone = alone();
     for (pattern, step, said) in [
         (
             "rustup toolchain install",
@@ -495,7 +475,6 @@ fn the_first_step_that_fails_ends_the_build() {
 
 #[test]
 fn what_keeps_the_package_from_being_found_is_named() {
-    let _alone = alone();
     // No Cargo.toml at the unit.
     let fixture = Fixture::new();
     fixture.git.write(&[("nowhere/README.md", "# x\n")]);
@@ -537,7 +516,6 @@ fn what_keeps_the_package_from_being_found_is_named() {
 
 #[test]
 fn what_keeps_the_crate_from_being_tested_is_named() {
-    let _alone = alone();
     // cargo package passes and leaves no crate.
     let fixture = Fixture::new();
     fs::remove_file(fixture.base().join("crate")).unwrap();
@@ -593,7 +571,6 @@ fn what_keeps_the_crate_from_being_tested_is_named() {
 
 #[test]
 fn the_call_builds_only_what_the_plan_starts() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let root = fixture.root().display().to_string();
     let search_path = fixture.search_path();

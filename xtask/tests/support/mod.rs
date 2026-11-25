@@ -1,27 +1,15 @@
-//! What the tests share: files written in one call, a directory made up for a
-//! test, and a lock that runs the tests of a file one at a time.
+//! What the tests share: files written in one call, a stand-in program, and a
+//! directory made up for a test.
 
 #![allow(dead_code, clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+
+// The tool's tests write their stand-ins the same way, from the same file.
+#[path = "../../../tests/support/program.rs"]
+pub mod program;
 
 use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard, PoisonError};
-
-/// Held by every test of a file that writes programs and starts them.
-///
-/// A process another test starts while such a file is open for writing
-/// inherits it until it has started its own program, and Linux then refuses to
-/// run the file as busy ("Text file busy"). With one test at a time no other
-/// test starts a process during a write.
-static ALONE: Mutex<()> = Mutex::new(());
-
-/// Waits until no other test of this file runs. A test that failed while it
-/// held the lock leaves nothing behind that the next one would trip over, so
-/// its poison is ignored.
-pub fn alone() -> MutexGuard<'static, ()> {
-    ALONE.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 /// Writes every file, with the folders it needs.
 pub fn write(root: &Path, files: &[(&str, &str)]) {

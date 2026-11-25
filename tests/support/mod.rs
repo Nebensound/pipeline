@@ -5,6 +5,8 @@
 
 #![allow(clippy::expect_used, dead_code)]
 
+pub mod program;
+
 use std::path::Path;
 use std::process::Command;
 use std::{fs, io};

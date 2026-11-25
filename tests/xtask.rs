@@ -10,21 +10,13 @@
 mod support;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use nebensound_repo::output::Output;
 use nebensound_repo::workflow::Log;
 use nebensound_repo::xtask;
-use support::{call_with, directory};
+use support::{call_with, directory, program::executable};
 use tempfile::TempDir;
-
-static ALONE: Mutex<()> = Mutex::new(());
-
-fn alone() -> MutexGuard<'static, ()> {
-    ALONE.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 const RUSTUP: &str = r#"#!/bin/sh
 here=$(cd "$(dirname "$0")/.." && pwd -P)
@@ -50,10 +42,7 @@ exit 0
 fn programs() -> TempDir {
     let base = tempfile::tempdir().unwrap();
     for (name, script) in [("rustup", RUSTUP), ("cargo", CARGO)] {
-        let file = base.path().join("bin").join(name);
-        fs::create_dir_all(file.parent().unwrap()).unwrap();
-        fs::write(&file, script).unwrap();
-        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
+        executable(&base.path().join("bin").join(name), script);
     }
     let computer = std::env::var_os("PATH").unwrap_or_default();
     fs::create_dir_all(base.path().join("utilities")).unwrap();
@@ -78,7 +67,6 @@ fn xtask_in(root: &Path, base: &Path) -> (bool, String) {
 
 #[test]
 fn the_xtask_runs_with_the_toolchain_it_pins() {
-    let _alone = alone();
     let base = programs();
     let repository = directory(&[
         ("xtask/Cargo.toml", ""),
@@ -125,7 +113,6 @@ fn the_xtask_runs_with_the_toolchain_it_pins() {
 /// reaches Cargo, set after the removals.
 #[test]
 fn every_program_starts_without_the_variables_that_steer_the_toolchain() {
-    let _alone = alone();
     assert!(
         std::env::var_os("CARGO_MANIFEST_DIR").is_some(),
         "the test needs a variable xtask takes out; Cargo sets this one for its tests"
@@ -159,7 +146,6 @@ fn every_program_starts_without_the_variables_that_steer_the_toolchain() {
 
 #[test]
 fn an_xtask_without_a_pin_or_a_toolchain_does_not_run() {
-    let _alone = alone();
     let base = programs();
     let repository = directory(&[("xtask/Cargo.toml", "")]);
     let (passed, text) = xtask_in(repository.path(), base.path());
@@ -196,7 +182,6 @@ fn an_xtask_without_a_pin_or_a_toolchain_does_not_run() {
 
 #[test]
 fn the_call_runs_the_xtask_of_the_repository_it_is_given() {
-    let _alone = alone();
     let base = programs();
     let repository = directory(&[("xtask/Cargo.toml", ""), ("rust-toolchain", "")]);
     let path = search_path(base.path());

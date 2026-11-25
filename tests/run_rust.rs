@@ -18,7 +18,6 @@ use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use nebensound_repo::Register;
 use nebensound_repo::console::Console;
@@ -33,17 +32,8 @@ use nebensound_repo::setup::{Environment, find};
 use nebensound_repo::toolchain;
 use nebensound_repo::writer::Order;
 use serde_json::{Value, json};
-use support::{QUIET, call};
+use support::{QUIET, call, program::executable};
 use tempfile::TempDir;
-
-/// Held by every test of this file for as long as it runs: they write
-/// programs and start them, and Linux refuses to start a file another
-/// process holds open for writing ("Text file busy").
-static ALONE: Mutex<()> = Mutex::new(());
-
-fn alone() -> MutexGuard<'static, ()> {
-    ALONE.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 /// Whether a call fails: a line of the fixture's `fail` file is part of what
 /// it was called with.
@@ -124,12 +114,6 @@ failing "cargo-llvm-cov $*" && { echo "error: coverage is below 100%"; exit 1; }
 exit 0
 "#;
 
-fn executable(file: &Path, script: &str) {
-    fs::create_dir_all(file.parent().unwrap()).unwrap();
-    fs::write(file, script).unwrap();
-    fs::set_permissions(file, fs::Permissions::from_mode(0o755)).unwrap();
-}
-
 fn path(text: &str) -> RelativePath {
     RelativePath::new(text).unwrap()
 }
@@ -168,7 +152,7 @@ impl Fixture {
             ("rustfmt", RUSTFMT),
             ("cargo-llvm-cov", LLVM_COV),
         ] {
-            executable(&bin.join(name), &format!("#!/bin/sh\n{FAILING}{script}"));
+            executable(&bin.join(name), format!("#!/bin/sh\n{FAILING}{script}"));
         }
         for dir in ["tmp", "cache", "repo", "outside", "utilities"] {
             fs::create_dir_all(base.path().join(dir)).unwrap();
@@ -401,7 +385,6 @@ fn at(text: &str, start: &str) -> usize {
 
 #[test]
 fn every_step_runs_in_its_order_and_leaves_out_what_is_excluded() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let before = fixture.manifests();
     let (code, text) = fixture.run();
@@ -707,7 +690,6 @@ const FAILURES: &[(&str, &str, &str)] = &[
 
 #[test]
 fn the_first_step_that_fails_ends_the_check() {
-    let _alone = alone();
     for &(pattern, step, last) in FAILURES {
         let fixture = Fixture::new();
         fixture.fail(&[pattern]);
@@ -737,7 +719,6 @@ fn the_first_step_that_fails_ends_the_check() {
 
 #[test]
 fn an_unformatted_file_is_a_finding_on_it_and_the_differences_follow() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let root = fixture.root();
     fixture
@@ -784,7 +765,6 @@ fn an_unformatted_file_is_a_finding_on_it_and_the_differences_follow() {
 
 #[test]
 fn outside_a_workflow_run_a_finding_is_a_line() {
-    let _alone = alone();
     let mut fixture = Fixture::new();
     fixture.workflow = false;
     let root = fixture.root();
@@ -803,7 +783,6 @@ fn outside_a_workflow_run_a_finding_is_a_line() {
 
 #[test]
 fn a_program_that_cannot_be_started_fails_its_step() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fs::remove_file(fixture.base.path().join("bin/rustup")).unwrap();
     let (code, text) = fixture.run();
@@ -834,7 +813,6 @@ fn a_program_that_cannot_be_started_fails_its_step() {
 
 #[test]
 fn metadata_that_does_not_read_fails_the_check() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.mark("metadata", "not JSON");
     let (code, text) = fixture.run();
@@ -848,7 +826,6 @@ fn metadata_that_does_not_read_fails_the_check() {
 
 #[test]
 fn a_workspace_whose_members_are_all_excluded_is_only_formatted() {
-    let _alone = alone();
     let mut fixture = Fixture::new();
     fixture
         .excluded
@@ -895,7 +872,6 @@ fn a_workspace_whose_members_are_all_excluded_is_only_formatted() {
 
 #[test]
 fn without_a_rust_version_there_is_no_oldest_version_to_build_with() {
-    let _alone = alone();
     // Nothing excluded either: every step takes the whole workspace, and
     // coverage counts every file.
     let mut fixture = Fixture::new();
@@ -918,7 +894,6 @@ fn without_a_rust_version_there_is_no_oldest_version_to_build_with() {
 
 #[test]
 fn coverage_needs_its_toolchain_in_the_register_and_cargo_llvm_cov() {
-    let _alone = alone();
     let mut fixture = Fixture::new();
     for (name, check) in &mut fixture.register.check {
         if name.as_str() == "rust" {
@@ -946,7 +921,6 @@ fn coverage_needs_its_toolchain_in_the_register_and_cargo_llvm_cov() {
 
 #[test]
 fn a_workspace_that_publishes_nothing_verifies_nothing() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let mut after = fixture.metadata("1.2.3");
     for package in after["packages"].as_array_mut().unwrap() {
@@ -964,8 +938,6 @@ fn a_workspace_that_publishes_nothing_verifies_nothing() {
 
 #[test]
 fn what_keeps_the_package_test_from_its_end_fails_it_and_the_manifests_go_back() {
-    let _alone = alone();
-
     // The writer refuses a unit without a package.
     let mut fixture = Fixture::new();
     fixture.orders[0].path = path("inner");
@@ -1042,7 +1014,6 @@ fn what_keeps_the_package_test_from_its_end_fails_it_and_the_manifests_go_back()
 
 #[test]
 fn a_unit_below_the_root_runs_in_its_own_folder() {
-    let _alone = alone();
     let mut fixture = Fixture::new();
     fixture.orders.clear();
     fixture.files = vec!["inner/src/lib.rs"];
@@ -1067,7 +1038,6 @@ fn a_unit_below_the_root_runs_in_its_own_folder() {
 
 #[test]
 fn nothing_to_check_is_said_and_passes() {
-    let _alone = alone();
     let mut fixture = Fixture::new();
     fixture.files.clear();
     let (code, text) = fixture.run();
@@ -1202,7 +1172,6 @@ fn local_packages_are_named_by_their_folder_from_the_root() {
 
 #[test]
 fn the_call_hands_the_check_its_plan_or_resolves_one() {
-    let _alone = alone();
     let fine = support::repository(&[(".nebensound/repo.toml", QUIET)]);
     let root = fine.path().to_str().unwrap();
     // A plan that does not read is refused before anything runs.
