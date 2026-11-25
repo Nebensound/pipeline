@@ -10,18 +10,19 @@ it does not.
 Nothing in the pipeline applies them. Rulesets and properties of the
 organization need organization owner rights, so applying them is the owner's
 step, listed in [the checklist](#checklist-for-the-organization-owner) at the
-end.
+end. Every file here is live: the rulesets and the property, read back from
+the API, are what the files say.
 
 ## The files
 
-| File                                                                   | What it is                                                                        | State    |
-| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------- | -------- |
-| [`version-tags.json`](version-tags.json)                               | Version tags `v*` and `*-v*` are never moved or deleted.                          | to apply |
-| [`required-checks.json`](required-checks.json)                         | The default branch needs `Version`, `Check` and `Build`.                          | to apply |
-| [`grundschutz-standard-branch.json`](grundschutz-standard-branch.json) | The existing ruleset on the default branch: pull request, squash or merge commit. | to apply |
-| [`conditions-central.json`](conditions-central.json)                   | Which repositories the two new rulesets bind.                                     | to apply |
-| [`conditions-active.json`](conditions-active.json)                     | Which repositories the existing ruleset binds.                                    | live     |
-| [`property-pipeline.json`](property-pipeline.json)                     | The repository property `pipeline`.                                               | live     |
+| File                                                                   | What it is                                                                        | State                 |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------- | --------------------- |
+| [`version-tags.json`](version-tags.json)                               | Version tags `v*` and `*-v*` are never moved or deleted.                          | live since 2026-11-24 |
+| [`required-checks.json`](required-checks.json)                         | The default branch needs `Check` and `Build`.                                     | live since 2026-11-24 |
+| [`grundschutz-standard-branch.json`](grundschutz-standard-branch.json) | The existing ruleset on the default branch: pull request, squash or merge commit. | live since 2026-11-24 |
+| [`conditions-central.json`](conditions-central.json)                   | Which repositories the two rulesets of the pipeline bind.                         | live since 2026-11-24 |
+| [`conditions-active.json`](conditions-active.json)                     | Which repositories the existing ruleset binds.                                    | live                  |
+| [`property-pipeline.json`](property-pipeline.json)                     | The repository property `pipeline`.                                               | live                  |
 
 A ruleset file holds no organization condition. It is the body that the
 rulesets API of a single repository accepts, and it was applied in that form to
@@ -30,17 +31,18 @@ condition that selects repositories is a fragment of its own, which the apply
 command merges in, so that what was tested on a repository is what the
 organization gets, apart from that one step.
 
-The existing ruleset is described under its live name. Its file differs from
-the live ruleset in one parameter: `allowed_merge_methods` holds `merge` beside
-`squash`, because a pre-branch lands in the default branch by merge commit (see
-[`Grundschutz Standard-Branch`](#grundschutz-standard-branch)). Until the owner
-applies the file, the live ruleset allows squash only. A second ruleset of the
+The existing ruleset is described under its live name. Since 2026-11-24 its
+`allowed_merge_methods` holds `merge` beside `squash`, as its file says,
+because a pre-branch lands in the default branch by merge commit (see
+[`Grundschutz Standard-Branch`](#grundschutz-standard-branch)); before, it
+allowed squash only. A second ruleset of the
 organization requests an automatic Copilot review on every branch; the release
 model does not rely on it, and it is not described here.
 
 ## Which repositories they bind
 
-The two new rulesets hold only for a repository whose property `pipeline` is
+The two rulesets of the pipeline, `version-tags` and `required-checks`, hold
+only for a repository whose property `pipeline` is
 `central` and whose property `lifecycle` is neither `sandbox` nor
 `archived`. A repository that has not switched yet stays untouched as long as
 it carries `legacy`; a new repository and a new fork carry `central` from their
@@ -80,22 +82,35 @@ the protection is the review of the pull request that raises a caller's pin.
 
 ### `required-checks`
 
-On the default branch: `nebensound / Version`, `nebensound / Check` and
-`nebensound / Build` must have passed, reported by GitHub Actions, with no
-bypass, administrators included. Why exactly these three names is in
-[the phases](../phases.md); "branch must be up to date" stays off.
+On the default branch: `nebensound / Check` and `nebensound / Build` must have
+passed, reported by GitHub Actions, with no bypass, administrators included.
+Why exactly these two names is in [the phases](../phases.md#check-names); the
+preparing job `nebensound / Declare`, which reports the versions, is part of
+what both sum up, so a failure there fails both. "Branch must be up to date"
+stays off.
 
 It protects against a change entering the default branch without the pipeline
-having versioned, checked and built it. Measured on the test repository: an
-administrator, who bypasses the existing ruleset, could not merge a pull
-request before its checks had passed ("3 of 3 required status checks are
-expected").
+having versioned, checked and built it. Measured on the test repository while
+the ruleset still named three checks: an administrator, who bypasses the
+existing ruleset, could not merge a pull request before its checks had passed
+("3 of 3 required status checks are expected").
+
+Live since 2026-11-24, at first with `nebensound / Version` as a third name.
+Dropping a required name that the workflow of a pull request no longer reports
+needs this order, since the pull request that drops the job waits for the name
+and cannot merge before: the pull request is green on its own names and
+reviewed, the owner applies the new body and reads it back
+([Applying and reading back](#applying-and-reading-back)), and the pull
+request merges at once, with nothing else merged in a bound repository in
+between. Open pull requests and callers pinned to an older version keep
+reporting the dropped name; it is then simply no longer required. Adding a
+name, or dropping one that is still reported, needs no such order.
 
 It is not enforced when the branch is created (`do_not_enforce_on_create`), so
 that a new repository, which carries `central` from its creation, can be
 created at all. Measured on an empty test repository (see
 [Evidence](#evidence)): the first push, which creates the default branch, went
-through, and a pull request afterwards could not be merged before the three
+through, and a pull request afterwards could not be merged before the required
 checks had passed. The repository's first pull request, the one that adds the
 caller, reports them itself, but it can merge only once they pass (see
 [Properties](#properties) for a repository the pipeline cannot pass yet). That
@@ -115,9 +130,8 @@ The existing ruleset on the default branch: a change arrives only through a
 pull request, squash and merge commit are the merge methods, every review
 thread is resolved, a stale review is dismissed, no approval is required, the
 branch cannot be deleted, and no push may rewrite it. The repository role Admin
-may bypass it, always. The live ruleset allows squash only; the file adds the
-merge commit, and the owner applies it (see
-[the checklist](#checklist-for-the-organization-owner)).
+may bypass it, always. Since 2026-11-24 the live ruleset allows the merge
+commit beside squash, as the file says.
 
 The release model relies on its merge methods, because the title of the commit
 that lands on the default branch decides the version. A pull request becomes
@@ -143,7 +157,7 @@ no bypass.
 
 ## Where the checks come from
 
-`required-checks` counts the three names only when GitHub Actions reports
+`required-checks` counts its names only when GitHub Actions reports
 them: the rule pins the integration (`integration_id` 15368, the app
 `github-actions`). A status that a person or another app sets under the same
 name does not count.
@@ -151,9 +165,10 @@ name does not count.
 The gap that remains: every workflow of the repository runs as GitHub Actions,
 including the workflow of the pull request being judged. A pull request that
 changes the caller file, or adds a workflow whose jobs are named like the
-pipeline's, reports the three names itself and satisfies the ruleset.
+pipeline's, reports the names itself and satisfies the ruleset.
 Measured on the test repository: a stand-in workflow that only printed a line
-in jobs named `Version`, `Check` and `Build` satisfied it. So the review of a
+in jobs named `Version`, `Check` and `Build`, the three names the ruleset then
+required, satisfied it. So the review of a
 pull request that touches `.github/workflows/` decides whether the checks mean
 anything.
 
@@ -168,25 +183,26 @@ Two properties remain for that:
   it: single select, required, values `central` and `legacy`, default
   `central`, editable by the organization, and the live description "central:
   the repository calls the central pipeline and the three checks are required.
-  legacy: not switched yet." On 2026-11-20, 159 repositories carried it: 3 with
-  `central` and 156 with `legacy`.
+  legacy: not switched yet." The description dates from the time three checks
+  were required. On 2026-11-25, 161 repositories carried it: 3 with
+  `central` (this repository and two test repositories) and 158 with
+  `legacy`.
 - **`lifecycle`**: whether the repository is gated at all. Single select,
   required, values `active`, `sandbox` and `archived`, default `active`. Every
   ruleset of this directory leaves `sandbox` and `archived` out.
 
 For whom a repository is meant is declared in the repository as `audience`
 (see [the declaration](../declaration.md#audience)), not as a property. The
-properties `language` and `kind` repeat what the declaration and the files
-already say, and no ruleset targets them. Once the first repository has
-switched, the owner deletes both properties; that removes them from every
-repository of the organization at once, the `legacy` ones included.
+properties `language` and `kind`, which repeated what the declaration and the
+files already say and which no ruleset targeted, are deleted: on 2026-11-25
+the organization's property schema lists only `pipeline` and `lifecycle`.
 
 The default of `pipeline` is `central`, so a new repository is bound from the
-start: the two new rulesets hold for it before it has a caller. It can still be
-created, because `required-checks` is not enforced on creation (measured, see
-[Evidence](#evidence)), and its first pull
-request adds the caller, which reports the three checks; it merges once they
-have passed.
+start: the two rulesets of the pipeline hold for it before it has a caller. It
+can still be created, because `required-checks` is not enforced on creation
+(measured, see [Evidence](#evidence)), and its first pull
+request adds the caller, which reports the required checks; it merges once
+they have passed.
 
 What follows from it:
 
@@ -196,7 +212,7 @@ What follows from it:
   name, and a kind of file that no check covers is `language-without-check`
   (see [the declaration](../declaration.md#language-without-check)).
 - A fork of someone else's project carries `central` as well and is bound by
-  the two new rulesets until the owner sets it to `legacy`. A ruleset condition
+  the two rulesets of the pipeline until the owner sets it to `legacy`. A ruleset condition
   cannot tell a fork apart.
 - The rulesets see only properties, not whether a repository really calls the
   pipeline. A daily pass over all repositories of the organization (#108) will
@@ -206,16 +222,18 @@ What follows from it:
 
 ### The one-time step
 
-The step sets every repository whose default branch does not report the three
+The step set every repository whose default branch did not report the required
 checks to `legacy`. It is defined by that condition, not by a list of names, and
-it runs once, before the rulesets are applied. Run again later, it would also
-set a new repository that has not merged its caller yet to `legacy`, against
-the default `central`; an empty repository is listed as well, because its
-check-run call fails and counts as no check. On 2026-11-20 it would change 2 of
-the 3 repositories that carry `central`.
+it was for the day the rulesets were applied, before they were. Run again
+later, it would also set a new repository that has not merged its caller yet
+to `legacy`, against the default `central`; an empty repository is listed as
+well, because its check-run call fails and counts as no check. On 2026-11-25
+the listing below is empty: the three repositories that carry `central` report
+the required checks on their default branch.
 
 List the repositories that carry `central` although their default branch does
-not report the three checks (empty output means the organization is in line):
+not report the required checks (empty output means the organization is in
+line):
 
 ```sh
 org=Nebensound
@@ -226,12 +244,12 @@ gh api --paginate "orgs/$org/properties/values" \
   while read -r repo; do
     branch="$(gh api "repos/$org/$repo" --jq .default_branch)"
     found=0
-    for job in Version Check Build; do
+    for job in Check Build; do
       count="$(gh api "repos/$org/$repo/commits/$branch/check-runs?app_id=15368&check_name=nebensound%20%2F%20$job" \
         --jq .total_count 2>/dev/null)"
       [ "${count:-0}" -gt 0 ] && found=$((found + 1))
     done
-    [ "$found" -eq 3 ] || echo "$repo"
+    [ "$found" -eq 2 ] || echo "$repo"
   done
 ```
 
@@ -257,8 +275,8 @@ account of an organization administrator. Of the rulesets applied there, only
 rulesets, the organization's and the repository-level copy, let the role Admin
 bypass them.
 
-- **Applied and read back.** `required-checks.json` in its present form, with
-  `do_not_enforce_on_create` set to `true`, and
+- **Applied and read back.** `required-checks.json` as it then stood, with
+  three names and `do_not_enforce_on_create` set to `true`, and
   `grundschutz-standard-branch.json`, each accepted by the API. The read-back
   of each, compared with its file as in
   [Applying and reading back](#applying-and-reading-back), was identical. The
@@ -306,8 +324,8 @@ gh api -X POST repos/Nebensound/<test repository>/rulesets \
 ```
 
 **In the organization**: merge the condition in and post the result. The two
-new rulesets take `conditions-central.json`; the existing one is described by
-`conditions-active.json`.
+rulesets of the pipeline take `conditions-central.json`; the existing one is
+described by `conditions-active.json`.
 
 ```sh
 jq -s '.[0] * {conditions: .[1]}' \
@@ -362,10 +380,10 @@ diff <(gh api orgs/Nebensound/properties/schema/pipeline |
 In this order, so that the required checks never bind a repository that cannot
 pass them:
 
-1. **Merge the caller**, pinned to a version of the pipeline that reports all
-   three checks, and wait until the push run on the default branch has reported
-   them.
-2. **Wait until the three checks have passed** on the tip of the default
+1. **Merge the caller**, pinned to a version of the pipeline that reports the
+   required checks, and wait until the push run on the default branch has
+   reported them.
+2. **Wait until the required checks have passed** on the tip of the default
    branch, not only been reported. If they fail, fix that first: with the
    property set while they fail, nothing can merge into the default branch.
 3. **Set the property** `pipeline` to `central`:
@@ -399,26 +417,25 @@ pass them:
 
 ## Checklist for the organization owner
 
-- Run [the one-time step](#the-one-time-step) once, before applying the
-  rulesets, and read it back.
-- Apply `version-tags` and `required-checks` with `conditions-central.json`,
-  and read each back.
-- Apply the changed `grundschutz-standard-branch.json` with
-  `conditions-active.json` to the existing ruleset of that name with `-X PUT`,
-  and read it back. Before that, set the merge settings of every repository
-  (see [the repository settings](../repository-settings.md#every-repository-of-the-organization)),
-  so that no merge commit lands with GitHub's default title.
-- Switch this repository first, `Nebensound/pipeline`, by
-  [the steps above](#the-day-a-repository-switches). Its default branch already
-  reports the three checks, and it has no local ruleset.
-- Once the first repository has switched, delete the properties `language` and
-  `kind`, once for the whole organization (each call removes the property from
-  every repository):
+Done, as the API shows on 2026-11-25:
 
-  ```sh
-  gh api -X DELETE orgs/Nebensound/properties/schema/language
-  gh api -X DELETE orgs/Nebensound/properties/schema/kind
-  ```
+- `version-tags`, `required-checks` with `conditions-central.json`, and the
+  changed `grundschutz-standard-branch.json` with `conditions-active.json`,
+  applied on 2026-11-24; each reads back identical to its file and fragment as
+  in [Applying and reading back](#applying-and-reading-back).
+- `required-checks` with the two names `nebensound / Check` and
+  `nebensound / Build`, applied with `-X PUT` right before `Version` became a
+  step of the preparing job, and read back.
+- [The one-time step](#the-one-time-step): its listing is empty.
+- This repository, `Nebensound/pipeline`, switched: it carries `central` and
+  has no ruleset of its own; the rules of its default branch come from the
+  organization's rulesets.
+- The properties `language` and `kind` are deleted.
+
+Still to do, each time it comes up:
 
 - Set a fork of someone else's project to `legacy` once it is made (see
   [Properties](#properties)).
+- Apply a changed ruleset file with `-X PUT` to the ruleset of its name and
+  read it back; a pull request that drops a required name the workflow no
+  longer reports waits for that step (see [`required-checks`](#required-checks)).

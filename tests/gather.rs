@@ -71,15 +71,20 @@ fn the_checks_pass_when_every_started_check_passed_or_none_started() {
     assert!(!passed, "{text}");
     assert_eq!(
         text,
-        "::error::Phase 0 did not pass (failure), so nothing was checked.\n"
+        "::error::The preparing job Declare did not pass (failure), so nothing was checked. Its \
+         log says why.\n"
     );
 }
 
 #[test]
-fn without_phase_0_the_builds_fail() {
+fn without_the_preparing_job_the_builds_fail() {
     let (passed, text) = builds(Outcome::Failure, Outcome::Skipped, Outcome::Skipped, "");
     assert!(!passed);
-    assert!(text.contains("Phase 0 did not pass (failure)"), "{text}");
+    assert_eq!(
+        text,
+        "::error::The preparing job Declare did not pass (failure), so nothing was built. Its \
+         log says why.\n"
+    );
 }
 
 #[test]

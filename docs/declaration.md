@@ -400,8 +400,8 @@ hand has, from the commits of the repository and the declarations they hold,
 and from nothing else. `nebensound-repo plan` lists them under `versions` (see
 [the tool](tool.md#the-plan)).
 `nebensound-repo version` shows them as a table, with each unit's current
-version, and the job `nebensound / Version` writes the same table into the
-summary of every run (see [the phases](phases.md#version)).
+version, and the preparing job `nebensound / Declare` writes the same table
+into the summary of every run (see [the phases](phases.md#the-versions)).
 
 Tags and releases are records: what the release stage writes down. No tag is
 read to decide a version, and a tag is never a base. Phase 0 only holds the
@@ -617,10 +617,11 @@ file, not a finding (see [When the file cannot be read](#when-the-file-cannot-be
 Phase 0 reports what is wrong with a declaration as findings. Each carries a
 stable code; the wording of its message may improve, the code does not change.
 
-- An **error** fails `nebensound / Declare`, and with it `nebensound / Check`.
-  No plan is made, so no check runs. The one exception is
-  [`unreleased-requirement`](#unreleased-requirement), which only the versions
-  of a pull request report: it fails `nebensound / Version`.
+- An **error** fails `nebensound / Declare`, and with it `nebensound / Check`
+  and `nebensound / Build`. No plan is made, so no check runs and nothing is
+  built. That holds for
+  [`unreleased-requirement`](#unreleased-requirement) too, which only the
+  versions of a pull request report.
 - A **warning** stops nothing. It says that a statement in the declaration is
   not true, not that something is broken, or that the repository departs from
   the organization's conventions (`nonconforming-name`,
@@ -909,10 +910,12 @@ from before the release stage ran in a repository, and after a failed run on
 to it, since a tag and a GitHub Release need no record of what a package
 requires.
 
-The finding comes from `nebensound-repo version` with `--pull-request` (see
-[the phases](phases.md#version)): it fails the job `nebensound / Version`,
-not `nebensound / Declare`, and checks and builds still run. On `main` the
-merge has happened already, so nothing there is held to it.
+The finding comes from the versions of a pull request, as
+`nebensound-repo version` with `--pull-request` reads them (see
+[the phases](phases.md#the-versions)): it fails the preparing job
+`nebensound / Declare`, which then starts no check and no build, and with it
+`nebensound / Check` and `nebensound / Build`. On `main` the merge has happened
+already, so nothing there is held to it.
 
 ### `unexcused-ignore`
 

@@ -199,10 +199,6 @@ name              = "gather"
 required-features = ["program"]
 
 [[test]]
-name              = "report_versions"
-required-features = ["program"]
-
-[[test]]
 name              = "unwritten"
 required-features = ["program"]
 

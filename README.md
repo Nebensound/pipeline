@@ -156,9 +156,10 @@ write tags and releases after a push to `main`; every other job, and every job
 of a pull request, keeps a read token. Why the caller grants more is in
 [Calling the workflow](docs/calling.md#permissions).
 
-A run reports as `nebensound / Declare` (phase 0: the declaration read and
-checked against the tree), `nebensound / Version` (the version of every unit,
-as a table in the summary of the run), one job per unit that runs a check
+A run reports as `nebensound / Declare` (the preparing job: phase 0, the
+declaration read and checked against the tree, and the version of every unit,
+as a table in the summary of the run; when it fails, nothing after it starts),
+one job per unit that runs a check
 (`nebensound / Check repository`, `nebensound / Check component <name>`),
 `nebensound / Check`, which sums the units up, one job per unit that builds
 and has a version of the run, that is, one the commit touches
@@ -169,7 +170,7 @@ build with targets one per target with the target behind the name, and
 and attaches the archives of its build to the release of a unit that publishes
 to `release-assets` before that release is published (see
 [the phases](docs/phases.md#publish)). A ruleset requires
-`nebensound / Version`, `nebensound / Check` and `nebensound / Build`. A check
+`nebensound / Check` and `nebensound / Build`. A check
 or a build the register knows but that has no building block yet fails by name
 in the step `Not written yet` of its unit's job, and a version writer or a
 publish target without one in the step `Version writers not written yet` or
@@ -650,9 +651,10 @@ commit touches, and what a release needs has a release already, or the pull
 request fails: a package the pull request would publish to a registry (a
 target with `dependencies-by-version` in the register) may require by path,
 followed through, only units it touches or whose current version has a tag.
-Otherwise the job `nebensound / Version` fails with
+Otherwise the preparing job `nebensound / Declare` fails with
 [`unreleased-requirement`](docs/declaration.md#unreleased-requirement), which
-names the way out: touch the required unit in the same pull request. Whether
+names the way out: touch the required unit in the same pull request; no check
+or build starts, and `nebensound / Check` and `nebensound / Build` fail. Whether
 the registry itself holds the version is for the publish block of that
 registry to check before it publishes.
 Only `Cargo.toml` and `Cargo.lock` files change. `check-rust` writes the
