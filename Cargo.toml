@@ -49,6 +49,7 @@ include = [
   "/src/",
   "/tests/",
   "!/tests/declaration.rs",
+  "!/tests/job.rs",
   "!/tests/presets.rs",
   "!/tests/register_page.rs",
 ]
@@ -195,6 +196,10 @@ required-features = ["program"]
 
 [[test]]
 name              = "gather"
+required-features = ["program"]
+
+[[test]]
+name              = "job"
 required-features = ["program"]
 
 [[test]]

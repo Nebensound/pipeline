@@ -80,7 +80,9 @@ it start from. It writes nothing and tags nothing. It is one call,
    at least one check, and the builds of this run, each with the version
    writers its unit selects, the name of its job and its runner. A build whose
    register entry lists targets stands once per target, on the runner the
-   register names for it. After a push to a pre-branch no unit builds.
+   register names for it. After a push to a pre-branch no unit builds. Beside
+   them stand the entries of the checks, the matrix the call `job` runs
+   ([the tool](tool.md#the-entries-of-the-checks)), which no job takes yet.
 
 The preparing job decides which jobs start. An error ends it where it is
 found, in phase 0 or in the versions: nothing is handed on, no check runs,

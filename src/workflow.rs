@@ -2,15 +2,20 @@
 //! back: the variables of the run, the files a step writes its outputs and its
 //! summary to, and the log of the run.
 //!
-//! The calls that only a workflow run makes (`declare`, `build`, `unwritten`,
-//! `gather`, `xtask`) read the run from its variables.
+//! The calls that only a workflow run makes (`declare`, `build`, `job`,
+//! `unwritten`, `gather`, `xtask`) read the run from its variables, and so do
+//! `run` and `write-versions` where they resolve versions from the history:
+//! the pull request, and the search path and the home of the programs.
 //! The workflow names in each step what it hands in, through the step's `env`,
 //! never inside a script, so that text from the event is never read as shell:
 //!
 //! - `NEBENSOUND_PRE_BRANCH`: `true` after a push to a pre-branch, as the
 //!   workflow decides it for the whole run.
 //! - `NEBENSOUND_PULL_REQUEST`, `NEBENSOUND_TITLE` and `NEBENSOUND_BODY`: the
-//!   pull request of the run, empty when there is none.
+//!   pull request of the run, empty when there is none. `declare` reads it,
+//!   and `run`, `build`, `write-versions` and `job` where they resolve the
+//!   versions from the history, so that a pull request's versions carry
+//!   `-pr.<number>` without a plan handed over.
 //! - `NEBENSOUND_NAME`, `NEBENSOUND_DEFAULT_BRANCH` and
 //!   `NEBENSOUND_VISIBILITY`: what the event says of the repository.
 //!

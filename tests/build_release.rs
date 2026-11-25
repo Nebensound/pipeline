@@ -832,3 +832,104 @@ fn the_call_builds_for_this_machine_what_the_plan_starts() {
         "{text}"
     );
 }
+
+#[test]
+fn without_a_plan_a_pull_request_is_read_from_the_event_as_the_plan_reads_it() {
+    let fixture = Fixture::new();
+    let register = Register::builtin().unwrap();
+    let Ok(target) = target_for(
+        &register
+            .build
+            .iter()
+            .find(|(name, _)| name.as_str() == "cargo-release")
+            .unwrap()
+            .1
+            .targets,
+        &Machine::current(),
+    ) else {
+        // A machine the register builds for no target, such as Linux on ARM,
+        // has its refusal tested above.
+        return;
+    };
+    // A pull request, checked out as GitHub checks one out: the merge
+    // commit, detached.
+    let git = &fixture.git;
+    git.run(&["checkout", "--quiet", "-b", "topic"]);
+    git.write(&[("app/Cargo.toml", "[package]\nname = \"app\" # changed\n")]);
+    git.commit("wip");
+    git.run(&["checkout", "--quiet", "--detach", "main"]);
+    git.run(&[
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "--message",
+        "Merge topic",
+        "topic",
+    ]);
+    let root = fixture.root().display().to_string();
+    let (plan, code) = call_with(
+        &[
+            "nebensound-repo",
+            "-C",
+            &root,
+            "plan",
+            "--pull-request",
+            "4",
+            "--message",
+            "fix: change the app",
+        ],
+        &[],
+        Output::Elsewhere,
+    );
+    assert_eq!(code, 0, "{plan}");
+    let parsed: Value = serde_json::from_str(&plan).unwrap();
+    let version = parsed["versions"][1]["version"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(version.ends_with("-pr.4"), "{version}");
+    let file = fixture.base().join("plan.json");
+    fs::write(&file, &plan).unwrap();
+    fixture.mark("binary", &format!("#!/bin/sh\necho \"app {version}\"\n"));
+    let search_path = fixture.search_path();
+    let build = |name: &str, args: &[&str], more: &[(&str, &str)]| {
+        let outputs = fixture.base().join(name);
+        let mut variables = vec![
+            ("PATH", search_path.to_str().unwrap()),
+            ("GITHUB_OUTPUT", outputs.to_str().unwrap()),
+        ];
+        variables.extend_from_slice(more);
+        let mut all = vec!["nebensound-repo", "-C", &root, "build"];
+        all.extend_from_slice(args);
+        all.extend(["cargo-release", "--", "app"]);
+        let (text, code) = call_with(&all, &variables, Output::Workflow);
+        (code, text, fs::read_to_string(outputs).unwrap_or_default())
+    };
+
+    let (code, text, from_plan) = build("from-plan", &["--plan", file.to_str().unwrap()], &[]);
+    assert_eq!(code, 0, "{text}");
+    let (code, text, from_event) = build(
+        "from-event",
+        &[],
+        &[
+            ("NEBENSOUND_PULL_REQUEST", "4"),
+            ("NEBENSOUND_TITLE", "fix: change the app"),
+        ],
+    );
+    assert_eq!(code, 0, "{text}");
+    assert_eq!(from_event, from_plan);
+    assert!(
+        from_event.starts_with(&format!("artifact=executable-app@{version}@")),
+        "{from_event}"
+    );
+    assert!(from_event.contains(&format!("@{target}\n")), "{from_event}");
+    // Without the event's pull request the merge commit is read as it
+    // stands, and the binary's version is not the one of that build.
+    let (code, text, _) = build("bare", &[], &[]);
+    assert_eq!(code, 1, "{text}");
+    // A number that is none is a misuse, and nothing is built.
+    let (code, text, outputs) = build("misused", &[], &[("NEBENSOUND_PULL_REQUEST", "x")]);
+    assert_eq!(code, 2, "{text}");
+    assert!(text.contains("NEBENSOUND_PULL_REQUEST is \"x\""), "{text}");
+    assert_eq!(outputs, "");
+}
