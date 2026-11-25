@@ -20,7 +20,9 @@
 //! - A section's pattern without a `/` matches a file of that name in any
 //!   folder; one that starts with `/`, or holds a `/`, matches from the root.
 //!   `*` stops at a `/`, `**` does not, `?` is one character, `[...]` one of
-//!   them (`[!...]` none of them), `{a,b}` either and `{1..3}` each number.
+//!   them (`[!...]` none of them), `{a,b}` either, and a sequence such as
+//!   `{1..3}`, `{01..10..3}` or `{a..c}` each number or letter it stands for,
+//!   as the package `brace-expansion` expands it.
 //!   A pattern with a form of `(...)`, which the package's matcher reads as a
 //!   group, is not read; the tool names its section ([`Read::unread`]).
 //! - Each section whose pattern matches a file lays its properties over those
@@ -387,8 +389,9 @@ fn closing(chars: &[char]) -> Option<usize> {
 }
 
 /// The content of a pair of braces: the alternatives it holds, split at its
-/// commas outside inner braces, a range of numbers or letters, or else itself
-/// with its braces, as the package leaves `{a}`.
+/// commas outside inner braces, a sequence of numbers or letters
+/// ([`sequence`]), or else itself with its braces, as the package leaves
+/// `{a}`.
 fn braces(inner: &[char], start: bool, count: &mut u64) -> Result<String, String> {
     let mut parts: Vec<&[char]> = Vec::new();
     let mut depth = 0;
@@ -410,7 +413,7 @@ fn braces(inner: &[char], start: bool, count: &mut u64) -> Result<String, String
     parts.push(&inner[from..]);
     if parts.len() == 1 {
         let text: String = inner.iter().collect();
-        return match range(&text) {
+        return match sequence(&text) {
             Some(items) => {
                 let items = items?;
                 expand(count, items.len())?;
@@ -427,23 +430,108 @@ fn braces(inner: &[char], start: bool, count: &mut u64) -> Result<String, String
     Ok(format!("(?:{})", built.join("|")))
 }
 
-/// The whole numbers a range `a..b` stands for, the two ends and every one
-/// between them; [`None`] where the text is no such range.
+/// What a sequence stands for, as the package `brace-expansion` expands it;
+/// [`None`] where the text is no sequence. A sequence is `a..b` or
+/// `a..b..step`, the step a whole number whose sign is passed over and which
+/// is at least 1. Its ends are both whole numbers, or both single ASCII
+/// letters, which stand for every character from the one to the other, a
+/// `\` among them standing for nothing. Where an end or the step is written
+/// with a leading zero, every number is padded with zeros to the width of
+/// the longer end, its `-` counted.
 ///
 /// # Errors
 ///
-/// Where it stands for more than [`EXPANDED`] numbers.
-fn range(text: &str) -> Option<Result<Vec<String>, String>> {
-    let (first, last) = text.split_once("..")?;
-    let (Ok(from), Ok(to)) = (first.parse::<i64>(), last.parse::<i64>()) else {
+/// Where it stands for more than [`EXPANDED`] patterns, or an end does not
+/// fit a 64-bit number.
+fn sequence(text: &str) -> Option<Result<Vec<String>, String>> {
+    let parts: Vec<&str> = text.split("..").collect();
+    let (first, last, step) = match parts[..] {
+        [first, last] => (first, last, None),
+        [first, last, step] if number(step) => (first, last, Some(step)),
+        _ => return None,
+    };
+    let letters = letter(first) && letter(last);
+    let (from, to) = if letters {
+        (code(first), code(last))
+    } else if number(first) && number(last) {
+        let (Ok(from), Ok(to)) = (first.parse::<i64>(), last.parse::<i64>()) else {
+            return Some(Err(
+                "its braces hold a sequence whose ends are larger than the tool reads".to_owned(),
+            ));
+        };
+        (from, to)
+    } else {
         return None;
     };
-    if from.abs_diff(to) >= EXPANDED {
+    let by = step.map_or(1, |step| {
+        step.trim_start_matches('-')
+            .parse::<u64>()
+            .unwrap_or(u64::MAX)
+            .max(1)
+    });
+    let count = from.abs_diff(to) / by;
+    if count >= EXPANDED {
         return Some(Err(too_many()));
     }
-    Some(Ok((from.min(to)..=from.max(to))
-        .map(|number| number.to_string())
+    let padded = !letters && parts.iter().any(|part| padded(part));
+    let width = first.len().max(last.len());
+    let direction: i128 = if to < from { -1 } else { 1 };
+    Some(Ok((0..=count)
+        .map(|index| {
+            let at = i128::from(from) + direction * i128::from(index) * i128::from(by);
+            let text = if letters {
+                letter_at(at)
+            } else if padded {
+                pad(at, width)
+            } else {
+                at.to_string()
+            };
+            regex::escape(&text)
+        })
         .collect()))
+}
+
+/// Whether `text` is a whole number as a sequence writes it: digits, after
+/// a `-` or not.
+fn number(text: &str) -> bool {
+    let digits = text.strip_prefix('-').unwrap_or(text);
+    !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// Whether `text` is one ASCII letter.
+fn letter(text: &str) -> bool {
+    text.len() == 1 && text.bytes().all(|byte| byte.is_ascii_alphabetic())
+}
+
+/// The code of the one ASCII letter `text` holds.
+fn code(text: &str) -> i64 {
+    text.bytes().next().map_or(0, i64::from)
+}
+
+/// The character with the code `at`, which lies between two ASCII letters,
+/// as text; a `\` is no text, as the package leaves it out.
+fn letter_at(at: i128) -> String {
+    let character = u8::try_from(at).map_or('\\', char::from);
+    if character == '\\' {
+        String::new()
+    } else {
+        character.to_string()
+    }
+}
+
+/// Whether an end or the step of a sequence is written with a leading zero.
+fn padded(text: &str) -> bool {
+    let digits = text.strip_prefix('-').unwrap_or(text);
+    digits.len() > 1 && digits.starts_with('0')
+}
+
+/// The number `at` padded with zeros to `width` characters, a `-` counted,
+/// the zeros after it.
+fn pad(at: i128, width: usize) -> String {
+    let digits = at.unsigned_abs().to_string();
+    let sign = if at < 0 { "-" } else { "" };
+    let zeros = width.saturating_sub(digits.len() + sign.len());
+    format!("{sign}{}{digits}", "0".repeat(zeros))
 }
 
 /// Why a section whose braces stand for too many patterns is not read.

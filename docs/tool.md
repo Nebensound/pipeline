@@ -1419,7 +1419,8 @@ gives them, each laid over the one before:
    section with a pattern the tool does not read (one with a group, `(...)`),
    fail the check by name.
 2. Prettier's own file, the first of `.prettierrc` (JSON or YAML),
-   `.prettierrc.json`, `.prettierrc.yml`, `.prettierrc.yaml`,
+   `.prettierrc.json` (plain JSON, as Prettier reads it: no comments, no
+   trailing commas), `.prettierrc.yml`, `.prettierrc.yaml`,
    `.prettierrc.json5` and `.prettierrc.toml` at the root; then every entry of
    its `overrides` whose patterns match the file, in their order.
 

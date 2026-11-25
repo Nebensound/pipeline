@@ -168,6 +168,7 @@ fn the_file_is_read_in_the_format_its_name_gives() {
         (".prettierrc", "{ \"semi\": false }\n"),
         (".prettierrc", "semi: false\n"),
         (".prettierrc.json", "{ \"semi\": false }\n"),
+        (".prettierrc.json", "\u{feff}{ \"semi\": false }\n"),
         (".prettierrc.yml", "semi: false\n"),
         (".prettierrc.yaml", "semi: false\n"),
         (".prettierrc.json5", "// JSON5\n{ semi: false, }\n"),
@@ -274,6 +275,8 @@ fn a_file_that_holds_no_options_hands_nothing_over() {
     }
     for (file, content) in [
         (".prettierrc.json", "{"),
+        (".prettierrc.json", "// comment\n{ \"semi\": false }\n"),
+        (".prettierrc.json", "{ \"semi\": false, }\n"),
         (".prettierrc.toml", "semi ="),
         (".prettierrc", "a: [\n"),
     ] {
@@ -607,7 +610,29 @@ fn a_section_matches_as_the_package_matches_it() {
         ("{3..1}.md", "1.md", true),
         ("{1..3}.md", "4.md", false),
         ("{a}.md", "{a}.md", true),
-        ("{a..c}.md", "{a..c}.md", true),
+        ("{a..c}.md", "b.md", true),
+        ("{a..c}.md", "{a..c}.md", false),
+        ("{c..a}.md", "a.md", true),
+        ("{Z..a}.md", "_.md", true),
+        ("{Z..a}.md", "[.md", true),
+        ("{Z..a}.md", ".md", true),
+        ("{01..03}.json", "02.json", true),
+        ("{01..03}.json", "2.json", false),
+        ("{-01..1}.md", "-01.md", true),
+        ("{-01..1}.md", "000.md", true),
+        ("{1..10..3}.md", "7.md", true),
+        ("{1..10..3}.md", "8.md", false),
+        ("{10..1..-3}.md", "4.md", true),
+        ("{1..10..03}.md", "04.md", true),
+        ("{1..3..0}.md", "2.md", true),
+        ("{1..3..99999999999999999999}.md", "1.md", true),
+        ("{1..3..99999999999999999999}.md", "2.md", false),
+        ("{a..1}.md", "{a..1}.md", true),
+        ("{ab..c}.md", "{ab..c}.md", true),
+        ("{+1..3}.md", "{+1..3}.md", true),
+        ("{-..3}.md", "{-..3}.md", true),
+        ("{1..3..x}.md", "{1..3..x}.md", true),
+        ("{1..2..3..4}.md", "{1..2..3..4}.md", true),
         ("{a,b.md", "{a,b.md", true),
         ("\\*.md", "*.md", true),
         ("\\*.md", "a.md", false),
@@ -626,7 +651,16 @@ fn a_section_the_tool_does_not_read_is_named() {
         unread("*(a).md"),
         "it holds a group, `(...)`, a form of pattern the tool does not read"
     );
-    for pattern in ["{1..20000}", "{0..999}{0..99}", "{0..99}{0..99}{a,b}"] {
+    assert_eq!(
+        unread("{1..99999999999999999999}"),
+        "its braces hold a sequence whose ends are larger than the tool reads"
+    );
+    for pattern in [
+        "{1..20000}",
+        "{1..20001..2}",
+        "{0..999}{0..99}",
+        "{0..99}{0..99}{a,b}",
+    ] {
         assert_eq!(
             unread(pattern),
             "its braces stand for more than 10000 patterns, more than the tool reads",

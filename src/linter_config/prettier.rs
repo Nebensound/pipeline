@@ -478,16 +478,21 @@ pub fn read(
 }
 
 /// The value Prettier's file holds, read by its name as Prettier reads it:
-/// `.json` and `.json5` as JSON5, which takes JSON as well, `.toml` as TOML,
-/// and the others, `.prettierrc` among them, as YAML, which takes JSON as
-/// well.
+/// `.json` as plain JSON after a byte order mark, so that a comment or a
+/// trailing comma Prettier would stop at is named here too, `.json5` as
+/// JSON5, `.toml` as TOML, and the others, `.prettierrc` among them, as YAML,
+/// which takes JSON as well.
 fn parse(file: &RelativePath, source: &str) -> Result<Value, String> {
     let name = file.file_name().unwrap_or_default();
     let format = match name.rsplit_once('.').map(|(_, ending)| ending) {
         Some("toml") => {
             return toml::from_str::<Value>(source).map_err(|error| error.to_string());
         }
-        Some("json" | "json5") => Format::Jsonc,
+        Some("json") => {
+            let source = source.strip_prefix('\u{feff}').unwrap_or(source);
+            return serde_json::from_str::<Value>(source).map_err(|error| error.to_string());
+        }
+        Some("json5") => Format::Jsonc,
         _ => Format::Yaml,
     };
     super::parse(format, source).map(Written::into_value)
