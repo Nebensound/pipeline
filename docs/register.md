@@ -63,28 +63,33 @@ A check covers every file with one of its extensions or file names. A file
 that no check covers has to be excluded. The programs are what the check calls
 (see [Programs](#programs)). The coverage toolchain is the Rust toolchain a
 check measures coverage on, on top of the one the workspace pins; the tool
-installs it through rustup.
+installs it through rustup. The side says whether a check only reads the
+repository's files (`reading`: it runs programs of the pipeline on them, with
+configuration that is data) or runs code of the repository (`executing`: its
+build scripts, its tests); the two never share a job. A check that is not
+written yet has no side: it is decided when the check is written, and until
+then the check fails by name.
 
-| Check        | Extensions                                               | File names                                                    | Programs                              | Coverage toolchain   |
-| ------------ | -------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------- | -------------------- |
-| `asciidoc`   | `.adoc`, `.asciidoc`                                     | none                                                          | none                                  | none                 |
-| `cpp`        | `.c`, `.h`, `.cpp`, `.hpp`, `.cc`, `.hh`, `.cxx`, `.ino` | none                                                          | none                                  | none                 |
-| `css`        | `.css`, `.scss`                                          | none                                                          | `prettier`, `stylelint`               | none                 |
-| `dockerfile` | `.dockerfile`                                            | `Dockerfile`, `Containerfile`                                 | `dockerfmt`, `hadolint`               | none                 |
-| `html`       | `.html`, `.htm`                                          | none                                                          | `html-validate`, `lychee`, `prettier` | none                 |
-| `javascript` | `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.tsx`             | none                                                          | none                                  | none                 |
-| `json`       | `.json`, `.jsonc`, `.geojson`                            | `composer.lock`, `flake.lock`, `Pipfile.lock`                 | `prettier`                            | none                 |
-| `markdown`   | `.md`, `.markdown`                                       | none                                                          | `lychee`, `markdownlint`, `prettier`  | none                 |
-| `php`        | `.php`                                                   | none                                                          | none                                  | none                 |
-| `python`     | `.py`, `.pyi`                                            | none                                                          | `coverage`, `pyright`, `ruff`, `uv`   | none                 |
-| `qml`        | `.qml`                                                   | none                                                          | none                                  | none                 |
-| `r`          | `.r`                                                     | none                                                          | none                                  | none                 |
-| `rust`       | `.rs`                                                    | none                                                          | `cargo-llvm-cov`                      | `nightly-2026-11-14` |
-| `shell`      | `.sh`, `.bash`                                           | none                                                          | none                                  | none                 |
-| `sql`        | `.sql`                                                   | none                                                          | none                                  | none                 |
-| `toml`       | `.toml`                                                  | `Cargo.lock`, `uv.lock`, `poetry.lock`, `pdm.lock`, `Pipfile` | `taplo`                               | none                 |
-| `typst`      | `.typ`                                                   | none                                                          | none                                  | none                 |
-| `yaml`       | `.yml`, `.yaml`                                          | none                                                          | `actionlint`, `prettier`              | none                 |
+| Check        | Extensions                                               | File names                                                    | Programs                              | Coverage toolchain   | Side            |
+| ------------ | -------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------- | -------------------- | --------------- |
+| `asciidoc`   | `.adoc`, `.asciidoc`                                     | none                                                          | none                                  | none                 | not written yet |
+| `cpp`        | `.c`, `.h`, `.cpp`, `.hpp`, `.cc`, `.hh`, `.cxx`, `.ino` | none                                                          | none                                  | none                 | not written yet |
+| `css`        | `.css`, `.scss`                                          | none                                                          | `prettier`, `stylelint`               | none                 | `reading`       |
+| `dockerfile` | `.dockerfile`                                            | `Dockerfile`, `Containerfile`                                 | `dockerfmt`, `hadolint`               | none                 | `reading`       |
+| `html`       | `.html`, `.htm`                                          | none                                                          | `html-validate`, `lychee`, `prettier` | none                 | `reading`       |
+| `javascript` | `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.tsx`             | none                                                          | none                                  | none                 | not written yet |
+| `json`       | `.json`, `.jsonc`, `.geojson`                            | `composer.lock`, `flake.lock`, `Pipfile.lock`                 | `prettier`                            | none                 | `reading`       |
+| `markdown`   | `.md`, `.markdown`                                       | none                                                          | `lychee`, `markdownlint`, `prettier`  | none                 | `reading`       |
+| `php`        | `.php`                                                   | none                                                          | none                                  | none                 | not written yet |
+| `python`     | `.py`, `.pyi`                                            | none                                                          | `coverage`, `pyright`, `ruff`, `uv`   | none                 | `executing`     |
+| `qml`        | `.qml`                                                   | none                                                          | none                                  | none                 | not written yet |
+| `r`          | `.r`                                                     | none                                                          | none                                  | none                 | not written yet |
+| `rust`       | `.rs`                                                    | none                                                          | `cargo-llvm-cov`                      | `nightly-2026-11-14` | `executing`     |
+| `shell`      | `.sh`, `.bash`                                           | none                                                          | none                                  | none                 | not written yet |
+| `sql`        | `.sql`                                                   | none                                                          | none                                  | none                 | not written yet |
+| `toml`       | `.toml`                                                  | `Cargo.lock`, `uv.lock`, `poetry.lock`, `pdm.lock`, `Pipfile` | `taplo`                               | none                 | `reading`       |
+| `typst`      | `.typ`                                                   | none                                                          | none                                  | none                 | not written yet |
+| `yaml`       | `.yml`, `.yaml`                                          | none                                                          | `actionlint`, `prettier`              | none                 | `reading`       |
 
 ## Programs
 
@@ -171,7 +176,8 @@ holds them, or phase 0 fails (see
 what the build calls (see [Programs](#programs)), the images what it starts
 (see [Images](#images)). A build with targets builds once per target, each
 in a job of its own on the runner named beside it (see
-[the Build phase](phases.md#build)).
+[the Build phase](phases.md#build)). A build runs code of the repository by
+definition, so it is executing, as an executing check is, and names no side.
 
 | Build           | Produces     | Needs version writers | Needs files         | Programs | Images     | Targets                                                                                                                             |
 | --------------- | ------------ | --------------------- | ------------------- | -------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |

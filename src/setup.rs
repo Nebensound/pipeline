@@ -122,6 +122,27 @@ impl Environment {
             answers,
         }
     }
+
+    /// This computer as the variables of a run describe it: the search path
+    /// and the tool's folder in the cache directory they name. Nothing is
+    /// asked: a call of a workflow run installs a runtime without asking or
+    /// not at all. In a run the variables are those of the process, so this
+    /// is [`Environment::current`] without a terminal; handed in, they let a
+    /// test give a call the computer it needs.
+    #[must_use]
+    pub fn of(variables: &dyn Fn(&str) -> Option<String>) -> Self {
+        let (os, arch) = (std::env::consts::OS, std::env::consts::ARCH);
+        Self {
+            computer: format!("{os}-{arch}"),
+            platform: Platform::of(os, arch),
+            windows: cfg!(windows),
+            search_path: variables("PATH").unwrap_or_default().into(),
+            folder: find::cache_home(os, &|name| variables(name).map(OsString::from))
+                .map(|home| home.join("nebensound-repo")),
+            protocols: "=https".to_owned(),
+            answers: None,
+        }
+    }
 }
 
 /// The checks a plan starts, each once, in name order.

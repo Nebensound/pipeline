@@ -49,13 +49,16 @@ it start from. It writes nothing and tags nothing. It is one call,
    resolves the version of every unit from the history, holding the tags against
    it. It also holds the repository's name and default branch, which the action
    hands in from the event of the run, and the files every repository holds
-   against the organization's conventions, as warnings. It is given the
-   visibility GitHub shows for the repository, taken from the event or, where
-   the event does not carry it, from the API, and holds the declared audience
-   against it (see [Audience](declaration.md#audience)). It prints the resolved
-   configuration, the annotated tree, the findings, each as an annotation of the
-   run, and a summary line. [The reference of the declaration](declaration.md)
-   describes every field and every finding.
+   against the organization's conventions, as warnings, and every `TODO` and
+   `FIXME` in the files against the rule that it names the issue that tracks
+   it (see [Markers of open tasks](declaration.md#markers-of-open-tasks)). It
+   is given the visibility GitHub shows for the repository, taken from the event
+   or, where the event does not carry it, from the API, and holds the declared
+   audience against it (see [Audience](declaration.md#audience)). It prints the
+   resolved configuration, the annotated tree, the findings, each as an
+   annotation of the run, and a summary line.
+   [The reference of the declaration](declaration.md) describes every field and
+   every finding.
 3. When phase 0 found no error, the version of every unit that carries one is
    reported, and on a pull request held against the records (see
    [The versions](#the-versions)).
@@ -80,7 +83,9 @@ it start from. It writes nothing and tags nothing. It is one call,
    at least one check, and the builds of this run, each with the version
    writers its unit selects, the name of its job and its runner. A build whose
    register entry lists targets stands once per target, on the runner the
-   register names for it. After a push to a pre-branch no unit builds.
+   register names for it. After a push to a pre-branch no unit builds. Beside
+   them stand the entries of the checks, the matrix the call `job` runs
+   ([the tool](tool.md#the-entries-of-the-checks)), which no job takes yet.
 
 The preparing job decides which jobs start. An error ends it where it is
 found, in phase 0 or in the versions: nothing is handed on, no check runs,

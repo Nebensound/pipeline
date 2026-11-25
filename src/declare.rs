@@ -41,8 +41,14 @@
 //!    builds once, on [`RUNNER`]. After a push to a pre-branch no unit builds:
 //!    the run resolves no version of its own.
 //!
-//! The plan and the two matrices are the outputs of the step, one line of
-//! JSON each.
+//! 7. **The entries of the checks** (`entries`): the matrix of the jobs of the
+//!    checks as the call `job` runs them ([`crate::entry`]), one entry for all
+//!    reading checks, one per executing check and unit, and one for the
+//!    repository's own check where it has one. No job of the workflow takes
+//!    it yet: the jobs of the units still run the checks.
+//!
+//! The plan, the two matrices and the entries are the outputs of the step,
+//! one line of JSON each.
 
 use serde_json::{Value, json};
 
@@ -213,16 +219,31 @@ pub fn builds(plan: &Value, pre_branch: bool, register: &Register) -> Value {
         .collect()
 }
 
+/// What the preparing job hands on beside the two matrices it derives from
+/// the plan.
+pub struct Handed<'a> {
+    /// The plan.
+    pub plan: &'a Plan,
+    /// The entries of the check matrix ([`crate::entry`]), as one JSON list.
+    pub entries: &'a Value,
+    /// The Rust packages `[[exclude]]` takes out as a whole.
+    pub excluded: &'a [Excluded],
+}
+
 /// Hands the plan and the matrices on, and names what a reader of the run
 /// should see: whether everything could be handed on.
 pub fn hand_on(
-    plan: &Plan,
+    handed: &Handed<'_>,
     register: &Register,
     run: &Run,
-    excluded: &[Excluded],
     variables: Variables<'_>,
     log: &mut Log<'_>,
 ) -> bool {
+    let Handed {
+        plan,
+        entries,
+        excluded,
+    } = *handed;
     let json = plan.to_json();
     log.command("::group::The plan");
     log.line(&json);
@@ -264,12 +285,16 @@ pub fn hand_on(
     }
     log.lines(&format!("{builds:#}"));
     log.command("::endgroup::");
+    log.command("::group::The entries of the checks");
+    log.lines(&format!("{entries:#}"));
+    log.command("::endgroup::");
     match workflow::output(
         variables,
         &[
             ("plan", &json),
             ("units", &units.to_string()),
             ("builds", &builds.to_string()),
+            ("entries", &entries.to_string()),
         ],
     ) {
         Ok(()) => true,

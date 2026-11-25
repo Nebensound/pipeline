@@ -124,6 +124,9 @@ fn checks(register: &Register) -> String {
                 codes(&check.filenames),
                 codes(&check.programs),
                 check.coverage_toolchain.as_ref().map_or_else(none, code),
+                check
+                    .kind
+                    .map_or_else(|| "not written yet".to_owned(), |side| code(side.as_str())),
             ]
         })
         .collect();
@@ -133,13 +136,19 @@ fn checks(register: &Register) -> String {
          that no check covers has to be excluded. The programs are what the check calls\n\
          (see [Programs](#programs)). The coverage toolchain is the Rust toolchain a\n\
          check measures coverage on, on top of the one the workspace pins; the tool\n\
-         installs it through rustup.",
+         installs it through rustup. The side says whether a check only reads the\n\
+         repository's files (`reading`: it runs programs of the pipeline on them, with\n\
+         configuration that is data) or runs code of the repository (`executing`: its\n\
+         build scripts, its tests); the two never share a job. A check that is not\n\
+         written yet has no side: it is decided when the check is written, and until\n\
+         then the check fails by name.",
         &[
             "Check",
             "Extensions",
             "File names",
             "Programs",
             "Coverage toolchain",
+            "Side",
         ],
         &rows,
     )
@@ -286,7 +295,8 @@ fn builds(register: &Register) -> String {
          what the build calls (see [Programs](#programs)), the images what it starts\n\
          (see [Images](#images)). A build with targets builds once per target, each\n\
          in a job of its own on the runner named beside it (see\n\
-         [the Build phase](phases.md#build)).",
+         [the Build phase](phases.md#build)). A build runs code of the repository by\n\
+         definition, so it is executing, as an executing check is, and names no side.",
         &[
             "Build",
             "Produces",

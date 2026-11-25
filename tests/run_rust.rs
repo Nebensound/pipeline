@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use nebensound_repo::Register;
 use nebensound_repo::console::Console;
 use nebensound_repo::names::{Reason, VersionWriterName};
+use nebensound_repo::output::Output;
 use nebensound_repo::packages::Excluded;
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::programs::Platform;
@@ -1221,4 +1222,175 @@ fn the_call_hands_the_check_its_plan_or_resolves_one() {
         text.contains("the plan does not start the rust check at ."),
         "{text}"
     );
+}
+
+/// The metadata of the one package `demo` at `root`, at this version.
+fn demo_metadata(root: &Path, version: &str) -> Value {
+    json!({
+        "packages": [{
+            "id": "demo-id", "name": "demo", "version": version, "source": null,
+            "manifest_path": root.join("Cargo.toml"),
+            "targets": [{"src_path": root.join("src/lib.rs"), "edition": "2024"}],
+            "publish": null, "rust_version": null
+        }],
+        "workspace_members": ["demo-id"],
+        "target_directory": root.join("target"),
+        "resolve": {"nodes": [{"id": "demo-id", "dependencies": []}]}
+    })
+}
+
+/// The programs above in a folder of their own, beside a repository with
+/// history: one release, and a pull request checked out as GitHub checks one
+/// out, the merge commit, detached.
+fn pull_request_repository() -> (TempDir, support::Git) {
+    let base = tempfile::tempdir().unwrap();
+    let base_path = fs::canonicalize(base.path()).unwrap();
+    for (name, script) in [
+        ("cargo", CARGO),
+        ("rustup", RUSTUP),
+        ("rustc", RUSTC),
+        ("rustfmt", RUSTFMT),
+        ("cargo-llvm-cov", LLVM_COV),
+    ] {
+        executable(
+            &base_path.join("bin").join(name),
+            format!("#!/bin/sh\n{FAILING}{script}"),
+        );
+    }
+    let computer = std::env::var_os("PATH").unwrap_or_default();
+    fs::create_dir_all(base_path.join("utilities")).unwrap();
+    for utility in [
+        "basename", "cat", "chmod", "dirname", "grep", "head", "mkdir",
+    ] {
+        let found = find::search(utility, &computer, false).unwrap();
+        std::os::unix::fs::symlink(found, base_path.join("utilities").join(utility)).unwrap();
+    }
+    fs::create_dir_all(base_path.join("home")).unwrap();
+    let git = support::Git::new();
+    git.write(&[
+        (
+            ".nebensound/repo.toml",
+            "[repo]\naudience = \"public\"\npipeline = { version = [\"cargo\"], check = \
+             [\"rust\"], dependabot = [\"cargo\"] }\n",
+        ),
+        (
+            "Cargo.toml",
+            "[package]\nname = \"demo\"\nedition = \"2024\"\n",
+        ),
+        (
+            "Cargo.lock",
+            "version = 4\n\n[[package]]\nname = \"demo\"\nversion = \"0.0.0\"\n",
+        ),
+        ("rust-toolchain.toml", "[toolchain]\nchannel = \"1.98.1\"\n"),
+        ("src/lib.rs", "//! A library.\n"),
+    ]);
+    let released = git.commit("feat: start");
+    git.tag("v0.0.1", &released);
+    git.run(&["checkout", "--quiet", "-b", "topic"]);
+    git.write(&[("src/lib.rs", "//! A library, changed.\n")]);
+    git.commit("wip");
+    git.run(&["checkout", "--quiet", "--detach", "main"]);
+    git.run(&[
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "--message",
+        "Merge topic",
+        "topic",
+    ]);
+    (base, git)
+}
+
+#[test]
+fn without_a_plan_a_pull_request_is_read_from_the_event_as_the_plan_reads_it() {
+    let (base, git) = pull_request_repository();
+    let base_path = fs::canonicalize(base.path()).unwrap();
+    let root = fs::canonicalize(git.path()).unwrap();
+    let root_text = root.to_str().unwrap();
+
+    let (plan, code) = call(&[
+        "nebensound-repo",
+        "-C",
+        root_text,
+        "plan",
+        "--pull-request",
+        "4",
+        "--message",
+        "fix: change the library",
+    ]);
+    assert_eq!(code, 0, "{plan}");
+    let parsed: Value = serde_json::from_str(&plan).unwrap();
+    let version = parsed["versions"][0]["version"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(version, "0.0.2-pr.4");
+    let file = base_path.join("plan.json");
+    fs::write(&file, &plan).unwrap();
+    fs::write(
+        base_path.join("metadata"),
+        demo_metadata(&root, "0.0.0").to_string(),
+    )
+    .unwrap();
+    fs::write(
+        base_path.join("after"),
+        demo_metadata(&root, &version).to_string(),
+    )
+    .unwrap();
+    fs::write(base_path.join("packaged"), format!("demo-{version}\n")).unwrap();
+
+    let search_path =
+        std::env::join_paths([base_path.join("bin"), base_path.join("utilities")]).unwrap();
+    let home = base_path.join("home");
+    let check = |args: &[&str], more: &[(&str, &str)]| {
+        let mut variables = vec![
+            ("PATH", search_path.to_str().unwrap()),
+            ("HOME", home.to_str().unwrap()),
+        ];
+        variables.extend_from_slice(more);
+        let mut all = vec!["nebensound-repo", "-C", root_text, "run"];
+        all.extend_from_slice(args);
+        all.extend(["rust", "."]);
+        let (text, code) = support::call_with(&all, &variables, Output::Workflow);
+        (code, support::printed(&text))
+    };
+    let written = format!("the repository: the package demo at . gets {version}");
+
+    let (code, from_plan) = check(&["--plan", file.to_str().unwrap()], &[]);
+    assert_eq!(code, 0, "{from_plan}");
+    assert!(from_plan.contains(&written), "{from_plan}");
+    let (code, from_event) = check(
+        &[],
+        &[
+            ("NEBENSOUND_PULL_REQUEST", "4"),
+            ("NEBENSOUND_TITLE", "fix: change the library"),
+        ],
+    );
+    assert_eq!(code, 0, "{from_event}");
+    assert!(from_event.contains(&written), "{from_event}");
+    // The rest of the two logs differs only in the folders the check makes.
+    let lines = |text: &str| -> Vec<String> {
+        text.lines()
+            .filter(|line| !line.contains("nebensound-repo-run-"))
+            .map(ToOwned::to_owned)
+            .collect()
+    };
+    assert_eq!(lines(&from_event), lines(&from_plan));
+    // The manifests are put back as they are committed.
+    assert_eq!(
+        fs::read_to_string(root.join("Cargo.toml")).unwrap(),
+        "[package]\nname = \"demo\"\nedition = \"2024\"\n"
+    );
+    // Without the event's pull request the merge commit is read as it
+    // stands: a version without `-pr.4`.
+    let (_, unread) = check(&[], &[]);
+    assert!(
+        unread.contains("the repository: the package demo at . gets 0.0.2 ("),
+        "{unread}"
+    );
+    // A number that is none is a misuse, and nothing is checked.
+    let (code, text) = check(&[], &[("NEBENSOUND_PULL_REQUEST", "x")]);
+    assert_eq!(code, 2, "{text}");
+    assert!(text.contains("NEBENSOUND_PULL_REQUEST is \"x\""), "{text}");
+    assert!(!text.contains("Rust file(s)"), "{text}");
 }

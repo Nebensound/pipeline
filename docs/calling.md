@@ -38,7 +38,7 @@ from the archive of a release prints that release's version (see
 from source prints `0.0.0`, and the build of a pull request or a pre-release
 carries more than three numbers; neither belongs to a release, so `init` writes
 in place of the tag a reference that no branch, tag or commit can have, with a
-`TODO(init)` marker as the comment of the line (see
+`TODO(init)` marker as the comment of the line (see <!-- nebensound:allow(todo) names the marker init writes -->
 [the tool](tool.md#switching-a-repository-to-the-pipeline)). The run fails on it
 at once, and `check` reports it as
 [`unresolved-init-marker`](declaration.md#unresolved-init-marker).

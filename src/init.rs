@@ -10,8 +10,8 @@
 //! included.
 //!
 //! It asks nothing. Where it cannot know, it writes a [`MARKER`] into the file
-//! and names it in its report, and `check` reports every marker left in those
-//! three files as the error `unresolved-init-marker` ([`findings`]). It never
+//! and names it in its report, and `check` reports every such marker left in
+//! a file as the error `unresolved-init-marker` ([`crate::marker`]). It never
 //! overwrites a file, so a second run changes nothing. It stages, commits and
 //! pushes nothing, starts no program but Git, and uses no network.
 
@@ -26,9 +26,9 @@ use crate::audience::Visibility;
 use crate::central::Central;
 use crate::conformance::{self, Identity, Told};
 use crate::dependabot;
-use crate::finding::{Finding, Position, Rule};
 use crate::history::Tag;
 use crate::ignored::Read;
+use crate::marker;
 use crate::model::{Declaration, Publish};
 use crate::names::{CheckName, EcosystemName, PresetName, TargetName, VersionWriterName};
 use crate::path::RelativePath;
@@ -40,6 +40,7 @@ use crate::version::{Change, TagVersion, Version};
 use crate::{Analysis, analyse};
 
 /// What marks a decision `init` left open, in every file it writes.
+// nebensound:allow(todo) the marker init writes into the files it drafts, named once
 pub const MARKER: &str = "TODO(init)";
 
 /// Where `init` writes the declaration.
@@ -55,10 +56,6 @@ pub const DEPENDABOT: &str = ".github/dependabot.yml";
 /// stands under it, `init` writes none under [`DEPENDABOT`].
 const DEPENDABOT_YAML: &str = ".github/dependabot.yaml";
 
-/// The files `init` writes, and the only ones `check` looks for a leftover
-/// [`MARKER`] in.
-pub const WRITTEN: [&str; 3] = [DECLARATION, CALLER, DEPENDABOT];
-
 /// The caller as the README documents it, with `{pin}` where the reference of
 /// the workflow ends and `nebensound` as its name.
 pub const TEMPLATE: &str = include_str!("init/nebensound.yml");
@@ -69,6 +66,7 @@ const PIN: &str = "{pin}";
 /// The pin of a tool that belongs to no release: a reference no branch, tag or
 /// commit can have, since a reference holds no `..`, so that a forgotten
 /// marker fails the run at once as well as `check`.
+// nebensound:allow(todo) the marker init writes into a caller it cannot pin
 pub const UNRESOLVED_PIN: &str = "TODO..init # TODO(init): pin the tag of a release of the pipeline, \
                                   vX.Y.Z; this nebensound-repo belongs to no release";
 
@@ -133,63 +131,6 @@ pub fn passing(release: TagVersion) -> Option<Version> {
     } else {
         release.version.raised(Change::Patch)
     }
-}
-
-/// Every [`MARKER`] in a text: where it stands, and what the rest of its line
-/// says.
-fn markers(text: &str) -> Vec<(Position, String)> {
-    text.match_indices(MARKER)
-        .map(|(offset, _)| {
-            let rest = text
-                .get(offset + MARKER.len()..)
-                .unwrap_or_default()
-                .lines()
-                .next()
-                .unwrap_or_default();
-            (
-                Position::at(text, offset),
-                rest.trim_start_matches(':').trim().to_owned(),
-            )
-        })
-        .collect()
-}
-
-/// The error `unresolved-init-marker` for every [`MARKER`] left in the files
-/// `init` writes, among the files Git tracks, with its line and column. A file
-/// that cannot be read is passed over: the findings about that file say why.
-#[must_use]
-pub fn findings<'a>(
-    files: impl IntoIterator<Item = &'a RelativePath>,
-    read: &Read<'_>,
-) -> Vec<Finding> {
-    let mut found = Vec::new();
-    for path in files {
-        if !WRITTEN.contains(&path.to_string().as_str()) {
-            continue;
-        }
-        let Ok(text) = read(path) else {
-            continue;
-        };
-        for (position, rest) in markers(&text) {
-            let open = if rest.is_empty() {
-                String::new()
-            } else {
-                format!(": {}", shown(rest.trim_end_matches('.')))
-            };
-            found.push(
-                Finding::error(
-                    Rule::UnresolvedInitMarker,
-                    format!(
-                        "init left a decision open here, and nobody has taken it yet{open}. \
-                         Take it, write it in place of the marker and remove the marker"
-                    ),
-                )
-                .at(path.clone())
-                .on(position),
-            );
-        }
-    }
-    found
 }
 
 /// What `init` did, as its report says it, and whether a file could not be
@@ -350,7 +291,7 @@ fn put(root: &Path, written: &'static str, text: &str, report: &mut Report) -> b
     match write_new(root, written, text) {
         Ok(()) => {
             report.written.push(written);
-            for (position, rest) in markers(text) {
+            for (position, rest) in marker::init_markers(text) {
                 report.markers.push(format!(
                     "{written}:{}:{}: {rest}",
                     position.line, position.column
@@ -435,6 +376,7 @@ fn draft(
     let candidates = candidates(tree);
     if !candidates.is_empty() {
         text.push_str(
+            // nebensound:allow(todo) the marker init writes for the components it cannot name
             "\n# TODO(init): declare the Cargo packages below that are components.\n\
              # Each can be a component of its own, with a version and releases of its own:\n\
              # declare those that are under [component], each with its path, and remove\n\
@@ -469,6 +411,7 @@ fn audience(visibility: Option<Visibility>, report: &mut Report) -> String {
                 "audience left open: the repository is {other} on GitHub, which fits internal \
                  and customer alike"
             ));
+            // nebensound:allow(todo) the marker init writes for an audience it cannot tell
             "# TODO(init): write audience = \"internal\" or \"customer\".\n\
              # For whom the repository is meant: \"internal\" for the organization alone,\n\
              # \"customer\" when a customer can see it.\n"
@@ -479,6 +422,7 @@ fn audience(visibility: Option<Visibility>, report: &mut Report) -> String {
                 "audience left open: the call names no --visibility, and init does not guess it"
                     .to_owned(),
             );
+            // nebensound:allow(todo) the marker init writes for an audience it cannot tell
             "# TODO(init): write audience = \"public\", \"internal\" or \"customer\".\n\
              # For whom the repository is meant: \"public\" when it is public on GitHub,\n\
              # \"internal\" for the organization alone, \"customer\" when a customer can see\n\
@@ -509,6 +453,7 @@ fn floor(tags: &[Tag], report: &mut Report) -> String {
             "minimum-version left open: no version passes the tag {tag}"
         ));
         format!(
+            // nebensound:allow(todo) the marker init writes for a tag no version follows
             "# TODO(init): delete the tag {tag} if nobody published it.\n\
              # No version follows it, so no minimum-version can pass it.\n"
         )
@@ -541,6 +486,7 @@ fn preset(tree: &Tree, read: &Read<'_>, central: &Central, report: &mut Report) 
             for other in others {
                 let _ = write!(
                     text,
+                    // nebensound:allow(todo) the marker init writes for each further preset that fits
                     "# TODO(init): keep the pipeline below, or write the preset {} instead.\n\
                      # It fits as well: {}.\n",
                     other.name, other.why
@@ -765,6 +711,7 @@ fn render(report: &Report, visibility: Option<Visibility>) -> String {
         ("Not written", report.failed.clone()),
         ("Recognised", report.recognised.clone()),
         (
+            // nebensound:allow(todo) the report names the marker init writes
             "Decisions left open, each marked TODO(init) in its file",
             report.markers.clone(),
         ),

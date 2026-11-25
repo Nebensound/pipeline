@@ -148,6 +148,37 @@ pub struct Check {
     /// nightly pinned by date, on top of the toolchain the workspace pins.
     #[serde(default, rename = "coverage-toolchain")]
     pub coverage_toolchain: Option<String>,
+    /// Which side it is on: whether it only reads the repository's files or
+    /// runs code of the repository. Every check the tool runs names it; a
+    /// check that is not written yet names none, since its side is decided
+    /// when it is written.
+    #[serde(default)]
+    pub kind: Option<Side>,
+}
+
+/// Which side a check is on. The two never share a job.
+///
+/// A build names none: it runs code of the repository by definition, so it
+/// executes, and the register says so once instead of on every build.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Side {
+    /// It runs only programs of the pipeline on the repository's files, with
+    /// configuration that is data.
+    Reading,
+    /// It runs code of the repository: its build scripts, its tests.
+    Executing,
+}
+
+impl Side {
+    /// The name the register gives it.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Reading => "reading",
+            Self::Executing => "executing",
+        }
+    }
 }
 
 /// What a build produces, and what it needs to produce it.

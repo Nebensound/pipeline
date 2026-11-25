@@ -229,9 +229,11 @@ fn a_workspace_with_a_separately_published_package_leaves_its_components_open() 
     assert_eq!(code, 0, "{report}");
     let declaration = text(dir.path(), DECLARATION);
     for line in [
+        // nebensound:allow(todo) the test holds the marker init writes
         "# TODO(init): write audience = \"public\", \"internal\" or \"customer\".\n",
         "# The preset rust-workspace: Cargo.toml at the root holds no package of its own.\n\
          pipeline = \"rust-workspace\"\n",
+        // nebensound:allow(todo) the test holds the marker init writes
         "\n# TODO(init): declare the Cargo packages below that are components.\n",
         "# - crates/cli\n# - crates/core\n",
     ] {
@@ -272,6 +274,7 @@ fn a_service_gets_its_preset_written_out_and_its_dockerfile_watched() {
     assert_eq!(code, 0, "{report}");
     let declaration = text(dir.path(), DECLARATION);
     for line in [
+        // nebensound:allow(todo) the test holds the marker init writes
         "# TODO(init): write audience = \"internal\" or \"customer\".\n",
         "[repo.pipeline]\nversion = [\"cargo\"]\ncheck = [\"rust\", \"dockerfile\"]\nbuild = \
          \"docker\"\npublish = false\ndependabot = [\"cargo\", \"docker\"]\n",
@@ -345,6 +348,7 @@ fn where_two_presets_fit_the_first_is_written_and_the_other_left_open() {
     let declaration = text(dir.path(), DECLARATION);
     assert!(
         declaration.contains(
+            // nebensound:allow(todo) the test holds the marker init writes
             "# TODO(init): keep the pipeline below, or write the preset python-service \
              instead.\n# It fits as well: uv.lock and deploy/Dockerfile stand at the root.\n"
         ),
@@ -743,6 +747,7 @@ fn the_caller_carries_the_tag_or_the_marker_on_the_line_of_its_reference() {
         unresolved.contains(&format!("nebensound.yml@{UNRESOLVED_PIN}\n")),
         "{unresolved}"
     );
+    // nebensound:allow(todo) the test holds the marker init writes
     assert!(UNRESOLVED_PIN.starts_with("TODO..init # TODO(init): "));
     for written in [&pinned, &unresolved] {
         assert!(written.starts_with("name: nebensound\n"), "{written}");
@@ -787,6 +792,7 @@ fn a_tag_no_version_follows_is_left_open() {
     assert_eq!(code, 0, "{report}");
     assert!(
         text(git.path(), DECLARATION).contains(
+            // nebensound:allow(todo) the test holds the marker init writes
             "# TODO(init): delete the tag v1.2.18446744073709551615 if nobody published it.\n"
         ),
         "{report}"
@@ -798,19 +804,19 @@ fn a_tag_no_version_follows_is_left_open() {
 }
 
 #[test]
-fn check_reports_every_marker_left_in_the_files_init_writes_and_nowhere_else() {
+fn check_reports_every_marker_init_writes_wherever_it_is_left() {
+    let declaration =
+        format!("[repo]\n# {MARKER}: write audience = \"public\".\npipeline = \"none\"\n");
+    let caller = format!("on: push\n# {MARKER}\n");
+    let dependabot = format!("version: 2 # {MARKER}: one\n# {MARKER}: two\n");
+    let readme = format!("# x\n\n{MARKER} stays here.\n");
+    let gate = format!("# {MARKER}: elsewhere\n");
     let dir = repository(&[
-        (
-            DECLARATION,
-            "[repo]\n# TODO(init): write audience = \"public\".\npipeline = \"none\"\n",
-        ),
-        (CALLER, "on: push\n# TODO(init)\n"),
-        (
-            DEPENDABOT,
-            "version: 2 # TODO(init): one\n# TODO(init): two\n",
-        ),
-        ("README.md", "# x\n\nTODO(init) stays here.\n"),
-        (".github/workflows/gate.yml", "# TODO(init): elsewhere\n"),
+        (DECLARATION, &declaration),
+        (CALLER, &caller),
+        (DEPENDABOT, &dependabot),
+        ("README.md", &readme),
+        (".github/workflows/gate.yml", &gate),
     ]);
 
     let (output, code) = call(&["nebensound-repo", "-C", root(dir.path()), "check"]);
@@ -829,28 +835,37 @@ fn check_reports_every_marker_left_in_the_files_init_writes_and_nowhere_else() {
             "  error[unresolved-init-marker] at .github/dependabot.yml:2:3: init left a decision \
              open here, and nobody has taken it yet: two. Take it, write it in place of the \
              marker and remove the marker",
+            "  error[unresolved-init-marker] at .github/workflows/gate.yml:1:3: init left a \
+             decision open here, and nobody has taken it yet: elsewhere. Take it, write it in \
+             place of the marker and remove the marker",
             "  error[unresolved-init-marker] at .github/workflows/nebensound.yml:2:3: init left \
              a decision open here, and nobody has taken it yet. Take it, write it in place of \
              the marker and remove the marker",
             "  error[unresolved-init-marker] at .nebensound/repo.toml:2:3: init left a decision \
              open here, and nobody has taken it yet: write audience = \"public\". Take it, write \
              it in place of the marker and remove the marker",
+            "  error[unresolved-init-marker] at README.md:3:1: init left a decision open here, \
+             and nobody has taken it yet: stays here. Take it, write it in place of the marker \
+             and remove the marker",
         ],
         "{output}"
     );
 }
 
 #[test]
-fn a_file_init_writes_that_cannot_be_read_gives_no_marker_finding() {
-    let dir = repository(&[
-        (DECLARATION, support::QUIET),
-        ("target.yml", "# TODO(init)\n"),
-    ]);
+fn a_file_behind_a_link_gives_no_marker_finding() {
+    let target = format!("# {MARKER}\n");
+    let dir = repository(&[(DECLARATION, support::QUIET), ("target.yml", &target)]);
     fs::create_dir_all(dir.path().join(".github/workflows")).unwrap();
     std::os::unix::fs::symlink("../../target.yml", dir.path().join(CALLER)).expect("a link");
     support::git(dir.path(), &["add", "--all"]);
 
     let (output, _) = call(&["nebensound-repo", "-C", root(dir.path()), "check"]);
 
-    assert!(!output.contains("unresolved-init-marker"), "{output}");
+    let findings: Vec<&str> = output
+        .lines()
+        .filter(|line| line.starts_with("  error[unresolved-init-marker]"))
+        .collect();
+    assert_eq!(findings.len(), 1, "{output}");
+    assert!(findings[0].contains(" at target.yml:1:3: "), "{output}");
 }
