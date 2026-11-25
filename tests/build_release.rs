@@ -18,9 +18,7 @@ mod support;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Read as _;
-use std::os::unix::fs::PermissionsExt as _;
-use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use nebensound_repo::Register;
@@ -32,16 +30,8 @@ use nebensound_repo::path::RelativePath;
 use nebensound_repo::repository::Repository;
 use nebensound_repo::run;
 use serde_json::{Value, json};
-use support::{Git, call_with};
+use support::{Git, call_with, program::executable};
 use tempfile::TempDir;
-
-/// Held by every test of this file that starts the programs below: Linux
-/// refuses to start a file another process holds open for writing.
-static ALONE: Mutex<()> = Mutex::new(());
-
-fn alone() -> MutexGuard<'static, ()> {
-    ALONE.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 /// Whether a call fails: a line of the fixture's `fail` file is part of what
 /// it was called with.
@@ -102,12 +92,6 @@ exit 0
 const PRINTS: &str = "#!/bin/sh\n\
     echo \"app sees CARGO_MANIFEST_DIR=${CARGO_MANIFEST_DIR-unset}\" >&2\n\
     echo \"app 1.2.3-pr.4\"\n";
-
-fn executable(file: &Path, script: &str) {
-    fs::create_dir_all(file.parent().unwrap()).unwrap();
-    fs::write(file, script).unwrap();
-    fs::set_permissions(file, fs::Permissions::from_mode(0o755)).unwrap();
-}
 
 /// The declaration of the fixture: `app` builds cargo-release.
 const DECLARATION: &str = r#"[repo]
@@ -170,7 +154,7 @@ impl Fixture {
         for (name, script) in [("cargo", CARGO), ("rustup", RUSTUP), ("rustc", RUSTC)] {
             executable(
                 &bin.join(name),
-                &format!("#!/bin/sh\n{FAILING}{SEES}{script}"),
+                format!("#!/bin/sh\n{FAILING}{SEES}{script}"),
             );
         }
         let utilities = base.path().join("utilities");
@@ -462,7 +446,6 @@ fn the_licence_is_the_nearest_folders() {
 
 #[test]
 fn every_step_runs_in_its_order_and_names_the_artifact() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let (code, text) = fixture.build();
     assert_eq!(code, 0, "{text}");
@@ -527,7 +510,6 @@ fn every_step_runs_in_its_order_and_names_the_artifact() {
 
 #[test]
 fn every_program_starts_without_the_variables_that_steer_the_toolchain() {
-    let _alone = alone();
     assert!(
         std::env::var_os("CARGO_MANIFEST_DIR").is_some(),
         "the test needs a variable the build takes out; Cargo sets this one for its tests"
@@ -555,7 +537,6 @@ fn every_program_starts_without_the_variables_that_steer_the_toolchain() {
 
 #[test]
 fn the_first_step_that_fails_ends_the_build() {
-    let _alone = alone();
     for (pattern, step) in [
         (
             "rustup toolchain install",
@@ -583,7 +564,6 @@ fn the_first_step_that_fails_ends_the_build() {
 
 #[test]
 fn a_machine_without_a_target_builds_nothing() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let mut call = Call::of("app");
     call.machine.os = "freebsd".to_owned();
@@ -598,7 +578,6 @@ fn a_machine_without_a_target_builds_nothing() {
 
 #[test]
 fn a_unit_with_two_binaries_or_none_fails_by_name() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let root = fixture.root();
     for (packages, unit, said) in [
@@ -642,7 +621,6 @@ fn a_unit_with_two_binaries_or_none_fails_by_name() {
 
 #[test]
 fn what_keeps_the_binary_from_being_found_is_named() {
-    let _alone = alone();
     let fixture = Fixture::new();
     // No Cargo.toml at the unit.
     fixture.git.write(&[("nowhere/README.md", "# x\n")]);
@@ -686,7 +664,6 @@ fn what_keeps_the_binary_from_being_found_is_named() {
 
 #[test]
 fn the_binary_has_to_print_the_version_of_the_run_in_time() {
-    let _alone = alone();
     for (binary, said) in [
         (None, "app' cannot be started: "),
         (
@@ -740,7 +717,6 @@ fn the_binary_has_to_print_the_version_of_the_run_in_time() {
 
 #[test]
 fn what_keeps_the_archive_from_being_written_is_named() {
-    let _alone = alone();
     // No licence.
     let fixture = Fixture::new();
     fixture.git.remove("LICENSE");
@@ -782,7 +758,6 @@ fn what_keeps_the_archive_from_being_written_is_named() {
 
 #[test]
 fn the_call_builds_for_this_machine_what_the_plan_starts() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let machine = Machine::current();
     let register = Register::builtin().unwrap();

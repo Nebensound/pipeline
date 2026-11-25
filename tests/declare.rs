@@ -7,7 +7,6 @@
 mod support;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::PathBuf;
 
 use nebensound_repo::declare::{self, Run};
@@ -15,7 +14,7 @@ use nebensound_repo::output::Output;
 use nebensound_repo::plan::Plan;
 use nebensound_repo::{Audience, Register};
 use serde_json::{Value, json};
-use support::{Git, call_with};
+use support::{Git, call_with, program::executable};
 use tempfile::TempDir;
 
 /// A repository whose component `app` builds cargo-package with the version
@@ -386,13 +385,10 @@ fn a_number_that_is_no_pull_request_is_a_misuse() {
 /// A curl that writes its configuration beside itself and prints `answer`.
 fn curl(answer: &str) -> TempDir {
     let bin = tempfile::tempdir().unwrap();
-    let file = bin.path().join("curl");
-    fs::write(
-        &file,
+    executable(
+        &bin.path().join("curl"),
         format!("#!/bin/sh\ncat > \"$(dirname \"$0\")/config\"\nprintf '%s' '{answer}'\n"),
-    )
-    .unwrap();
-    fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
+    );
     bin
 }
 

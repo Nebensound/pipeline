@@ -9,7 +9,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use support::{Scene, write};
+use support::{Scene, program::executable, write};
 use xtask::Setup;
 
 fn setup(root: &Path, scratch: &Path) -> Setup {
@@ -30,7 +30,6 @@ fn call(args: &[&str], setup: &Setup) -> (u8, String) {
 
 #[test]
 fn help_is_no_failure_and_a_wrong_call_is_one() {
-    let _alone = support::alone();
     let scene = Scene::new();
     let setup = setup(scene.path(), scene.path());
     for help in ["help", "--help", "-h"] {
@@ -67,24 +66,19 @@ fn help_is_no_failure_and_a_wrong_call_is_one() {
 /// the code it is told.
 fn fake_cargo(scene: &Scene, code: u8) -> OsString {
     let script = scene.path().join(format!("cargo-{code}"));
-    fs::write(
+    executable(
         &script,
         format!(
             "#!/bin/sh\n{{ for arg in \"$@\"; do echo \"$arg\"; done; pwd; \
              echo \"toolchain=${{RUSTUP_TOOLCHAIN-unset}}\"; }} > \"$(dirname \"$0\")/call\"\n\
              exit {code}\n"
         ),
-    )
-    .unwrap();
-    let mut permissions = fs::metadata(&script).unwrap().permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
-    fs::set_permissions(&script, permissions).unwrap();
+    );
     script.into()
 }
 
 #[test]
 fn setup_calls_the_tool_of_this_commit_with_every_option() {
-    let _alone = support::alone();
     let scene = Scene::new();
     let root = scene.path().canonicalize().unwrap().join("root");
     write(&root, &[("Cargo.toml", "")]);
@@ -155,13 +149,9 @@ fn setup_calls_the_tool_of_this_commit_with_every_option() {
 
 #[test]
 fn setup_killed_by_a_signal_is_a_failure() {
-    let _alone = support::alone();
     let scene = Scene::new();
     let script = scene.path().join("cargo-killed");
-    fs::write(&script, "#!/bin/sh\nkill -9 $$\n").unwrap();
-    let mut permissions = fs::metadata(&script).unwrap().permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
-    fs::set_permissions(&script, permissions).unwrap();
+    executable(&script, "#!/bin/sh\nkill -9 $$\n");
     let mut setup = setup(scene.path(), scene.path());
     setup.cargo = script.into();
     let (code, out) = call(&["setup"], &setup);
@@ -171,7 +161,6 @@ fn setup_killed_by_a_signal_is_a_failure() {
 
 #[test]
 fn a_repository_that_cannot_be_read_is_a_finding() {
-    let _alone = support::alone();
     let scene = Scene::new();
     let (code, out) = call(&["check", "--all"], &setup(scene.path(), scene.path()));
     assert_eq!(code, 1, "{out}");
@@ -180,7 +169,6 @@ fn a_repository_that_cannot_be_read_is_a_finding() {
 
 #[test]
 fn the_current_setup_is_this_repository_on_this_machine() {
-    let _alone = support::alone();
     let setup = Setup::current();
     assert!(setup.root.join(".github/actions").is_dir());
     assert_eq!(setup.cargo, "cargo");
@@ -189,7 +177,6 @@ fn the_current_setup_is_this_repository_on_this_machine() {
 
 #[test]
 fn a_program_that_fails_or_does_not_start_is_an_error() {
-    let _alone = support::alone();
     let missing = xtask::quietly("/nonexistent/program".as_ref(), &[]).unwrap_err();
     assert!(
         missing
@@ -216,7 +203,6 @@ fn a_program_that_fails_or_does_not_start_is_an_error() {
 
 #[test]
 fn the_binary_answers_with_its_exit_code() {
-    let _alone = support::alone();
     let help = Command::new(env!("CARGO_BIN_EXE_xtask"))
         .arg("help")
         .output()

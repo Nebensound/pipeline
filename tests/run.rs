@@ -17,7 +17,6 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use nebensound_repo::Register;
 use nebensound_repo::console::Console;
@@ -31,17 +30,8 @@ use nebensound_repo::run::{
     self, Check, Context, Level, Packages, css, dockerfile, html, markdown, toml, yaml,
 };
 use nebensound_repo::setup::{Environment, find};
-use support::{QUIET, call};
+use support::{QUIET, call, program::executable};
 use tempfile::TempDir;
-
-/// Held by every test of this file for as long as it runs: they write
-/// programs and start them, and Linux refuses to start a file another
-/// process holds open for writing ("Text file busy").
-static ALONE: Mutex<()> = Mutex::new(());
-
-fn alone() -> MutexGuard<'static, ()> {
-    ALONE.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 /// What a program prints and does, as `prettier` would on its arguments.
 const PRETTIER: &str = r#"#!/bin/sh
@@ -467,12 +457,6 @@ fn every_file(root: &Path) -> Vec<RelativePath> {
     found
 }
 
-fn executable(file: &Path, script: &str) {
-    fs::create_dir_all(file.parent().expect("a folder")).expect("a folder");
-    fs::write(file, script).expect("a program");
-    fs::set_permissions(file, fs::Permissions::from_mode(0o755)).expect("executable");
-}
-
 fn has(text: &str, line: &str) {
     assert!(
         text.lines().any(|found| found == line),
@@ -482,7 +466,6 @@ fn has(text: &str, line: &str) {
 
 #[test]
 fn json_files_parse_and_are_formatted() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything();
     fixture
@@ -516,7 +499,6 @@ fn json_files_parse_and_are_formatted() {
 
 #[test]
 fn every_kind_of_json_finding_is_reported() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything();
     let files = [
@@ -658,7 +640,6 @@ fn json_is_judged_as_strictly_as_before() {
 
 #[test]
 fn lockfiles_are_parsed_and_not_formatted() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything();
     fixture.file("Pipfile.lock", "{}\n");
@@ -674,7 +655,6 @@ fn lockfiles_are_parsed_and_not_formatted() {
 
 #[test]
 fn nothing_to_check_is_said_and_passes() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let (code, text) = fixture.run(Check::Yaml, &[], true);
     assert_eq!(code, 0, "{text}");
@@ -683,7 +663,6 @@ fn nothing_to_check_is_said_and_passes() {
 
 #[test]
 fn outside_a_workflow_run_every_call_of_run_opens_with_the_gate() {
-    let _alone = alone();
     let outside = "Not running in GitHub Actions, so the result can differ from the gate's, \
                    which is the one that counts.";
     assert_eq!(run::OUTSIDE, outside);
@@ -721,7 +700,6 @@ fn outside_a_workflow_run_every_call_of_run_opens_with_the_gate() {
 
 #[test]
 fn a_missing_program_fails_the_check_and_names_setup() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.file("a.json", "{}\n");
     let (code, text) = fixture.run(Check::Json, &["a.json"], true);
@@ -766,7 +744,6 @@ fn a_missing_program_fails_the_check_and_names_setup() {
 
 #[test]
 fn a_pinned_program_on_npm_starts_with_its_runtime_in_front() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .everything()
@@ -785,7 +762,6 @@ fn a_pinned_program_on_npm_starts_with_its_runtime_in_front() {
 
 #[test]
 fn toml_files_are_formatted_and_pass_taplo_lint_against_their_schema() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .everything()
@@ -839,7 +815,6 @@ fn toml_files_are_formatted_and_pass_taplo_lint_against_their_schema() {
 
 #[test]
 fn every_kind_of_toml_finding_is_reported_with_taplos_diagnostic() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .everything()
@@ -872,7 +847,6 @@ fn every_kind_of_toml_finding_is_reported_with_taplos_diagnostic() {
 
 #[test]
 fn a_pipfile_is_formatted_and_linted_and_its_finding_names_the_standard_input_form() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .everything()
@@ -908,7 +882,6 @@ fn a_pipfile_is_formatted_and_linted_and_its_finding_names_the_standard_input_fo
 
 #[test]
 fn a_file_that_cannot_be_read_is_a_finding() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything().file("locked.toml", "a = 1\n");
     let file = fixture.root().join("locked.toml");
@@ -940,7 +913,6 @@ fn a_file_that_cannot_be_read_is_a_finding() {
 
 #[test]
 fn markdown_files_are_formatted_follow_the_rules_and_link_somewhere() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .everything()
@@ -1000,7 +972,6 @@ fn markdown_files_are_formatted_follow_the_rules_and_link_somewhere() {
 
 #[test]
 fn every_kind_of_markdown_finding_is_reported() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything();
     let files = [
@@ -1048,7 +1019,6 @@ fn handed_config(text: &str) -> ::toml::Table {
 
 #[test]
 fn the_link_check_hands_lychee_the_settings_it_knows_and_the_lycheeignore() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .everything()
@@ -1084,7 +1054,6 @@ fn the_link_check_hands_lychee_the_settings_it_knows_and_the_lycheeignore() {
 
 #[test]
 fn a_key_that_starts_a_command_ends_the_run_or_reads_other_files_fails_by_name() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything().file("unformatted.md", "# x\n");
     for (key, why) in lychee_config::REFUSED {
@@ -1135,7 +1104,6 @@ fn a_key_that_starts_a_command_ends_the_run_or_reads_other_files_fails_by_name()
 
 #[test]
 fn a_lychee_configuration_the_tool_cannot_read_fails_by_name() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything().file("README.md", "# x\n");
     for (source, message) in [
@@ -1158,7 +1126,6 @@ fn a_lychee_configuration_the_tool_cannot_read_fails_by_name() {
 
 #[test]
 fn exclude_path_takes_out_what_it_matches_from_the_root() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .everything()
@@ -1189,7 +1156,6 @@ fn exclude_path_takes_out_what_it_matches_from_the_root() {
 
 #[test]
 fn a_lycheeignore_is_read_only_as_it_stands_in_the_repository() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything().file("README.md", "# x\n");
     let ignore = fixture.root().join(".lycheeignore");
@@ -1220,7 +1186,6 @@ fn a_lycheeignore_is_read_only_as_it_stands_in_the_repository() {
 
 #[test]
 fn yaml_files_parse_are_formatted_and_pass_their_linters() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .everything()
@@ -1275,7 +1240,6 @@ fn yaml_files_parse_are_formatted_and_pass_their_linters() {
 
 #[test]
 fn every_kind_of_yaml_finding_is_reported() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .everything()
@@ -1332,7 +1296,6 @@ fn every_kind_of_yaml_finding_is_reported() {
 
 #[test]
 fn a_dependabot_configuration_that_does_not_parse_is_not_held_against_the_schema() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .everything()
@@ -1533,7 +1496,6 @@ fn a_place_in_a_value_reads_as_a_json_path() {
 
 #[test]
 fn programs_only_some_files_need_are_looked_for_only_then() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .computer("prettier", PRETTIER)
@@ -1551,7 +1513,6 @@ fn programs_only_some_files_need_are_looked_for_only_then() {
 
 #[test]
 fn a_program_that_cannot_be_started_fails_the_check() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .everything()
@@ -1568,7 +1529,6 @@ fn a_program_that_cannot_be_started_fails_the_check() {
 
 #[test]
 fn without_a_folder_for_the_programs_nothing_runs() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything();
     let file = fixture.base.join("a file");
@@ -1595,7 +1555,6 @@ fn without_a_folder_for_the_programs_nothing_runs() {
 
 #[test]
 fn markdownlint_needs_a_runtime_from_the_register() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let source = nebensound_repo::register::BUILTIN_REGISTER;
     let start = source.find("[program.markdownlint]").unwrap();
@@ -1623,7 +1582,6 @@ fn markdownlint_needs_a_runtime_from_the_register() {
 
 #[test]
 fn markdownlint_gets_the_rules_of_each_file_and_every_problem_fails_the_check() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .everything()
@@ -1682,7 +1640,6 @@ fn markdownlint_gets_the_rules_of_each_file_and_every_problem_fails_the_check() 
 
 #[test]
 fn a_warning_of_markdownlint_fails_nothing() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything().file("warned.md", "# x\n");
     let (code, text) = fixture.run(Check::Markdown, &["warned.md"], true);
@@ -1695,7 +1652,6 @@ fn a_warning_of_markdownlint_fails_nothing() {
 
 #[test]
 fn a_front_matter_javascript_does_not_read_fails_at_its_file_and_the_rest_still_runs() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .everything()
@@ -1718,7 +1674,6 @@ fn a_front_matter_javascript_does_not_read_fails_at_its_file_and_the_rest_still_
 
 #[test]
 fn what_markdownlint_found_has_to_read() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything().file("unreadable-heading.md", "# x\n");
     let (code, text) = fixture.run(Check::Markdown, &["unreadable-heading.md"], true);
@@ -1920,7 +1875,6 @@ fn workflows_are_recognized() {
 
 #[test]
 fn the_call_refuses_what_it_does_not_run() {
-    let _alone = alone();
     // Every call opens with the line that the gate decides, also one that
     // ends in a refusal.
     let opens = |text: &str| {
@@ -1977,7 +1931,6 @@ fn the_call_refuses_what_it_does_not_run() {
 
 #[test]
 fn the_binary_runs_a_check_with_the_programs_of_the_computer() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .computer("taplo", TAPLO)
@@ -2017,7 +1970,6 @@ fn the_binary_runs_a_check_with_the_programs_of_the_computer() {
 
 #[test]
 fn setup_takes_the_checks_it_is_named() {
-    let _alone = alone();
     let register = Register::builtin().unwrap();
     let names =
         |names: &[&str]| -> Vec<String> { names.iter().map(|name| (*name).to_owned()).collect() };
@@ -2048,7 +2000,6 @@ fn setup_takes_the_checks_it_is_named() {
 
 #[test]
 fn a_missing_program_leaves_the_other_parts_of_its_check_running() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything();
     for program in ["lychee", "actionlint"] {
@@ -2085,7 +2036,6 @@ fn a_missing_program_leaves_the_other_parts_of_its_check_running() {
 
 #[test]
 fn actionlint_findings_are_escaped_and_other_output_is_kept() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .everything()
@@ -2135,7 +2085,6 @@ fn actionlint_json_is_read_list_by_list() {
 
 #[test]
 fn dockerfiles_are_formatted_and_pass_hadolint() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything();
     fixture
@@ -2174,7 +2123,6 @@ fn dockerfiles_are_formatted_and_pass_hadolint() {
 
 #[test]
 fn every_kind_of_dockerfmt_finding_is_reported() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything();
     let files = [
@@ -2238,7 +2186,6 @@ fn every_kind_of_dockerfmt_finding_is_reported() {
 
 #[test]
 fn hadolint_findings_are_judged_against_the_threshold() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything();
     fixture.file("latest.dockerfile", "FROM x:latest\n");
@@ -2291,7 +2238,6 @@ fn hadolint_findings_are_judged_against_the_threshold() {
 
 #[test]
 fn a_hadolint_that_says_too_little_fails_the_check() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything();
     for file in [
@@ -2355,7 +2301,6 @@ fn a_hadolint_that_says_too_little_fails_the_check() {
 
 #[test]
 fn without_its_programs_the_dockerfile_check_fails() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.file("unformatted.dockerfile", "FROM scratch\n");
     fixture.computer("dockerfmt", DOCKERFMT);
@@ -2519,7 +2464,6 @@ fn what_hadolint_prints_with_verbose_is_read_as_it_reads_it() {
 
 #[test]
 fn hadolint_reads_no_variable_of_its_own_from_the_computer() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .computer("dockerfmt", DOCKERFMT)
@@ -2555,7 +2499,6 @@ fn hadolint_reads_no_variable_of_its_own_from_the_computer() {
 
 #[test]
 fn stylesheets_are_formatted_and_pass_stylelint() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .everything()
@@ -2602,7 +2545,6 @@ fn stylesheets_are_formatted_and_pass_stylelint() {
 
 #[test]
 fn every_kind_of_css_finding_is_reported() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything();
     let files = [
@@ -2648,7 +2590,6 @@ fn every_kind_of_css_finding_is_reported() {
 
 #[test]
 fn a_finding_a_script_hands_over_that_does_not_read_fails_the_check() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything();
     fixture.file("malformed.css", "a {}\n");
@@ -2675,7 +2616,6 @@ fn a_finding_a_script_hands_over_that_does_not_read_fails_the_check() {
 
 #[test]
 fn a_program_and_the_repository_print_only_inside_a_stopped_stretch() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything();
     let files = ["a##[warning]x-unformatted.css", "styled.css"];
@@ -2704,7 +2644,6 @@ fn a_program_and_the_repository_print_only_inside_a_stopped_stretch() {
 
 #[test]
 fn without_its_programs_the_css_check_fails() {
-    let _alone = alone();
     let fixture = Fixture::new();
     // Stylelint is taken pinned only: a copy on the computer does not count.
     fixture
@@ -2760,7 +2699,6 @@ fn without_its_programs_the_css_check_fails() {
 
 #[test]
 fn stylelint_needs_a_runtime_from_the_register() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let source = nebensound_repo::register::BUILTIN_REGISTER;
     let start = source.find("[program.stylelint]").unwrap();
@@ -2795,7 +2733,6 @@ fn line_of<'t>(text: &'t str, prefix: &str) -> &'t str {
 
 #[test]
 fn pages_are_formatted_pass_html_validate_and_link_somewhere() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .everything()
@@ -2882,7 +2819,6 @@ fn pages_are_formatted_pass_html_validate_and_link_somewhere() {
 
 #[test]
 fn every_kind_of_html_finding_is_reported() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.everything().computer("lychee", LYCHEE_PAGES);
     let files = [
@@ -2935,7 +2871,6 @@ fn every_kind_of_html_finding_is_reported() {
 
 #[test]
 fn links_from_the_root_of_a_site_are_left_out_below_the_folder_without_links() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .everything()
@@ -2986,7 +2921,6 @@ fn links_from_the_root_of_a_site_are_left_out_below_the_folder_without_links() {
 
 #[test]
 fn without_its_programs_the_html_check_fails() {
-    let _alone = alone();
     let fixture = Fixture::new();
     // html-validate is taken pinned only: a copy on the computer does not
     // count.
@@ -3064,7 +2998,6 @@ fn without_its_programs_the_html_check_fails() {
 
 #[test]
 fn html_validate_needs_a_runtime_from_the_register() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let source = nebensound_repo::register::BUILTIN_REGISTER;
     let start = source.find("[program.html-validate]").unwrap();
