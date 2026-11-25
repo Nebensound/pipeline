@@ -512,7 +512,8 @@ pub fn beside(
         .iter()
         .filter(|file| kept(file))
         .filter_map(|file| {
-            let name = file.file_name()?;
+            // A file of the repository always has a name.
+            let name = file.file_name().unwrap_or_default();
             (matches!(name, "package.json" | "package.yaml") && holds_configuration(file, read))
                 .then(|| Unread {
                     file: (*file).clone(),

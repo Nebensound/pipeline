@@ -634,6 +634,13 @@ fn a_section_the_tool_does_not_read_is_named() {
         );
     }
     assert!(unread("[z-a]").starts_with("it does not read: "));
+    for pattern in ["{*(a)}", "{a,*(b)}"] {
+        assert_eq!(
+            unread(pattern),
+            "it holds a group, `(...)`, a form of pattern the tool does not read",
+            "{pattern}"
+        );
+    }
 }
 
 #[test]
