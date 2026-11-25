@@ -1432,7 +1432,8 @@ The keys the tool carries over and refuses stand in
 - Carried over: every option of the pinned Prettier that says how a file is
   written, from `arrowParens` to `vueIndentScriptAndStyle`, each checked for a
   value it takes; `parser`, where it names a parser the pinned Prettier brings
-  itself; and `overrides`. `$schema` is passed over.
+  itself; and `overrides`. `printWidth` also takes no limit, written as for
+  `rangeEnd` in the table below. `$schema` is passed over.
 - Accepted only at the value that changes nothing, and then not handed over:
   `requirePragma`, `checkIgnorePragma`, `rangeStart` and `rangeEnd`. Any other
   value would pass a file or a part of it unchecked and fails the check by

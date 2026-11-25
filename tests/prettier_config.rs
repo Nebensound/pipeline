@@ -261,8 +261,8 @@ fn every_key_that_is_not_handed_over_is_named_and_the_rest_is_handed_over() {
              other would need a plugin, so it is not handed to Prettier",
             ".prettierrc.json: `plugins` is not handed to Prettier: it names modules that would \
              be loaded and run, and the check runs no code of the repository",
-            ".prettierrc.json: `printWidth` is not a whole number of 0 or more, so it is not \
-             handed to Prettier",
+            ".prettierrc.json: `printWidth` is not a whole number of 0 or more, or `Infinity` \
+             for no bound, so it is not handed to Prettier",
             ".prettierrc.json: `rangeEnd` is not handed to Prettier: any value but `Infinity` \
              would leave the part of every file after it unchecked",
             ".prettierrc.json: `rangeStart` is not handed to Prettier: any value but `0` would \
@@ -413,6 +413,32 @@ fn every_value_is_read_as_javascript_holds_it() {
           handed to Prettier"
         ]
     );
+
+    for (file, content) in [
+        (".prettierrc.json", "{ \"printWidth\": 1e999 }"),
+        (".prettierrc.json5", "{ printWidth: Infinity }"),
+        (".prettierrc.json5", "{ printWidth: +Infinity }"),
+        (".prettierrc.yaml", "printWidth: .inf\n"),
+        (".prettierrc.yaml", "printWidth: +.INF\n"),
+        (".prettierrc.toml", "printWidth = inf\n"),
+        (".prettierrc.toml", "printWidth = +inf\n"),
+    ] {
+        let (handed, problems) = self::handed(&[(file, content)]);
+        assert!(problems.is_empty(), "{file} {content}: {problems:?}");
+        assert_eq!(
+            flags(&handed, "a.md"),
+            ["--print-width=Infinity"],
+            "{file} {content}"
+        );
+    }
+    for (file, content) in [
+        (".prettierrc.json5", "{ printWidth: -Infinity }"),
+        (".prettierrc.json5", "{ tabWidth: Infinity }"),
+    ] {
+        let (handed, problems) = self::handed(&[(file, content)]);
+        assert!(flags(&handed, "a.md").is_empty(), "{file} {content}");
+        assert_eq!(problems.len(), 1, "{file} {content}: {problems:?}");
+    }
 
     let (handed, problems) = self::handed(&[(
         ".prettierrc.toml",
@@ -1028,7 +1054,8 @@ fn a_register_without_prettier_reads_nothing() {
 #[test]
 fn the_kinds_say_what_they_take() {
     assert!(CARRIED.contains(&("useTabs", Kind::Flag)));
-    assert!(CARRIED.contains(&("printWidth", Kind::Count)));
+    assert!(CARRIED.contains(&("printWidth", Kind::Width)));
+    assert!(CARRIED.contains(&("tabWidth", Kind::Count)));
     assert_eq!(
         from_editorconfig(&editorconfig::EditorConfig::default(), "a"),
         BTreeMap::new()

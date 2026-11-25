@@ -108,6 +108,9 @@ pub enum Kind {
     Flag,
     /// A whole number of 0 or more.
     Count,
+    /// A whole number of 0 or more, or no bound: JavaScript's `Infinity`,
+    /// written as for `rangeEnd`.
+    Width,
     /// One of these words.
     Choice(&'static [&'static str]),
     /// The name of a parser Prettier brings itself, one of [`PARSERS`].
@@ -137,7 +140,7 @@ pub const CARRIED: &[(&str, Kind)] = &[
     ("jsxSingleQuote", Kind::Flag),
     ("objectWrap", Kind::Choice(&["preserve", "collapse"])),
     ("parser", Kind::Parser),
-    ("printWidth", Kind::Count),
+    ("printWidth", Kind::Width),
     ("proseWrap", Kind::Choice(&["always", "never", "preserve"])),
     (
         "quoteProps",
@@ -992,7 +995,10 @@ fn from_root(mut pattern: &str) -> &str {
 fn setting(kind: Kind, value: &Data) -> Option<Setting> {
     match (kind, value) {
         (Kind::Flag, Data::Flag(flag)) => Some(Setting::Flag(*flag)),
-        (Kind::Count, Data::Number(number)) => editorconfig::whole(*number).map(Setting::Count),
+        (Kind::Width, Data::Number(number)) if *number == f64::INFINITY => Some(Setting::Unbounded),
+        (Kind::Count | Kind::Width, Data::Number(number)) => {
+            editorconfig::whole(*number).map(Setting::Count)
+        }
         (Kind::Choice(words), Data::Text(word)) if words.contains(&word.as_str()) => {
             Some(Setting::Choice(word.clone()))
         }
@@ -1008,6 +1014,7 @@ fn expected(kind: Kind) -> String {
     match kind {
         Kind::Flag => "true or false".to_owned(),
         Kind::Count => "a whole number of 0 or more".to_owned(),
+        Kind::Width => "a whole number of 0 or more, or `Infinity` for no bound".to_owned(),
         Kind::Parser => {
             "the name of a parser Prettier brings itself; any other would need a plugin".to_owned()
         }
