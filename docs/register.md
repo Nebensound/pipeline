@@ -131,12 +131,15 @@ The files a repository writes the configuration of a program in, which the tool
 reads for it: the first of those under Read that stands at the root of the
 repository, as data. Every other one of them at the root, every one in a folder
 below it and every one under Not read, wherever it lies, the tool names as not
-read (see [the tool](tool.md#the-configuration-of-a-linter)). A program not
-named here still reads its configuration itself.
+read (see [the tool](tool.md#the-configuration-of-a-linter)). For Prettier the
+tool reads `.editorconfig` at the root as well (see
+[Prettier](tool.md#prettier)). A program not named here still reads its
+configuration itself.
 
-| Program        | Read                                                                                                                                          | Not read                                                                                     |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `markdownlint` | `.markdownlint-cli2.jsonc`, `.markdownlint-cli2.yaml`, `.markdownlint.jsonc`, `.markdownlint.json`, `.markdownlint.yaml`, `.markdownlint.yml` | `.markdownlint-cli2.cjs`, `.markdownlint-cli2.mjs`, `.markdownlint.cjs`, `.markdownlint.mjs` |
+| Program        | Read                                                                                                                                          | Not read                                                                                                                                                                                                                                               |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `markdownlint` | `.markdownlint-cli2.jsonc`, `.markdownlint-cli2.yaml`, `.markdownlint.jsonc`, `.markdownlint.json`, `.markdownlint.yaml`, `.markdownlint.yml` | `.markdownlint-cli2.cjs`, `.markdownlint-cli2.mjs`, `.markdownlint.cjs`, `.markdownlint.mjs`                                                                                                                                                           |
+| `prettier`     | `.prettierrc`, `.prettierrc.json`, `.prettierrc.yml`, `.prettierrc.yaml`, `.prettierrc.json5`, `.prettierrc.toml`                             | `.prettierrc.js`, `prettier.config.js`, `.prettierrc.ts`, `prettier.config.ts`, `.prettierrc.mjs`, `prettier.config.mjs`, `.prettierrc.mts`, `prettier.config.mts`, `.prettierrc.cjs`, `prettier.config.cjs`, `.prettierrc.cts`, `prettier.config.cts` |
 
 ## Runtimes
 

@@ -462,7 +462,7 @@ fn phase_0_names_every_file_that_is_not_read() {
         ],
     );
 
-    let found = findings(&analysis, &register());
+    let found = findings(&analysis, &register(), &|_| Err("not read here".to_owned()));
 
     let summary: Vec<String> = found
         .iter()

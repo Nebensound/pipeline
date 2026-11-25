@@ -56,6 +56,7 @@ pub mod rust;
 pub mod toml;
 pub mod yaml;
 
+use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _;
 use std::fs::{self, File};
@@ -69,6 +70,7 @@ use crate::Register;
 use crate::console::Console;
 pub use crate::console::plain;
 pub(crate) use crate::console::property;
+use crate::linter_config::prettier;
 use crate::names::ProgramName;
 use crate::packages::Excluded;
 use crate::path::RelativePath;
@@ -187,14 +189,14 @@ pub struct Context<'a> {
     /// removes again.
     pub temp: &'a Path,
     /// What the Rust check reads of the repository beyond its files, and
-    /// what the Markdown check reads for markdownlint's configuration; the
-    /// other checks read none of it.
+    /// what the checks read for the configuration of markdownlint and
+    /// Prettier.
     pub packages: Packages<'a>,
 }
 
 /// What the Rust check reads of the repository beyond its files, and what
-/// the Markdown check reads for markdownlint's configuration
-/// ([`crate::linter_config::markdownlint`]).
+/// the checks read for the configuration of markdownlint and Prettier
+/// ([`crate::linter_config`]).
 pub struct Packages<'a> {
     /// The repository, into whose manifests the package test writes the
     /// versions, and from which the configuration is read.
@@ -853,34 +855,81 @@ impl Session<'_, '_, '_> {
     /// `ignore` is an empty file in the folder of what the programs are
     /// handed.
     ///
-    /// Prettier reads the repository's own configuration, so a repository
-    /// decides how it formats. It reads no ignore file: by default it would
-    /// read `.prettierignore` and `.gitignore` and silently pass what they
-    /// name, so it is handed an empty one instead, and it leaves out no
-    /// `node_modules` either. Its configuration could still pass a whole file
-    /// unchecked, through `requirePragma` (a file without `@format`),
-    /// `checkIgnorePragma` (a file with `@noformat`) or a range (`rangeStart`,
-    /// `rangeEnd`) that leaves the file out, `overrides` included; the flags
-    /// set all of them aside, since the command line wins over the
-    /// configuration. Without colours, so that the lines read the same
-    /// everywhere.
+    /// Prettier looks for nothing of the repository. `--no-config` keeps it
+    /// from searching the tree for a file of its configuration, from reading
+    /// `.editorconfig`, and so from loading a configuration in JavaScript, a
+    /// shared configuration or a plugin one of them names; an `overrides`
+    /// entry reaches it only as the options the tool worked out. The tool
+    /// reads the repository's configuration instead
+    /// ([`crate::linter_config::prettier`]), the same way in every check that
+    /// formats with Prettier, and hands each file its options as flags,
+    /// starting Prettier once for each group of files with the same options.
+    /// Every problem with the configuration is a finding at its file and
+    /// fails the check, and what it is about is not handed over.
+    ///
+    /// It reads no ignore file either: by default it would read
+    /// `.prettierignore` and `.gitignore` and silently pass what they name,
+    /// so it is handed an empty one instead, and it leaves out no
+    /// `node_modules` either. `requirePragma`, `checkIgnorePragma` and a
+    /// range (`rangeStart`, `rangeEnd`), which would pass a whole file or a
+    /// part of it unchecked, fail the check by name in the configuration at
+    /// any value but the one that changes nothing, and are set to that value
+    /// on the command line as well. Without colours, so that the lines read
+    /// the same everywhere.
     ///
     /// Prettier names an unformatted file as `[warn] <file>` and one it
     /// cannot parse as `[error] <file>: <message>`; each becomes a finding on
     /// its file, and the line stays in the output as it is.
     fn prettier(&mut self, tool: &Tool, ignore: &Path, files: &[&str]) -> bool {
-        let args: Vec<OsString> = vec![
-            "--check".into(),
-            "--no-color".into(),
-            "--with-node-modules".into(),
-            "--ignore-path".into(),
-            ignore.into(),
-            "--no-require-pragma".into(),
-            "--no-check-ignore-pragma".into(),
-            "--range-start=0".into(),
-            "--range-end=Infinity".into(),
-        ];
-        let ran = self.over(tool, &args, files, "Prettier");
+        let packages = &self.context.packages;
+        let tracked: Vec<&RelativePath> = packages.tracked.iter().collect();
+        let kept: BTreeSet<&RelativePath> = packages.kept.iter().collect();
+        let read = packages.repository.reader();
+        let (handed, problems) = prettier::read_in(
+            self.context.register,
+            &tracked,
+            &|file| kept.contains(file),
+            &read,
+        );
+        for problem in &problems {
+            self.log
+                .error(Some(&problem.file.to_string()), None, &problem.message);
+        }
+        let mut success = problems.is_empty();
+        for (options, members) in handed.groups(files) {
+            if handed.configured() {
+                self.log.line(&format!(
+                    "Prettier formats {} file(s) with {}.",
+                    members.len(),
+                    if options.is_empty() {
+                        "its own defaults".to_owned()
+                    } else {
+                        options.join(" ")
+                    }
+                ));
+            }
+            let mut args: Vec<OsString> = vec![
+                "--check".into(),
+                "--no-color".into(),
+                "--with-node-modules".into(),
+                "--ignore-path".into(),
+                ignore.into(),
+                "--no-require-pragma".into(),
+                "--no-check-ignore-pragma".into(),
+                "--range-start=0".into(),
+                "--range-end=Infinity".into(),
+                "--no-config".into(),
+            ];
+            args.extend(options.into_iter().map(OsString::from));
+            success &= self.formatted(tool, &args, &members);
+        }
+        success
+    }
+
+    /// One start of Prettier with these arguments over these files, and the
+    /// findings read off what it printed: whether it passed.
+    fn formatted(&mut self, tool: &Tool, args: &[OsString], files: &[&str]) -> bool {
+        let ran = self.over(tool, args, files, "Prettier");
         for line in ran.text.lines() {
             self.log.line(line);
             if let Some(file) = line

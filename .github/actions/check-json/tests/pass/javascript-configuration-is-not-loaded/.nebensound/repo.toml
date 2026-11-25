@@ -1,0 +1,14 @@
+# A configuration of Prettier in JavaScript that would leave a mark if it
+# were loaded: it writes a file into the repository and then throws, so that
+# Prettier would stop with an error and the case would fail. Phase 0 names such
+# a file as not read wherever no exclusion takes it out; here one has to, since
+# no check of the case covers JavaScript. The check passes: Prettier is started
+# with `--no-config` and never loads the module, and the file is formatted the
+# way Prettier writes it by default.
+[repo]
+audience = "public"
+pipeline = "none"
+
+[[exclude]]
+path   = "prettier.config.mjs"
+reason = "the configuration under test; JavaScript, which no check of the case covers"
