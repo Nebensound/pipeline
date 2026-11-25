@@ -851,3 +851,50 @@ fn every_preset_selects_the_version_writers_its_build_needs() {
     }
     assert!(checked > 0, "some preset builds what needs a writer");
 }
+
+/// Every check the tool runs names its side, and a check that is not written
+/// yet names none: its side is decided when it is written. A check added to
+/// `run` without a side, or a side given to a check nobody runs, fails here.
+#[cfg(feature = "program")]
+#[test]
+fn every_written_check_names_its_side_and_no_other_does() {
+    use nebensound_repo::register::Side;
+    use nebensound_repo::run;
+    let register = builtin();
+    for (name, check) in &register.check {
+        let written = run::Check::of(name.as_str());
+        match (written, check.kind) {
+            (Some(_), Some(_)) | (None, None) => {}
+            (Some(_), None) => panic!("the check {name} is written and names no side"),
+            (None, Some(side)) => panic!(
+                "the check {name} is not written and names the side {}",
+                side.as_str()
+            ),
+        }
+    }
+    let side = |name: &str| {
+        register
+            .check
+            .iter()
+            .find(|(check, _)| check.as_str() == name)
+            .and_then(|(_, check)| check.kind)
+    };
+    for name in ["rust", "python"] {
+        assert_eq!(side(name), Some(Side::Executing), "{name}");
+    }
+    for name in [
+        "css",
+        "dockerfile",
+        "html",
+        "json",
+        "markdown",
+        "toml",
+        "yaml",
+    ] {
+        assert_eq!(side(name), Some(Side::Reading), "{name}");
+    }
+    // Only the two names.
+    let wrong =
+        BUILTIN_REGISTER.replacen("kind       = \"reading\"", "kind       = \"sideways\"", 1);
+    assert!(refuses(&wrong).contains("sideways"), "{}", refuses(&wrong));
+}

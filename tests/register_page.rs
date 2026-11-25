@@ -91,27 +91,6 @@ fn the_page_names_what_the_register_says() {
         ],
         &["`none`", "none", "none", "none", "nothing", "none"],
         &[
-            "`dockerfile`",
-            "`.dockerfile`",
-            "`Dockerfile`, `Containerfile`",
-            "`dockerfmt`, `hadolint`",
-            "none",
-        ],
-        &[
-            "`json`",
-            "`.json`, `.jsonc`, `.geojson`",
-            "`composer.lock`, `flake.lock`, `Pipfile.lock`",
-            "`prettier`",
-            "none",
-        ],
-        &[
-            "`rust`",
-            "`.rs`",
-            "none",
-            "`cargo-llvm-cov`",
-            "`nightly-2026-11-14`",
-        ],
-        &[
             "`prettier`",
             "`3.9.6`",
             "`node`, `14.0.0` or later",
@@ -234,4 +213,48 @@ fn the_call_says_what_it_prints() {
 
     assert_eq!(code, 0, "{text}");
     assert!(text.contains("docs/register.md"), "{text}");
+}
+
+#[test]
+fn the_page_names_the_side_of_every_check() {
+    let (text, _) = call(&["nebensound-repo", "register"]);
+    let rows = rows(&text);
+
+    for expected in [
+        &[
+            "`dockerfile`",
+            "`.dockerfile`",
+            "`Dockerfile`, `Containerfile`",
+            "`dockerfmt`, `hadolint`",
+            "none",
+            "`reading`",
+        ],
+        &[
+            "`json`",
+            "`.json`, `.jsonc`, `.geojson`",
+            "`composer.lock`, `flake.lock`, `Pipfile.lock`",
+            "`prettier`",
+            "none",
+            "`reading`",
+        ],
+        &[
+            "`rust`",
+            "`.rs`",
+            "none",
+            "`cargo-llvm-cov`",
+            "`nightly-2026-11-14`",
+            "`executing`",
+        ],
+    ] {
+        assert!(
+            rows.iter().any(|row| row == expected),
+            "no row {expected:?}:\n{text}"
+        );
+    }
+    assert!(
+        rows.iter()
+            .any(|row| row[0] == "`cpp`"
+                && row.last().map(String::as_str) == Some("not written yet")),
+        "{text}"
+    );
 }
