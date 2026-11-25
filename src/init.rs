@@ -642,9 +642,15 @@ fn pipeline(fit: &Fit<'_>, report: &mut Report) -> String {
     }
     let checks = preset.check.iter().map(CheckName::as_str).collect();
     let _ = writeln!(text, "check = {}", list(checks));
-    if let Some(build) = &preset.build {
-        let _ = writeln!(text, "build = \"{build}\"");
-    }
+    // Every preset that publishes builds what it publishes; one that does not
+    // would get no line here.
+    text.push_str(
+        &preset
+            .build
+            .as_ref()
+            .map(|build| format!("build = \"{build}\"\n"))
+            .unwrap_or_default(),
+    );
     text.push_str("publish = false\n");
     let ecosystems = preset
         .dependabot
