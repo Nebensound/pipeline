@@ -1,40 +1,138 @@
 name: tool
 description: >-
-  Puts the tool `nebensound-repo` on the PATH of the calling job: restored from
-  the cache when this exact tool was built before, built from source otherwise.
+  Puts the tool `nebensound-repo` on the PATH of the calling job: the binary of
+  the release on the pipeline's commit, verified against the release's
+  attestation, where such a release exists; built from source otherwise.
 
-# The tool comes from the same commit as this file. GitHub fetches the whole
-# repository when it resolves an action, so the source lies three levels up, at
-# the root, where the tool's package is, and needs no credentials.
+# The tool comes from the same commit as the workflow. Where that commit carries
+# a release of the pipeline, every job fetches the release's binary for its
+# system, verifies it with `gh release verify-asset` against the attestation
+# GitHub signs for an immutable release, and runs it; nothing of it is cached.
+# The verification proves that the file is an asset of exactly that release and
+# that the release's tag stood on that commit when GitHub signed it. It does not
+# prove what the binary was built from: that rests on the pipeline's own
+# release, whose build jobs build it from the merged commit and whose Publish
+# attaches exactly what they built.
 #
-# Phase 0 fills the cache, so a later job of the same run finds it there and
-# builds nothing: `Declare` runs phase 0 with it, and every unit job asks it
-# which files a check covers. A job builds the tool itself only when the cache
-# misses.
+# The step that fetches it is the one place where shell decides something
+# before the tool exists, and it is kept to what cannot be done without the
+# tool. Its cases are tests of the xtask (`xtask/tests/tool_action.rs`), which
+# run it with stand-ins for Git, gh and curl.
 #
-# A job that holds a token that can write builds it itself, always, and leaves
-# the cache alone: every job of a branch may write the cache, a job that runs
-# code of the repository among them, and nothing such a job could have left
-# there is to run with that token.
+# Where no verified binary can exist, the tool is built from source as before,
+# and a warning names the reason: the commit carries no release of the pipeline
+# (a pull request or a push of the pipeline's own repository, a pin on a commit
+# between two releases or on a pre-release), the release has no binary for the
+# runner's system, `gh` is missing or older than 2.93.0, or the API cannot be
+# asked or has fewer than 10 requests left for the token. A binary that is
+# found and does not verify is not run, and the job fails.
+#
+# The source build: GitHub fetches the whole repository when it resolves an
+# action, so the source lies three levels up, at the root, where the tool's
+# package is, and needs no credentials. A job that misses the cache builds it
+# and keeps it there for the next job of the same system and image. A job that
+# holds a token that can write builds it itself, always, and leaves the cache
+# alone: every job of a branch may write the cache, a job that runs code of the
+# repository among them, and nothing such a job could have left there is to run
+# with that token.
 
 inputs:
+  commit:
+    description: >-
+      The commit of the pipeline the calling workflow runs at
+      (`job.workflow_sha`). The release whose tag stands on it carries the
+      binary. Empty or not a full commit: the tool is built from source.
+    required: false
+    default: ""
+  repository:
+    description: >-
+      The repository of the pipeline, as `<owner>/<name>`
+      (`job.workflow_repository`): where the release is looked for. Empty: the
+      tool is built from source.
+    required: false
+    default: ""
   cache:
     description: >-
-      Whether the tool may come from the cache and its build go into it.
+      Whether a tool built from source may come from the cache and go into it.
       "false" for a job that holds a token that can write: it then builds the
-      tool from source, and the cache is neither read nor written. Only "true"
-      lets the cache in, so any other value builds from source as well.
+      tool from source where there is no verified binary, and the cache is
+      neither read nor written. Only "true" lets the cache in, so any other
+      value builds from source as well. A fetched binary is never cached.
     required: false
     default: "true"
 
 outputs:
   path:
     description: The tool, as an absolute path.
-    value: ${{ steps.tool.outputs.home }}/nebensound-repo
+    value: ${{ steps.release.outputs.home }}/nebensound-repo
 
 runs:
   using: composite
   steps:
+    # Shell, because the tool is what it gets. What remains is what cannot be
+    # done without the tool: name the archive of the runner's system, find the
+    # tag of the release on the commit (`git ls-remote`, no API and no token),
+    # ask whether gh can verify (its version, the requests left for the
+    # token), fetch the archive, verify it and unpack it.
+    #
+    # Only a full release counts: a tag `v<major>.<minor>.<patch>` on the
+    # commit, as the release stage writes it. Every way to "no verified binary
+    # here" ends the step with a warning and leaves `fetched` unset, so that
+    # the source build below runs; only a failed verification fails it. The
+    # token goes to this step alone, for gh, which needs one even to verify an
+    # asset of a public repository.
+    - name: Fetch the released tool
+      id: release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        COMMIT: ${{ inputs.commit }}
+        REPOSITORY: ${{ inputs.repository }}
+      run: |
+        set -euo pipefail
+        home="$RUNNER_TEMP/nebensound-repo"
+        echo "home=$home" >> "$GITHUB_OUTPUT"
+        source_build() {
+          echo "::warning title=The tool is built from source::$1"
+          exit 0
+        }
+        case "$RUNNER_OS/$RUNNER_ARCH" in
+          Linux/X64) target=x86_64-unknown-linux-musl ;;
+          macOS/ARM64) target=aarch64-apple-darwin ;;
+          macOS/X64) target=x86_64-apple-darwin ;;
+          *) source_build "the pipeline releases no binary for $RUNNER_OS on $RUNNER_ARCH" ;;
+        esac
+        [[ $COMMIT =~ ^[0-9a-f]{40}$ && $REPOSITORY =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] \
+          || source_build "the workflow names no commit and repository of the pipeline"
+        tags="$(git ls-remote --tags --refs "https://github.com/$REPOSITORY")" \
+          || source_build "the tags of $REPOSITORY cannot be listed"
+        tag=""
+        while read -r sha ref; do
+          if [[ $sha == "$COMMIT" && $ref =~ ^refs/tags/(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            tag="${BASH_REMATCH[1]}"
+          fi
+        done <<< "$tags"
+        [[ -n $tag ]] || source_build "the commit $COMMIT carries no release of $REPOSITORY"
+        command -v gh > /dev/null || source_build "gh is not installed, so the binary of $tag cannot be verified"
+        gh_version="$(gh --version)" || gh_version=""
+        [[ $gh_version =~ ^gh\ version\ ([0-9]+)\.([0-9]+)\. ]] \
+          && (( BASH_REMATCH[1] > 2 || (BASH_REMATCH[1] == 2 && BASH_REMATCH[2] >= 93) )) \
+          || source_build "gh is older than 2.93.0 or does not name its version, so the binary of $tag is not verified"
+        remaining="$(gh api rate_limit --jq .resources.core.remaining)" \
+          || source_build "gh cannot ask the API of GitHub, so the binary of $tag cannot be verified"
+        [[ $remaining =~ ^[0-9]+$ ]] && (( remaining >= 10 )) \
+          || source_build "the token has fewer than 10 requests to the API left, too few to verify the binary of $tag"
+        archive="$RUNNER_TEMP/nebensound-repo-$target.tar.gz"
+        curl -fsSL --retry 3 -o "$archive" "https://github.com/$REPOSITORY/releases/download/$tag/nebensound-repo-$target.tar.gz" \
+          || source_build "the release $tag of $REPOSITORY carries no binary for $target"
+        if ! gh release verify-asset "$tag" "$archive" --repo "$REPOSITORY"; then
+          echo "::error title=The released tool does not verify::nebensound-repo-$target.tar.gz of the release $tag of $REPOSITORY does not verify against the release's attestation, so it is not run"
+          exit 1
+        fi
+        mkdir -p "$home"
+        tar -xzf "$archive" -C "$home" nebensound-repo
+        echo "fetched=true" >> "$GITHUB_OUTPUT"
+
     # The key is the content of the tool, not a version: a build from source
     # carries none, and two commits that leave the tool untouched share one
     # build. The tool's package is the root of the repository, so the content
@@ -42,8 +140,15 @@ runs:
     # blocks and the workflows, the documents, the tests, the xtask's code and
     # Cargo's output. A file that is not one of these counts, so that nothing
     # the build reads can be left out of the key.
+    #
+    # It names the runner's image as well, by the variables GitHub's images set
+    # (`ImageOS`, `ImageVersion`): a tool built from source is linked against
+    # the C library of the image it was built on, and a job on another image,
+    # such as one with an older C library, builds its own instead of getting a
+    # tool it cannot start.
     - name: Identify the tool
       id: tool
+      if: steps.release.outputs.fetched != 'true'
       shell: bash
       run: |
         set -euo pipefail
@@ -61,16 +166,15 @@ runs:
         )"
         {
           echo "source=$source_dir"
-          echo "home=$RUNNER_TEMP/nebensound-repo"
-          echo "key=nebensound-repo-$RUNNER_OS-$RUNNER_ARCH-$fingerprint"
+          echo "key=nebensound-repo-$RUNNER_OS-$RUNNER_ARCH-${ImageOS:-}-${ImageVersion:-}-$fingerprint"
         } >> "$GITHUB_OUTPUT"
 
     - name: Look for a build of exactly this tool
       id: cache
-      if: inputs.cache == 'true'
+      if: steps.release.outputs.fetched != 'true' && inputs.cache == 'true'
       uses: actions/cache/restore@v6
       with:
-        path: ${{ steps.tool.outputs.home }}
+        path: ${{ steps.release.outputs.home }}
         key: ${{ steps.tool.outputs.key }}
 
     # With the default features alone, which make the program: the interface
@@ -79,11 +183,11 @@ runs:
     # repeated here. The tool is the workspace's one default member, so the
     # xtask is not built with it.
     - name: Build the tool
-      if: steps.cache.outputs.cache-hit != 'true'
+      if: steps.release.outputs.fetched != 'true' && steps.cache.outputs.cache-hit != 'true'
       shell: bash
       working-directory: ${{ steps.tool.outputs.source }}
       env:
-        TOOL_HOME: ${{ steps.tool.outputs.home }}
+        TOOL_HOME: ${{ steps.release.outputs.home }}
       run: |
         set -euo pipefail
         rustup toolchain install
@@ -94,16 +198,18 @@ runs:
     # Several unit jobs can miss at once; the first to finish keeps its build,
     # and the others are told the key is taken, which fails nothing.
     - name: Keep the build for the next job
-      if: inputs.cache == 'true' && steps.cache.outputs.cache-hit != 'true'
+      if: >-
+        steps.release.outputs.fetched != 'true' && inputs.cache == 'true'
+        && steps.cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v6
       with:
-        path: ${{ steps.tool.outputs.home }}
+        path: ${{ steps.release.outputs.home }}
         key: ${{ steps.tool.outputs.key }}
 
     - name: Put the tool on the PATH
       shell: bash
       env:
-        TOOL_HOME: ${{ steps.tool.outputs.home }}
+        TOOL_HOME: ${{ steps.release.outputs.home }}
       run: |
         set -euo pipefail
         "$TOOL_HOME/nebensound-repo" --version
