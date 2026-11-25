@@ -140,6 +140,9 @@ pub enum Rule {
     /// A Dependabot configuration that is missing, cannot be read, or departs
     /// from what the declaration and the policy give.
     StaleDependabot,
+    /// A decision `init` left open, marked `TODO(init)` in a file it writes,
+    /// that nobody has taken yet.
+    UnresolvedInitMarker,
 }
 
 impl Rule {
@@ -186,6 +189,7 @@ impl Rule {
             Self::NonconformingDefaultBranch => "nonconforming-default-branch",
             Self::MissingMinimumFile => "missing-minimum-file",
             Self::StaleDependabot => "stale-dependabot",
+            Self::UnresolvedInitMarker => "unresolved-init-marker",
         }
     }
 }

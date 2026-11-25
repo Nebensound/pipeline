@@ -627,6 +627,9 @@ stable code; the wording of its message may improve, the code does not change.
   `nonconforming-default-branch`, `missing-minimum-file`, `stale-dependabot`).
   `check` reports these four; the other calls do not look for them.
 
+[`unresolved-init-marker`](#unresolved-init-marker) is an error that only
+`check` looks for, and so `declare`, which runs it; the other calls do not.
+
 A finding reads like `error[uncovered-file] at src/main.rs: …`: the severity, the
 code, the unit or path it is about, and a sentence. A finding that points at a
 place in a file adds its line and column, counted from 1:
@@ -1064,6 +1067,24 @@ A key the command does not set, `labels` among them, an entry for an ecosystem
 it writes none for, and comments are not compared. `check` compares the file
 only when phase 0 found no error: what a declaration with errors gives could
 watch the wrong folders.
+
+### `unresolved-init-marker`
+
+Error. A `TODO(init)` marker stands in one of the files
+`nebensound-repo init` writes: `.nebensound/repo.toml`,
+`.github/workflows/nebensound.yml` or `.github/dependabot.yml`. `init` writes
+one for each decision it cannot take from the tree or the call, such as for
+whom the repository is meant, the pin of a tool that belongs to no release, or
+which Cargo packages are components of their own (see
+[the tool](tool.md#switching-a-repository-to-the-pipeline)). There is one
+finding for each marker, at its line and column, and its message quotes the
+rest of the marker's line. Take the decision, write it in place of the marker
+and remove the marker.
+
+Only these three files are read, and only where Git tracks them: a marker in
+any other file, such as a document that mentions it, is no finding. Since
+`declare` runs `check`, `nebensound / Declare` fails on the pull request that
+switches a repository while a marker is left.
 
 ### When the file cannot be read
 

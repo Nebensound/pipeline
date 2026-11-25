@@ -147,7 +147,7 @@ fn the_documents_quote_the_readme_caller() {
     let readme = readme_caller();
     let phases = blocks("docs/phases.md", "## Pull request and push");
     assert_eq!(phases[0]["on"], readme["on"]);
-    let pinning = blocks("docs/calling.md", "## Pinning before `v0.1.0`");
+    let pinning = blocks("docs/calling.md", "## Pinning");
     assert_eq!(
         pinning[0]["jobs"]["nebensound"]["permissions"],
         readme["jobs"]["nebensound"]["permissions"]

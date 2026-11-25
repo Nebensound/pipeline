@@ -1,0 +1,28 @@
+name: nebensound
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
+  push:
+    branches:
+      - main
+      - pre
+      - pre-*
+
+permissions:
+  contents: read
+
+jobs:
+  nebensound:
+    uses: Nebensound/pipeline/.github/workflows/nebensound.yml@{pin}
+    permissions:
+      contents: write
+      pull-requests: read
+      id-token: write
+      packages: write
+      attestations: write
+      deployments: write
