@@ -25,9 +25,11 @@
 //!
 //! A difference by pattern is an entry of `overrides` that holds `files`, its
 //! patterns, and `rules`, and may hold `name`, a label; any other key in it
-//! fails. Its patterns are read as Stylelint 18.0.0 reads them, over the path
-//! from the repository root ([`Patterns::matches`]). Every entry whose
-//! patterns match a file counts for it, in their order.
+//! fails. Its patterns are read as Stylelint 18.0.0 reads them, from the
+//! folder of the file that holds them: from the root for `.stylelintrc*`, and
+//! from `.config` for `.config/stylelintrc*`, so that the check and an editor
+//! that runs Stylelint on the same file agree ([`Patterns::matches`]). Every
+//! entry whose patterns match a file counts for it, in their order.
 //!
 //! The rules of a file are laid as Stylelint lays them, rule by rule, a later
 //! value in place of an earlier one ([`Handed::layer_for`]): the pipeline's
@@ -418,11 +420,13 @@ pub type Rules = Vec<(String, Value)>;
 struct Pattern {
     /// Whether it had a leading `!`.
     negated: bool,
-    /// The pattern without `!` and without a leading `./`.
-    glob: GlobMatcher,
-    /// Whether it matches a file's name as well: it is not negated and holds
-    /// no `/`.
-    by_name: bool,
+    /// The pattern without `!`, joined onto the folder of the file that holds
+    /// it, as a path from the root; [`None`] where it climbs above the root,
+    /// so that it matches no file there.
+    glob: Option<GlobMatcher>,
+    /// The pattern as written, without a leading `./`, matched against a
+    /// file's name; [`None`] for one with `!`.
+    by_name: Option<GlobMatcher>,
 }
 
 /// The patterns of an entry of `overrides`.
@@ -437,19 +441,29 @@ pub struct Patterns {
 impl Patterns {
     /// Whether they match a file, a path from the repository root, as
     /// Stylelint 18.0.0 matches the patterns of an entry of `overrides`
-    /// (with picomatch, dots included): one of them matches it. A pattern
-    /// matches the path from the root, a leading `./` taken off, where `*`
-    /// stops at a `/` and `**` does not; one without a `/` matches the
-    /// file's name as well; one with a leading `!` matches every path its
-    /// pattern does not, so that beside others it takes nothing back.
+    /// (`compileOverrideMatchers`, with picomatch, dots included): one of
+    /// them matches it. A pattern is joined onto the folder of the file that
+    /// holds it, as Node's `path.join` joins them, and matches the path from
+    /// the root, where `*` stops at a `/` and `**` does not. Every pattern
+    /// without `!` also matches the file's name as written, so one without a
+    /// `/` matches in any folder. One with a leading `!` matches every path
+    /// its pattern does not, so that beside others it takes nothing back.
     #[must_use]
     pub fn matches(&self, file: &str) -> bool {
         let name = file.rsplit('/').next().unwrap_or(file);
         self.built.iter().any(|pattern| {
+            let at_path = pattern
+                .glob
+                .as_ref()
+                .is_some_and(|glob| glob.is_match(file));
             if pattern.negated {
-                !pattern.glob.is_match(file)
+                !at_path
             } else {
-                pattern.glob.is_match(file) || (pattern.by_name && pattern.glob.is_match(name))
+                at_path
+                    || pattern
+                        .by_name
+                        .as_ref()
+                        .is_some_and(|glob| glob.is_match(name))
             }
         })
     }
@@ -463,9 +477,45 @@ fn from_root(mut pattern: &str) -> &str {
     pattern
 }
 
+/// A pattern joined onto `base`, a folder from the root, as Node's
+/// `path.join` joins them: an empty segment and `.` are dropped, `..` takes
+/// the segment before it off, and a trailing `/` stays. [`None`] where `..`
+/// climbs above the root. A pattern that starts with `/` is a path of its
+/// own and is not joined, as with `path.join`'s caller in Stylelint.
+fn joined(base: &[String], pattern: &str) -> Option<String> {
+    if pattern.starts_with('/') {
+        return Some(pattern.to_owned());
+    }
+    let mut segments: Vec<&str> = base.iter().map(String::as_str).collect();
+    for segment in pattern.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop()?;
+            }
+            other => segments.push(other),
+        }
+    }
+    let mut path = segments.join("/");
+    if pattern.ends_with('/') {
+        path.push('/');
+    }
+    Some(path)
+}
+
+/// A pattern built as a glob, where `*` stops at a `/`.
+fn glob(pattern: &str) -> Result<GlobMatcher, String> {
+    GlobBuilder::new(pattern)
+        .literal_separator(true)
+        .build()
+        .map(|glob| glob.compile_matcher())
+        .map_err(|error| format!("holds a pattern that does not read: {error}"))
+}
+
 /// The patterns of `files`, built: a pattern or a list of them that holds one
-/// at least, each a pattern that reads.
-fn patterns(value: Written) -> Result<Patterns, String> {
+/// at least, each a pattern that reads. `base` is the folder of the file that
+/// holds them, from the root.
+fn patterns(value: Written, base: &[String]) -> Result<Patterns, String> {
     let not = || "is neither a pattern nor a list of patterns".to_owned();
     let written: Vec<String> = match value.into_value() {
         Value::String(one) => vec![one],
@@ -488,17 +538,17 @@ fn patterns(value: Written) -> Result<Patterns, String> {
                 Some(rest) => (true, rest),
                 None => (false, pattern.as_str()),
             };
-            GlobBuilder::new(from_root(rest))
-                .literal_separator(true)
-                .build()
-                .map(|glob| Pattern {
-                    negated,
-                    glob: glob.compile_matcher(),
-                    by_name: !negated && !pattern.contains('/'),
-                })
-                .map_err(|error| format!("holds a pattern that does not read: {error}"))
+            Ok(Pattern {
+                negated,
+                glob: joined(base, rest).as_deref().map(glob).transpose()?,
+                by_name: if negated {
+                    None
+                } else {
+                    Some(glob(from_root(rest))?)
+                },
+            })
         })
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<_, String>>()?;
     Ok(Patterns { written, built })
 }
 
@@ -564,7 +614,7 @@ pub fn pinned(text: &str) -> Result<Pinned, String> {
                 let files = Written::take(&mut entry, "files")
                     .ok_or_else(|| format!("`{at}` has no `files`"))?;
                 let patterns =
-                    patterns(files).map_err(|reason| format!("`{at}.files` {reason}"))?;
+                    patterns(files, &[]).map_err(|reason| format!("`{at}.files` {reason}"))?;
                 Ok((patterns, layer(entry, &format!("{at}."))?))
             })
             .collect::<Result<_, _>>()?,
@@ -910,7 +960,8 @@ impl Found<'_> {
             ));
             return None;
         };
-        let patterns = match patterns(files) {
+        let base = self.file.segments();
+        let patterns = match patterns(files, &base[..base.len().saturating_sub(1)]) {
             Ok(patterns) => patterns,
             Err(reason) => {
                 self.problem(&format!(

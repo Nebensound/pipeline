@@ -495,6 +495,100 @@ fn the_patterns_of_an_entry_are_read_as_stylelint_reads_them() {
     assert_eq!(matched("web/site.css"), [false, false, false, true]);
 }
 
+/// Whether each pattern, alone in an entry of `overrides` in `file`, matches
+/// each of `stylesheets`.
+fn each_pattern_matches(file: &str, patterns: &[&str], stylesheets: &[&str]) -> Vec<Vec<bool>> {
+    let entries: Vec<String> = patterns
+        .iter()
+        .map(|pattern| format!("{{ \"files\": {}, \"rules\": {{}} }}", json!(pattern)))
+        .collect();
+    let (handed, problems) = configured(&[(
+        file,
+        &format!("{{ \"overrides\": [{}] }}", entries.join(", ")),
+    )]);
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(handed.overrides.len(), patterns.len());
+    handed
+        .overrides
+        .iter()
+        .map(|entry| {
+            stylesheets
+                .iter()
+                .map(|stylesheet| entry.patterns.matches(stylesheet))
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn the_patterns_of_a_file_in_config_are_read_from_that_folder() {
+    // As Stylelint 18.0.0 matches them when it finds the file itself, so an
+    // editor and the check agree: each pattern is joined onto `.config`.
+    let matched = each_pattern_matches(
+        ".config/stylelintrc.json",
+        &[
+            "web/*.css",
+            "../web/*.css",
+            // A pattern matches the file's name as well, so this one matches
+            // in any folder.
+            "**/site.css",
+            // Above the root, a pattern matches no file there, and with `!`
+            // every file.
+            "../../web/*.css",
+            "!../../web/*.css",
+            // A pattern that starts with `/` is a path of its own.
+            "/web/*.css",
+        ],
+        &["web/site.css", ".config/web/site.css"],
+    );
+    assert_eq!(
+        matched,
+        [
+            [false, true],
+            [true, false],
+            [true, true],
+            [false, false],
+            [true, true],
+            [false, false],
+        ]
+    );
+}
+
+#[test]
+fn a_pattern_that_does_not_read_fails_even_where_it_climbs_above_the_root() {
+    // Joined onto the root it names no file there, and it still matches a
+    // file's name, so it has to read.
+    let (handed, problems) = configured(&[(
+        ".stylelintrc.json",
+        "{ \"overrides\": [{ \"files\": \"../[\", \"rules\": {} }] }",
+    )]);
+    assert!(handed.overrides.is_empty());
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(
+        problems[0]
+            .message
+            .starts_with("`overrides[0].files` holds a pattern that does not read: "),
+        "{problems:?}"
+    );
+}
+
+#[test]
+fn a_pattern_is_joined_onto_its_folder_as_node_joins_paths() {
+    let matched = each_pattern_matches(
+        ".stylelintrc.json",
+        &["web/../site.css", "web//./site.css", "web/"],
+        &["site.css", "web/site.css", "web"],
+    );
+    assert_eq!(
+        matched,
+        [
+            [true, false, false],
+            [false, true, false],
+            [false, false, false],
+        ]
+    );
+}
+
 #[test]
 fn the_rules_of_a_file_are_laid_as_stylelint_lays_them() {
     let default = pinned(

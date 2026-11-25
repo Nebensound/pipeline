@@ -1433,11 +1433,13 @@ A difference by pattern is an entry of `overrides` with `files` and `rules`,
 and `name` for a label; any other key in an entry fails by name, so a pattern
 can carry rules and nothing else. Every entry whose `files` match a stylesheet
 counts for it, in their order, each laid over the rules before it, as
-Stylelint 18.0.0 matches them: over the path from the root, where `*` stops at a
-`/` and `**` does not, a leading `./` is taken off, a pattern without a `/`
-matches the file's name in any folder as well, and a pattern with a leading `!`
-matches every path its pattern does not, so beside other patterns it takes
-nothing back.
+Stylelint 18.0.0 matches them: from the folder of the file that holds them, so
+from the root for `.stylelintrc*` and from `.config` for `.config/stylelintrc*`
+(where `../web/*.css` names `web/*.css` at the root), with `.`, `..` and a
+leading `./` worked out as Node's `path.join` does. `*` stops at a `/` and `**`
+does not, a pattern also matches the file's name alone, so one without a `/`
+matches in any folder, and a pattern with a leading `!` matches every path its
+pattern does not, so beside other patterns it takes nothing back.
 
 ```yaml
 rules:
