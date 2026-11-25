@@ -20,7 +20,6 @@ use std::io::Write as _;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use nebensound_repo::Register;
@@ -33,15 +32,8 @@ use nebensound_repo::run::python::{self, coverage, pyright, pytest, ruff, wheel}
 use nebensound_repo::run::{self, Check, Context, Packages};
 use nebensound_repo::setup::{Environment, fetch, find};
 use serde_json::{Value, json};
+use support::program::executable;
 use tempfile::TempDir;
-
-/// Held by every test of this file that starts programs: Linux refuses to
-/// start a file another process holds open for writing ("Text file busy").
-static ALONE: Mutex<()> = Mutex::new(());
-
-fn alone() -> MutexGuard<'static, ()> {
-    ALONE.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 /// What every program starts with: where the fixture is, a note of the call,
 /// and whether the call fails.
@@ -155,12 +147,6 @@ cat "$here/pyright.json" 2>/dev/null || echo '{"generalDiagnostics": [], "summar
 exit "$(cat "$here/pyright-status" 2>/dev/null || echo 0)"
 "#;
 
-fn executable(file: &Path, script: &str) {
-    fs::create_dir_all(file.parent().unwrap()).unwrap();
-    fs::write(file, script).unwrap();
-    fs::set_permissions(file, fs::Permissions::from_mode(0o755)).unwrap();
-}
-
 fn path(text: &str) -> RelativePath {
     RelativePath::new(text).unwrap()
 }
@@ -219,7 +205,7 @@ impl Fixture {
             ("python", PYTHON),
         ] {
             let head = HEAD.replace("@HERE@", &here.to_string_lossy());
-            executable(&bin.join(name), &format!("{head}{script}"));
+            executable(&bin.join(name), format!("{head}{script}"));
         }
         for dir in ["tmp", "cache", "repo", "utilities", "serve"] {
             fs::create_dir_all(here.join(dir)).unwrap();
@@ -430,7 +416,6 @@ const ALL: [&str; 9] = [
 
 #[test]
 fn every_step_runs_in_its_order_and_hands_no_tool_an_excluded_file() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let (code, text) = fixture.run();
     assert_eq!(code, 0, "{text}");
@@ -536,7 +521,6 @@ fn every_step_runs_in_its_order_and_hands_no_tool_an_excluded_file() {
 
 #[test]
 fn outside_a_workflow_run_findings_are_plain_lines() {
-    let _alone = alone();
     let mut fixture = Fixture::new();
     fixture.workflow = false;
     fixture.mark(
@@ -553,7 +537,6 @@ fn outside_a_workflow_run_findings_are_plain_lines() {
 
 #[test]
 fn a_unit_without_a_tracked_manifest_or_without_a_python_file() {
-    let _alone = alone();
     let mut fixture = Fixture::new();
     fixture.tracked.retain(|file| file != "pyproject.toml");
     let (code, text) = fixture.run();
@@ -578,7 +561,6 @@ fn a_unit_without_a_tracked_manifest_or_without_a_python_file() {
 
 #[test]
 fn a_unit_below_the_root_finds_its_workspace_and_its_configurations_above_it() {
-    let _alone = alone();
     let mut fixture = Fixture::new();
     fixture.unit = "service";
     fixture.files = vec!["service/app.py".to_owned()];
@@ -647,7 +629,6 @@ fn a_unit_below_the_root_finds_its_workspace_and_its_configurations_above_it() {
 
 #[test]
 fn the_programs_have_to_be_there() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fs::remove_file(fixture.here().join("bin/pyright")).unwrap();
     let (code, text) = fixture.run();
@@ -699,7 +680,6 @@ fn the_programs_have_to_be_there() {
 
 #[test]
 fn the_interpreter_comes_from_a_pin_beside_a_lockfile() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fs::remove_file(fixture.root().join("uv.lock")).unwrap();
     let (code, text) = fixture.run();
@@ -753,7 +733,6 @@ fn the_interpreter_comes_from_a_pin_beside_a_lockfile() {
 
 #[test]
 fn ruff_configurations_that_cannot_be_laid_over_the_default() {
-    let _alone = alone();
     for (files, finding) in [
         (
             vec![("ruff.toml", "extend = \"missing.toml\"\n")],
@@ -833,7 +812,6 @@ fn ruff_configurations_that_cannot_be_laid_over_the_default() {
 
 #[test]
 fn ruff_configuration_that_cannot_be_written() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.mark("lock-folder", "");
     let (code, text) = fixture.run();
@@ -849,7 +827,6 @@ fn ruff_configuration_that_cannot_be_written() {
 
 #[test]
 fn ruff_that_reports_nothing_readable_fails_by_name() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture
         .mark("ruff-format.json", "not json")
@@ -917,7 +894,6 @@ fn ruff_that_reports_nothing_readable_fails_by_name() {
 
 #[test]
 fn the_project_that_does_not_install_leaves_out_what_needs_it() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.fail(&["uv sync"]);
     let (code, text) = fixture.run();
@@ -932,7 +908,6 @@ fn the_project_that_does_not_install_leaves_out_what_needs_it() {
 
 #[test]
 fn pyright_lowered_and_its_findings() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let root = fixture.root();
     fixture
@@ -1008,7 +983,6 @@ fn pyright_lowered_and_its_findings() {
 
 #[test]
 fn a_file_pyright_leaves_out_is_named() {
-    let _alone = alone();
     let mut fixture = Fixture::new();
     fixture.files.push(".typings/extra.pyi".to_owned());
     fixture.file(".typings/extra.pyi", "");
@@ -1039,7 +1013,6 @@ fn a_file_pyright_leaves_out_is_named() {
 
 #[test]
 fn pyright_that_cannot_run_or_read_its_configuration() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.file("pyrightconfig.json", "[1]");
     let (code, text) = fixture.run();
@@ -1127,7 +1100,6 @@ fn pyright_that_cannot_run_or_read_its_configuration() {
 
 #[test]
 fn tests_that_fail_are_named_on_their_files() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let root = fixture.root();
     fixture
@@ -1170,7 +1142,6 @@ fn tests_that_fail_are_named_on_their_files() {
 
 #[test]
 fn tests_that_name_nothing_say_why_by_the_exit_status() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.mark("pytest-status", "5");
     let (code, text) = fixture.run();
@@ -1205,7 +1176,6 @@ fn tests_that_name_nothing_say_why_by_the_exit_status() {
 
 #[test]
 fn coverage_names_every_line_and_branch_and_every_file_it_did_not_measure() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let root = fixture.root();
     fixture
@@ -1250,7 +1220,6 @@ fn coverage_names_every_line_and_branch_and_every_file_it_did_not_measure() {
 
 #[test]
 fn coverage_that_recorded_or_reported_nothing() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.unmark("coverage-data");
     let (code, text) = fixture.run();
@@ -1283,7 +1252,6 @@ fn coverage_that_recorded_or_reported_nothing() {
 
 #[test]
 fn the_wheel_is_installed_and_tried() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.mark("broken", "sample\n");
     let (code, text) = fixture.run();
@@ -1340,7 +1308,6 @@ fn the_wheel_is_installed_and_tried() {
 
 #[test]
 fn a_wheel_that_cannot_be_built() {
-    let _alone = alone();
     for (manifest, finding) in [
         (
             "[project]\nname = \"sample\"\n",
@@ -1452,7 +1419,6 @@ fn a_wheel_that_cannot_be_built() {
 
 #[test]
 fn the_folder_of_the_check_has_to_be_made() {
-    let _alone = alone();
     let mut fixture = Fixture::new();
     fixture.temp = fixture.here().join("missing");
     let (code, text) = fixture.run();

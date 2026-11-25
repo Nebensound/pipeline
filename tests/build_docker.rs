@@ -20,9 +20,7 @@ use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _;
 use std::fs;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use nebensound_repo::Register;
@@ -36,16 +34,8 @@ use nebensound_repo::repository::Repository;
 use nebensound_repo::setup::Environment;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
-use support::{Git, call_with};
+use support::{Git, call_with, program::executable};
 use tempfile::TempDir;
-
-/// Held by every test of this file that starts the programs below: Linux
-/// refuses to start a file another process holds open for writing.
-static ALONE: Mutex<()> = Mutex::new(());
-
-fn alone() -> MutexGuard<'static, ()> {
-    ALONE.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 /// Whether a call fails: a line of the fixture's `fail` file is part of what
 /// it was called with. Every call is also written to the file `calls`.
@@ -113,12 +103,6 @@ case "$1" in
 esac
 exit 0
 "#;
-
-fn executable(file: &Path, script: &str) {
-    fs::create_dir_all(file.parent().unwrap()).unwrap();
-    fs::write(file, script).unwrap();
-    fs::set_permissions(file, fs::Permissions::from_mode(0o755)).unwrap();
-}
 
 fn sha256(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
@@ -268,11 +252,8 @@ impl Fixture {
     fn new() -> Self {
         let base = tempfile::tempdir().unwrap();
         let bin = base.path().join("bin");
-        executable(
-            &bin.join("docker"),
-            &format!("#!/bin/sh\n{FAILING}{DOCKER}"),
-        );
-        executable(&bin.join("trivy"), &format!("#!/bin/sh\n{FAILING}{TRIVY}"));
+        executable(&bin.join("docker"), format!("#!/bin/sh\n{FAILING}{DOCKER}"));
+        executable(&bin.join("trivy"), format!("#!/bin/sh\n{FAILING}{TRIVY}"));
         let utilities = base.path().join("utilities");
         fs::create_dir_all(&utilities).unwrap();
         let computer = std::env::var_os("PATH").unwrap_or_default();
@@ -524,7 +505,6 @@ fn the_artifact_carries_the_path_encoded_the_version_and_the_commit() {
 
 #[test]
 fn every_step_runs_in_its_order_and_names_the_image() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let run = Run::new(&fixture);
     let (code, text) = run.go(&fixture);
@@ -650,7 +630,6 @@ fn removed_and_handed_on(fixture: &Fixture, dir: &Path, artifact: &str) {
 
 #[test]
 fn the_repository_itself_is_named_after_the_folder_outside_a_workflow_run() {
-    let _alone = alone();
     let fixture = Fixture::new();
     // An image without a volume, and a scan that leaves the files behind.
     let mut layout = Layout::new();
@@ -707,7 +686,6 @@ fn the_repository_itself_is_named_after_the_folder_outside_a_workflow_run() {
 
 #[test]
 fn what_keeps_the_image_from_being_found_is_named() {
-    let _alone = alone();
     let fixture = Fixture::new();
     // No Dockerfile at the unit.
     let mut run = Run::new(&fixture);
@@ -780,7 +758,6 @@ fn what_keeps_the_image_from_being_found_is_named() {
 
 #[test]
 fn the_first_docker_call_that_fails_ends_the_build() {
-    let _alone = alone();
     for (pattern, step) in [
         ("docker version", "Start a builder of its own"),
         ("buildx version", "Start a builder of its own"),
@@ -810,7 +787,6 @@ fn the_first_docker_call_that_fails_ends_the_build() {
 
 #[test]
 fn a_build_that_leaves_no_layout_or_a_broken_one_fails() {
-    let _alone = alone();
     let run = layout_fails;
     // No layout at all.
     let fixture = Fixture::new();
@@ -867,7 +843,6 @@ fn a_build_that_leaves_no_layout_or_a_broken_one_fails() {
 
 #[test]
 fn a_layout_whose_files_are_not_what_their_digests_name_fails() {
-    let _alone = alone();
     let run = layout_fails;
     let missing = format!("sha256:{}", "0".repeat(64));
     run(
@@ -969,7 +944,6 @@ fn a_layout_whose_files_are_not_what_their_digests_name_fails() {
 
 #[test]
 fn an_image_without_a_health_check_is_not_started() {
-    let _alone = alone();
     for test in [Value::Null, json!([]), json!(["NONE"]), json!("CMD true")] {
         let fixture = Fixture::new();
         let mut layout = Layout::new();
@@ -989,7 +963,6 @@ fn an_image_without_a_health_check_is_not_started() {
 
 #[test]
 fn the_loaded_image_has_to_be_the_one_the_layout_names() {
-    let _alone = alone();
     // Docker names no image.
     let fixture = Fixture::new();
     fixture.mark("loaded", "something else\n");
@@ -1035,7 +1008,6 @@ fn the_loaded_image_has_to_be_the_one_the_layout_names() {
 
 #[test]
 fn an_image_that_never_becomes_healthy_shows_its_log() {
-    let _alone = alone();
     // Docker reports it unhealthy.
     let fixture = Fixture::new();
     fixture.mark("states", "running starting\nrunning unhealthy\n");
@@ -1113,7 +1085,6 @@ fn an_image_that_never_becomes_healthy_shows_its_log() {
 
 #[test]
 fn an_image_that_runs_as_root_fails_whatever_name_its_user_has() {
-    let _alone = alone();
     let unreadable = "::error::The user of the container of 'api' cannot be read from the host.";
     let cases: [(&str, &str, Option<&str>, &str); 12] = [
         // Root inside the container, as the uid_map shows it.
@@ -1186,7 +1157,6 @@ fn an_image_that_runs_as_root_fails_whatever_name_its_user_has() {
 
 #[test]
 fn the_scan_names_every_vulnerability_with_a_fixed_version() {
-    let _alone = alone();
     let fixture = Fixture::new();
     fixture.mark(
         "report",
@@ -1248,7 +1218,6 @@ fn the_scan_names_every_vulnerability_with_a_fixed_version() {
 
 #[test]
 fn a_register_without_the_pinned_images_or_programs_starts_nothing() {
-    let _alone = alone();
     let source = nebensound_repo::register::BUILTIN_REGISTER
         .replace("images        = [\"buildkit\"]\n", "")
         .replace("[image.buildkit]", "[image.other]")
@@ -1286,7 +1255,6 @@ fn a_register_without_the_pinned_images_or_programs_starts_nothing() {
 
 #[test]
 fn outputs_that_cannot_be_written_fail_the_build_at_its_end() {
-    let _alone = alone();
     let fixture = Fixture::new();
     let mut run = Run::new(&fixture);
     run.variables.insert(
@@ -1305,7 +1273,6 @@ fn outputs_that_cannot_be_written_fail_the_build_at_its_end() {
 
 #[test]
 fn the_call_takes_the_version_from_the_plan_or_the_history() {
-    let _alone = alone();
     let fixture = Fixture::new();
     // Neither machine gets past Docker here: elsewhere than on an x86_64
     // Linux the build refuses, and there `docker version` fails.

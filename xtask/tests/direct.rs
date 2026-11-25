@@ -8,7 +8,7 @@ mod support;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use support::{Scene, write};
+use support::{Scene, program::executable, write};
 use xtask::Setup;
 use xtask::cases::{self, Case, Direct, Expect};
 
@@ -153,21 +153,13 @@ case "$1" in
 esac
 "#;
 
-fn script(path: &Path, body: &str) {
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, body).unwrap();
-    let mut permissions = fs::metadata(path).unwrap().permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
-    fs::set_permissions(path, permissions).unwrap();
-}
-
 /// A stand-in for `cargo` that names `tool` as the executable it built,
 /// among messages of other kinds, and exits with `code`.
 fn cargo(scene: &Scene, tool: &Path, code: u8) -> PathBuf {
     let path = scene.path().join(format!("cargo-{code}"));
-    script(
+    executable(
         &path,
-        &format!(
+        format!(
             "#!/bin/sh\necho \"$*\" > \"$(dirname \"$0\")/built\"\n\
              echo 'warning: from cargo' >&2\necho 'no JSON'\n\
              echo '{{\"reason\":\"compiler-artifact\",\"target\":{{\"name\":\"other\"}},\"executable\":\"/x\"}}'\n\
@@ -237,11 +229,10 @@ fn call(args: &[&str], setup: &Setup) -> (u8, String) {
 
 #[test]
 fn the_cases_of_a_block_from_the_tool_run_through_the_tool() {
-    let _alone = support::alone();
     let scene = Scene::new();
     let root = repository(&scene);
     let tool = scene.path().join("nebensound-repo");
-    script(&tool, NEBENSOUND_REPO);
+    executable(&tool, NEBENSOUND_REPO);
     let setup = setup(&root, scene.path(), cargo(&scene, &tool, 0));
 
     let (code, out) = call(&["check", "--all"], &setup);
@@ -318,11 +309,10 @@ fn the_cases_of_a_block_from_the_tool_run_through_the_tool() {
 
 #[test]
 fn on_github_actions_the_setup_may_install_a_runtime() {
-    let _alone = support::alone();
     let scene = Scene::new();
     let root = repository(&scene);
     let tool = scene.path().join("nebensound-repo");
-    script(&tool, NEBENSOUND_REPO);
+    executable(&tool, NEBENSOUND_REPO);
     let mut setup = setup(&root, scene.path(), cargo(&scene, &tool, 0));
     setup.env.push(("GITHUB_ACTIONS".into(), "true".into()));
 
@@ -383,12 +373,11 @@ fn without(root: &Path, name: &str) {
 
 #[test]
 fn when_every_case_holds_nothing_is_reported() {
-    let _alone = support::alone();
     let scene = Scene::new();
     let root = repository(&scene);
     without(&root, "demo");
     let tool = scene.path().join("nebensound-repo");
-    script(&tool, NEBENSOUND_REPO);
+    executable(&tool, NEBENSOUND_REPO);
 
     let (code, out) = call(
         &["check", "--all"],
@@ -423,12 +412,11 @@ fn when_every_case_holds_nothing_is_reported() {
 
 #[test]
 fn a_disagreement_of_the_layout_alone_fails_the_run() {
-    let _alone = support::alone();
     let scene = Scene::new();
     let root = repository(&scene);
     without(&root, "demo");
     let tool = scene.path().join("nebensound-repo");
-    script(&tool, NEBENSOUND_REPO);
+    executable(&tool, NEBENSOUND_REPO);
     // Every case holds; only the block's step carries a key a block's step
     // may not carry.
     write(
@@ -463,7 +451,6 @@ fn a_disagreement_of_the_layout_alone_fails_the_run() {
 
 #[test]
 fn without_a_block_from_the_tool_no_tool_is_built() {
-    let _alone = support::alone();
     let scene = Scene::new();
     let root = repository(&scene);
     without(&root, "json");
@@ -485,11 +472,10 @@ fn without_a_block_from_the_tool_no_tool_is_built() {
 
 #[test]
 fn without_a_tool_no_case_of_a_block_from_the_tool_runs() {
-    let _alone = support::alone();
     let scene = Scene::new();
     let root = repository(&scene);
     let tool = scene.path().join("nebensound-repo");
-    script(&tool, NEBENSOUND_REPO);
+    executable(&tool, NEBENSOUND_REPO);
 
     // Cargo fails.
     let (code, out) = call(
@@ -507,7 +493,7 @@ fn without_a_tool_no_case_of_a_block_from_the_tool_runs() {
 
     // Cargo names nothing it built.
     let silent = scene.path().join("silent-cargo");
-    script(&silent, "#!/bin/sh\nexit 0\n");
+    executable(&silent, "#!/bin/sh\nexit 0\n");
     let (code, out) = call(&["check", "--all"], &setup(&root, scene.path(), silent));
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("::error::Cargo built no tool"), "{out}");
@@ -545,7 +531,6 @@ fn without_a_tool_no_case_of_a_block_from_the_tool_runs() {
 
 #[test]
 fn a_case_that_breaks_off_cannot_be_run() {
-    let _alone = support::alone();
     let scene = Scene::new();
     let env = xtask::process::environment(std::env::vars_os().collect());
     let git = "git".into();
@@ -558,7 +543,7 @@ fn a_case_that_breaks_off_cannot_be_run() {
         let dir = scene.path().join(format!("case-{marker}"));
         write(&dir, &[(marker, "")]);
         let tool = scene.path().join(format!("tool-{marker}"));
-        script(&tool, NEBENSOUND_REPO);
+        executable(&tool, NEBENSOUND_REPO);
         let case = Case {
             name: marker.to_owned(),
             dir,
@@ -614,7 +599,7 @@ fn a_case_that_breaks_off_cannot_be_run() {
     // hands it to the block; one that does not takes none.
     // A case whose directory is gone cannot be copied.
     let tool = scene.path().join("tool-gone");
-    script(&tool, NEBENSOUND_REPO);
+    executable(&tool, NEBENSOUND_REPO);
     let bench = Direct {
         tool: &tool,
         root: &root,
@@ -690,7 +675,7 @@ impl Blocks {
         let files: Vec<(&str, &str)> = markers.iter().map(|marker| (*marker, "")).collect();
         write(&dir, &files);
         let tool = self.scene.path().join("tool");
-        script(&tool, NEBENSOUND_REPO);
+        executable(&tool, NEBENSOUND_REPO);
         let case = Case {
             name: "case".to_owned(),
             dir,
@@ -714,7 +699,6 @@ impl Blocks {
 
 #[test]
 fn a_version_writer_from_the_tool_writes_once_with_the_plan() {
-    let _alone = support::alone();
     let blocks = Blocks::new();
     // The version writer writes once, with the plan.
     let (verdict, out) = blocks.run(&["versioned"], "version-cargo", Expect::Pass);
@@ -746,7 +730,6 @@ fn a_version_writer_from_the_tool_writes_once_with_the_plan() {
 
 #[test]
 fn a_build_from_the_tool_runs_after_the_writers_of_its_unit() {
-    let _alone = support::alone();
     let blocks = Blocks::new();
     // A build runs once per unit with a version of the run, after the
     // writers that unit selects, and only when they passed.
@@ -825,7 +808,6 @@ fn a_build_from_the_tool_runs_after_the_writers_of_its_unit() {
 
 #[test]
 fn a_writer_or_a_block_the_tool_does_not_know_cannot_be_run() {
-    let _alone = support::alone();
     let blocks = Blocks::new();
     // A writer the tool does not write for, and a block of no known kind,
     // cannot be run.
@@ -874,11 +856,10 @@ fn a_writer_or_a_block_the_tool_does_not_know_cannot_be_run() {
 
 #[test]
 fn a_block_from_the_tool_with_a_stray_case_stops_the_run() {
-    let _alone = support::alone();
     let scene = Scene::new();
     let root = repository(&scene);
     let tool = scene.path().join("nebensound-repo");
-    script(&tool, NEBENSOUND_REPO);
+    executable(&tool, NEBENSOUND_REPO);
     write(
         &root,
         &[(".github/actions/check-json/tests/pass/stray", "")],
@@ -896,12 +877,11 @@ fn a_block_from_the_tool_with_a_stray_case_stops_the_run() {
 
 #[test]
 fn a_version_writer_needs_no_programs_set_up_and_a_build_gets_its_own() {
-    let _alone = support::alone();
     let scene = Scene::new();
     let env = Vec::new();
     let git = "git".into();
     let tool = scene.path().join("tool");
-    script(&tool, NEBENSOUND_REPO);
+    executable(&tool, NEBENSOUND_REPO);
     let root = repository(&scene);
     let bench = Direct {
         tool: &tool,

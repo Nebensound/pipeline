@@ -10,7 +10,6 @@ use xtask::process;
 
 #[test]
 fn a_call_of_the_tool_gets_only_what_a_runner_step_has_too() {
-    let _alone = support::alone();
     let vars: Vec<(OsString, OsString)> = [
         "PATH",
         "HOME",
@@ -57,7 +56,6 @@ fn a_call_of_the_tool_gets_only_what_a_runner_step_has_too() {
 
 #[test]
 fn outside_cargo_leaves_out_what_would_steer_cargo() {
-    let _alone = support::alone();
     let vars: Vec<(OsString, OsString)> = [
         "PATH",
         "HOME",

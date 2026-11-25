@@ -32,7 +32,7 @@ use nebensound_repo::repository::{Records, Repository};
 use nebensound_repo::setup::find;
 use nebensound_repo::{TagVersion, UnitName, UnitVersion};
 use serde_json::{Value, json};
-use support::{Git, QUIET, central, repository};
+use support::{Git, QUIET, central, program::executable, repository};
 use tempfile::TempDir;
 
 /// The token the tests hand the stage.
@@ -574,7 +574,7 @@ fn every_call_carries_the_token_and_no_command_line_shows_it() {
         .expect("curl is installed");
     executable(
         &bin.path().join("curl"),
-        &format!(
+        format!(
             "#!/bin/sh\necho \"$@\" >> '{}'\nexec '{}' \"$@\"\n",
             calls.display(),
             curl.display()
@@ -2475,7 +2475,7 @@ fn a_git_that_fails_on_the_records_is_named() {
         let fake = bin.path().join("git");
         executable(
             &fake,
-            &format!(
+            format!(
                 "#!/bin/sh\nfor argument in \"$@\"; do\n  case \"$argument\" in\n                     *'{word}'*) echo 'refused' >&2; exit 128 ;;\n  esac\ndone\nexec '{}' \"$@\"\n",
                 real.display()
             ),
@@ -2703,9 +2703,4 @@ fn the_call_writes_its_summary_where_the_run_says() {
             .starts_with("### The release stage on main\n"),
         "the summary"
     );
-}
-
-fn executable(file: &Path, text: &str) {
-    fs::write(file, text).expect("a file");
-    fs::set_permissions(file, fs::Permissions::from_mode(0o755)).expect("executable");
 }

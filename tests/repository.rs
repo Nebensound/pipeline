@@ -244,28 +244,16 @@ fn without_a_git_program_there_is_no_history_either() {
 }
 
 /// A git that refuses every call naming `word` and passes every other one on.
-///
-/// Written by a shell rather than by this process: a file this process held
-/// open for writing could be inherited by a process another test starts at
-/// that moment, and running it would then fail as busy.
 #[cfg(unix)]
 fn refusing(dir: &std::path::Path, word: &str) -> std::path::PathBuf {
     let path = dir.join(format!("git-refusing-{}", word.len()));
-    let script = format!(
-        "#!/bin/sh\nfor argument in \"$@\"; do\n  if [ \"$argument\" = '{word}' ]; then\n    \
-         echo 'refused {word}' >&2\n    exit 3\n  fi\ndone\nexec git \"$@\"\n"
+    support::program::executable(
+        &path,
+        format!(
+            "#!/bin/sh\nfor argument in \"$@\"; do\n  if [ \"$argument\" = '{word}' ]; then\n    \
+             echo 'refused {word}' >&2\n    exit 3\n  fi\ndone\nexec git \"$@\"\n"
+        ),
     );
-    let status = std::process::Command::new("sh")
-        .args([
-            "-c",
-            "printf '%s' \"$2\" > \"$1\" && chmod 755 \"$1\"",
-            "sh",
-        ])
-        .arg(&path)
-        .arg(script)
-        .status()
-        .expect("a shell");
-    assert!(status.success());
     path
 }
 

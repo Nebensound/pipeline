@@ -15,11 +15,12 @@ mod support;
 
 use std::ffi::OsStr;
 use std::fs;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use support::Scene;
+use support::program::executable;
 use yaml_rust2::YamlLoader;
 
 /// The commit the workflow runs at in every case.
@@ -58,13 +59,6 @@ fn found(program: &str) -> Option<PathBuf> {
     std::env::split_paths(&std::env::var_os("PATH").unwrap())
         .map(|dir| dir.join(program))
         .find(|path| path.is_file())
-}
-
-/// Writes a stand-in program.
-fn program(path: &Path, text: &str) {
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, text).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 /// Git: `ls-remote` prints the tags the case names, or fails.
@@ -141,7 +135,6 @@ impl Case {
 
     /// Runs the step.
     fn run(self) -> Outcome {
-        let _alone = support::alone();
         let scene = Scene::new();
         let dir = scene.path();
         let fakes = dir.join("fakes");
@@ -150,9 +143,9 @@ impl Case {
         let temp = dir.join("temp");
         fs::create_dir_all(&tools).unwrap();
         fs::create_dir_all(&temp).unwrap();
-        program(&fakes.join("git"), GIT);
-        program(&fakes.join("curl"), CURL);
-        program(&gh.join("gh"), GH);
+        executable(&fakes.join("git"), GIT);
+        executable(&fakes.join("curl"), CURL);
+        executable(&gh.join("gh"), GH);
         for name in ["tar", "gzip", "mkdir", "cat"] {
             if let Some(path) = found(name) {
                 symlink(path, tools.join(name)).unwrap();

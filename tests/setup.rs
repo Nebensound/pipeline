@@ -28,7 +28,7 @@ use nebensound_repo::programs::{Algorithm, Installer, Platform};
 use nebensound_repo::setup::{self, Environment, Mode, Options, fetch, find, install, unpack};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use sha2::Digest as _;
-use support::{Git, QUIET, call, repository};
+use support::{Git, QUIET, call, program::executable, repository};
 use tempfile::TempDir;
 
 /// A computer without programs, a folder of downloads, and a cache.
@@ -81,12 +81,14 @@ impl Fixture {
 
 /// Held by every test of this file for as long as it runs.
 ///
-/// These tests write programs from this process and then start them: the
-/// helper [`executable`] does, and so does `setup::run` when it unpacks a
-/// download. A process another test starts while such a file is open for
-/// writing inherits it until it has started its own program, and Linux then
-/// refuses to run the file as busy ("Text file busy"). With one test at a time
-/// no other test starts a process during a write.
+/// The code of `setup` these tests call unpacks a download into a program
+/// from this process and then starts it, as the tool does in a run of its own.
+/// A process another test starts while that file is open for writing inherits
+/// it until it has started its own program, and Linux then refuses to run the
+/// file as busy ("Text file busy"). With one test at a time no other test
+/// starts a process during that write. The stand-ins the tests write
+/// themselves need no lock: [`executable`] has a process of its own write
+/// them.
 static ALONE: Mutex<()> = Mutex::new(());
 
 /// Waits until no other test of this file runs. A test that failed while it
@@ -94,15 +96,6 @@ static ALONE: Mutex<()> = Mutex::new(());
 /// its poison is ignored.
 fn alone() -> MutexGuard<'static, ()> {
     ALONE.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
-/// Puts an executable file with these bytes at `file`.
-fn executable(file: &Path, bytes: &[u8]) {
-    if let Some(parent) = file.parent() {
-        fs::create_dir_all(parent).expect("a folder");
-    }
-    fs::write(file, bytes).expect("a file");
-    fs::set_permissions(file, fs::Permissions::from_mode(0o755)).expect("executable");
 }
 
 /// A program that prints this line, whatever it is asked.
