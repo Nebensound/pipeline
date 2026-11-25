@@ -431,13 +431,14 @@ fn without_a_visibility_in_the_event_github_is_asked() {
         "GitHub answered GET the repository without `visibility`\n"
     );
 
-    // A call that fails stops phase 0 before it runs.
-    let bin = curl("");
-    fs::write(
-        bin.path().join("curl"),
-        "#!/bin/sh\necho refused >&2\nexit 7\n",
-    )
-    .unwrap();
+    // A call that fails stops phase 0 before it runs. Like curl, the stand-in
+    // reads its configuration before it fails: one that ended first would
+    // leave the tool writing into a closed pipe.
+    let bin = tempfile::tempdir().unwrap();
+    executable(
+        &bin.path().join("curl"),
+        "#!/bin/sh\ncat > /dev/null\necho refused >&2\nexit 7\n",
+    );
     let path = bin.path().to_str().unwrap();
     let mut variables: Vec<(&str, &str)> = api
         .iter()
