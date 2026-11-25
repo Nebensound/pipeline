@@ -315,6 +315,13 @@ impl Repository {
         fs::read_to_string(self.checked(relative)?)
     }
 
+    /// A file as it stands in the repository, as bytes, with the same care as
+    /// [`Self::read`]: for a reader that decides itself whether the file is
+    /// text, so that it reads the file once.
+    pub(crate) fn read_bytes(&self, relative: &str) -> io::Result<Vec<u8>> {
+        fs::read(self.checked(relative)?)
+    }
+
     /// Writes a file of the repository back, with the same care as
     /// [`Self::read`]: the version writers change manifests a pull request
     /// chose, and a link among them could otherwise aim the write outside the
@@ -697,6 +704,15 @@ impl Repository {
     /// manifests take it.
     pub(crate) fn reader(&self) -> impl Fn(&RelativePath) -> Result<String, String> + '_ {
         |path: &RelativePath| self.read(&path.to_string()).map_err(|e| e.to_string())
+    }
+
+    /// [`Self::read_bytes`] as the search for markers of open tasks takes it
+    /// ([`crate::marker`]).
+    pub(crate) fn byte_reader(&self) -> impl Fn(&RelativePath) -> Result<Vec<u8>, String> + '_ {
+        |path: &RelativePath| {
+            self.read_bytes(&path.to_string())
+                .map_err(|e| e.to_string())
+        }
     }
 
     fn git_failed(&self, message: &str) -> Error {

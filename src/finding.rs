@@ -140,9 +140,18 @@ pub enum Rule {
     /// A Dependabot configuration that is missing, cannot be read, or departs
     /// from what the declaration and the policy give.
     StaleDependabot,
-    /// A decision `init` left open, marked `TODO(init)` in a file it writes,
-    /// that nobody has taken yet.
+    /// A decision `init` left open, marked in a file with the marker it
+    /// writes, that nobody has taken yet ([`crate::marker`]).
     UnresolvedInitMarker,
+    /// A marker of an open task that names no issue tracking it
+    /// ([`crate::marker`]).
+    UnreferencedMarker,
+    /// An allowance for a marker of an open task that gives no reason
+    /// ([`crate::marker`]).
+    AllowanceWithoutReason,
+    /// An allowance with no marker of an open task on its line or the line
+    /// below ([`crate::marker`]).
+    PointlessAllowance,
 }
 
 impl Rule {
@@ -190,6 +199,9 @@ impl Rule {
             Self::MissingMinimumFile => "missing-minimum-file",
             Self::StaleDependabot => "stale-dependabot",
             Self::UnresolvedInitMarker => "unresolved-init-marker",
+            Self::UnreferencedMarker => "unreferenced-marker",
+            Self::AllowanceWithoutReason => "allowance-without-reason",
+            Self::PointlessAllowance => "pointless-allowance",
         }
     }
 }
