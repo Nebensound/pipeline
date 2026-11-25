@@ -942,6 +942,34 @@ fn a_layout_whose_files_are_not_what_their_digests_name_fails() {
     );
 }
 
+/// A file of the layout is held to the SHA-256 of all of its bytes, written
+/// out here for FIPS 180-2's "abc": under that digest the file "abc" is taken
+/// as the manifest (and is no JSON), and a file one byte apart is not taken.
+#[test]
+fn a_file_of_the_layout_passes_only_under_the_digest_of_all_its_bytes() {
+    const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    for (bytes, said) in [
+        (b"abc", "' does not read as JSON: ".to_owned()),
+        (
+            b"abd",
+            format!("::error::The layout of 'api' holds no file with the digest sha256:{ABC}."),
+        ),
+    ] {
+        layout_fails(
+            &changed(move |layout| {
+                layout.index = json!({"manifests": [{
+                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                    "digest": format!("sha256:{ABC}")
+                }]});
+                layout
+                    .extra
+                    .push((format!("blobs/sha256/{ABC}"), bytes.to_vec()));
+            }),
+            &said,
+        );
+    }
+}
+
 #[test]
 fn an_image_without_a_health_check_is_not_started() {
     for test in [Value::Null, json!([]), json!(["NONE"]), json!("CMD true")] {

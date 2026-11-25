@@ -2388,6 +2388,89 @@ fn a_package_whose_folder_cannot_be_made_is_reported() {
     assert!(text.contains("  rt 4.5.6: pinned, "), "{text}");
 }
 
+/// FIPS 180-2's examples: "abc", and a million times "a", which `io::copy`
+/// hands the hash function in many pieces.
+fn known() -> [(Vec<u8>, &'static str, &'static str); 2] {
+    [
+        (
+            b"abc".to_vec(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a\
+             2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+        ),
+        (
+            vec![b'a'; 1_000_000],
+            "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0",
+            "e718483d0ce769644e2e42c7bc15b4638e1f98b13b2044285632a803afa973eb\
+             de0ff244877ea60a4cb0432ce577c31beb009c5c2c49aa2e4eadb217ad8cc09b",
+        ),
+    ]
+}
+
+#[test]
+fn the_digest_of_a_known_file_is_the_published_one() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    let file = fixture.path("server/known");
+    for (bytes, sha256, sha512) in known() {
+        fs::write(&file, bytes).expect("a file");
+        assert_eq!(
+            fetch::digest_of(&file, Algorithm::Sha256).expect("a digest"),
+            sha256
+        );
+        assert_eq!(
+            fetch::digest_of(&file, Algorithm::Sha512).expect("a digest"),
+            sha512
+        );
+    }
+}
+
+#[test]
+fn a_known_file_passes_only_against_its_whole_digest() {
+    let _alone = alone();
+    let fixture = Fixture::new();
+    let file = fixture.path("server/known");
+    for (bytes, sha256, sha512) in known() {
+        fs::write(&file, bytes).expect("a file");
+        for (algorithm, hex) in [("sha256", sha256), ("sha512", sha512)] {
+            let pinned = nebensound_repo::programs::Digest::new(&format!("{algorithm}:{hex}"))
+                .expect("a digest");
+            assert_eq!(fetch::verify(&file, "file:///known", &pinned), Ok(()));
+            // The digits with the last one changed, and with the first one
+            // changed: one digit apart at either end is another digest.
+            let last = if hex.ends_with('0') { '1' } else { '0' };
+            let first = if hex.starts_with('0') { '1' } else { '0' };
+            for other in [
+                format!("{}{last}", &hex[..hex.len() - 1]),
+                format!("{first}{}", &hex[1..]),
+            ] {
+                let pinned =
+                    nebensound_repo::programs::Digest::new(&format!("{algorithm}:{other}"))
+                        .expect("a digest");
+                let failure = fetch::verify(&file, "file:///known", &pinned).expect_err("refused");
+                assert!(
+                    failure.contains(&format!("has the digest {algorithm}:{hex},")),
+                    "{failure}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn every_byte_written_into_a_hash_function_is_taken() {
+    let _alone = alone();
+    let mut hashing = fetch::Hashing(sha2::Sha256::new());
+    assert_eq!(hashing.write(b"ab").expect("taken"), 2);
+    assert_eq!(hashing.write(b"").expect("taken"), 0);
+    assert_eq!(hashing.write(b"c").expect("taken"), 1);
+    hashing.flush().expect("flushed");
+    assert_eq!(
+        hex(&hashing.0.finalize()),
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
+}
+
 #[test]
 fn a_file_that_cannot_be_read_is_not_verified() {
     let _alone = alone();
