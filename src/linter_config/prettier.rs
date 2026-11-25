@@ -586,7 +586,7 @@ pub fn read(
 /// `.json` as plain JSON after a byte order mark, so that a comment or a
 /// trailing comma Prettier would stop at is named here too, `.json5` as
 /// JSON5, `.toml` as TOML, and the others, `.prettierrc` among them, as YAML,
-/// which takes JSON as well.
+/// which takes JSON as well, of one document.
 fn parse(file: &RelativePath, source: &str) -> Result<Data, String> {
     let name = file.file_name().unwrap_or_default();
     match name.rsplit_once('.').map(|(_, ending)| ending) {
@@ -599,9 +599,14 @@ fn parse(file: &RelativePath, source: &str) -> Result<Data, String> {
             from_json(source, &JSON)
         }
         Some("json5") => from_json(source, &JSON5),
-        _ => YamlLoader::load_from_str(source)
-            .map(|documents| documents.first().map_or(Data::Null, from_yaml))
-            .map_err(|error| error.to_string()),
+        // Prettier stops at a file of YAML with more than one document.
+        _ => match YamlLoader::load_from_str(source) {
+            Ok(documents) if documents.len() > 1 => {
+                Err("it holds more than one document".to_owned())
+            }
+            Ok(documents) => Ok(documents.first().map_or(Data::Null, from_yaml)),
+            Err(error) => Err(error.to_string()),
+        },
     }
 }
 
@@ -934,12 +939,9 @@ fn built(written: &str) -> Result<Pattern, String> {
         Some(rest) if !rest.starts_with('(') => (true, from_root(rest)),
         _ => (false, rest),
     };
-    let group = ['*', '?', '+', '@', '!']
-        .iter()
-        .any(|lead| glob.contains(&format!("{lead}(")));
-    if group {
+    if let Some(form) = unread_form(glob) {
         return Err(format!(
-            "holds `{written}`, a group, `(...)`, a form of pattern the tool does not read"
+            "holds `{written}`, {form}, a form of pattern the tool does not read"
         ));
     }
     let glob = GlobBuilder::new(glob)
@@ -953,6 +955,28 @@ fn built(written: &str) -> Result<Pattern, String> {
         negated,
         glob,
     })
+}
+
+/// The form micromatch reads in `glob` and the matcher the tool builds with
+/// would read as something else, in words; [`None`] where it holds none. A
+/// group, `(...)`, with or without `*`, `?`, `+`, `@` or `!` before it, is
+/// either of its parts to micromatch and its own text here; a class such as
+/// `[[:digit:]]` is a digit there and a set of characters here; a sequence,
+/// `{1..3}`, is expanded there and one alternative here.
+fn unread_form(glob: &str) -> Option<&'static str> {
+    if glob.contains('(') {
+        Some("a group, `(...)`")
+    } else if glob.contains("[[:") {
+        Some("a class of characters, `[[:...:]]`")
+    } else if glob
+        .split('{')
+        .skip(1)
+        .any(|after| after.split('}').next().unwrap_or(after).contains(".."))
+    {
+        Some("a sequence, `{a..b}`")
+    } else {
+        None
+    }
 }
 
 /// A pattern without the `./` it starts with, however often it is written.

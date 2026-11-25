@@ -1422,7 +1422,9 @@ gives them, each laid over the one before:
    `.prettierrc.json` (plain JSON, as Prettier reads it: no comments, no
    trailing commas), `.prettierrc.yml`, `.prettierrc.yaml`,
    `.prettierrc.json5` and `.prettierrc.toml` at the root; then every entry of
-   its `overrides` whose patterns match the file, in their order.
+   its `overrides` whose patterns match the file, in their order. A file of
+   YAML with more than one document, at which Prettier stops, fails the check
+   by name.
 
 The keys the tool carries over and refuses stand in
 [`src/linter_config/prettier.rs`](../src/linter_config/prettier.rs):
@@ -1458,12 +1460,12 @@ tool's tests until the list is read again from the new version.
 The value that changes nothing is the one Prettier takes when the key is not
 written. JavaScript holds every number as a double, and so does the tool:
 
-| Key                 | Value  | JSON    | JSON5                   | YAML                   | TOML          |
-| ------------------- | ------ | ------- | ----------------------- | ---------------------- | ------------- |
-| `requirePragma`     | false  | `false` | `false`                 | `false`                | `false`       |
-| `checkIgnorePragma` | false  | `false` | `false`                 | `false`                | `false`       |
-| `rangeStart`        | 0      | `0`     | `0`                     | `0`                    | `0`           |
-| `rangeEnd`          | no end | `1e999` | `Infinity`, `+Infinity` | `.inf`, `.Inf`, `.INF` | `inf`, `+inf` |
+| Key                 | Value  | JSON    | JSON5                   | YAML                            | TOML          |
+| ------------------- | ------ | ------- | ----------------------- | ------------------------------- | ------------- |
+| `requirePragma`     | false  | `false` | `false`                 | `false`                         | `false`       |
+| `checkIgnorePragma` | false  | `false` | `false`                 | `false`                         | `false`       |
+| `rangeStart`        | 0      | `0`     | `0`                     | `0`                             | `0`           |
+| `rangeEnd`          | no end | `1e999` | `Infinity`, `+Infinity` | `.inf`, `.Inf`, `.INF`, `+.inf` | `inf`, `+inf` |
 
 JSON has no word for a number without an end; a number too large for a
 double, such as `1e999`, is read as one, as JavaScript reads it, and JSON5 and
@@ -1475,7 +1477,10 @@ other number take effect or are no value Prettier takes, and fail by name.
 An entry of `overrides` is matched as Prettier matches it, over the path from
 the root: a pattern of `files` without a `/` matches the file's name in any
 folder, one with a `/` the whole path; `*` stops at a `/`, `**` does not;
-`excludeFiles` takes files out of the entry.
+`excludeFiles` takes files out of the entry. Three forms of pattern are not
+read, and an entry that holds one fails by name: a group, `(...)`, with or
+without `*`, `?`, `+`, `@` or `!` before it; a class such as `[[:digit:]]`; and
+a sequence such as `{1..3}`. Braces with a list, `{a,b}`, are read.
 
 ```yaml
 overrides:

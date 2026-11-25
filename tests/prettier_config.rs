@@ -463,6 +463,8 @@ fn a_file_that_holds_no_options_hands_nothing_over() {
         // TOML has no number too large for a double: `inf` is its word for no end.
         (".prettierrc.toml", "rangeEnd = 1e999\n"),
         (".prettierrc", "a: [\n"),
+        // Prettier stops at a file of YAML with more than one document.
+        (".prettierrc.yaml", "tabWidth: 4\n---\nsemi: false\n"),
     ] {
         let (handed, problems) = handed(&[(file, content)]);
         assert!(!handed.configured());
@@ -473,7 +475,18 @@ fn a_file_that_holds_no_options_hands_nothing_over() {
             "{problems:?}"
         );
     }
-    let (_, problems) = handed(&[("README.md", "")]);
+    let (_, problems) = handed(&[(".prettierrc.yml", "tabWidth: 4\n---\nsemi: false\n")]);
+    assert_eq!(
+        messages(&problems),
+        [
+            ".prettierrc.yml: cannot be read, so nothing of it is handed to Prettier: it holds more \
+             than one document"
+        ]
+    );
+    let (handed, problems) = handed(&[(".prettierrc.yml", "---\ntabWidth: 4\n")]);
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(flags(&handed, "a.json"), ["--tab-width=4"]);
+    let (_, problems) = self::handed(&[("README.md", "")]);
     assert!(problems.is_empty());
 }
 
@@ -520,11 +533,18 @@ fn the_patterns_of_an_entry_are_read_as_prettier_reads_them() {
             { "files": ["site/**"], "excludeFiles": "*.css", "options": { "semi": false } },
             { "files": "!*.yaml", "options": { "bracketSpacing": false } },
             { "files": "*.yaml" },
-            { "files": "*.md", "options": { "proseWrap": "never" } }
+            { "files": "*.md", "options": { "proseWrap": "never" } },
+            { "files": "src/{a,b}.json", "options": { "tabWidth": 4 } }
         ] }"#,
     )]);
 
     assert!(problems.is_empty(), "{problems:?}");
+    // Braces with a list of alternatives are read: either of them matches.
+    assert_eq!(
+        flags(&handed, "src/b.json"),
+        ["--bracket-spacing=false", "--tab-width=4"]
+    );
+    assert_eq!(flags(&handed, "src/c.json"), ["--bracket-spacing=false"]);
     // Without a `/`, a pattern matches the file's name in any folder; an
     // exclusion with a `/` takes nothing out of it, a path written out does.
     assert_eq!(
@@ -627,7 +647,10 @@ fn every_entry_that_cannot_be_used_is_named() {
             { "files": "+(a|b).md" },
             { "files": "[a" },
             { "files": "*.md", "options": [], "unknown": 1 },
-            { "files": "*.md", "options": { "overrides": [] } }
+            { "files": "*.md", "options": { "overrides": [] } },
+            { "files": "(foo|bar).json" },
+            { "files": "src/{1..3}.json" },
+            { "files": ["*.md", "g/[[:digit:]].json"] }
         ] }"#,
     )]);
 
@@ -653,6 +676,12 @@ fn every_entry_that_cannot_be_used_is_named() {
             ".prettierrc.json: `overrides[7].options` is not a mapping",
             ".prettierrc.json: `overrides[8].options.overrides` is not an option of Prettier \
              3.9.6 the check knows",
+            ".prettierrc.json: `overrides[9].files` holds `(foo|bar).json`, a group, `(...)`, a \
+             form of pattern the tool does not read",
+            ".prettierrc.json: `overrides[10].files` holds `src/{1..3}.json`, a sequence, \
+             `{a..b}`, a form of pattern the tool does not read",
+            ".prettierrc.json: `overrides[11].files` holds `g/[[:digit:]].json`, a class of \
+             characters, `[[:...:]]`, a form of pattern the tool does not read",
         ]
     );
     assert!(
