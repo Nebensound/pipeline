@@ -182,9 +182,9 @@ Two properties remain for that:
   It is live as [`property-pipeline.json`](property-pipeline.json) describes
   it: single select, required, values `central` and `legacy`, default
   `central`, editable by the organization, and the live description "central:
-  the repository calls the central pipeline and the three checks are required.
-  legacy: not switched yet." The description dates from the time three checks
-  were required. On 2026-11-25, 161 repositories carried it: 3 with
+  the repository calls the central pipeline and is bound by the required
+  checks. legacy: not switched yet.", which names no number of required
+  checks since 2026-11-25. On 2026-11-25, 161 repositories carried it: 3 with
   `central` (this repository and two test repositories) and 158 with
   `legacy`.
 - **`lifecycle`**: whether the repository is gated at all. Single select,

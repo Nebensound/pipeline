@@ -37,6 +37,8 @@ pub mod dependabot;
 #[cfg(feature = "ui")]
 pub mod draw;
 pub mod edit;
+#[cfg(feature = "program")]
+pub mod entry;
 pub mod files;
 pub mod finding;
 #[cfg(feature = "program")]
@@ -205,7 +207,9 @@ pub enum Command {
     /// before building.
     WriteVersions {
         /// Take the versions from a plan `nebensound-repo plan` printed, for a
-        /// checkout without the history to resolve them from.
+        /// checkout without the history to resolve them from. Without it they
+        /// are resolved from the history, for the pull request the variables
+        /// of a run name, as `declare` reads it.
         #[arg(long, value_name = "FILE")]
         plan: Option<PathBuf>,
         /// Start only from the units of the workspace Cargo finds at this
@@ -267,7 +271,8 @@ pub enum Command {
         /// The versions the rust check writes before it tests a package: from
         /// a plan `nebensound-repo plan` printed, for a checkout without the
         /// history to resolve them from. Without it they are resolved from
-        /// the history, as `plan` resolves them.
+        /// the history, as `plan` resolves them, for the pull request the
+        /// variables of a run name, as `declare` reads it.
         #[arg(long, value_name = "FILE")]
         plan: Option<PathBuf>,
         /// The check, as the register names it.
@@ -286,7 +291,8 @@ pub enum Command {
         /// image with and the build cargo-release holds the binary's
         /// `--version` to: from a plan `nebensound-repo plan` printed, for a
         /// checkout without the history to resolve it from. Without it, it is
-        /// resolved from the history, as `plan` resolves it.
+        /// resolved from the history, as `plan` resolves it, for the pull
+        /// request the variables of a run name, as `declare` reads it.
         #[arg(long, value_name = "FILE")]
         plan: Option<PathBuf>,
         /// The build, as the register names it.
@@ -343,6 +349,19 @@ pub enum Command {
     // It starts Cargo and rustup, so it is part of the feature `program`.
     #[cfg(feature = "program")]
     Xtask,
+    /// Run one entry of the check matrix the preparing job hands on, when the
+    /// plan of the commit at hand holds it: the reading checks of every unit,
+    /// one executing check in one unit, or the repository's own checks. Sets
+    /// up the programs the entry needs first. Takes the pull request from the
+    /// variables of a workflow run, as `declare` does, for a check that
+    /// writes the versions.
+    // It starts the programs of the checks, so it is part of the feature
+    // `program`.
+    #[cfg(feature = "program")]
+    Job {
+        /// The entry, as one object of JSON, as the matrix holds it.
+        entry: String,
+    },
     /// Open the interface. Only in a build with the `ui` feature.
     #[cfg(feature = "ui")]
     Ui,
@@ -621,7 +640,7 @@ fn dispatch(
     #[cfg(feature = "program")]
     if matches!(
         cli.command,
-        Some(Command::Run { .. } | Command::Build { .. })
+        Some(Command::Run { .. } | Command::Build { .. } | Command::Job { .. })
     ) && output != Output::Workflow
     {
         say(out, &format!("{}\n", run::OUTSIDE));
@@ -763,6 +782,9 @@ struct Writing {
     /// The plan to take the versions from; [`None`] resolves them from the
     /// history.
     plan: Option<PathBuf>,
+    /// Without a plan, the pull request of the run, whose squash merge the
+    /// history is read as.
+    pull_request: Option<PullRequest>,
     /// A folder of the workspace whose units start the writing; [`None`]
     /// starts from every unit.
     workspace: Option<RelativePath>,
@@ -803,23 +825,37 @@ enum Job {
     #[cfg(feature = "program")]
     Setup(setup::Options, Vec<String>),
     /// Run a check over the files it covers in a unit, with the versions of
-    /// this plan if one is given.
+    /// this plan if one is given, else those of the history, read for the
+    /// pull request of the run if there is one.
     #[cfg(feature = "program")]
     Run {
         check: run::Check,
         unit: RelativePath,
         plan: Option<PathBuf>,
+        pull_request: Option<PullRequest>,
     },
     /// Write the records of this commit's versions, with the artifacts of
     /// the run's builds in this folder if one is given.
     #[cfg(feature = "program")]
     Release(Option<PathBuf>),
-    /// Run a build of a unit, with the versions of this plan if one is given.
+    /// Run a build of a unit, with the versions of this plan if one is given,
+    /// else those of the history, read for the pull request of the run if
+    /// there is one.
     #[cfg(feature = "program")]
     Build {
         build: build::Build,
         unit: RelativePath,
         plan: Option<PathBuf>,
+        pull_request: Option<PullRequest>,
+    },
+    /// Run an entry of the check matrix, when the plan holds it; with the
+    /// whole history for one that writes the versions, read for the pull
+    /// request of the run if there is one.
+    #[cfg(feature = "program")]
+    Entry {
+        given: serde_json::Value,
+        history: bool,
+        pull_request: Option<PullRequest>,
     },
     /// Open the interface.
     #[cfg(feature = "ui")]
@@ -828,8 +864,6 @@ enum Job {
 
 /// What the call asks for, refusing a path that is not one.
 fn call(cli: &Cli, variables: &dyn Fn(&str) -> Option<String>) -> Result<Call, Failure> {
-    #[cfg(not(feature = "program"))]
-    let _ = variables;
     Ok(Call::Repository(match &cli.command {
         #[cfg(feature = "program")]
         Some(Command::Schema) => return Ok(Call::Schema),
@@ -846,6 +880,7 @@ fn call(cli: &Cli, variables: &dyn Fn(&str) -> Option<String>) -> Result<Call, F
         Some(Command::ExcludedPackages) => Job::ExcludedPackages,
         Some(Command::WriteVersions { plan, workspace }) => Job::WriteVersions(Writing {
             plan: plan.clone(),
+            pull_request: event(variables, plan.is_none())?,
             workspace: workspace.as_deref().map(path_of).transpose()?,
         }),
         Some(Command::Version {
@@ -873,23 +908,31 @@ fn call(cli: &Cli, variables: &dyn Fn(&str) -> Option<String>) -> Result<Call, F
             checks.clone(),
         ),
         #[cfg(feature = "program")]
-        Some(Command::Run { plan, check, unit }) => Job::Run {
-            check: run::Check::of(check).ok_or_else(|| Failure::NotRun {
+        Some(Command::Run { plan, check, unit }) => {
+            let check = run::Check::of(check).ok_or_else(|| Failure::NotRun {
                 check: check.clone(),
-            })?,
-            unit: path_of(unit)?,
-            plan: plan.clone(),
-        },
+            })?;
+            Job::Run {
+                check,
+                unit: path_of(unit)?,
+                plan: plan.clone(),
+                pull_request: event(variables, plan.is_none() && check.writes_versions())?,
+            }
+        }
         #[cfg(feature = "program")]
         Some(Command::Release { assets }) => Job::Release(assets.clone()),
         #[cfg(feature = "program")]
-        Some(Command::Build { plan, build, unit }) => Job::Build {
-            build: build::Build::of(build).ok_or_else(|| Failure::NotBuilt {
+        Some(Command::Build { plan, build, unit }) => {
+            let build = build::Build::of(build).ok_or_else(|| Failure::NotBuilt {
                 build: build.clone(),
-            })?,
-            unit: path_of(unit)?,
-            plan: plan.clone(),
-        },
+            })?;
+            Job::Build {
+                build,
+                unit: path_of(unit)?,
+                plan: plan.clone(),
+                pull_request: event(variables, plan.is_none() && build.takes_version())?,
+            }
+        }
         #[cfg(feature = "program")]
         Some(Command::Declare) => {
             return Ok(Call::Declare(
@@ -904,6 +947,8 @@ fn call(cli: &Cli, variables: &dyn Fn(&str) -> Option<String>) -> Result<Call, F
         Some(Command::Gather { what }) => return Ok(Call::Alone(Alone::Gather(what.clone()))),
         #[cfg(feature = "program")]
         Some(Command::Xtask) => return Ok(Call::Alone(Alone::Xtask)),
+        #[cfg(feature = "program")]
+        Some(Command::Job { entry }) => entry_job(entry, variables)?,
         #[cfg(feature = "ui")]
         Some(Command::Ui) => Job::Ui,
         Some(Command::Explain { path }) => Job::Explain(path_of(path)?),
@@ -913,6 +958,55 @@ fn call(cli: &Cli, variables: &dyn Fn(&str) -> Option<String>) -> Result<Call, F
             zero: *zero,
         },
     }))
+}
+
+/// `job`: the entry it is handed, read, with the pull request of the run for
+/// one that writes the versions.
+#[cfg(feature = "program")]
+fn entry_job(entry: &str, variables: &dyn Fn(&str) -> Option<String>) -> Result<Job, Failure> {
+    let given: serde_json::Value = serde_json::from_str(entry)
+        .ok()
+        .filter(serde_json::Value::is_object)
+        .ok_or_else(|| {
+            Failure::Run(format!(
+                "the entry {} is no object of JSON, as the matrix holds one",
+                report::shown(entry)
+            ))
+        })?;
+    let history = entry::writes_versions(&given);
+    Ok(Job::Entry {
+        given,
+        history,
+        pull_request: event(variables, history)?,
+    })
+}
+
+/// The pull request of the run, as the preparing job reads it from the event
+/// ([`workflow::pull_request`]), for a call that resolves the versions from
+/// the history: `wanted` when no plan hands them in and the call writes or
+/// takes them. Its squash merge is what the history is then read as, so that
+/// the versions carry `-pr.<number>` as the plan gives them. Outside a pull
+/// request, and on a developer's computer, the event names none.
+#[cfg(feature = "program")]
+fn event(
+    variables: &dyn Fn(&str) -> Option<String>,
+    wanted: bool,
+) -> Result<Option<PullRequest>, Failure> {
+    if !wanted {
+        return Ok(None);
+    }
+    workflow::pull_request(variables).map_err(Failure::Run)
+}
+
+/// Without the program, no call runs in a workflow, so there is no event to
+/// read a pull request from.
+#[cfg(not(feature = "program"))]
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "the same signature as the program's, which reads the event and can refuse it"
+)]
+fn event(_: &dyn Fn(&str) -> Option<String>, _: bool) -> Result<Option<PullRequest>, Failure> {
+    Ok(None)
 }
 
 fn path_of(value: &str) -> Result<RelativePath, Failure> {
@@ -928,13 +1022,26 @@ fn path_of(value: &str) -> Result<RelativePath, Failure> {
 fn repository_of(cli: &Cli, job: &Job) -> Repository {
     let pull_request = match job {
         Job::Plan(pull_request) => pull_request.as_ref(),
-        _ => versions_of(job),
+        _ => resolved_for(job).or_else(|| versions_of(job)),
     };
     match pull_request {
         Some(pull_request) => {
             Repository::at(&cli.repository).as_pull_request(pull_request.message.clone())
         }
         None => Repository::at(&cli.repository),
+    }
+}
+
+/// The pull request whose squash merge a call resolves the versions it writes
+/// or takes for, when no plan hands them in.
+fn resolved_for(job: &Job) -> Option<&PullRequest> {
+    match job {
+        Job::WriteVersions(Writing { pull_request, .. }) => pull_request.as_ref(),
+        #[cfg(feature = "program")]
+        Job::Run { pull_request, .. }
+        | Job::Build { pull_request, .. }
+        | Job::Entry { pull_request, .. } => pull_request.as_ref(),
+        _ => None,
     }
 }
 
@@ -956,7 +1063,9 @@ fn versions_of(job: &Job) -> Option<&PullRequest> {
 /// release does not keep anyone from setting up the programs either, and
 /// Dependabot needs no version. A check that writes versions, and a build that
 /// takes the unit's version of the run, read the history only when no plan
-/// hands them in.
+/// hands them in. An entry of the check matrix reads it only when it is a
+/// check that writes versions: the reading entry and the repository's own
+/// checks run on the commit at hand.
 fn files_alone(job: &Job) -> bool {
     match job {
         Job::Files { .. }
@@ -969,6 +1078,8 @@ fn files_alone(job: &Job) -> bool {
         Job::Run { check, plan, .. } => plan.is_some() || !check.writes_versions(),
         #[cfg(feature = "program")]
         Job::Build { build, plan, .. } => plan.is_some() || !build.takes_version(),
+        #[cfg(feature = "program")]
+        Job::Entry { history, .. } => !history,
         _ => false,
     }
 }
@@ -1046,7 +1157,9 @@ fn refusal(job: &Job) -> Option<&'static str> {
             "there is nothing to set up: phase 0 found errors, and `check` says which\n"
         }
         #[cfg(feature = "program")]
-        Job::Run { .. } => "nothing is checked: phase 0 found errors, and `check` says which\n",
+        Job::Run { .. } | Job::Entry { .. } => {
+            "nothing is checked: phase 0 found errors, and `check` says which\n"
+        }
         #[cfg(feature = "program")]
         Job::Release(_) => "nothing is released: phase 0 found errors, and `check` says which\n",
         #[cfg(feature = "program")]
@@ -1123,25 +1236,43 @@ fn execute(context: &Execution<'_>, job: &Job, out: &mut Console<'_>) -> Result<
             return Ok(set_up(&analysis, &central, *options, named, out));
         }
         #[cfg(feature = "program")]
-        Job::Run { check, unit, plan } => {
-            let orders = orders(plan.as_ref(), &analysis, &central)?;
+        Job::Run {
+            check, unit, plan, ..
+        } => {
+            let orders = orders(plan.as_ref(), &analysis, &central, resolved_for(job))?;
             let checked = Checked {
                 repository: &repository,
                 analysis: &analysis,
                 central: &central,
                 orders: &orders,
             };
-            return Ok(run_check(context.cli, &checked, *check, unit, out));
+            // The computer the variables describe, as for `build` and `job`.
+            let environment = setup::Environment::of(context.variables);
+            return Ok(run_check(
+                context.cli,
+                &checked,
+                (*check, unit),
+                &environment,
+                out,
+            ));
         }
         #[cfg(feature = "program")]
         Job::Release(assets) => {
             return release_stage(&repository, &analysis, &central, assets.as_deref(), out);
         }
         #[cfg(feature = "program")]
-        Job::Build { build, unit, plan } => {
-            let orders = orders(plan.as_ref(), &analysis, &central)?;
+        Job::Build {
+            build, unit, plan, ..
+        } => {
+            let orders = orders(plan.as_ref(), &analysis, &central, resolved_for(job))?;
             let at = (&repository, &analysis, &central);
             return Ok(build_unit(context, at, (*build, unit), &orders, out));
+        }
+        #[cfg(feature = "program")]
+        Job::Entry { given, .. } => {
+            let orders = resolved(&analysis, &central, resolved_for(job));
+            let checked = (&repository, &analysis, &central, orders.as_slice());
+            return Ok(run_entry(context, checked, given, out));
         }
         #[cfg(feature = "ui")]
         Job::Ui => {
@@ -1206,8 +1337,8 @@ struct Checked<'a> {
 fn run_check(
     cli: &Cli,
     checked: &Checked<'_>,
-    check: run::Check,
-    unit: &RelativePath,
+    (check, unit): (run::Check, &RelativePath),
+    environment: &setup::Environment,
     out: &mut Console<'_>,
 ) -> u8 {
     let Checked {
@@ -1225,7 +1356,6 @@ fn run_check(
     };
     // The repository was read, so it is there.
     let root = fs::canonicalize(&cli.repository).unwrap_or(cli.repository.clone());
-    let environment = setup::Environment::current();
     let tracked: Vec<RelativePath> = analysis
         .tree
         .files()
@@ -1242,7 +1372,7 @@ fn run_check(
     let excluded = repository.excluded_packages(analysis);
     let context = run::Context {
         register: central.register(),
-        env: &environment,
+        env: environment,
         root: &root,
         temp: &std::env::temp_dir(),
         packages: run::Packages {
@@ -1254,6 +1384,80 @@ fn run_check(
         },
     };
     run::run(&context, check, unit, &list, out)
+}
+
+/// `job`: the entry it is handed, when the plan of the commit at hand holds
+/// it, with the programs it needs set up first in their pinned versions. The
+/// computer is the one the variables of the run describe.
+#[cfg(feature = "program")]
+fn run_entry(
+    context: &Execution<'_>,
+    (repository, analysis, central, orders): (&Repository, &Analysis, &Central, &[writer::Order]),
+    given: &serde_json::Value,
+    out: &mut Console<'_>,
+) -> u8 {
+    let checked = &Checked {
+        repository,
+        analysis,
+        central,
+        orders,
+    };
+    let plan = plan::plan(analysis, central);
+    let tracked: Vec<RelativePath> = analysis
+        .tree
+        .files()
+        .into_iter()
+        .map(|(node, _)| node.path.clone())
+        .collect();
+    let entries = entry::entries(&plan, central.register(), &tracked, repository.root());
+    let Some(held) = entries.iter().find(|held| held.to_json() == *given) else {
+        say(
+            out,
+            &format!(
+                "the plan holds no such entry: {}\nIt holds these:\n{:#}\n",
+                report::shown(&given.to_string()),
+                entry::matrix(&entries)
+            ),
+        );
+        return FOUND;
+    };
+    let environment = setup::Environment::of(context.variables);
+    let pinned = setup::Options {
+        mode: setup::Mode::Pinned,
+        with_runtimes: true,
+    };
+    let mut set_up = |checks: &[names::CheckName], out: &mut Console<'_>| {
+        let mut environment = setup::Environment::of(context.variables);
+        setup::run_for(
+            central.register(),
+            checks,
+            &[],
+            pinned,
+            &mut environment,
+            out,
+        ) == OK
+    };
+    let passed = match &held.work {
+        entry::Work::Reading => entry::reading(
+            &entry::Reading {
+                plan: &plan,
+                units: &analysis.units,
+                register: central.register(),
+                variables: context.variables,
+            },
+            &mut set_up,
+            &mut |check, unit, out| {
+                run_check(context.cli, checked, (check, unit), &environment, out) == OK
+            },
+            out,
+        ),
+        entry::Work::Check { check, name, unit } => {
+            set_up(std::slice::from_ref(name), out)
+                && run_check(context.cli, checked, (*check, unit), &environment, out) == OK
+        }
+        entry::Work::Xtask => xtask::run(&context.cli.repository, &environment.search_path, out),
+    };
+    if passed { OK } else { FOUND }
 }
 
 /// `release`: the release stage on the commit at hand, with the settings the
@@ -1434,12 +1638,27 @@ fn declare(
     let mut plan = plan::plan(&analysis, &central);
     plan.pull_request = pull_request.map(|pull_request| pull_request.number);
     let excluded = repository.excluded_packages(&analysis);
+    let tracked: Vec<RelativePath> = analysis
+        .tree
+        .files()
+        .into_iter()
+        .map(|(node, _)| node.path.clone())
+        .collect();
+    let entries = entry::matrix(&entry::entries(
+        &plan,
+        central.register(),
+        &tracked,
+        repository.root(),
+    ));
     Ok(
         if declare::hand_on(
-            &plan,
+            &declare::Handed {
+                plan: &plan,
+                entries: &entries,
+                excluded: &excluded,
+            },
             central.register(),
             &run,
-            &excluded,
             context.variables,
             out,
         ) {
@@ -1638,7 +1857,12 @@ fn write_versions(
     central: &Central,
     writing: &Writing,
 ) -> Result<String, Failure> {
-    let orders = orders(writing.plan.as_ref(), analysis, central)?;
+    let orders = orders(
+        writing.plan.as_ref(),
+        analysis,
+        central,
+        writing.pull_request.as_ref(),
+    )?;
     let manifests: Vec<RelativePath> = analysis
         .tree
         .files()
@@ -1653,28 +1877,44 @@ fn write_versions(
 }
 
 /// The versions of the units: from the plan in `file`, or, without one,
-/// resolved from the history as `plan` resolves them.
+/// resolved from the history as `plan` resolves them, for the pull request
+/// if there is one: the analysis then read the history as its squash merge,
+/// and every version of the commit carries `-pr.<number>`, as the plan the
+/// preparing job prints for it gives them.
 fn orders(
     file: Option<&PathBuf>,
     analysis: &Analysis,
     central: &Central,
+    pull_request: Option<&PullRequest>,
 ) -> Result<Vec<writer::Order>, Failure> {
-    match file {
-        Some(file) => fs::read_to_string(file)
-            .map_err(|error| error.to_string())
-            .and_then(|text| {
-                // A step that was handed no plan hands on an empty one.
-                if text.trim().is_empty() {
-                    return Err("it is empty, so no plan was handed in".to_owned());
-                }
-                writer::Order::read(&text).map_err(|error| error.to_string())
-            })
-            .map_err(|message| Failure::Plan {
-                path: file.display().to_string(),
-                message,
-            }),
-        None => Ok(writer::Order::of(&plan::plan(analysis, central))),
-    }
+    let Some(file) = file else {
+        return Ok(resolved(analysis, central, pull_request));
+    };
+    fs::read_to_string(file)
+        .map_err(|error| error.to_string())
+        .and_then(|text| {
+            // A step that was handed no plan hands on an empty one.
+            if text.trim().is_empty() {
+                return Err("it is empty, so no plan was handed in".to_owned());
+            }
+            writer::Order::read(&text).map_err(|error| error.to_string())
+        })
+        .map_err(|message| Failure::Plan {
+            path: file.display().to_string(),
+            message,
+        })
+}
+
+/// The versions of the units resolved from the history, as `plan` resolves
+/// them, for the pull request if there is one.
+fn resolved(
+    analysis: &Analysis,
+    central: &Central,
+    pull_request: Option<&PullRequest>,
+) -> Vec<writer::Order> {
+    let mut plan = plan::plan(analysis, central);
+    plan.pull_request = pull_request.map(|pull_request| pull_request.number);
+    writer::Order::of(&plan)
 }
 
 /// Why a declaration could not be read.
