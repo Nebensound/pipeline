@@ -17,8 +17,9 @@
 //!   one stays. A link to an issue is none: one form is read the same way in
 //!   every file and in every repository, and a link could name any host.
 //! - **The marker `init` writes**, the word `TODO` with `init` in the
-//!   parentheses, is always the error `unresolved-init-marker`. Every other
-//!   marker without a reference is the error `unreferenced-marker`.
+//!   parentheses, is the error `unresolved-init-marker` unless an allowance
+//!   covers it. Every other marker without a reference is the error
+//!   `unreferenced-marker`.
 //! - **An allowance** is [`ALLOWANCE`] followed by white space and its reason,
 //!   inside whatever comment the file's language has. It lets every marker on
 //!   its own line and on the line directly below stay; a blank line or another
