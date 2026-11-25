@@ -118,12 +118,14 @@ path yet:
   declaration in place, the draft `init` has just written included, also while
   it still holds markers: the folders follow from the units, their pipelines
   and the exclusions alone. A file at `.github/dependabot.yaml` counts as one in
-  place.
+  place. Where no declaration that reads is in place, because the one there
+  does not read or the draft could not be written, it writes none.
 
-It never overwrites a file, so a second run writes nothing. It asks nothing,
-whether a terminal is attached or not. Where it cannot take a decision from the
-tree or the call, it writes a `TODO(init)` marker into the file, a comment that
-says what is open, and names it in its report;
+It never overwrites a file, so a second run writes nothing. A file whose write
+fails halfway is removed again, so that the next run writes it whole. It asks
+nothing, whether a terminal is attached or not. Where it cannot take a decision
+from the tree or the call, it writes a `TODO(init)` marker into the file, a
+comment that says what is open, and names it in its report;
 [`check`](declaration.md#unresolved-init-marker) reports every marker left in
 the three files as an error, with its line and column. It stages, commits and
 pushes nothing, starts no program but Git, and uses no network.
@@ -162,9 +164,9 @@ the day the repository switches: the
 [merge settings](repository-settings.md#every-repository-of-the-organization)
 and [the steps of that day](organization/README.md#the-day-a-repository-switches).
 
-Exit code: `0` when it ran, markers or not; `1` when the repository cannot be
-read or a file cannot be written, which the report names; `2` when the call was
-wrong.
+Exit code: `0` when it ran, markers or not; `1` when the repository or the
+central data cannot be read, or a file cannot be written, which the report
+names; `2` when the call was wrong.
 
 ## The plan
 

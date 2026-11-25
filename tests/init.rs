@@ -13,7 +13,7 @@ use std::path::Path;
 use nebensound_repo::audience::Visibility;
 use nebensound_repo::history::Tag;
 use nebensound_repo::init::{
-    self, CALLER, DECLARATION, DEPENDABOT, MARKER, UNRESOLVED_PIN, caller, highest, passing,
+    self, CALLER, DECLARATION, DEPENDABOT, MARKER, UNRESOLVED_PIN, caller, fill, highest, passing,
     release,
 };
 use nebensound_repo::register::BUILTIN_DEFAULTS;
@@ -487,7 +487,7 @@ fn a_declaration_that_does_not_read_gives_no_dependabot_file() {
     assert_eq!(code, 0, "{report}");
     assert!(
         report.contains(
-            ".github/dependabot.yml: the declaration in place does not read (the declaration is \
+            ".github/dependabot.yml: no declaration that reads is in place (the declaration is \
              not readable:"
         ),
         "{report}"
@@ -561,6 +561,70 @@ fn a_folder_that_takes_no_file_is_reported() {
     );
     assert!(report.contains("  .github/dependabot.yml: "), "{report}");
     assert!(!report.contains("Written"), "{report}");
+}
+
+#[test]
+fn a_declaration_that_could_not_be_written_gives_no_dependabot_file() {
+    let dir = repository(&[(".nebensound", "a file\n")]);
+
+    let (report, code) = init(dir.path(), &["--visibility", "public"]);
+
+    assert_eq!(code, 1, "{report}");
+    assert!(
+        report.contains("Not written:\n  .nebensound/repo.toml: "),
+        "{report}"
+    );
+    assert!(
+        report.contains(
+            ".github/dependabot.yml: no declaration that reads is in place (init could not write \
+             its draft)"
+        ),
+        "{report}"
+    );
+    assert!(!dir.path().join(DEPENDABOT).exists());
+    assert!(dir.path().join(CALLER).exists());
+}
+
+/// A file that takes no byte and fails, as one on a full disk does.
+struct Full;
+
+impl std::io::Write for Full {
+    fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::other("no space left"))
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_file_whose_write_fails_is_removed_again() {
+    let dir = directory(&[("repo.toml", "[re")]);
+    let target = dir.path().join("repo.toml");
+
+    let why = fill(&target, &mut Full, "[repo]\n").unwrap_err();
+
+    assert_eq!(why, "no space left; init removed what it had written of it");
+    assert!(!target.exists());
+}
+
+#[test]
+fn a_file_that_cannot_be_removed_after_a_failed_write_is_named() {
+    let dir = directory(&[(DECLARATION, "[re")]);
+    let folder = dir.path().join(".nebensound");
+    let target = dir.path().join(DECLARATION);
+    fs::set_permissions(&folder, fs::Permissions::from_mode(0o555)).expect("read-only");
+
+    let why = fill(&target, &mut Full, "[repo]\n").unwrap_err();
+
+    fs::set_permissions(&folder, fs::Permissions::from_mode(0o755)).expect("writable again");
+    assert!(
+        why.starts_with("no space left; what was written of it stays at "),
+        "{why}"
+    );
+    assert!(why.contains("since removing it failed: "), "{why}");
+    assert!(target.exists());
 }
 
 #[test]

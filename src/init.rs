@@ -18,7 +18,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
-use std::io::Write as _;
+use std::io::Write;
 use std::path::Path;
 
 use crate::annotate::Coverage;
@@ -239,8 +239,11 @@ pub fn run(
     let drafted = !present(root, DECLARATION);
     let in_place = if drafted {
         let text = draft(&tree, &tags, &read, central, visibility, &mut report);
-        put(root, DECLARATION, &text, &mut report);
-        Ok(text)
+        if put(root, DECLARATION, &text, &mut report) {
+            Ok(text)
+        } else {
+            Err("init could not write its draft".to_owned())
+        }
     } else {
         report.left_alone.push(format!(
             "{DECLARATION}: it exists, and init never overwrites a file"
@@ -321,8 +324,8 @@ fn dependabot_file(
             put(root, DEPENDABOT, &text, report);
         }
         Err(why) => report.left_alone.push(format!(
-            "{DEPENDABOT}: the declaration in place does not read ({}), and the file follows \
-             from it; `nebensound-repo dependabot` prints it once it reads",
+            "{DEPENDABOT}: no declaration that reads is in place ({}), and the file follows \
+             from it; `nebensound-repo dependabot` prints it once one reads",
             shown(why)
         )),
     }
@@ -341,9 +344,9 @@ fn present(root: &Path, written: &str) -> bool {
     fs::symlink_metadata(root.join(written)).is_ok()
 }
 
-/// Writes a file `init` writes, and records in the report how that went, with
-/// every marker it holds.
-fn put(root: &Path, written: &'static str, text: &str, report: &mut Report) {
+/// Writes a file `init` writes, records in the report how that went, with
+/// every marker it holds, and says whether the file was written.
+fn put(root: &Path, written: &'static str, text: &str, report: &mut Report) -> bool {
     match write_new(root, written, text) {
         Ok(()) => {
             report.written.push(written);
@@ -353,8 +356,12 @@ fn put(root: &Path, written: &'static str, text: &str, report: &mut Report) {
                     position.line, position.column
                 ));
             }
+            true
         }
-        Err(why) => report.failed.push(format!("{written}: {why}")),
+        Err(why) => {
+            report.failed.push(format!("{written}: {why}"));
+            false
+        }
     }
 }
 
@@ -378,12 +385,37 @@ fn write_new(root: &Path, written: &str, text: &str) -> Result<(), String> {
             Err(_) => fs::create_dir(&place).map_err(|error| error.to_string())?,
         }
     }
-    fs::OpenOptions::new()
+    let target = place.join(file);
+    let mut opened = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(place.join(file))
-        .and_then(|mut opened| opened.write_all(text.as_bytes()))
-        .map_err(|error| error.to_string())
+        .open(&target)
+        .map_err(|error| error.to_string())?;
+    fill(&target, &mut opened, text)
+}
+
+/// Writes `text` into the file `init` just created at `target`, opened as
+/// `opened`. When the write fails, it removes the file again: a file cut off
+/// halfway would stay, and every later run would leave it alone as one that
+/// exists.
+///
+/// # Errors
+///
+/// Returns why the write failed, and why removing the file failed too, if it
+/// did.
+pub fn fill(target: &Path, opened: &mut impl Write, text: &str) -> Result<(), String> {
+    opened.write_all(text.as_bytes()).map_err(|error| {
+        fs::remove_file(target).map_or_else(
+            |removing| {
+                format!(
+                    "{error}; what was written of it stays at {}, since removing it failed: \
+                     {removing}",
+                    shown(&target.display().to_string())
+                )
+            },
+            |()| format!("{error}; init removed what it had written of it"),
+        )
+    })
 }
 
 /// The draft of the declaration, from the tree, the tags `HEAD` contains and
