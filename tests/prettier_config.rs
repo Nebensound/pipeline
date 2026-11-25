@@ -457,7 +457,11 @@ fn a_file_that_holds_no_options_hands_nothing_over() {
         (".prettierrc.json", "{ \"rangeEnd\": Infinity }\n"),
         (".prettierrc.json", ""),
         (".prettierrc.json5", "{ semi: false"),
+        // JSON5 needs a comma between two entries, as Prettier does.
+        (".prettierrc.json5", "{ semi: false tabWidth: 4 }"),
         (".prettierrc.toml", "semi ="),
+        // TOML has no number too large for a double: `inf` is its word for no end.
+        (".prettierrc.toml", "rangeEnd = 1e999\n"),
         (".prettierrc", "a: [\n"),
     ] {
         let (handed, problems) = handed(&[(file, content)]);

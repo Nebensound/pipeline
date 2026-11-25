@@ -1447,7 +1447,9 @@ names it takes are the parsers Prettier brings itself, without a plugin:
 `glimmer`, `graphql`, `html`, `json`, `json-stringify`, `json5`, `jsonc`,
 `less`, `lwc`, `markdown`, `mdx`, `meriyah`, `mjml`, `scss`, `typescript`,
 `vue` and `yaml`. Any other name, such as `toml`, is one only a plugin would
-bring, and fails the check by name. The list is taken from the pinned Prettier
+bring, and fails the check by name. `parser` changes only how a file is read
+that a check already formats, chosen by its name as the register gives it; it
+brings no other file into a check. The list is taken from the pinned Prettier
 itself: the choices of its option `parser` in its `index.mjs`, which its
 `index.d.ts` gives as `BuiltInParserName`. A test holds the version the list
 was read from to the version the register pins, so raising the pin fails the
@@ -1465,9 +1467,10 @@ written. JavaScript holds every number as a double, and so does the tool:
 
 JSON has no word for a number without an end; a number too large for a
 double, such as `1e999`, is read as one, as JavaScript reads it, and JSON5 and
-YAML read it the same way. `0.0` and `-0` are 0 as well. `null`, text such as
-`"false"` or `"Infinity"`, and any other number take effect or are no value
-Prettier takes, and fail by name.
+YAML read it the same way. TOML does not: the tool cannot read `1e999` in
+`.prettierrc.toml` and names the whole file, so TOML writes `inf`. `0.0` and
+`-0` are 0 as well. `null`, text such as `"false"` or `"Infinity"`, and any
+other number take effect or are no value Prettier takes, and fail by name.
 
 An entry of `overrides` is matched as Prettier matches it, over the path from
 the root: a pattern of `files` without a `/` matches the file's name in any
@@ -1503,9 +1506,10 @@ without what that file says, and a file written to it differs.
 
 What a repository can make Prettier do is therefore what its options say:
 how wide a line is, how a file is indented, which quotes and line endings it
-has, which of its own parsers reads a file, and so on, per file by pattern. It
-cannot make Prettier load or run anything, read another file, read a file with
-a parser a plugin brings, or leave a file or a part of it unchecked.
+has, which of its own parsers reads a file a check formats, and so on, per
+file by pattern. It cannot make Prettier load or run anything, read another
+file, read a file with a parser a plugin brings, or leave a file or a part of
+it unchecked.
 
 ## Where the file list comes from
 

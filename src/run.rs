@@ -872,7 +872,8 @@ impl Session<'_, '_, '_> {
     /// so it is handed an empty one instead, and it leaves out no
     /// `node_modules` either. `requirePragma`, `checkIgnorePragma` and a
     /// range (`rangeStart`, `rangeEnd`), which would pass a whole file or a
-    /// part of it unchecked, are refused in the configuration and set aside
+    /// part of it unchecked, fail the check by name in the configuration at
+    /// any value but the one that changes nothing, and are set to that value
     /// on the command line as well. Without colours, so that the lines read
     /// the same everywhere.
     ///

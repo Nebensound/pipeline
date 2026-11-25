@@ -598,7 +598,7 @@ fn parse(file: &RelativePath, source: &str) -> Result<Data, String> {
             let source = source.strip_prefix('\u{feff}').unwrap_or(source);
             from_json(source, &JSON)
         }
-        Some("json5") => from_json(source, &ParseOptions::default()),
+        Some("json5") => from_json(source, &JSON5),
         _ => YamlLoader::load_from_str(source)
             .map(|documents| documents.first().map_or(Data::Null, from_yaml))
             .map_err(|error| error.to_string()),
@@ -617,6 +617,24 @@ const JSON: ParseOptions = ParseOptions {
     allow_bare_decimal_point_numbers: false,
     allow_non_finite_numbers: false,
     allow_extended_string_escapes: false,
+};
+
+/// JSON5, as Prettier's loader reads it: comments, unquoted keys, single
+/// quotes, trailing commas, hexadecimal numbers, a leading `+`, a bare
+/// decimal point, `Infinity` and `NaN`, and JSON5's escapes. The parser's
+/// default also takes a missing comma between two entries, which JSON5 does
+/// not, and at which Prettier stops.
+const JSON5: ParseOptions = ParseOptions {
+    allow_comments: true,
+    allow_loose_object_property_names: true,
+    allow_trailing_commas: true,
+    allow_missing_commas: false,
+    allow_single_quoted_strings: true,
+    allow_hexadecimal_numbers: true,
+    allow_unary_plus_numbers: true,
+    allow_bare_decimal_point_numbers: true,
+    allow_non_finite_numbers: true,
+    allow_extended_string_escapes: true,
 };
 
 /// The value of a file of JSON or JSON5, read with `options`. The parser
