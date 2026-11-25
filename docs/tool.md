@@ -1429,14 +1429,45 @@ The keys the tool carries over and refuses stand in
 
 - Carried over: every option of the pinned Prettier that says how a file is
   written, from `arrowParens` to `vueIndentScriptAndStyle`, each checked for a
-  value it takes; and `overrides`. `$schema` is passed over.
-- Refused by name: `plugins` and `pluginSearchDirs`, which name code; `parser`,
-  which would choose how a file is read and can name a parser a plugin brings,
-  and `filepath`, which names another file, for the same reason;
-  `requirePragma`, `checkIgnorePragma`, `rangeStart` and `rangeEnd`, which
-  would pass a file or a part of it unchecked; `cursorOffset`, which is for an
+  value it takes; `parser`, where it names a parser the pinned Prettier brings
+  itself; and `overrides`. `$schema` is passed over.
+- Accepted only at the value that changes nothing, and then not handed over:
+  `requirePragma`, `checkIgnorePragma`, `rangeStart` and `rangeEnd`. Any other
+  value would pass a file or a part of it unchecked and fails the check by
+  name. Prettier is started with these four set to that value anyway.
+- Refused by name: `plugins` and `pluginSearchDirs`, which name code;
+  `filepath`, which names another file; `cursorOffset`, which is for an
   editor. A file that holds text in place of options names a shared
   configuration, a module, and is refused whole.
+
+`parser` says how Prettier reads a file, for example that files of one name
+are JSON5 (`{ "files": "*.json", "options": { "parser": "json5" } }`). The
+names it takes are the parsers Prettier brings itself, without a plugin:
+`acorn`, `angular`, `babel`, `babel-flow`, `babel-ts`, `css`, `espree`, `flow`,
+`glimmer`, `graphql`, `html`, `json`, `json-stringify`, `json5`, `jsonc`,
+`less`, `lwc`, `markdown`, `mdx`, `meriyah`, `mjml`, `scss`, `typescript`,
+`vue` and `yaml`. Any other name, such as `toml`, is one only a plugin would
+bring, and fails the check by name. The list is taken from the pinned Prettier
+itself: the choices of its option `parser` in its `index.mjs`, which its
+`index.d.ts` gives as `BuiltInParserName`. A test holds the version the list
+was read from to the version the register pins, so raising the pin fails the
+tool's tests until the list is read again from the new version.
+
+The value that changes nothing is the one Prettier takes when the key is not
+written. JavaScript holds every number as a double, and so does the tool:
+
+| Key                 | Value  | JSON    | JSON5                   | YAML                   | TOML          |
+| ------------------- | ------ | ------- | ----------------------- | ---------------------- | ------------- |
+| `requirePragma`     | false  | `false` | `false`                 | `false`                | `false`       |
+| `checkIgnorePragma` | false  | `false` | `false`                 | `false`                | `false`       |
+| `rangeStart`        | 0      | `0`     | `0`                     | `0`                    | `0`           |
+| `rangeEnd`          | no end | `1e999` | `Infinity`, `+Infinity` | `.inf`, `.Inf`, `.INF` | `inf`, `+inf` |
+
+JSON has no word for a number without an end; a number too large for a
+double, such as `1e999`, is read as one, as JavaScript reads it, and JSON5 and
+YAML read it the same way. `0.0` and `-0` are 0 as well. `null`, text such as
+`"false"` or `"Infinity"`, and any other number take effect or are no value
+Prettier takes, and fail by name.
 
 An entry of `overrides` is matched as Prettier matches it, over the path from
 the root: a pattern of `files` without a `/` matches the file's name in any
@@ -1453,16 +1484,28 @@ overrides:
 Not read, and named (`unread-configuration`): another of the names at the
 root, one in a folder below it, a configuration in JavaScript or TypeScript
 (`.prettierrc.js`, `prettier.config.mjs` and the others), wherever it lies,
-and the `prettier` key of a `package.json` or `package.yaml`. An
-`.editorconfig` in a folder below the root is not read either; it is not
-named, since the pipeline's defaults take every `.editorconfig` out with an
-`[[exclude]]` entry.
+and the `prettier` key of a `package.json` or `package.yaml`.
+
+An `.editorconfig` in a folder below the root is not read either, and not
+named: the pipeline's defaults take every `.editorconfig` out with an
+`[[exclude]]` entry, and a file taken out appears in no finding. A repository
+writes a difference for a folder into a section of the root's `.editorconfig`
+instead, with a pattern that holds the folder:
+
+```ini
+[docs/**]
+indent_size = 4
+```
+
+Otherwise the files below a folder with its own `.editorconfig` show as not
+formatted, with no finding that names the cause: Prettier formats them
+without what that file says, and a file written to it differs.
 
 What a repository can make Prettier do is therefore what its options say:
 how wide a line is, how a file is indented, which quotes and line endings it
-has, and so on, per file by pattern. It cannot make Prettier load or run
-anything, read another file, read a file with another parser, or leave a file
-or a part of it unchecked.
+has, which of its own parsers reads a file, and so on, per file by pattern. It
+cannot make Prettier load or run anything, read another file, read a file with
+a parser a plugin brings, or leave a file or a part of it unchecked.
 
 ## Where the file list comes from
 

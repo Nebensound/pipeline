@@ -1,2 +1,2 @@
-::error file=.prettierrc.yaml::`overrides[0].options.parser` is not handed to Prettier: *
+::error file=.prettierrc.yaml::`overrides[0].options.parser` is not the name of a parser Prettier brings itself*
 ::error file=.prettierrc.yaml::`overrides[0].options.plugins` is not handed to Prettier: *

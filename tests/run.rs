@@ -546,8 +546,9 @@ fn prettier_gets_the_options_of_each_file_from_the_tool() {
 }
 
 /// A configuration in JavaScript, a plugin and an entry of `overrides` that
-/// names a parser: each is named and fails the check, and none of them
-/// reaches Prettier, which formats with what is left.
+/// names a parser only a plugin would bring: each is named and fails the
+/// check, and none of them reaches Prettier, which formats with what is
+/// left. A parser Prettier brings itself reaches it.
 #[test]
 fn what_prettier_is_not_handed_fails_the_check_by_name() {
     let fixture = Fixture::new();
@@ -559,12 +560,14 @@ fn what_prettier_is_not_handed_fails_the_check_by_name() {
         )
         .file(
             ".prettierrc.json",
-            "{ \"plugins\": [\"./plugin.mjs\"], \"semi\": false, \"overrides\": [{ \"files\": \
-             \"*.json\", \"options\": { \"parser\": \"json5\" } }] }",
+            "{ \"plugins\": [\"./plugin.mjs\"], \"semi\": false, \"requirePragma\": false, \
+             \"overrides\": [{ \"files\": \"*.json\", \"options\": { \"parser\": \"toml\" } }, \
+             { \"files\": \"b.json\", \"options\": { \"parser\": \"json5\" } }] }",
         )
-        .file("a.json", "{}\n");
+        .file("a.json", "{}\n")
+        .file("b.json", "{}\n");
 
-    let (code, text) = fixture.run(Check::Json, &["a.json"], true);
+    let (code, text) = fixture.run(Check::Json, &["a.json", "b.json"], true);
 
     assert_eq!(code, 1, "{text}");
     has(
@@ -579,18 +582,31 @@ fn what_prettier_is_not_handed_fails_the_check_by_name() {
         "::error file=.prettierrc.json::`plugins` is not handed to Prettier: it names modules that \
          would be loaded and run, and the check runs no code of the repository",
     );
-    assert!(
-        text.contains("::error file=.prettierrc.json::`overrides[0].options.parser` is not handed"),
-        "{text}"
+    has(
+        &text,
+        "::error file=.prettierrc.json::`overrides[0].options.parser` is not the name of a parser \
+         Prettier brings itself; any other would need a plugin, so it is not handed to Prettier",
     );
+    assert!(!text.contains("`requirePragma`"), "{text}");
     has(&text, "Prettier formats 1 file(s) with --semi=false.");
-    let prettier = line_of(&text, "prettier ");
-    assert!(
-        prettier.ends_with(" --no-config --semi=false -- a.json"),
-        "{prettier}"
+    has(
+        &text,
+        "Prettier formats 1 file(s) with --parser=json5 --semi=false.",
     );
-    assert!(!prettier.contains("plugin"), "{prettier}");
-    assert!(!prettier.contains("parser"), "{prettier}");
+    let started: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with("prettier "))
+        .map(|line| line.split(" --range-end=Infinity ").nth(1).unwrap())
+        .collect();
+    assert_eq!(
+        started,
+        [
+            "--no-config --semi=false -- a.json",
+            "--no-config --parser=json5 --semi=false -- b.json",
+        ]
+    );
+    assert!(!text.contains("--plugin"), "{text}");
+    assert!(!text.contains("--parser=toml"), "{text}");
 
     // A repository with only an `.editorconfig` that sets nothing Prettier
     // uses: Prettier formats with its own defaults, and says so.

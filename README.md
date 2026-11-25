@@ -354,8 +354,10 @@ part runs even when one before it failed, so one run shows every finding.
   `.editorconfig` at the root and hands Prettier, which looks for no
   configuration and no ignore file itself (see
   [the configuration of a linter](docs/tool.md#prettier)). `requirePragma`,
-  `checkIgnorePragma`, `rangeStart` and `rangeEnd`, which would pass a whole
-  file or a part of it unchecked, fail the check by name.
+  `checkIgnorePragma`, `rangeStart` and `rangeEnd` fail the check by name at
+  any value but the one that changes nothing, since they would pass a whole
+  file or a part of it unchecked; `parser` fails it by name where it names a
+  parser only a plugin would bring.
 
 Every part runs even when one before it failed, so one run shows every finding.
 
@@ -954,7 +956,8 @@ toolchain, and Ruff's `# ruff: noqa`, which a Python file holds itself.
 Settings in a tool's configuration that pass a whole file unchecked are set
 aside on the command line: rustfmt's `disable_all_formatting`, and Prettier's
 `requirePragma`, `checkIgnorePragma`, `rangeStart` and `rangeEnd`, which the
-tool also refuses by name in the configuration it reads;
+tool also fails by name in the configuration it reads at any value but the one
+that changes nothing;
 `check-python` runs Pyright without its `ignore` and `exclude` and Ruff with
 `--no-force-exclude`, and judges coverage itself, so that coverage.py's `omit`
 takes nothing out. Run by

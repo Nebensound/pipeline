@@ -14,7 +14,8 @@ use std::collections::BTreeMap;
 use nebensound_repo::Register;
 use nebensound_repo::linter_config::editorconfig::{self, Property};
 use nebensound_repo::linter_config::prettier::{
-    CARRIED, Handed, Kind, REFUSED, Setting, beside, flag, from_editorconfig, read, read_in,
+    CARRIED, Handed, Kind, NEUTRAL, Neutral, PARSERS, REFUSED, Setting, VERSION, beside, flag,
+    from_editorconfig, read, read_in,
 };
 use nebensound_repo::linter_config::{Problem, findings};
 use nebensound_repo::names::ProgramName;
@@ -102,19 +103,40 @@ fn unread(pattern: &str) -> String {
 }
 
 #[test]
-fn every_option_of_prettier_is_carried_over_or_refused_once() {
+fn every_option_of_prettier_is_carried_over_accepted_or_refused_once() {
     let carried: Vec<&str> = CARRIED.iter().map(|(name, _)| *name).collect();
+    let neutral: Vec<&str> = NEUTRAL.iter().map(|(name, ..)| *name).collect();
     let refused: Vec<&str> = REFUSED.iter().map(|(name, _)| *name).collect();
-    for list in [&carried, &refused] {
+    for list in [&carried, &neutral, &refused] {
         assert!(list.windows(2).all(|pair| pair[0] < pair[1]), "{list:?}");
     }
-    let mut all: Vec<&str> = [carried.as_slice(), refused.as_slice()].concat();
+    let mut all: Vec<&str> = [carried.as_slice(), neutral.as_slice(), refused.as_slice()].concat();
     all.sort_unstable();
     all.dedup();
     // The 30 options Prettier 3.9.6 gives, and `pluginSearchDirs`, which it
     // gave until 3.0 and which names folders.
     assert_eq!(all.len(), 31, "{all:?}");
     assert!(refused.contains(&"pluginSearchDirs"));
+    assert!(CARRIED.contains(&("parser", Kind::Parser)));
+    assert!(
+        NEUTRAL
+            .iter()
+            .any(|entry| entry.0 == "rangeEnd" && entry.1 == Neutral::Unbounded)
+    );
+}
+
+/// The lists were read from the Prettier the register pins: raising the pin
+/// fails here until they are read again from the new version.
+#[test]
+fn the_lists_follow_the_pinned_prettier() {
+    let (_, program) = prettier();
+    assert_eq!(program.version, VERSION);
+    // The 25 `choices` of the option `parser` in Prettier 3.9.6's `index.mjs`.
+    assert_eq!(PARSERS.len(), 25);
+    assert!(
+        PARSERS.windows(2).all(|pair| pair[0] < pair[1]),
+        "{PARSERS:?}"
+    );
 }
 
 #[test]
@@ -219,36 +241,191 @@ fn the_first_name_at_the_root_is_read_and_every_other_file_is_named() {
 fn every_key_that_is_not_handed_over_is_named_and_the_rest_is_handed_over() {
     let (handed, problems) = handed(&[(
         ".prettierrc.json",
-        "{ \"plugins\": [\"./plugin.mjs\"], \"parser\": \"babel\", \"requirePragma\": true, \
-         \"checkIgnorePragma\": true, \"rangeStart\": 10, \"parenSpacing\": true, \
-         \"useTabs\": \"yes\", \"printWidth\": -1, \"tabWidth\": 1.5, \
-         \"trailingComma\": \"always\", \"semi\": false }",
+        "{ \"plugins\": [\"./plugin.mjs\"], \"parser\": \"toml\", \"requirePragma\": true, \
+         \"checkIgnorePragma\": true, \"rangeStart\": 10, \"rangeEnd\": 100, \
+         \"parenSpacing\": true, \"useTabs\": \"yes\", \"printWidth\": -1, \"tabWidth\": 1.5, \
+         \"trailingComma\": \"always\", \"cursorOffset\": 0, \"semi\": false }",
     )]);
 
     assert_eq!(flags(&handed, "a.json"), ["--semi=false"]);
     assert_eq!(
         messages(&problems),
         [
-            ".prettierrc.json: `checkIgnorePragma` is not handed to Prettier: it would pass every \
-             file that holds a `@noformat` comment unchecked",
+            ".prettierrc.json: `checkIgnorePragma` is not handed to Prettier: any value but \
+             `false` would pass every file that holds a `@noformat` comment unchecked",
+            ".prettierrc.json: `cursorOffset` is not handed to Prettier: it places an editor's \
+             cursor, and the check formats whole files",
             ".prettierrc.json: `parenSpacing` is not an option of Prettier 3.9.6 the check knows, \
              so it is not handed to Prettier",
-            ".prettierrc.json: `parser` is not handed to Prettier: it chooses how Prettier reads \
-             a file, which the check leaves to the file's name, and names a parser a plugin \
-             would bring",
+            ".prettierrc.json: `parser` is not the name of a parser Prettier brings itself; any \
+             other would need a plugin, so it is not handed to Prettier",
             ".prettierrc.json: `plugins` is not handed to Prettier: it names modules that would \
              be loaded and run, and the check runs no code of the repository",
             ".prettierrc.json: `printWidth` is not a whole number of 0 or more, so it is not \
              handed to Prettier",
-            ".prettierrc.json: `rangeStart` is not handed to Prettier: it would leave the part \
-             of every file before it unchecked",
-            ".prettierrc.json: `requirePragma` is not handed to Prettier: it would pass every \
-             file that holds no `@format` comment unchecked",
+            ".prettierrc.json: `rangeEnd` is not handed to Prettier: any value but `Infinity` \
+             would leave the part of every file after it unchecked",
+            ".prettierrc.json: `rangeStart` is not handed to Prettier: any value but `0` would \
+             leave the part of every file before it unchecked",
+            ".prettierrc.json: `requirePragma` is not handed to Prettier: any value but `false` \
+             would pass every file that holds no `@format` comment unchecked",
             ".prettierrc.json: `tabWidth` is not a whole number of 0 or more, so it is not \
              handed to Prettier",
             ".prettierrc.json: `trailingComma` is not one of `all`, `es5`, `none`, so it is not \
              handed to Prettier",
             ".prettierrc.json: `useTabs` is not true or false, so it is not handed to Prettier",
+        ]
+    );
+}
+
+/// `requirePragma`, `checkIgnorePragma`, `rangeStart` and `rangeEnd` at the
+/// value that changes nothing, as each format the tool reads writes it, are
+/// accepted without a finding and not handed over: the command line sets
+/// them to that value anyway.
+#[test]
+fn the_value_that_changes_nothing_is_accepted_in_every_format() {
+    for (file, content) in [
+        (
+            ".prettierrc.json",
+            "{ \"requirePragma\": false, \"checkIgnorePragma\": false, \"rangeStart\": 0, \
+             \"rangeEnd\": 1e999 }",
+        ),
+        (
+            ".prettierrc.json",
+            "{ \"rangeStart\": -0, \"rangeEnd\": 1.8E308 }",
+        ),
+        (
+            ".prettierrc.json5",
+            "{ requirePragma: false, checkIgnorePragma: false, rangeStart: 0, rangeEnd: Infinity }",
+        ),
+        (
+            ".prettierrc.json5",
+            "{ rangeStart: 0x0, rangeEnd: +Infinity, }",
+        ),
+        (".prettierrc.json5", "{ rangeStart: 0.0, rangeEnd: 1e999 }"),
+        (
+            ".prettierrc",
+            "requirePragma: false\ncheckIgnorePragma: false\nrangeStart: 0\nrangeEnd: .inf\n",
+        ),
+        (".prettierrc", "{ \"rangeEnd\": 1e999 }\n"),
+        (".prettierrc.yml", "rangeStart: 0.0\nrangeEnd: +.inf\n"),
+        (".prettierrc.yaml", "rangeEnd: .Inf\n"),
+        (
+            ".prettierrc.toml",
+            "requirePragma = false\ncheckIgnorePragma = false\nrangeStart = 0\nrangeEnd = inf\n",
+        ),
+        (".prettierrc.toml", "rangeStart = 0.0\nrangeEnd = +inf\n"),
+        (
+            ".prettierrc.yaml",
+            "overrides:\n  - files: \"*.md\"\n    options:\n      requirePragma: false\n      \
+             rangeEnd: .inf\n",
+        ),
+    ] {
+        let (handed, problems) = handed(&[(file, content)]);
+        assert!(problems.is_empty(), "{file} {content}: {problems:?}");
+        assert!(handed.configured());
+        assert!(flags(&handed, "a.md").is_empty(), "{file} {content}");
+    }
+}
+
+/// A value of the four that takes effect, or one that is not even of their
+/// kind, fails by name in every format.
+#[test]
+fn a_value_that_takes_effect_fails_by_name_in_every_format() {
+    for (file, content, keys) in [
+        (
+            ".prettierrc.json",
+            "{ \"requirePragma\": null, \"rangeStart\": 1, \"rangeEnd\": 1e308 }",
+            &["rangeEnd", "rangeStart", "requirePragma"][..],
+        ),
+        (
+            ".prettierrc.json5",
+            "{ checkIgnorePragma: 'false', rangeStart: NaN, rangeEnd: -Infinity }",
+            &["checkIgnorePragma", "rangeEnd", "rangeStart"],
+        ),
+        (
+            ".prettierrc.yaml",
+            "requirePragma: true\nrangeStart: .inf\nrangeEnd: ~\n",
+            &["rangeEnd", "rangeStart", "requirePragma"],
+        ),
+        (
+            ".prettierrc",
+            "rangeEnd: Infinity\nrangeStart: \"0\"\n",
+            &["rangeEnd", "rangeStart"],
+        ),
+        (
+            ".prettierrc.toml",
+            "checkIgnorePragma = true\nrangeStart = 1979-05-27\nrangeEnd = 0\n",
+            &["checkIgnorePragma", "rangeEnd", "rangeStart"],
+        ),
+    ] {
+        let (_, problems) = handed(&[(file, content)]);
+        let named: Vec<&str> = problems
+            .iter()
+            .map(|problem| {
+                assert!(problem.message.contains("any value but"), "{problem:?}");
+                problem.message.split('`').nth(1).unwrap()
+            })
+            .collect();
+        assert_eq!(named, keys, "{file} {content}");
+    }
+}
+
+/// Numbers are read as JavaScript reads them, in every form JSON5 writes,
+/// and a key YAML writes as a number is a key as well.
+#[test]
+fn every_value_is_read_as_javascript_holds_it() {
+    let (handed, problems) = handed(&[(
+        ".prettierrc.json5",
+        "{ printWidth: 0X64, tabWidth: +4, quoteProps: 'preserve', overrides: [{ files: ['*.md'], \
+         options: { printWidth: 0x50 } }], semi: null }",
+    )]);
+    assert_eq!(
+        flags(&handed, "a.md"),
+        [
+            "--print-width=80",
+            "--quote-props=preserve",
+            "--tab-width=4"
+        ]
+    );
+    assert_eq!(
+        messages(&problems),
+        [".prettierrc.json5: `semi` is not true or false, so it is not handed to Prettier"]
+    );
+
+    let (handed, problems) =
+        self::handed(&[(".prettierrc.json5", "{ tabWidth: .5, printWidth: 5. }")]);
+    assert_eq!(flags(&handed, "a.md"), ["--print-width=5"]);
+    assert_eq!(problems.len(), 1, "{problems:?}");
+
+    let (handed, problems) = self::handed(&[(
+        ".prettierrc.yaml",
+        "1: true\nprintWidth: 1.0e2\nsingleQuote: true\noverrides: [{ files: \"*.md\" }]\n",
+    )]);
+    assert_eq!(
+        flags(&handed, "a.md"),
+        ["--print-width=100", "--single-quote=true"]
+    );
+    assert_eq!(
+        messages(&problems),
+        [
+            ".prettierrc.yaml: `1` is not an option of Prettier 3.9.6 the check knows, so it is not \
+          handed to Prettier"
+        ]
+    );
+
+    let (handed, problems) = self::handed(&[(
+        ".prettierrc.toml",
+        "printWidth = 100.0\ntrailingComma = \"none\"\n\n[[overrides]]\nfiles = [\"*.md\"]\n\n\
+         [overrides.options]\nuseTabs = true\n",
+    )]);
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(
+        flags(&handed, "a.md"),
+        [
+            "--print-width=100",
+            "--trailing-comma=none",
+            "--use-tabs=true"
         ]
     );
 }
@@ -277,6 +454,9 @@ fn a_file_that_holds_no_options_hands_nothing_over() {
         (".prettierrc.json", "{"),
         (".prettierrc.json", "// comment\n{ \"semi\": false }\n"),
         (".prettierrc.json", "{ \"semi\": false, }\n"),
+        (".prettierrc.json", "{ \"rangeEnd\": Infinity }\n"),
+        (".prettierrc.json", ""),
+        (".prettierrc.json5", "{ semi: false"),
         (".prettierrc.toml", "semi ="),
         (".prettierrc", "a: [\n"),
     ] {
@@ -378,26 +558,56 @@ fn the_patterns_of_an_entry_are_read_as_prettier_reads_them() {
     assert!(flags(&handed, "a.yaml").is_empty());
 }
 
+/// A parser Prettier brings itself is handed over, at the top and in an
+/// entry of `overrides`: a repository may say that its files of one name are
+/// read as JSON5.
 #[test]
-fn an_entry_that_names_a_parser_or_a_plugin_does_not_reach_prettier() {
+fn a_parser_prettier_brings_itself_is_handed_over() {
+    let (handed, problems) = handed(&[(
+        ".prettierrc.json",
+        "{ \"overrides\": [{ \"files\": \"*.json\", \"options\": { \"parser\": \"json5\" } }] }",
+    )]);
+
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(flags(&handed, "a.json"), ["--parser=json5"]);
+    assert!(flags(&handed, "a.md").is_empty());
+
+    for parser in PARSERS {
+        let content = format!("parser: {parser}\n");
+        let (handed, problems) = self::handed(&[(".prettierrc", content.as_str())]);
+        assert!(problems.is_empty(), "{parser}: {problems:?}");
+        assert_eq!(flags(&handed, "a.md"), [format!("--parser={parser}")]);
+    }
+}
+
+/// A parser only a plugin would bring, one Prettier keeps for itself, or a
+/// name in another case is no parser Prettier brings, and fails by name.
+#[test]
+fn an_entry_that_names_a_plugin_parser_or_a_plugin_does_not_reach_prettier() {
     let (handed, problems) = handed(&[(
         ".prettierrc.yaml",
-        "overrides:\n  - files: \"*.json\"\n    options:\n      parser: json5\n      \
-         plugins: [prettier-plugin-x]\n      tabWidth: 4\n",
+        "overrides:\n  - files: \"*.json\"\n    options:\n      parser: toml\n      \
+         plugins: [prettier-plugin-toml]\n      tabWidth: 4\n",
     )]);
 
     assert_eq!(flags(&handed, "a.json"), ["--tab-width=4"]);
     assert_eq!(
         messages(&problems),
         [
-            ".prettierrc.yaml: `overrides[0].options.parser` is not handed to Prettier: it \
-             chooses how Prettier reads a file, which the check leaves to the file's name, and \
-             names a parser a plugin would bring",
+            ".prettierrc.yaml: `overrides[0].options.parser` is not the name of a parser \
+             Prettier brings itself; any other would need a plugin, so it is not handed to \
+             Prettier",
             ".prettierrc.yaml: `overrides[0].options.plugins` is not handed to Prettier: it \
              names modules that would be loaded and run, and the check runs no code of the \
              repository",
         ]
     );
+    for parser in ["__js_expression", "JSON", "babel-estree", "1"] {
+        let content = format!("{{ \"parser\": \"{parser}\" }}");
+        let (handed, problems) = self::handed(&[(".prettierrc.json", content.as_str())]);
+        assert!(flags(&handed, "a.md").is_empty());
+        assert_eq!(problems.len(), 1, "{parser}");
+    }
 }
 
 #[test]

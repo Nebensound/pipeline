@@ -19,11 +19,13 @@
 //!    patterns match the file, in their order, each laid over what came
 //!    before it.
 //!
-//! Each key of the file is carried over ([`CARRIED`]), refused by name with
-//! the reason ([`REFUSED`]), or unknown, which fails as well; `$schema`, for an
-//! editor, is passed over. A file that holds text in place of a mapping names
-//! a shared configuration, a module, and is refused. The lists follow the
-//! options Prettier 3.9.6 gives, the version the register pins.
+//! Each key of the file is carried over ([`CARRIED`]), accepted only at the
+//! value that changes nothing ([`NEUTRAL`]), refused by name with the reason
+//! ([`REFUSED`]), or unknown, which fails as well; `$schema`, for an editor, is
+//! passed over. `parser` is carried over where it names a parser Prettier
+//! brings itself ([`PARSERS`]). A file that holds text in place of a mapping
+//! names a shared configuration, a module, and is refused. The lists follow
+//! Prettier [`VERSION`], the version the register pins.
 //!
 //! An entry of `overrides` holds `files`, `excludeFiles` and `options`, and
 //! matches a file as Prettier matches it, over the path from the repository
@@ -44,7 +46,9 @@
 use std::collections::BTreeMap;
 
 use globset::{GlobBuilder, GlobMatcher};
+use jsonc_parser::{JsonValue, ParseOptions};
 use serde_json::Value;
+use yaml_rust2::{Yaml, YamlLoader};
 
 use super::editorconfig::{self, EditorConfig, Property};
 use super::{Problem, Unread, Written, locate};
@@ -53,10 +57,49 @@ use crate::names::ProgramName;
 use crate::path::RelativePath;
 use crate::programs::Program;
 use crate::register::Register;
-use crate::rules::Format;
+use crate::rules::{self, Format};
 
 /// The name Prettier goes by in the register.
 pub const NAME: &str = "prettier";
+
+/// The version of Prettier the lists of this module were read from: its
+/// options ([`CARRIED`], [`NEUTRAL`], [`REFUSED`]) and its parsers
+/// ([`PARSERS`]). A test holds it to the version the register pins, so a pin
+/// that is raised fails that test until the lists are read again from the new
+/// version and this is raised with them.
+pub const VERSION: &str = "3.9.6";
+
+/// The parsers Prettier [`VERSION`] brings itself, by name: the `choices` of
+/// its option `parser` in its `index.mjs`, the same names its `index.d.ts`
+/// gives as `BuiltInParserName`. Any other name is one only a plugin would
+/// bring.
+pub const PARSERS: &[&str] = &[
+    "acorn",
+    "angular",
+    "babel",
+    "babel-flow",
+    "babel-ts",
+    "css",
+    "espree",
+    "flow",
+    "glimmer",
+    "graphql",
+    "html",
+    "json",
+    "json-stringify",
+    "json5",
+    "jsonc",
+    "less",
+    "lwc",
+    "markdown",
+    "mdx",
+    "meriyah",
+    "mjml",
+    "scss",
+    "typescript",
+    "vue",
+    "yaml",
+];
 
 /// What values an option takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,10 +110,13 @@ pub enum Kind {
     Count,
     /// One of these words.
     Choice(&'static [&'static str]),
+    /// The name of a parser Prettier brings itself, one of [`PARSERS`].
+    Parser,
 }
 
 /// The options of Prettier the checks carry over, each with the values it
-/// takes: every option of Prettier 3.9.6 that says how a file is written.
+/// takes: every option of Prettier [`VERSION`] that says how a file is
+/// written, and `parser`, which says how it is read.
 pub const CARRIED: &[(&str, Kind)] = &[
     ("arrowParens", Kind::Choice(&["always", "avoid"])),
     ("bracketSameLine", Kind::Flag),
@@ -90,6 +136,7 @@ pub const CARRIED: &[(&str, Kind)] = &[
     ("jsxBracketSameLine", Kind::Flag),
     ("jsxSingleQuote", Kind::Flag),
     ("objectWrap", Kind::Choice(&["preserve", "collapse"])),
+    ("parser", Kind::Parser),
     ("printWidth", Kind::Count),
     ("proseWrap", Kind::Choice(&["always", "never", "preserve"])),
     (
@@ -105,14 +152,69 @@ pub const CARRIED: &[(&str, Kind)] = &[
     ("vueIndentScriptAndStyle", Kind::Flag),
 ];
 
-/// The keys the checks refuse, each with what it would make Prettier do:
-/// load and run code, read another file, choose how a file is read, or pass
-/// a file or a part of it unchecked.
-pub const REFUSED: &[(&str, &str)] = &[
+/// The value of an option that changes nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Neutral {
+    /// `false`.
+    False,
+    /// The number 0.
+    Zero,
+    /// No bound: the number JavaScript calls `Infinity`.
+    Unbounded,
+}
+
+impl Neutral {
+    /// Whether `value` is this value.
+    fn holds(self, value: &Data) -> bool {
+        match (self, value) {
+            (Self::False, Data::Flag(flag)) => !flag,
+            (Self::Zero, Data::Number(number)) => *number == 0.0,
+            (Self::Unbounded, Data::Number(number)) => *number == f64::INFINITY,
+            _ => false,
+        }
+    }
+
+    /// The value in words.
+    fn written(self) -> &'static str {
+        match self {
+            Self::False => "`false`",
+            Self::Zero => "`0`",
+            Self::Unbounded => "`Infinity`",
+        }
+    }
+}
+
+/// The keys the checks accept only at the value that changes nothing, each
+/// with that value and what any other would make Prettier do: pass a file or
+/// a part of it unchecked. One at that value is not handed over, since the
+/// command line sets each of them to it anyway (see `Session::prettier` in
+/// `run`).
+pub const NEUTRAL: &[(&str, Neutral, &str)] = &[
     (
         "checkIgnorePragma",
+        Neutral::False,
         "would pass every file that holds a `@noformat` comment unchecked",
     ),
+    (
+        "rangeEnd",
+        Neutral::Unbounded,
+        "would leave the part of every file after it unchecked",
+    ),
+    (
+        "rangeStart",
+        Neutral::Zero,
+        "would leave the part of every file before it unchecked",
+    ),
+    (
+        "requirePragma",
+        Neutral::False,
+        "would pass every file that holds no `@format` comment unchecked",
+    ),
+];
+
+/// The keys the checks refuse, each with what it would make Prettier do:
+/// load and run code, or read another file.
+pub const REFUSED: &[(&str, &str)] = &[
     (
         "cursorOffset",
         "places an editor's cursor, and the check formats whole files",
@@ -120,11 +222,6 @@ pub const REFUSED: &[(&str, &str)] = &[
     (
         "filepath",
         "names another file, by whose name Prettier would choose how to read a file",
-    ),
-    (
-        "parser",
-        "chooses how Prettier reads a file, which the check leaves to the file's name, and \
-         names a parser a plugin would bring",
     ),
     (
         "pluginSearchDirs",
@@ -136,19 +233,27 @@ pub const REFUSED: &[(&str, &str)] = &[
         "names modules that would be loaded and run, and the check runs no code of the \
          repository",
     ),
-    (
-        "rangeEnd",
-        "would leave the part of every file after it unchecked",
-    ),
-    (
-        "rangeStart",
-        "would leave the part of every file before it unchecked",
-    ),
-    (
-        "requirePragma",
-        "would pass every file that holds no `@format` comment unchecked",
-    ),
 ];
+
+/// A value of Prettier's file as JavaScript holds it once Prettier has read
+/// it: every number a double. So a number without a bound, which JSON writes
+/// as `1e999`, JSON5 as `Infinity`, YAML as `.inf` and TOML as `inf`, is a
+/// number as well, which `serde_json` cannot hold.
+enum Data {
+    /// `null`.
+    Null,
+    /// True or false.
+    Flag(bool),
+    /// A number.
+    Number(f64),
+    /// Text.
+    Text(String),
+    /// A list.
+    List(Vec<Data>),
+    /// A mapping, by key; a key written twice takes its last value, as
+    /// JavaScript reads it.
+    Mapping(BTreeMap<String, Data>),
+}
 
 /// The value of an option, as the tool hands it over.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -452,7 +557,7 @@ pub fn read(
         problems: Vec::new(),
     };
     match read(file).and_then(|source| parse(file, &source)) {
-        Ok(Value::Object(top)) => {
+        Ok(Data::Mapping(top)) => {
             handed.file = Some(file.clone());
             for (key, value) in top {
                 match key.as_str() {
@@ -463,8 +568,8 @@ pub fn read(
             }
         }
         // An empty file of YAML holds nothing, and sets nothing.
-        Ok(Value::Null) => handed.file = Some(file.clone()),
-        Ok(Value::String(module)) => found.problem(&format!(
+        Ok(Data::Null) => handed.file = Some(file.clone()),
+        Ok(Data::Text(module)) => found.problem(&format!(
             "names a shared configuration, `{module}`, a module that would be loaded and run, so \
              nothing of it is handed to Prettier; write the options themselves into the file"
         )),
@@ -482,20 +587,136 @@ pub fn read(
 /// trailing comma Prettier would stop at is named here too, `.json5` as
 /// JSON5, `.toml` as TOML, and the others, `.prettierrc` among them, as YAML,
 /// which takes JSON as well.
-fn parse(file: &RelativePath, source: &str) -> Result<Value, String> {
+fn parse(file: &RelativePath, source: &str) -> Result<Data, String> {
     let name = file.file_name().unwrap_or_default();
-    let format = match name.rsplit_once('.').map(|(_, ending)| ending) {
-        Some("toml") => {
-            return toml::from_str::<Value>(source).map_err(|error| error.to_string());
-        }
+    match name.rsplit_once('.').map(|(_, ending)| ending) {
+        Some("toml") => source
+            .parse::<toml::Table>()
+            .map(|table| from_toml(toml::Value::Table(table)))
+            .map_err(|error| error.to_string()),
         Some("json") => {
             let source = source.strip_prefix('\u{feff}').unwrap_or(source);
-            return serde_json::from_str::<Value>(source).map_err(|error| error.to_string());
+            from_json(source, &JSON)
         }
-        Some("json5") => Format::Jsonc,
-        _ => Format::Yaml,
+        Some("json5") => from_json(source, &ParseOptions::default()),
+        _ => YamlLoader::load_from_str(source)
+            .map(|documents| documents.first().map_or(Data::Null, from_yaml))
+            .map_err(|error| error.to_string()),
+    }
+}
+
+/// Plain JSON, as `JSON.parse` reads it: none of what JSON5 adds.
+const JSON: ParseOptions = ParseOptions {
+    allow_comments: false,
+    allow_loose_object_property_names: false,
+    allow_trailing_commas: false,
+    allow_missing_commas: false,
+    allow_single_quoted_strings: false,
+    allow_hexadecimal_numbers: false,
+    allow_unary_plus_numbers: false,
+    allow_bare_decimal_point_numbers: false,
+    allow_non_finite_numbers: false,
+    allow_extended_string_escapes: false,
+};
+
+/// The value of a file of JSON or JSON5, read with `options`. The parser
+/// keeps each number as written, so one too large for a double, such as
+/// `1e999`, is read as JavaScript reads it, as `Infinity`.
+fn from_json(source: &str, options: &ParseOptions) -> Result<Data, String> {
+    match jsonc_parser::parse_to_value(source, options) {
+        Ok(Some(value)) => Ok(json_data(value)),
+        Ok(None) => Err("it holds no value".to_owned()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// A value of JSON or JSON5 as [`Data`].
+fn json_data(value: JsonValue<'_>) -> Data {
+    match value {
+        JsonValue::String(text) => Data::Text(text.into_owned()),
+        JsonValue::Number(written) => Data::Number(number(written)),
+        JsonValue::Boolean(flag) => Data::Flag(flag),
+        JsonValue::Object(object) => Data::Mapping(
+            object
+                .into_iter()
+                .map(|(key, value)| (key.into_owned(), json_data(value)))
+                .collect(),
+        ),
+        JsonValue::Array(items) => Data::List(items.into_iter().map(json_data).collect()),
+        JsonValue::Null => Data::Null,
+    }
+}
+
+/// A number as JSON5 writes it, read as JavaScript reads it: a sign, then
+/// `Infinity`, `NaN`, hexadecimal digits after `0x`, or a decimal number.
+/// JSON writes only the last, with no `+`.
+fn number(written: &str) -> f64 {
+    let (negative, rest) = match written.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, written.strip_prefix('+').unwrap_or(written)),
     };
-    super::parse(format, source).map(Written::into_value)
+    let magnitude = match rest {
+        "Infinity" => f64::INFINITY,
+        "NaN" => f64::NAN,
+        _ => match rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
+            Some(digits) => digits
+                .chars()
+                .filter_map(|digit| digit.to_digit(16))
+                .fold(0.0, |sum, digit| sum * 16.0 + f64::from(digit)),
+            // The parser hands over only numbers that read.
+            None => rest.parse().unwrap_or(f64::NAN),
+        },
+    };
+    if negative { -magnitude } else { magnitude }
+}
+
+/// The value of a file of YAML: a key that is not text is written out as
+/// YAML would show it, as [`rules::json`] does.
+fn from_yaml(yaml: &Yaml) -> Data {
+    match yaml {
+        Yaml::Hash(hash) => Data::Mapping(
+            hash.iter()
+                .map(|(key, value)| {
+                    let key = match key {
+                        Yaml::String(name) => name.clone(),
+                        other => rules::json(other).to_string(),
+                    };
+                    (key, from_yaml(value))
+                })
+                .collect(),
+        ),
+        Yaml::Array(items) => Data::List(items.iter().map(from_yaml).collect()),
+        Yaml::String(text) => Data::Text(text.clone()),
+        // JavaScript holds every number as a double, a large whole number
+        // rounded as here.
+        #[allow(clippy::cast_precision_loss)]
+        Yaml::Integer(number) => Data::Number(*number as f64),
+        // `.inf` among them; the parser makes a `Real` only of one that reads.
+        Yaml::Real(_) => Data::Number(yaml.as_f64().unwrap_or(f64::NAN)),
+        Yaml::Boolean(flag) => Data::Flag(*flag),
+        Yaml::Null | Yaml::BadValue | Yaml::Alias(_) => Data::Null,
+    }
+}
+
+/// The value of a file of TOML. A date or a time is text, which no option
+/// takes.
+fn from_toml(value: toml::Value) -> Data {
+    match value {
+        toml::Value::String(text) => Data::Text(text),
+        // As for YAML.
+        #[allow(clippy::cast_precision_loss)]
+        toml::Value::Integer(number) => Data::Number(number as f64),
+        toml::Value::Float(number) => Data::Number(number),
+        toml::Value::Boolean(flag) => Data::Flag(flag),
+        toml::Value::Datetime(datetime) => Data::Text(datetime.to_string()),
+        toml::Value::Array(items) => Data::List(items.into_iter().map(from_toml).collect()),
+        toml::Value::Table(table) => Data::Mapping(
+            table
+                .into_iter()
+                .map(|(key, value)| (key, from_toml(value)))
+                .collect(),
+        ),
+    }
 }
 
 /// The files beside those the register names that Prettier would read and
@@ -571,7 +792,7 @@ impl Found<'_> {
     /// One option, `key`, put into `options` where it is carried over and
     /// its value is one it takes; `at` is where it stands, such as
     /// `overrides[0].options.`, in front of the key a problem names.
-    fn option(&mut self, options: &mut Options, at: &str, key: &str, value: &Value) {
+    fn option(&mut self, options: &mut Options, at: &str, key: &str, value: &Data) {
         let at = format!("{at}{key}");
         if let Some((_, kind)) = CARRIED.iter().find(|(name, _)| *name == key) {
             match setting(*kind, value) {
@@ -582,6 +803,13 @@ impl Found<'_> {
                     "`{at}` is not {}, so it is not handed to Prettier",
                     expected(*kind)
                 )),
+            }
+        } else if let Some((_, neutral, why)) = NEUTRAL.iter().find(|(name, ..)| *name == key) {
+            if !neutral.holds(value) {
+                self.problem(&format!(
+                    "`{at}` is not handed to Prettier: any value but {} {why}",
+                    neutral.written()
+                ));
             }
         } else if let Some((_, why)) = REFUSED.iter().find(|(name, _)| *name == key) {
             self.problem(&format!("`{at}` is not handed to Prettier: it {why}"));
@@ -595,8 +823,8 @@ impl Found<'_> {
     }
 
     /// The entries of `overrides`, each one that can be used.
-    fn overrides(&mut self, value: Value) -> Vec<Override> {
-        let Value::Array(entries) = value else {
+    fn overrides(&mut self, value: Data) -> Vec<Override> {
+        let Data::List(entries) = value else {
             self.problem("`overrides` is not a list, so it is not handed to Prettier");
             return Vec::new();
         };
@@ -609,9 +837,9 @@ impl Found<'_> {
 
     /// An entry of `overrides`, or [`None`] where it cannot be used, which is
     /// a problem.
-    fn entry(&mut self, index: usize, value: Value) -> Option<Override> {
+    fn entry(&mut self, index: usize, value: Data) -> Option<Override> {
         let at = format!("overrides[{index}]");
-        let Value::Object(mut entry) = value else {
+        let Data::Mapping(mut entry) = value else {
             self.problem(&format!(
                 "`{at}` is not a mapping, so it is not handed to Prettier"
             ));
@@ -632,20 +860,20 @@ impl Found<'_> {
             ));
             return None;
         };
-        let patterns = |value: &Value| -> Result<Vec<Pattern>, String> {
+        let patterns = |value: &Data| -> Result<Vec<Pattern>, String> {
             match value {
-                Value::String(pattern) => Ok(vec![built(pattern)?]),
-                Value::Array(items) => items
+                Data::Text(pattern) => Ok(vec![built(pattern)?]),
+                Data::List(items) => items
                     .iter()
                     .map(|item| match item {
-                        Value::String(pattern) => built(pattern),
+                        Data::Text(pattern) => built(pattern),
                         _ => Err("is not a pattern or a list of patterns".to_owned()),
                     })
                     .collect(),
                 _ => Err("is not a pattern or a list of patterns".to_owned()),
             }
         };
-        let mut built_patterns = |key: &str, value: &Value| match patterns(value) {
+        let mut built_patterns = |key: &str, value: &Data| match patterns(value) {
             Ok(built) => Some(built),
             Err(reason) => {
                 self.problem(&format!(
@@ -661,7 +889,7 @@ impl Found<'_> {
         };
         let mut handed = Options::new();
         match options {
-            Some(Value::Object(options)) => {
+            Some(Data::Mapping(options)) => {
                 for (key, value) in options {
                     self.option(&mut handed, &format!("{at}.options."), &key, &value);
                 }
@@ -719,15 +947,15 @@ fn from_root(mut pattern: &str) -> &str {
 
 /// The value an option of this kind is handed, where `value` is one it
 /// takes.
-fn setting(kind: Kind, value: &Value) -> Option<Setting> {
+fn setting(kind: Kind, value: &Data) -> Option<Setting> {
     match (kind, value) {
-        (Kind::Flag, Value::Bool(flag)) => Some(Setting::Flag(*flag)),
-        (Kind::Count, Value::Number(number)) => number
-            .as_f64()
-            .and_then(editorconfig::whole)
-            .map(Setting::Count),
-        (Kind::Choice(words), Value::String(word)) if words.contains(&word.as_str()) => {
+        (Kind::Flag, Data::Flag(flag)) => Some(Setting::Flag(*flag)),
+        (Kind::Count, Data::Number(number)) => editorconfig::whole(*number).map(Setting::Count),
+        (Kind::Choice(words), Data::Text(word)) if words.contains(&word.as_str()) => {
             Some(Setting::Choice(word.clone()))
+        }
+        (Kind::Parser, Data::Text(name)) if PARSERS.contains(&name.as_str()) => {
+            Some(Setting::Choice(name.clone()))
         }
         _ => None,
     }
@@ -738,6 +966,9 @@ fn expected(kind: Kind) -> String {
     match kind {
         Kind::Flag => "true or false".to_owned(),
         Kind::Count => "a whole number of 0 or more".to_owned(),
+        Kind::Parser => {
+            "the name of a parser Prettier brings itself; any other would need a plugin".to_owned()
+        }
         Kind::Choice(words) => format!(
             "one of {}",
             words
