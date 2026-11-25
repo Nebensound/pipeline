@@ -20,7 +20,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use nebensound_repo::Register;
-use nebensound_repo::build::cargo_package::{artifact, encoded};
+use nebensound_repo::build::cargo_package::{artifact, encoded, sha256};
 use nebensound_repo::build::{self, Build, Context, Machine};
 use nebensound_repo::console::Console;
 use nebensound_repo::output::Output;
@@ -311,6 +311,25 @@ fn the_artifact_carries_the_path_encoded_the_version_and_the_commit() {
     assert_eq!(
         artifact("tools/foo", "1.2.3-pr.4", "abc"),
         "crate-tools%2Ffoo@1.2.3-pr.4@abc"
+    );
+}
+
+/// The digests of FIPS 180-2's examples, written out: the digest named for a
+/// crate or an archive is SHA-256 over all of its bytes, as `sha256sum` prints
+/// it.
+#[test]
+fn the_digest_of_known_bytes_is_the_one_sha256sum_prints() {
+    assert_eq!(
+        sha256(b""),
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    );
+    assert_eq!(
+        sha256(b"abc"),
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
+    assert_eq!(
+        sha256(&vec![b'a'; 1_000_000]),
+        "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
     );
 }
 

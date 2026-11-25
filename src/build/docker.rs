@@ -87,6 +87,7 @@ use sha2::{Digest as _, Sha256};
 use super::Context;
 use super::cargo_package::encoded;
 use crate::path::RelativePath;
+use crate::setup::fetch::Hashing;
 use crate::setup::find;
 use crate::workflow::{self, Log};
 
@@ -483,11 +484,12 @@ fn blob(folder: &Path, digest: &str, unit: &str, log: &mut Log<'_>) -> Option<Pa
         })
         .map(|hex| folder.join("blobs").join("sha256").join(hex));
     let matches = file.as_ref().is_some_and(|file| {
-        let mut hasher = Sha256::new();
+        let mut hasher = Hashing(Sha256::new());
         File::open(file)
             .and_then(|mut opened| std::io::copy(&mut opened, &mut hasher))
             .is_ok_and(|_| {
                 let hex = hasher
+                    .0
                     .finalize()
                     .iter()
                     .fold(String::new(), |mut hex, byte| {
