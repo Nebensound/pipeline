@@ -228,11 +228,11 @@ yet, it says so.
   the release's binary, which cannot be anything else, and the fingerprint and
   the build of the tool from source, for a commit that carries no release. No
   issue exists yet for the fingerprint and the build.
-- **Linters read their configuration themselves** (rule 2). markdownlint and
-  the link check get their configuration from the tool. The other linters find
-  the repository's configuration and read it, and some of their ways load code
-  of the repository: a configuration file in JavaScript, a plugin, a module a
-  configuration extends. Prettier: #200. Stylelint: #201. Hadolint, actionlint,
+- **Linters read their configuration themselves** (rule 2). markdownlint,
+  Prettier and the link check get their configuration from the tool. The other
+  linters find the repository's configuration and read it, and some of their
+  ways load code of the repository: a configuration file in JavaScript, a
+  plugin, a module a configuration extends. Stylelint: #201. Hadolint, actionlint,
   the Dockerfile formatter and Ruff: #202. html-validate leaves the HTML check
   with #185. Taplo's formatter finds the
   repository's `taplo.toml` at the root itself; it becomes a library linked

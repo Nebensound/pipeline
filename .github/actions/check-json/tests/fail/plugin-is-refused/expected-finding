@@ -1,0 +1,3 @@
+# The key is refused by name; the plugin is not loaded, and the file, indented
+# with the tab the rest of the options asks for, is formatted.
+::error file=.prettierrc.json::`plugins` is not handed to Prettier: it names modules that would be loaded and run, and the check runs no code of the repository

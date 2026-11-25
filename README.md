@@ -350,9 +350,12 @@ part runs even when one before it failed, so one run shows every finding.
   of the check whose name ends in `.lock` is such a lockfile, as the register
   gives `json` no other.
 - The three extensions are formatted the way Prettier writes them, with the
-  repository's Prettier configuration, without its ignore files, and with
-  `requirePragma`, `checkIgnorePragma`, `rangeStart` and `rangeEnd` set aside,
-  which would pass a whole file unchecked.
+  options the tool reads from the repository's Prettier file and
+  `.editorconfig` at the root and hands Prettier, which looks for no
+  configuration and no ignore file itself (see
+  [the configuration of a linter](docs/tool.md#prettier)). `requirePragma`,
+  `checkIgnorePragma`, `rangeStart` and `rangeEnd`, which would pass a whole
+  file or a part of it unchecked, fail the check by name.
 
 Every part runs even when one before it failed, so one run shows every finding.
 
@@ -862,9 +865,11 @@ another file, such as `customRules` or `extends`, fails the check (see
 [the configuration of a linter](docs/tool.md#the-configuration-of-a-linter)).
 A file may also switch a rule of the default off or loosen it; the rules report
 shows every difference. markdownlint is the first linter under this rule, beside
-lychee, whose `lychee.toml` the tool reads key by key. The other linters still
-find and read the repository's configuration themselves, or follow a file it
-names: Prettier, Stylelint, html-validate, Hadolint, actionlint, the
+lychee, whose `lychee.toml` the tool reads key by key, and Prettier, whose
+options the tool reads from Prettier's one file and `.editorconfig` at the root
+and hands over as flags (see [the tool](docs/tool.md#prettier)). The other
+linters still find and read the repository's configuration themselves, or
+follow a file it names: Stylelint, html-validate, Hadolint, actionlint, the
 Dockerfile formatter, Ruff, Taplo's formatter and Pyright (see
 [what does not hold yet](docs/principles.md#what-does-not-hold-yet)).
 
@@ -947,8 +952,9 @@ from the `lychee.toml` they read, and rustfmt's `ignore`, which comes
 along with the repository's rustfmt configuration and takes effect on a nightly
 toolchain, and Ruff's `# ruff: noqa`, which a Python file holds itself.
 Settings in a tool's configuration that pass a whole file unchecked are set
-aside on the command line: Prettier's `requirePragma`, `checkIgnorePragma`,
-`rangeStart` and `rangeEnd`, and rustfmt's `disable_all_formatting`;
+aside on the command line: rustfmt's `disable_all_formatting`, and Prettier's
+`requirePragma`, `checkIgnorePragma`, `rangeStart` and `rangeEnd`, which the
+tool also refuses by name in the configuration it reads;
 `check-python` runs Pyright without its `ignore` and `exclude` and Ruff with
 `--no-force-exclude`, and judges coverage itself, so that coverage.py's `omit`
 takes nothing out. Run by

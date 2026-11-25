@@ -1,0 +1,6 @@
+# An entry of `overrides` names a parser and a plugin. Each is refused by name
+# and fails the check; neither reaches Prettier, which reads the file by its
+# name and formats it with the entry's other option.
+[repo]
+audience = "public"
+pipeline = "none"

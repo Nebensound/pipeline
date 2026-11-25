@@ -1,0 +1,6 @@
+overrides:
+  - files: "*.json"
+    options:
+      parser: json5
+      plugins: ["prettier-plugin-x"]
+      tabWidth: 4

@@ -1,0 +1,2 @@
+# Read as JSON and formatted with `tabWidth`: no finding at the file.
+::error file=data.json::*

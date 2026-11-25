@@ -29,7 +29,12 @@
 //! [`markdownlint`] is the first linter under the rule. The check reads
 //! through it and hands the linter the result, the rules report shows the
 //! same result ([`crate::rules`]), and phase 0 names every file that is not
-//! read ([`findings`]), so what the report shows is what runs.
+//! read ([`findings`]), so what the report shows is what runs. [`prettier`]
+//! is the second: every check that formats with Prettier reads through it and
+//! hands Prettier the options of each file as flags. Prettier also reads
+//! `.editorconfig`, so the tool reads the root's beside Prettier's own file
+//! ([`editorconfig`]); Prettier has no default of the pipeline, so the rules
+//! report shows nothing of it.
 //!
 //! The link check's configuration ([`crate::lychee_config`]) follows the same
 //! shape and is older: lychee's `lychee.toml` is data by design and lychee
@@ -56,7 +61,9 @@
 //! names the files of a program the pipeline runs. Nothing runs that would
 //! follow them, so each is a warning, not an error.
 
+pub mod editorconfig;
 pub mod markdownlint;
+pub mod prettier;
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -68,6 +75,7 @@ use yaml_rust2::{Yaml, YamlLoader};
 use crate::Analysis;
 use crate::annotate::Coverage;
 use crate::finding::{Finding, Rule};
+use crate::ignored::Read;
 use crate::names::ProgramName;
 use crate::path::RelativePath;
 use crate::programs::Program;
@@ -227,6 +235,16 @@ fn written(yaml: &Yaml) -> Written {
     }
 }
 
+/// Something in a linter's configuration that is not handed over, which
+/// fails the check that runs the linter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Problem {
+    /// The file it is in.
+    pub file: RelativePath,
+    /// What is wrong, naming the key.
+    pub message: String,
+}
+
 /// A file of a linter's configuration that the tool does not read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unread {
@@ -318,13 +336,14 @@ pub fn locate<'a>(
 
 /// Every file of a linter's configuration in the repository that the tool
 /// does not read, for every program the register names files of its
-/// configuration for: each one an error of phase 0
-/// ([`Rule::UnreadConfiguration`]), since the linter would follow it
-/// wherever it runs by hand, and the check never does. After them, each
-/// configuration of a program that no check starts any more, a warning
-/// ([`crate::unread::findings`]).
+/// configuration for, and beside them the other files Prettier would read
+/// ([`prettier::beside`]), read through `read` where their content decides
+/// it: each one an error of phase 0 ([`Rule::UnreadConfiguration`]), since
+/// the linter would follow it wherever it runs by hand, and the check never
+/// does. After them, each configuration of a program that no check starts
+/// any more, a warning ([`crate::unread::findings`]).
 #[must_use]
-pub fn findings(analysis: &Analysis, register: &Register) -> Vec<Finding> {
+pub fn findings(analysis: &Analysis, register: &Register, read: &Read<'_>) -> Vec<Finding> {
     let nodes = analysis.tree.files();
     let files: Vec<&RelativePath> = nodes.iter().map(|(node, _)| &node.path).collect();
     let excluded: BTreeSet<&RelativePath> = nodes
@@ -336,7 +355,13 @@ pub fn findings(analysis: &Analysis, register: &Register) -> Vec<Finding> {
     let mut found: Vec<Finding> = register
         .program
         .iter()
-        .flat_map(|(name, program)| locate(&files, &kept, name, program).unread)
+        .flat_map(|(name, program)| {
+            let mut unread = locate(&files, &kept, name, program).unread;
+            if name.as_str() == prettier::NAME {
+                unread.extend(prettier::beside(&files, &kept, read));
+            }
+            unread
+        })
         .map(|unread| Finding::error(Rule::UnreadConfiguration, unread.why).at(unread.file))
         .collect();
     found.extend(crate::unread::findings(analysis));

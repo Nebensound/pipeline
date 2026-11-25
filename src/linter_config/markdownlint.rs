@@ -49,6 +49,7 @@
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde_json::Value;
 
+pub use super::Problem;
 use super::{Written, locate};
 use crate::ignored::Read;
 use crate::names::ProgramName;
@@ -179,16 +180,6 @@ pub struct Handed {
     pub front_matter: Option<String>,
     /// Whether comments in a document are read as configuration.
     pub no_inline_config: bool,
-}
-
-/// Something in the configuration that is not handed over, which fails the
-/// check.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Problem {
-    /// The file it is in.
-    pub file: RelativePath,
-    /// What is wrong, naming the key.
-    pub message: String,
 }
 
 impl Handed {

@@ -1,0 +1,7 @@
+# A difference by pattern whose pattern holds a `/`: it matches the whole path
+# from the root of the repository, so the file in `nested/dir` is formatted
+# with four spaces and the one at the root with the two of the file's own
+# options. Prettier is handed each file's options by the tool.
+[repo]
+audience = "public"
+pipeline = "none"

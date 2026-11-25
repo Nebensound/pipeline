@@ -386,7 +386,11 @@ impl Repository {
         let read = self.reader();
         let mut found = ignored::findings(&analysis, central.register(), &read);
         found.extend(lockfiles::findings(&analysis, central.register(), &read));
-        found.extend(linter_config::findings(&analysis, central.register()));
+        found.extend(linter_config::findings(
+            &analysis,
+            central.register(),
+            &read,
+        ));
         found.extend(packages::findings(
             &analysis,
             &declaration_path(),

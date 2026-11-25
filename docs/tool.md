@@ -1224,10 +1224,11 @@ A reading check starts no code of the repository, so a linter under this rule
 never looks for its configuration itself: the tool reads it, in one place
 ([`src/linter_config.rs`](../src/linter_config.rs)), and hands the linter the
 configuration it wrote. The rules report and phase 0 read through the same
-place, so what the report shows is what runs. markdownlint is the one linter
-under the rule today; the link check's lychee gets its configuration from the
-tool the same way ([`src/lychee_config.rs`](../src/lychee_config.rs)). The
-others still find and read the repository's configuration themselves
+place, so what the report shows is what runs. markdownlint and Prettier are
+the linters under the rule today; the link check's lychee gets its
+configuration from the tool the same way
+([`src/lychee_config.rs`](../src/lychee_config.rs)). The others still find and
+read the repository's configuration themselves
 ([what does not hold yet](principles.md#what-does-not-hold-yet)).
 
 1. **A repository's file is optional.** Without one, the pipeline's default
@@ -1302,6 +1303,86 @@ already there takes the new value in its place; a new key comes after the
 others, in the order written. With `headings: false` and then `MD025: true`,
 `MD025` holds; with `single-title: true` and then `headings: false`, it does
 not.
+
+### Prettier
+
+Prettier formats in five checks: CSS, HTML, JSON, Markdown and YAML. Each of
+them starts it through the same code (`Session::prettier` in
+[`src/run.rs`](../src/run.rs)), which reads the repository's configuration
+through [`src/linter_config/prettier.rs`](../src/linter_config/prettier.rs)
+at the start of the check, so a configuration means the same in each, and a
+problem with it fails each of them at its file. The pipeline has no default
+style of its own: without a configuration, Prettier formats with its own
+defaults, as before.
+
+Prettier is started with `--no-config`: it looks for no file of its
+configuration in any folder, reads no `.editorconfig`, and so loads no
+configuration in JavaScript, no shared configuration and no plugin. It is
+handed `--ignore-path` with an empty file, so it reads no `.prettierignore`
+and no `.gitignore` either, and nothing else of the repository than the files
+it formats. What it formats with, the tool works out for each file and hands
+over as flags, one per option, such as `--tab-width=4`; Prettier is started
+once for each group of files with the same options, which costs one more start
+of Node.js (about 0.2 seconds) for each group beyond the first. The output
+names the options of each group.
+
+The tool reads two files at the root, in the order Prettier's documentation
+gives them, each laid over the one before:
+
+1. `.editorconfig`, read the way Prettier reads it: `indent_style`,
+   `indent_size` and `tab_width` give `useTabs` and `tabWidth`,
+   `max_line_length` gives `printWidth` (`off` for no limit), `quote_type`
+   gives `singleQuote` and `end_of_line` gives `endOfLine`. A section's
+   pattern without a `/` matches a file of that name in any folder; one with a
+   `/` matches from the root. Every other property is passed over: the file
+   belongs to editors and other programs as well. A file with a line that is no
+   section, property or comment, which Prettier would pass over whole, and a
+   section with a pattern the tool does not read (one with a group, `(...)`),
+   fail the check by name.
+2. Prettier's own file, the first of `.prettierrc` (JSON or YAML),
+   `.prettierrc.json`, `.prettierrc.yml`, `.prettierrc.yaml`,
+   `.prettierrc.json5` and `.prettierrc.toml` at the root; then every entry of
+   its `overrides` whose patterns match the file, in their order.
+
+The keys the tool carries over and refuses stand in
+[`src/linter_config/prettier.rs`](../src/linter_config/prettier.rs):
+
+- Carried over: every option of the pinned Prettier that says how a file is
+  written, from `arrowParens` to `vueIndentScriptAndStyle`, each checked for a
+  value it takes; and `overrides`. `$schema` is passed over.
+- Refused by name: `plugins` and `pluginSearchDirs`, which name code; `parser`,
+  which would choose how a file is read and can name a parser a plugin brings,
+  and `filepath`, which names another file, for the same reason;
+  `requirePragma`, `checkIgnorePragma`, `rangeStart` and `rangeEnd`, which
+  would pass a file or a part of it unchecked; `cursorOffset`, which is for an
+  editor. A file that holds text in place of options names a shared
+  configuration, a module, and is refused whole.
+
+An entry of `overrides` is matched as Prettier matches it, over the path from
+the root: a pattern of `files` without a `/` matches the file's name in any
+folder, one with a `/` the whole path; `*` stops at a `/`, `**` does not;
+`excludeFiles` takes files out of the entry.
+
+```yaml
+overrides:
+  - files: "crates/*/tests/fixtures/**/*.json"
+    options:
+      tabWidth: 4
+```
+
+Not read, and named (`unread-configuration`): another of the names at the
+root, one in a folder below it, a configuration in JavaScript or TypeScript
+(`.prettierrc.js`, `prettier.config.mjs` and the others), wherever it lies,
+and the `prettier` key of a `package.json` or `package.yaml`. An
+`.editorconfig` in a folder below the root is not read either; it is not
+named, since the pipeline's defaults take every `.editorconfig` out with an
+`[[exclude]]` entry.
+
+What a repository can make Prettier do is therefore what its options say:
+how wide a line is, how a file is indented, which quotes and line endings it
+has, and so on, per file by pattern. It cannot make Prettier load or run
+anything, read another file, read a file with another parser, or leave a file
+or a part of it unchecked.
 
 ## Where the file list comes from
 

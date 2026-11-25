@@ -1,0 +1,4 @@
+{
+	"plugins": ["./plugin.mjs"],
+	"useTabs": true
+}
