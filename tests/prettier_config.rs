@@ -685,7 +685,14 @@ fn every_entry_that_cannot_be_used_is_named() {
             { "files": "*.md", "options": { "overrides": [] } },
             { "files": "(foo|bar).json" },
             { "files": "src/{1..3}.json" },
-            { "files": ["*.md", "g/[[:digit:]].json"] }
+            { "files": ["*.md", "g/[[:digit:]].json"] },
+            { "files": "**/[!_]*.md" },
+            { "files": "[ab].md" },
+            { "files": "*.{md}" },
+            { "files": "{,a}b.md" },
+            { "files": "a|b.md" },
+            { "files": "\"a\".md" },
+            { "files": "a\\b.md" }
         ] }"#,
     )]);
 
@@ -717,6 +724,26 @@ fn every_entry_that_cannot_be_used_is_named() {
              `{a..b}`, a form of pattern the tool does not read",
             ".prettierrc.json: `overrides[11].files` holds `g/[[:digit:]].json`, a class of \
              characters, `[[:...:]]`, a form of pattern the tool does not read",
+            // picomatch, which micromatch reads a pattern with, reads the `!`
+            // as a character of the class, a class of plain characters also as
+            // its own text, braces without a `,` as their own text, an empty
+            // alternative as one, a `|` as alternatives and what stands in
+            // double quotes as plain text; a backslash before a letter reaches
+            // its regular expression.
+            ".prettierrc.json: `overrides[12].files` holds `**/[!_]*.md`, a class that starts \
+             with `!`, `[!...]`, a form of pattern the tool does not read",
+            ".prettierrc.json: `overrides[13].files` holds `[ab].md`, a class of plain \
+             characters, such as `[ab]`, a form of pattern the tool does not read",
+            ".prettierrc.json: `overrides[14].files` holds `*.{md}`, a pair of braces without a \
+             `,`, such as `{a}`, a form of pattern the tool does not read",
+            ".prettierrc.json: `overrides[15].files` holds `{,a}b.md`, an empty alternative, as \
+             in `{,a}`, a form of pattern the tool does not read",
+            ".prettierrc.json: `overrides[16].files` holds `a|b.md`, a bar, `|`, a form of \
+             pattern the tool does not read",
+            ".prettierrc.json: `overrides[17].files` holds `\"a\".md`, a double quote, `\"`, a \
+             form of pattern the tool does not read",
+            ".prettierrc.json: `overrides[18].files` holds `a\\b.md`, a backslash, `\\`, a form \
+             of pattern the tool does not read",
         ]
     );
     assert!(

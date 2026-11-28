@@ -600,14 +600,21 @@ fn a_pattern_is_joined_onto_the_root_as_node_joins_paths() {
 
 #[test]
 fn a_pattern_the_tool_would_read_differently_from_stylelint_fails_by_name() {
-    // picomatch reads a group, a class such as `[[:digit:]]` and a sequence
-    // as the tool's matcher does not, and Stylelint matches a pattern that
-    // starts with `/`, or whose `..` climbs above the root, against the full
-    // path of a file on the machine, so what it matches would depend on where
-    // the repository lies.
+    // picomatch reads these forms as the tool's matcher does not (each was
+    // checked against Stylelint 18.0.0's `compileOverrideMatchers`), and
+    // Stylelint matches a pattern that starts with `/`, or whose `..` climbs
+    // above the root, against the full path of a file on the machine, so what
+    // it matches would depend on where the repository lies.
     let group = "a group, `(...)`";
+    let bar = "a bar, `|`";
+    let quote = "a double quote, `\"`";
+    let backslash = "a backslash, `\\`";
     let class = "a class of characters, `[[:...:]]`";
+    let negated_class = "a class that starts with `!`, `[!...]`";
+    let plain_class = "a class of plain characters, such as `[ab]`";
     let sequence = "a sequence, `{a..b}`";
+    let one = "a pair of braces without a `,`, such as `{a}`";
+    let empty = "an empty alternative, as in `{,a}`";
     let absolute = "a path from the root of the machine, `/...`";
     let above = "a path above the root of the repository, `../...`";
     for (pattern, form) in [
@@ -615,9 +622,35 @@ fn a_pattern_the_tool_would_read_differently_from_stylelint_fails_by_name() {
         ("web/@(legacy)/*.css", group),
         ("!(legacy)/*.css", group),
         ("(legacy)/*.css", group),
+        // To picomatch a `|` parts alternatives, also outside a group.
+        ("web/a|b.css", bar),
+        ("{a|b,c}.css", bar),
+        ("*|*.css", bar),
+        // picomatch reads what stands in double quotes as plain text.
+        ("\"web\"/*.css", quote),
+        // Stylelint turns a backslash into a `/`.
+        ("web\\*.css", backslash),
+        ("[\\]a].css", backslash),
         ("[[:digit:]].css", class),
+        // picomatch reads the `!` as a character of the class, and a class
+        // of plain characters as its own text as well.
+        ("**/[!_]*.scss", negated_class),
+        ("[!a-z].css", negated_class),
+        ("[ab].css", plain_class),
+        ("web/[a-b]/[_]*.css", plain_class),
+        ("[a]].css", plain_class),
         ("{1..3}.css", sequence),
         ("web/{a,{1..3}}.css", sequence),
+        // picomatch reads braces without a `,` as their own text, and an
+        // empty alternative as one that matches nothing.
+        ("{x}.css", one),
+        ("*.{css}", one),
+        ("{}.css", one),
+        ("{a,{b}}.css", one),
+        ("{,x}site.css", empty),
+        ("{x,}site.css", empty),
+        ("{a,,b}.css", empty),
+        ("a{b,{,c}}.css", empty),
         ("/**/*.css", absolute),
         ("!/site.css", absolute),
         ("../r/*.css", above),
@@ -653,18 +686,71 @@ fn a_pattern_the_tool_would_read_differently_from_stylelint_fails_by_name() {
         );
     }
 
-    // A list of alternatives, a set of characters and a `!` that negates
-    // read alike in both.
+    // A list of alternatives, also nested, a class with a range, with a `^`
+    // that takes characters out, with a `]` right after its `[` or holding a
+    // `{`, and a `!` that negates read alike in both.
     let matched = each_pattern_matches(
-        &["web/{a,b}.css", "[ab].css", "!web/**"],
-        &["web/a.css", "b.css", "web/c.css"],
+        &[
+            "web/{a,b}.css",
+            "{a,{b,c}}.css",
+            "[a-b].css",
+            "[^a].css",
+            "[]a]x.css",
+            "[{]a.css",
+            "!web/**",
+        ],
+        &[
+            "web/a.css",
+            "b.css",
+            "web/c.css",
+            "c.css",
+            "]x.css",
+            "{a.css",
+        ],
     );
     assert_eq!(
         matched,
         [
-            [true, false, false],
-            [true, true, false],
-            [false, true, false]
+            [true, false, false, false, false, false],
+            [true, true, true, true, false, false],
+            [true, true, false, false, false, false],
+            [false, true, true, true, false, false],
+            [false, false, false, false, true, false],
+            [false, false, false, false, false, true],
+            [false, true, false, true, true, true],
+        ]
+    );
+}
+
+#[test]
+fn a_pattern_that_ends_in_a_double_star_also_matches_the_path_before_it() {
+    // picomatch makes the `/` before a last `**` optional, unless a `*`
+    // stands right before it, as Stylelint 18.0.0's `compileOverrideMatchers`
+    // shows: `web/**` matches `web`, `*/**` no file at the root.
+    let matched = each_pattern_matches(
+        &[
+            "web/**",
+            "web/**/**",
+            "w?b/**",
+            "site.css/**",
+            "*/**",
+            "web/*/**",
+            "**/**",
+            "!site.css/**",
+        ],
+        &["web", "web/site.css", "site.css", "web/b/site.css"],
+    );
+    assert_eq!(
+        matched,
+        [
+            [true, true, false, true],
+            [true, true, false, true],
+            [true, true, false, true],
+            [false, true, true, true],
+            [false, true, false, true],
+            [false, false, false, true],
+            [true, true, true, true],
+            [true, true, false, true],
         ]
     );
 }

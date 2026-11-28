@@ -24,11 +24,12 @@
 //! written: Stylelint checks its options and names a wrong one.
 //!
 //! A difference by pattern is an entry of `overrides` that holds `files`, its
-//! patterns, and `rules`, and may hold `name`, a label, and `fix` and
-//! `quiet` at `false`, as at the top; any other key in it fails. Its patterns are read as Stylelint 18.0.0 reads them in a file at
-//! the root, from the root of the repository ([`Patterns::matches`]); a
-//! pattern the tool would read differently fails by name. Every entry whose
-//! patterns match a file counts for it, in their order.
+//! patterns, and `rules`, and may hold `name`, a label, and `fix` and `quiet`
+//! at `false`, as at the top; any other key in it fails. Its patterns are read
+//! as Stylelint 18.0.0 reads them in a file at the root, from the root of the
+//! repository ([`Patterns::matches`]); a pattern the tool would read
+//! differently fails by name. Every entry whose patterns match a file counts
+//! for it, in their order.
 //!
 //! The rules of a file are laid as Stylelint lays them, rule by rule, a later
 //! value in place of an earlier one ([`Handed::layer_for`]): the pipeline's
@@ -46,7 +47,7 @@
 //! and one written in JavaScript. The tool reads none of them and names each
 //! ([`beside`], and [`super::locate`] for the names the register gives).
 
-use globset::{GlobBuilder, GlobMatcher};
+use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde_json::Value;
 use yaml_rust2::YamlLoader;
 
@@ -428,10 +429,10 @@ struct Pattern {
     negated: bool,
     /// The pattern without `!`, joined onto the root, as a path from the
     /// root.
-    glob: GlobMatcher,
+    glob: GlobSet,
     /// The pattern as written, without a leading `./`, matched against a
     /// file's name; [`None`] for one with `!`.
-    by_name: Option<GlobMatcher>,
+    by_name: Option<GlobSet>,
 }
 
 /// The patterns of an entry of `overrides`.
@@ -449,10 +450,11 @@ impl Patterns {
     /// (`compileOverrideMatchers`, with picomatch, dots included): one of
     /// them matches it. A pattern is joined onto the root, as Node's
     /// `path.join` joins them, and matches the path from the root, where `*`
-    /// stops at a `/` and `**` does not. Every pattern without `!` also
-    /// matches the file's name as written, so one without a `/` matches in
-    /// any folder. One with a leading `!` matches every path its pattern does
-    /// not, so that beside others it takes nothing back.
+    /// stops at a `/` and `**` does not; one that ends in `/**` also matches
+    /// the path before it, unless that path ends in `*`. Every pattern without
+    /// `!` also matches the file's name as written, so one without a `/`
+    /// matches in any folder. One with a leading `!` matches every path its
+    /// pattern does not, so that beside others it takes nothing back.
     #[must_use]
     pub fn matches(&self, file: &str) -> bool {
         let name = file.rsplit('/').next().unwrap_or(file);
@@ -493,13 +495,28 @@ fn joined(pattern: &str) -> Option<String> {
     Some(path)
 }
 
-/// A pattern built as a glob, where `*` stops at a `/`.
-fn glob(pattern: &str) -> Result<GlobMatcher, String> {
-    GlobBuilder::new(pattern)
-        .literal_separator(true)
-        .build()
-        .map(|glob| glob.compile_matcher())
-        .map_err(|error| format!("holds a pattern that does not read: {error}"))
+/// A pattern built as a glob, where `*` stops at a `/`. One that ends in
+/// `/**`, once or more, also matches the path before it where that path does
+/// not end in `*`, as picomatch makes the `/` before the last `**` optional
+/// unless a `*` stands before it: `web/**` matches `web`, `*/**` does not
+/// match `site.css`.
+fn glob(pattern: &str) -> Result<GlobSet, String> {
+    let unread = |error: globset::Error| format!("holds a pattern that does not read: {error}");
+    let mut parent = pattern;
+    while let Some(before) = parent.strip_suffix("/**") {
+        parent = before;
+    }
+    let parent = (parent.len() < pattern.len() && !parent.ends_with('*')).then_some(parent);
+    let mut set = GlobSetBuilder::new();
+    for each in std::iter::once(pattern).chain(parent) {
+        set.add(
+            GlobBuilder::new(each)
+                .literal_separator(true)
+                .build()
+                .map_err(unread)?,
+        );
+    }
+    set.build().map_err(unread)
 }
 
 /// The patterns of `files`, built: a pattern or a list of them that holds one

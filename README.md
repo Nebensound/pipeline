@@ -875,9 +875,10 @@ shows every difference. markdownlint, Prettier and Stylelint are under this
 rule, beside lychee, whose `lychee.toml` the tool reads key by key. The tool
 reads Prettier's options from Prettier's one file and `.editorconfig` at the
 root and hands them over as flags (see [the tool](docs/tool.md#prettier));
-Stylelint follows below. The other linters still find and read the repository's configuration
-themselves, or follow a file it names: html-validate, Hadolint, actionlint, the
-Dockerfile formatter, Ruff, Taplo's formatter and Pyright (see
+Stylelint follows below. The other linters still find and read the
+repository's configuration themselves, or follow a file it names:
+html-validate, Hadolint, actionlint, the Dockerfile formatter, Ruff, Taplo's
+formatter and Pyright (see
 [what does not hold yet](docs/principles.md#what-does-not-hold-yet)).
 
 Stylelint never looks for its configuration either: the tool reads the first

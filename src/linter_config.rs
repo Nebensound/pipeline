@@ -241,18 +241,41 @@ pub(crate) fn written(yaml: &Yaml) -> Written {
 
 /// The form a linter's matcher reads in `glob` and the matcher the tool
 /// builds with would read as something else, in words; [`None`] where it
-/// holds none. Prettier (micromatch) and Stylelint (picomatch) read these
-/// forms alike: a group, `(...)`, with or without `*`, `?`, `+`, `@` or `!`
-/// before it, is either of its parts to them and its own text here; a class
-/// such as `[[:digit:]]` is a digit there and a set of characters here; a
-/// sequence, `{1..3}`, is expanded there and one alternative here. A pattern
-/// that holds one fails by name, so the check never reads a pattern
+/// holds none. Prettier (micromatch) and Stylelint both read a pattern with
+/// picomatch, which reads these forms differently from the tool:
+///
+/// - a group, `(...)`, with or without `*`, `?`, `+`, `@` or `!` before it,
+///   is either of its parts there and its own text here, and a `|` parts
+///   alternatives there, also outside a group, and is its own text here;
+/// - a class such as `[[:digit:]]` is a digit there and a set of characters
+///   here; a class that starts with `!` holds the `!` there and takes the
+///   rest out here; a class that holds none of `-*+?.^${}()|[]`, such as
+///   `[ab]`, also matches its own text there;
+/// - a sequence, `{1..3}`, is expanded there and one alternative here; a
+///   pair of braces without a `,` at its own level, such as `{x}`, is its own
+///   text there and an alternative here; an empty alternative, as in `{,x}`,
+///   matches nothing there and is dropped here;
+/// - a double quote makes what it encloses plain text there and is its own
+///   text here;
+/// - a backslash is a `/` to Stylelint, which turns every `\` into one, and
+///   starts an escape here, as it does for micromatch, where a `\` before a
+///   letter reaches the regular expression as such (`\b`, `\d`).
+///
+/// A pattern that holds one fails by name, so the check never reads a pattern
 /// differently from the linter in an editor.
 pub(crate) fn unread_form(glob: &str) -> Option<&'static str> {
     if glob.contains('(') {
         Some("a group, `(...)`")
+    } else if glob.contains('|') {
+        Some("a bar, `|`")
+    } else if glob.contains('"') {
+        Some("a double quote, `\"`")
+    } else if glob.contains('\\') {
+        Some("a backslash, `\\`")
     } else if glob.contains("[[:") {
         Some("a class of characters, `[[:...:]]`")
+    } else if let Some(form) = classes(glob).into_iter().find_map(unread_class) {
+        Some(form)
     } else if glob
         .split('{')
         .skip(1)
@@ -260,8 +283,84 @@ pub(crate) fn unread_form(glob: &str) -> Option<&'static str> {
     {
         Some("a sequence, `{a..b}`")
     } else {
+        unread_braces(glob)
+    }
+}
+
+/// What a class holds, between its `[` and its `]`, for each class in
+/// `glob`. A `]` right after the `[`, or after a `!` or `^` that starts the
+/// class, belongs to it, as both matchers read it; a `[` that is never closed
+/// opens no class.
+fn classes(glob: &str) -> Vec<&str> {
+    let mut found = Vec::new();
+    let mut rest = glob;
+    while let Some(open) = rest.find('[') {
+        let inside = &rest[open + 1..];
+        let lead = usize::from(inside.starts_with(['!', '^']));
+        let first = lead + usize::from(inside[lead..].starts_with(']'));
+        let Some(close) = inside[first..].find(']') else {
+            break;
+        };
+        found.push(&inside[..first + close]);
+        rest = &inside[first + close + 1..];
+    }
+    found
+}
+
+/// The form a class is read as differently, from what it holds; see
+/// [`unread_form`].
+fn unread_class(inside: &str) -> Option<&'static str> {
+    if inside.starts_with('!') {
+        Some("a class that starts with `!`, `[!...]`")
+    } else if !inside.contains(|c| "-*+?.^${}()|[]".contains(c)) {
+        Some("a class of plain characters, such as `[ab]`")
+    } else {
         None
     }
+}
+
+/// The form a pair of braces in `glob` is read as differently, at any depth:
+/// one without a `,` at its own level, or one with an empty alternative; see
+/// [`unread_form`]. Braces that do not pair fail when the pattern is built.
+fn unread_braces(glob: &str) -> Option<&'static str> {
+    /// A pair of braces that is open: whether it has a `,` at its own level,
+    /// and whether its current alternative holds anything yet.
+    struct Open {
+        comma: bool,
+        filled: bool,
+    }
+    let empty = Some("an empty alternative, as in `{,a}`");
+    let mut open: Vec<Open> = Vec::new();
+    for c in glob.chars() {
+        match (c, open.last_mut()) {
+            ('{', _) => open.push(Open {
+                comma: false,
+                filled: false,
+            }),
+            (',', Some(top)) => {
+                if !top.filled {
+                    return empty;
+                }
+                top.comma = true;
+                top.filled = false;
+            }
+            ('}', Some(top)) => {
+                if !top.comma {
+                    return Some("a pair of braces without a `,`, such as `{a}`");
+                }
+                if !top.filled {
+                    return empty;
+                }
+                open.pop();
+                if let Some(outer) = open.last_mut() {
+                    outer.filled = true;
+                }
+            }
+            (_, Some(top)) => top.filled = true,
+            (_, None) => {}
+        }
+    }
+    None
 }
 
 /// A pattern without the `./` it starts with, however often it is written.
