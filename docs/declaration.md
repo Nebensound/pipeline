@@ -634,7 +634,9 @@ is not asked.
 or `_` before the word: a space, `#`, `/`, a quote or a backtick, for example.
 A sentence that uses the word holds no marker, and neither does the word
 followed by a space or a dot, the word in small letters (Rust's `todo!` among
-them) or the word inside a longer one.
+them, which the Rust check holds through Clippy instead; see
+[the tool](tool.md#todo-unimplemented-and-dbg)) or the word inside a longer
+one.
 
 **A reference** stands alone in the parentheses directly after the word: `#`
 and the number of an issue, with its repository as `owner/repo` in front for an

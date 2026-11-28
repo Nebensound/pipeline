@@ -1178,6 +1178,7 @@ dependencies = [
  "jsonc-parser",
  "jsonschema",
  "portable-pty",
+ "proc-macro2",
  "ratatui",
  "regex",
  "roxmltree",

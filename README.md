@@ -477,7 +477,12 @@ can tell the check to look away:
 - Formatted the way `cargo fmt` writes it: every member, and every path
   dependency that is no member, as `cargo fmt --all` reaches it. Such a
   dependency is formatted only; the steps below never reached it.
-- Clippy without a warning, with all features and with no default features.
+- No attribute and no configuration of Clippy lowers the lints for `todo!`,
+  `unimplemented!` and `dbg!`, except `#[expect(…, reason = "…")]` on the one
+  item it exempts (see
+  [the tool](docs/tool.md#todo-unimplemented-and-dbg)).
+- Clippy without a warning, with all features and with no default features,
+  and without a call of `todo!`, `unimplemented!` or `dbg!`, tests included.
 - Tests pass with all features and with no default features.
 - Documentation builds without a warning.
 - A release build succeeds.

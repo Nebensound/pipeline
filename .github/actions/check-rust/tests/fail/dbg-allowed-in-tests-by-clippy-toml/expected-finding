@@ -1,0 +1,1 @@
+::error file=clippy.toml,line=1,col=22::allow-dbg-in-tests = true lets dbg! pass in every test*

@@ -1,0 +1,2 @@
+error: the `dbg!` macro is intended as a debugging tool
+*--> tests/next.rs:5:16

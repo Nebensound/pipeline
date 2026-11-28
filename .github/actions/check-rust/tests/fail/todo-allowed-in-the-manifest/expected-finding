@@ -1,0 +1,2 @@
+error: `todo` should not be present in production code
+*--> src/lib.rs:6:5

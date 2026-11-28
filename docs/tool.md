@@ -1090,33 +1090,102 @@ the first that fails, which it names below the group as `<step>: failed`:
    path dependencies, one call per edition, all with `--check` and
    `disable_all_formatting=false`. A file rustfmt names is a finding on it;
    the differences follow.
-4. Clippy with all features and with no default features, `--no-deps` and
-   `-D warnings`.
-5. Tests with all features, the doc tests included, and with no default
+4. `todo!`, `unimplemented!` and `dbg!` stay errors: no attribute in a Rust
+   file of a checked package and no configuration of Clippy lowers the lints
+   for them, except the exemption of one item
+   ([`todo!`, `unimplemented!` and `dbg!`](#todo-unimplemented-and-dbg)).
+5. Clippy with all features and with no default features, `--no-deps` and
+   `-D warnings`, and with the lints for `todo!`, `unimplemented!` and `dbg!`
+   as errors: `-D clippy::todo`, `-D clippy::unimplemented` and
+   `-D clippy::dbg_macro`.
+6. Tests with all features, the doc tests included, and with no default
    features.
-6. Documentation with `RUSTDOCFLAGS=-D warnings`.
-7. A release build.
-8. The oldest `rust-version` a checked package claims, compared as numbers,
+7. Documentation with `RUSTDOCFLAGS=-D warnings`.
+8. A release build.
+9. The oldest `rust-version` a checked package claims, compared as numbers,
    installed with the minimal profile, and the workspace built with it.
-9. Coverage: the nightly toolchain the register pins for the check
-   (`coverage-toolchain`), installed with `llvm-tools-preview`, and
-   cargo-llvm-cov as the register pins it, found as for every other program,
-   at 100% of regions, lines and functions. An excluded package's folder is
-   left uncounted, or its own `.rs` files one by one where another package
-   lies inside it.
-10. The package test: the versions written as `write-versions --workspace
-<unit>` writes them, from the plan `--plan` names or, without it, resolved
-    from the history; every published package that is checked packaged in one
-    `cargo package`, each copied out of the workspace and tested there with its
-    siblings' copies and the other local packages it reaches in place of
-    crates.io. Every `Cargo.toml` and `Cargo.lock` Git tracks is put back as
-    it was, byte for byte, so a developer's working tree keeps what it held.
+10. Coverage: the nightly toolchain the register pins for the check
+    (`coverage-toolchain`), installed with `llvm-tools-preview`, and
+    cargo-llvm-cov as the register pins it, found as for every other program,
+    at 100% of regions, lines and functions. An excluded package's folder is
+    left uncounted, or its own `.rs` files one by one where another package
+    lies inside it.
+11. The package test: the versions written as
+    `write-versions --workspace <unit>` writes them, from the plan `--plan`
+    names or, without it, resolved from the history; every published package
+    that is checked packaged in one `cargo package`, each copied out of the
+    workspace and tested there with its siblings' copies and the other local
+    packages it reaches in place of crates.io. Every `Cargo.toml` and
+    `Cargo.lock` Git tracks is put back as it was, byte for byte, so a
+    developer's working tree keeps what it held.
 
 A workspace whose members are all excluded is only formatted. Every program
 runs in the workspace's folder, under
 [the rule for the Rust toolchain](#starting-the-rust-toolchain). What the
-programs print stands in the output as it comes; the one finding with a file
-is the formatting's.
+programs print stands in the output as it comes; the findings with a file are
+the formatting's and those of the step for `todo!`, `unimplemented!` and
+`dbg!`, which name the line as well.
+
+#### `todo!`, `unimplemented!` and `dbg!`
+
+A placeholder and a forgotten debug output do not pass the gate: Clippy reports
+every call of `todo!`, `unimplemented!` and `dbg!` in a checked package, in
+every target, tests included, as an error with its file and line. Clippy's
+lints for them, `clippy::todo`, `clippy::unimplemented` and
+`clippy::dbg_macro`, belong to its group `clippy::restriction`, which is off by
+default; the check hands them over on the command line.
+
+**One item is exempted** the way Rust offers it, with the reason expected:
+
+```rust
+#[expect(clippy::todo, reason = "the parser comes with the next change")]
+fn parse(text: &str) -> Tree {
+    todo!()
+}
+```
+
+The attribute stands as it is written here, outside the item, on the item that
+holds the call: a function, an impl, a `let` statement. The reason holds a
+letter or a digit. Rust reports an expectation that nothing fulfils, so the
+exemption goes when its call goes. On a module it covers the whole module.
+
+**Nothing switches them off for a whole crate.** The command line wins over a
+`[lints]` or `[workspace.lints]` table of the manifest and over `RUSTFLAGS` or
+the `rustflags` of Cargo's configuration, which is held by cases of the block.
+An attribute in the source wins over the command line, and no form of the
+command line gives both an error that a crate cannot lower and the exemption:
+`-F` (forbid) refuses every attribute that names the lint, the exemption
+included, and `--force-warn` passes over every attribute but only warns. So
+the step before Clippy reads the tokens of every Rust file of a checked package
+(a member that is not excluded; a file belongs to the package of the nearest
+`Cargo.toml` above it) and fails on every other attribute that lowers one of
+the three or the group `clippy::restriction` below an error, each a finding on
+its line:
+
+| In the source                                                      | Result                                           |
+| ------------------------------------------------------------------ | ------------------------------------------------ |
+| `#[expect(clippy::todo, reason = "…")]` on the item                | the exemption: passes                            |
+| `#[expect(clippy::todo)]`, or a reason without a letter or a digit | a finding: the exemption needs a reason          |
+| `#![allow(clippy::todo)]`, `#![expect(…)]` at the crate root       | a finding: it covers the whole crate             |
+| the same inside a module, `#[allow(clippy::todo)]` on any item     | a finding: `allow` and `warn` are no exemption   |
+| `#[cfg_attr(test, allow(clippy::dbg_macro))]`, and `expect` in it  | a finding: the exemption is written as it stands |
+| `#[allow(clippy::restriction)]`                                    | a finding: the group holds all three             |
+| such an attribute inside a macro, or handed to one as its argument | a finding                                        |
+| the same in a comment or a string                                  | nothing: it is no attribute                      |
+
+Clippy's own configuration can switch `dbg!` off in every test:
+`allow-dbg-in-tests = true` in a `clippy.toml` or `.clippy.toml`. Cargo's
+configuration can point Clippy to such a file in any folder, so the step reads
+every one the repository keeps, wherever it lies, and fails on that key at its
+line. A Rust file that holds no tokens Rust can read is named and left to
+Clippy, which reports it where it compiles it.
+
+What the step does not see: it reads tokens and expands no macro, so code of
+the repository that builds such an attribute by other means is for the review
+of the change to see, as is a macro of the repository that expands to one of
+the three, whose call Clippy does not report. A `--cap-lints` in the
+`rustflags` of the repository's Cargo configuration caps every lint, these and
+`-D warnings` alike.
 
 ### The Python check
 

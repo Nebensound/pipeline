@@ -3,6 +3,10 @@
 //! oldest supported Rust version, full coverage, and every published package
 //! built and tested from its own contents.
 //!
+//! Clippy holds `todo!`, `unimplemented!` and `dbg!` as errors, and the step
+//! before it holds the one way to exempt an item from that
+//! ([`leftovers`]).
+//!
 //! Unlike the other checks it runs code of the repository, and it runs it
 //! with the Rust toolchain rustup provides: the one the workspace pins in its
 //! `rust-toolchain.toml`, with rustfmt and Clippy, the oldest `rust-version`
@@ -37,6 +41,8 @@
 //! member and for a path dependency outside the workspace alike. Each package
 //! is judged by its own manifest and code, so a package inside an excluded one
 //! that the declaration keeps in with an `[[include]]` stays in.
+
+pub mod leftovers;
 
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
@@ -374,6 +380,9 @@ fn steps(session: &mut Session<'_, '_, '_>, dir: &Path) -> Option<()> {
         .map(|local| format!("--exclude={}", local.name))
         .collect();
     let workspace = |command: &[&str], rest: &[&str]| workspace(command, &without, rest);
+    step(session, "todo!, unimplemented! and dbg! stay errors", |s| {
+        leftovers(s, &locals).then_some(())
+    })?;
     // Clippy lints a workspace member it compiles as a dependency of another
     // one all the same, `-D warnings` included, unless it is told
     // `--no-deps`: then it lints only the packages it was asked for. A path
@@ -385,6 +394,7 @@ fn steps(session: &mut Session<'_, '_, '_>, dir: &Path) -> Option<()> {
     ] {
         let mut rest = vec![features];
         rest.extend(clippy);
+        rest.extend(leftovers::denied());
         let args = workspace(&["clippy"], &rest);
         step(session, name, |s| cargo(s, dir, &args, &[]).then_some(()))?;
     }
@@ -420,6 +430,124 @@ fn steps(session: &mut Session<'_, '_, '_>, dir: &Path) -> Option<()> {
         "Each published package builds and tests from its own contents",
         |s| package_test(s, dir, &locals).then_some(()),
     )
+}
+
+/// The folders, from the repository root, of the manifests among `tracked`:
+/// `.` for the one at the root.
+#[must_use]
+pub fn manifest_folders(tracked: &[RelativePath]) -> BTreeSet<String> {
+    tracked
+        .iter()
+        .map(ToString::to_string)
+        .filter_map(|path| match path.strip_suffix("Cargo.toml") {
+            Some("") => Some(".".to_owned()),
+            Some(dir) => dir.strip_suffix('/').map(str::to_owned),
+            None => None,
+        })
+        .collect()
+}
+
+/// The local package a file of the repository belongs to: the one whose
+/// manifest stands in the nearest folder above the file that holds one of
+/// `manifests` ([`manifest_folders`]). None when that manifest is no local
+/// package's, such as the manifest of a workspace alone or of a project Cargo
+/// does not see.
+#[must_use]
+pub fn owner<'l>(
+    locals: &'l [Local],
+    manifests: &BTreeSet<String>,
+    file: &str,
+) -> Option<&'l Local> {
+    let mut dir = file;
+    loop {
+        dir = dir.rsplit_once('/').map_or(".", |(above, _)| above);
+        if manifests.contains(dir) {
+            return locals.iter().find(|local| local.dir == dir);
+        }
+        if dir == "." {
+            return None;
+        }
+    }
+}
+
+/// What holds `todo!`, `unimplemented!` and `dbg!` beside Clippy
+/// ([`leftovers`](self::leftovers)): every attribute in a Rust file of a
+/// checked package that lowers them and is no exemption, and every
+/// configuration of Clippy the repository keeps that lets `dbg!` pass in its
+/// tests, each a finding on its line. A file that cannot be read is a finding
+/// as well. Whether nothing was found.
+fn leftovers(session: &mut Session<'_, '_, '_>, locals: &[Local]) -> bool {
+    let repository = session.context.packages.repository;
+    let manifests = manifest_folders(session.context.packages.tracked);
+    let sources: Vec<String> = session
+        .files
+        .iter()
+        .filter(|file| owner(locals, &manifests, file).is_some_and(Local::checked))
+        .cloned()
+        .collect();
+    let configurations: Vec<String> = session
+        .context
+        .packages
+        .kept
+        .iter()
+        .filter(|path| leftovers::is_configuration(path))
+        .map(ToString::to_string)
+        .collect();
+    let mut found = 0_usize;
+    let read = sources
+        .iter()
+        .map(|file| (file, true))
+        .chain(configurations.iter().map(|file| (file, false)));
+    for (file, source) in read {
+        let text = match repository.read(file) {
+            Ok(text) => text,
+            Err(error) => {
+                session
+                    .log
+                    .error(Some(file), None, &format!("cannot be read: {error}"));
+                found += 1;
+                continue;
+            }
+        };
+        let lowerings = if source {
+            leftovers::attributes(&text).unwrap_or_else(|| {
+                session.log.line(&format!(
+                    "{file} holds no tokens Rust could read; Clippy reports that where it \
+                     compiles the file."
+                ));
+                Vec::new()
+            })
+        } else {
+            leftovers::configuration(&text)
+                .map(|position| leftovers::Lowering {
+                    position,
+                    message: format!(
+                        "{} = true lets dbg! pass in every test, and the Rust check holds it as \
+                         an error there; exempt the one item with #[expect(clippy::dbg_macro, \
+                         reason = \"…\")] on it",
+                        leftovers::DBG_IN_TESTS
+                    ),
+                })
+                .into_iter()
+                .collect()
+        };
+        for lowering in lowerings {
+            let line = lowering.position.line.to_string();
+            let column = lowering.position.column.to_string();
+            session
+                .log
+                .error(Some(file), Some((&line, Some(&column))), &lowering.message);
+            found += 1;
+        }
+    }
+    if found == 0 {
+        session.log.line(&format!(
+            "Nothing in the {} Rust file(s) of the checked packages and no configuration of \
+             Clippy lowers todo!, unimplemented! or dbg! below an error.",
+            sources.len()
+        ));
+    }
+    found == 0
 }
 
 /// The arguments of a Cargo command over the workspace: the command, then

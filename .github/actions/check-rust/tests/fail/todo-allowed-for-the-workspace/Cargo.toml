@@ -1,0 +1,12 @@
+[package]
+name = "fixture"
+edition = "2024"
+publish = false
+
+[lints]
+workspace = true
+
+[workspace]
+
+[workspace.lints.clippy]
+todo = "allow"
