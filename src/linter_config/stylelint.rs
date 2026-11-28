@@ -26,8 +26,9 @@
 //! A difference by pattern is an entry of `overrides` that holds `files`, its
 //! patterns, and `rules`, and may hold `name`, a label; any other key in it
 //! fails. Its patterns are read as Stylelint 18.0.0 reads them in a file at
-//! the root, from the root of the repository ([`Patterns::matches`]). Every
-//! entry whose patterns match a file counts for it, in their order.
+//! the root, from the root of the repository ([`Patterns::matches`]); a
+//! pattern the tool would read differently fails by name. Every entry whose
+//! patterns match a file counts for it, in their order.
 //!
 //! The rules of a file are laid as Stylelint lays them, rule by rule, a later
 //! value in place of an earlier one ([`Handed::layer_for`]): the pipeline's
@@ -47,8 +48,9 @@
 
 use globset::{GlobBuilder, GlobMatcher};
 use serde_json::Value;
+use yaml_rust2::YamlLoader;
 
-use super::{Problem, Unread, Written, locate};
+use super::{Problem, Unread, Written, from_root, locate, unread_form};
 use crate::ignored::Read;
 use crate::names::ProgramName;
 use crate::path::RelativePath;
@@ -473,23 +475,11 @@ impl Patterns {
     }
 }
 
-/// A pattern without the `./` it starts with, however often it is written.
-fn from_root(mut pattern: &str) -> &str {
-    while let Some(rest) = pattern.strip_prefix("./") {
-        pattern = rest;
-    }
-    pattern
-}
-
 /// A pattern joined onto the root, as Node's `path.join` joins them: an
 /// empty segment and `.` are dropped, `..` takes the segment before it off,
 /// and a trailing `/` stays. [`None`] where `..` climbs above the root. A
-/// pattern that starts with `/` is a path of its own and is not joined, as
-/// with `path.join`'s caller in Stylelint.
+/// pattern that starts with `/` never comes here (see [`patterns`]).
 fn joined(pattern: &str) -> Option<String> {
-    if pattern.starts_with('/') {
-        return Some(pattern.to_owned());
-    }
     let mut segments: Vec<&str> = Vec::new();
     for segment in pattern.split('/') {
         match segment {
@@ -517,7 +507,11 @@ fn glob(pattern: &str) -> Result<GlobMatcher, String> {
 }
 
 /// The patterns of `files`, built: a pattern or a list of them that holds one
-/// at least, each a pattern that reads.
+/// at least, each a pattern that reads. A pattern that holds a form the tool
+/// would read differently from picomatch fails by name ([`unread_form`]), and
+/// so does one that starts with `/`, with or without `!`: Stylelint takes it
+/// as an absolute path and matches it against the full path of a file, so
+/// what it matches depends on where the repository lies on the machine.
 fn patterns(value: Written) -> Result<Patterns, String> {
     let not = || "is neither a pattern nor a list of patterns".to_owned();
     let written: Vec<String> = match value.into_value() {
@@ -537,10 +531,19 @@ fn patterns(value: Written) -> Result<Patterns, String> {
     let built = written
         .iter()
         .map(|pattern| {
+            let unread = |form: &str| {
+                format!("holds `{pattern}`, {form}, a form of pattern the tool does not read")
+            };
+            if let Some(form) = unread_form(pattern) {
+                return Err(unread(form));
+            }
             let (negated, rest) = match pattern.strip_prefix('!') {
                 Some(rest) => (true, rest),
                 None => (false, pattern.as_str()),
             };
+            if rest.starts_with('/') {
+                return Err(unread("a path from the root of the machine, `/...`"));
+            }
             Ok(Pattern {
                 negated,
                 glob: joined(rest).as_deref().map(glob).transpose()?,
@@ -844,11 +847,21 @@ pub fn read(
 
 /// The value a file of Stylelint's configuration holds, its keys in the
 /// order written, read as Stylelint read it: a `.json` file as JSON, which
-/// takes no comment, any other as YAML.
+/// takes no comment, any other as YAML of one document.
 fn parse(file: &RelativePath, source: &str) -> Result<Written, String> {
     match rules::format(file) {
         Format::Jsonc => serde_json::from_str(source).map_err(|error| error.to_string()),
-        Format::Yaml | Format::Script => super::parse(Format::Yaml, source),
+        // Stylelint stops at a file of YAML with more than one document
+        // (js-yaml's `load`, through cosmiconfig).
+        Format::Yaml | Format::Script => match YamlLoader::load_from_str(source) {
+            Ok(documents) if documents.len() > 1 => {
+                Err("it holds more than one document".to_owned())
+            }
+            Ok(documents) => Ok(documents
+                .first()
+                .map_or(Written::Scalar(Value::Null), super::written)),
+            Err(error) => Err(error.to_string()),
+        },
     }
 }
 

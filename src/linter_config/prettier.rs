@@ -51,7 +51,7 @@ use serde_json::Value;
 use yaml_rust2::{Yaml, YamlLoader};
 
 use super::editorconfig::{self, EditorConfig, Property};
-use super::{Problem, Unread, Written, locate};
+use super::{Problem, Unread, Written, from_root, locate, unread_form};
 use crate::ignored::Read;
 use crate::names::ProgramName;
 use crate::path::RelativePath;
@@ -958,36 +958,6 @@ fn built(written: &str) -> Result<Pattern, String> {
         negated,
         glob,
     })
-}
-
-/// The form micromatch reads in `glob` and the matcher the tool builds with
-/// would read as something else, in words; [`None`] where it holds none. A
-/// group, `(...)`, with or without `*`, `?`, `+`, `@` or `!` before it, is
-/// either of its parts to micromatch and its own text here; a class such as
-/// `[[:digit:]]` is a digit there and a set of characters here; a sequence,
-/// `{1..3}`, is expanded there and one alternative here.
-fn unread_form(glob: &str) -> Option<&'static str> {
-    if glob.contains('(') {
-        Some("a group, `(...)`")
-    } else if glob.contains("[[:") {
-        Some("a class of characters, `[[:...:]]`")
-    } else if glob
-        .split('{')
-        .skip(1)
-        .any(|after| after.split('}').next().unwrap_or(after).contains(".."))
-    {
-        Some("a sequence, `{a..b}`")
-    } else {
-        None
-    }
-}
-
-/// A pattern without the `./` it starts with, however often it is written.
-fn from_root(mut pattern: &str) -> &str {
-    while let Some(rest) = pattern.strip_prefix("./") {
-        pattern = rest;
-    }
-    pattern
 }
 
 /// The value an option of this kind is handed, where `value` is one it

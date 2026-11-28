@@ -374,7 +374,7 @@ pub(crate) enum Format {
 pub(crate) fn format(file: &RelativePath) -> Format {
     let name = file.file_name().unwrap_or_default();
     match name.rsplit_once('.').map(|(_, ending)| ending) {
-        Some("cjs" | "mjs" | "js" | "ts") => Format::Script,
+        Some("cjs" | "mjs" | "js" | "ts" | "cts" | "mts") => Format::Script,
         Some("jsonc" | "json") => Format::Jsonc,
         _ => Format::Yaml,
     }

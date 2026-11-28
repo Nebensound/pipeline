@@ -159,8 +159,8 @@ fn the_first_name_at_the_root_is_read_and_every_other_file_is_named() {
         [
             format!(
                 ".config/stylelintrc.json: not read: the tool reads the configuration of \
-                 stylelint only as data, from one file at the root of the repository {names}, \
-                 and never runs this one"
+                 stylelint from one file at the root of the repository {names}, and from no \
+                 folder below it; a difference for a folder belongs in that file, as a pattern"
             ),
             format!(
                 ".stylelintrc.cjs: not read: the tool reads the configuration of stylelint only \
@@ -559,8 +559,6 @@ fn a_pattern_is_joined_onto_the_root_as_node_joins_paths() {
             // every file.
             "../site.css",
             "!../site.css",
-            // A pattern that starts with `/` is a path of its own.
-            "/site.css",
         ],
         &["site.css", "web/site.css", "web"],
     );
@@ -573,7 +571,69 @@ fn a_pattern_is_joined_onto_the_root_as_node_joins_paths() {
             [true, true, false],
             [false, false, false],
             [true, true, true],
-            [false, false, false],
+        ]
+    );
+}
+
+#[test]
+fn a_pattern_the_tool_would_read_differently_from_stylelint_fails_by_name() {
+    // picomatch reads a group, a class such as `[[:digit:]]` and a sequence
+    // as the tool's matcher does not, and Stylelint matches a pattern that
+    // starts with `/` against the full path of a file on the machine.
+    let group = "a group, `(...)`";
+    let class = "a class of characters, `[[:...:]]`";
+    let sequence = "a sequence, `{a..b}`";
+    let absolute = "a path from the root of the machine, `/...`";
+    for (pattern, form) in [
+        ("web/+(legacy|old)/*.css", group),
+        ("web/@(legacy)/*.css", group),
+        ("!(legacy)/*.css", group),
+        ("(legacy)/*.css", group),
+        ("[[:digit:]].css", class),
+        ("{1..3}.css", sequence),
+        ("web/{a,{1..3}}.css", sequence),
+        ("/**/*.css", absolute),
+        ("!/site.css", absolute),
+    ] {
+        let (handed, problems) = configured(&[(
+            ".stylelintrc.json",
+            &format!(
+                "{{ \"overrides\": [\n\
+                   {{ \"files\": [\"*.css\", {}], \"rules\": {{ \"color-named\": null }} }},\n\
+                   {{ \"files\": \"web/**\", \"rules\": {{ \"color-no-hex\": true }} }}\n\
+                 ] }}",
+                json!(pattern)
+            ),
+        )]);
+        assert_eq!(
+            messages(&problems),
+            [format!(
+                ".stylelintrc.json: `overrides[0].files` holds `{pattern}`, {form}, a form of \
+                 pattern the tool does not read, so the entry is not handed to Stylelint"
+            )],
+            "{pattern}"
+        );
+        // Only the entry that holds it is left out.
+        assert_eq!(handed.overrides.len(), 1, "{pattern}");
+        assert_eq!(
+            handed.overrides[0].patterns.written,
+            ["web/**"],
+            "{pattern}"
+        );
+    }
+
+    // A list of alternatives, a set of characters and a `!` that negates
+    // read alike in both.
+    let matched = each_pattern_matches(
+        &["web/{a,b}.css", "[ab].css", "!web/**"],
+        &["web/a.css", "b.css", "web/c.css"],
+    );
+    assert_eq!(
+        matched,
+        [
+            [true, false, false],
+            [true, true, false],
+            [false, true, false]
         ]
     );
 }
@@ -602,8 +662,8 @@ fn a_file_in_the_folder_config_is_not_read_and_its_patterns_count_for_nothing() 
         assert!(
             problems[0].message.ends_with(
                 "from one file at the root of the repository (`.stylelintrc`, \
-                           `.stylelintrc.json`, `.stylelintrc.yaml`, `.stylelintrc.yml`), and \
-                           never runs this one"
+                 `.stylelintrc.json`, `.stylelintrc.yaml`, `.stylelintrc.yml`), and from no \
+                 folder below it; a difference for a folder belongs in that file, as a pattern"
             ),
             "{name}: {problems:?}"
         );
@@ -785,6 +845,35 @@ fn a_file_that_holds_no_configuration_hands_nothing_over() {
 
     // JSON takes no comment, as Stylelint read it.
     let (handed, problems) = configured(&[(".stylelintrc.json", "{ // no\n}")]);
+    assert!(handed.file.is_none());
+    assert_eq!(problems.len(), 1);
+    assert!(
+        problems[0]
+            .message
+            .starts_with("cannot be read, so nothing of it is handed to Stylelint: "),
+        "{problems:?}"
+    );
+
+    // A file of YAML with more than one document, at which Stylelint stops,
+    // under each name read as YAML.
+    for file in [".stylelintrc", ".stylelintrc.yaml", ".stylelintrc.yml"] {
+        let (handed, problems) = configured(&[(
+            file,
+            "rules:\n  color-hex-length: long\n---\nrules:\n  color-named: never\n",
+        )]);
+        assert!(handed.file.is_none(), "{file}");
+        assert!(handed.rules.is_empty(), "{file}");
+        assert_eq!(
+            messages(&problems),
+            [format!(
+                "{file}: cannot be read, so nothing of it is handed to Stylelint: it holds more \
+                 than one document"
+            )]
+        );
+    }
+
+    // YAML that does not read.
+    let (handed, problems) = configured(&[(".stylelintrc.yaml", "rules: [\n")]);
     assert!(handed.file.is_none());
     assert_eq!(problems.len(), 1);
     assert!(

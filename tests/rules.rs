@@ -727,10 +727,12 @@ fn stylelint_reads_the_one_file_at_the_root_and_names_every_other() {
         ),
         "{text}"
     );
-    // The folder `.config` is not read either.
+    // The folder `.config` is not read either: a file of data there is
+    // named as one in a folder below the root.
     assert_eq!(after(&text, ".config/stylelintrc.yml").len(), 1, "{text}");
     assert!(
-        after(&text, ".config/stylelintrc.yml")[0].ends_with("and never runs this one"),
+        after(&text, ".config/stylelintrc.yml")[0]
+            .ends_with("a difference for a folder belongs in that file, as a pattern"),
         "{text}"
     );
     assert_eq!(after(&text, "web/.stylelintrc.yaml").len(), 1, "{text}");

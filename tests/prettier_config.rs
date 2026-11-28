@@ -215,6 +215,8 @@ fn the_first_name_at_the_root_is_read_and_every_other_file_is_named() {
         ("prettier.config.js", "module.exports = { semi: true };\n"),
         ("docs/.prettierrc", "semi: true\n"),
         ("docs/.prettierrc.mjs", "export default {};\n"),
+        (".prettierrc.mts", "export default {};\n"),
+        ("prettier.config.cts", "export = {};\n"),
     ]);
 
     assert_eq!(handed.file.unwrap().to_string(), ".prettierrc.yaml");
@@ -225,16 +227,23 @@ fn the_first_name_at_the_root_is_read_and_every_other_file_is_named() {
             ".prettierrc.toml",
             "prettier.config.js",
             "docs/.prettierrc",
-            "docs/.prettierrc.mjs"
+            "docs/.prettierrc.mjs",
+            ".prettierrc.mts",
+            "prettier.config.cts"
         ]
     );
     assert!(problems.iter().all(|p| p.message.starts_with("not read: ")));
-    assert!(
-        problems[1]
-            .message
-            .contains("reads the configuration of prettier only as data"),
-        "{problems:?}"
-    );
+    // Each file in JavaScript or TypeScript is named as code, wherever it
+    // lies.
+    for code in [1, 3, 4, 5] {
+        assert!(
+            problems[code]
+                .message
+                .contains("reads the configuration of prettier only as data")
+                && problems[code].message.ends_with("and never runs this one"),
+            "{problems:?}"
+        );
+    }
 }
 
 #[test]

@@ -1574,7 +1574,13 @@ the repository, with `.`, `..` and a leading `./` worked out as Node's
 `path.join` does. `*` stops at a `/` and `**` does not, a pattern also matches
 the file's name alone, so one without a `/` matches in any folder, and a
 pattern with a leading `!` matches every path its pattern does not, so beside
-other patterns it takes nothing back.
+other patterns it takes nothing back. The forms picomatch reads differently
+from the tool's matcher are not read, as for Prettier, and an entry that holds
+one fails by name: a group, `(...)`, with or without `*`, `?`, `+`, `@` or `!`
+before it; a class such as `[[:digit:]]`; and a sequence such as `{1..3}`. So
+does a pattern that starts with `/`, with or without `!`: Stylelint matches it
+against the full path of a stylesheet on the machine, so what it matches would
+depend on where the repository lies.
 
 ```yaml
 rules:
@@ -1596,9 +1602,11 @@ even switched off.
 Not read, and named (`unread-configuration`): another of the names at the
 root, one in a folder below it, the same four forms in the folder `.config`
 (`.config/stylelintrc`, `.config/stylelintrc.json` and the others), which
-Stylelint would also find, a configuration in JavaScript or TypeScript
-(`.stylelintrc.js`, `stylelint.config.mjs` and the others), wherever it lies,
-and the `stylelint` key of a `package.json`, wherever it lies.
+Stylelint would also find and which are named as files in a folder below the
+root, a configuration in JavaScript or TypeScript (`.stylelintrc.js`,
+`stylelint.config.mjs` and the others), wherever it lies, and the `stylelint`
+key of a `package.json`, wherever it lies. A YAML file with more than one
+document, at which Stylelint stops, fails by name and hands nothing over.
 
 What a repository can make Stylelint do is therefore: switch a rule of the
 default off, set it to warn, set its options, or switch on a rule of the pinned

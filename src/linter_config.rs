@@ -221,7 +221,7 @@ pub(crate) fn parse(format: Format, source: &str) -> Result<Written, String> {
 
 /// A YAML value as [`Written`], its mappings in their order. A key that is
 /// not text is written out as YAML would show it, as [`rules::json`] does.
-fn written(yaml: &Yaml) -> Written {
+pub(crate) fn written(yaml: &Yaml) -> Written {
     match yaml {
         Yaml::Hash(hash) => {
             let mut entries = Vec::new();
@@ -237,6 +237,39 @@ fn written(yaml: &Yaml) -> Written {
         Yaml::Array(items) => Written::List(items.iter().map(written).collect()),
         other => Written::Scalar(rules::json(other)),
     }
+}
+
+/// The form a linter's matcher reads in `glob` and the matcher the tool
+/// builds with would read as something else, in words; [`None`] where it
+/// holds none. Prettier (micromatch) and Stylelint (picomatch) read these
+/// forms alike: a group, `(...)`, with or without `*`, `?`, `+`, `@` or `!`
+/// before it, is either of its parts to them and its own text here; a class
+/// such as `[[:digit:]]` is a digit there and a set of characters here; a
+/// sequence, `{1..3}`, is expanded there and one alternative here. A pattern
+/// that holds one fails by name, so the check never reads a pattern
+/// differently from the linter in an editor.
+pub(crate) fn unread_form(glob: &str) -> Option<&'static str> {
+    if glob.contains('(') {
+        Some("a group, `(...)`")
+    } else if glob.contains("[[:") {
+        Some("a class of characters, `[[:...:]]`")
+    } else if glob
+        .split('{')
+        .skip(1)
+        .any(|after| after.split('}').next().unwrap_or(after).contains(".."))
+    {
+        Some("a sequence, `{a..b}`")
+    } else {
+        None
+    }
+}
+
+/// A pattern without the `./` it starts with, however often it is written.
+pub(crate) fn from_root(mut pattern: &str) -> &str {
+    while let Some(rest) = pattern.strip_prefix("./") {
+        pattern = rest;
+    }
+    pattern
 }
 
 /// Something in a linter's configuration that is not handed over, which
@@ -306,12 +339,16 @@ pub fn locate<'a>(
                 list.iter()
                     .any(|wanted| path == *wanted || path.ends_with(&format!("/{wanted}")))
             };
-            let why = if listed(&program.configuration_not_read) {
+            // A name the register lists as not read is code, which the tool
+            // never runs, or a file of data in a folder below the root, which
+            // it never reads; its format says which.
+            let code = matches!(rules::format(candidate), Format::Script);
+            let why = if code && listed(&program.configuration_not_read) {
                 format!(
                     "not read: the tool reads the configuration of {name} only as data, from one \
                      file at the root of the repository ({names}), and never runs this one"
                 )
-            } else if !listed(&program.configuration) {
+            } else if !listed(&program.configuration) && !listed(&program.configuration_not_read) {
                 return None;
             } else if program.configuration.contains(&path) {
                 format!(
