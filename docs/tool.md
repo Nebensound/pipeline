@@ -1150,8 +1150,10 @@ letter or a digit. Rust reports an expectation that nothing fulfils, so the
 exemption goes when its call goes. On a module it covers the whole module.
 
 **Nothing switches them off for a whole crate.** The command line wins over a
-`[lints]` or `[workspace.lints]` table of the manifest and over `RUSTFLAGS` or
-the `rustflags` of Cargo's configuration, which is held by cases of the block.
+`[lints]` or `[workspace.lints]` table of the manifest and over an `-A` in
+`RUSTFLAGS` or in the `rustflags` of Cargo's configuration, which is held by
+cases of the block (for what it does not win over, see the end of this
+section).
 An attribute in the source wins over the command line, and no form of the
 command line gives both an error that a crate cannot lower and the exemption:
 `-F` (forbid) refuses every attribute that names the lint, the exemption
@@ -1183,9 +1185,11 @@ Clippy, which reports it where it compiles it.
 What the step does not see: it reads tokens and expands no macro, so code of
 the repository that builds such an attribute by other means is for the review
 of the change to see, as is a macro of the repository that expands to one of
-the three, whose call Clippy does not report. A `--cap-lints` in the
-`rustflags` of the repository's Cargo configuration caps every lint, these and
-`-D warnings` alike.
+the three, whose call Clippy does not report. Nor does the command line win
+over everything in the repository's Cargo configuration: a `--cap-lints` in
+its `rustflags` caps every lint, these and `-D warnings` alike, and a
+`CLIPPY_ARGS` that its `[env]` table forces replaces what the check hands
+Clippy ([#250](https://github.com/Nebensound/pipeline/issues/250)).
 
 ### The Python check
 
