@@ -1,1 +1,0 @@
-::error file=shared/next.rs,line=1,col=4::#![allow(clippy::todo)] covers the whole crate or module*
