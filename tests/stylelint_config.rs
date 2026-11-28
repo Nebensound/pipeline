@@ -612,6 +612,7 @@ fn a_pattern_the_tool_would_read_differently_from_stylelint_fails_by_name() {
     let class = "a class of characters, `[[:...:]]`";
     let negated_class = "a class that starts with `!`, `[!...]`";
     let plain_class = "a class of plain characters, such as `[ab]`";
+    let slash_class = "a class that can match a `/`, such as `[/-]` or `[.-0]`";
     let sequence = "a sequence, `{a..b}`";
     let one = "a pair of braces without a `,`, such as `{a}`";
     let empty = "an empty alternative, as in `{,a}`";
@@ -647,6 +648,14 @@ fn a_pattern_the_tool_would_read_differently_from_stylelint_fails_by_name() {
         ("[ab].css", plain_class),
         ("web/[a-b]/[_]*.css", plain_class),
         ("[a]].css", plain_class),
+        // picomatch lets a class that does not start with `^` match a `/`
+        // it holds or a range of it encloses; the tool's matcher never lets
+        // a class match a `/`.
+        ("web[/-]x.css", slash_class),
+        ("web[a/-]x.css", slash_class),
+        ("web[a-z/]x.css", slash_class),
+        ("web[.-0]x.css", slash_class),
+        ("web[ -~]x.css", slash_class),
         ("{1..3}.css", sequence),
         ("web/{a,{1..3}}.css", sequence),
         // picomatch reads braces without a `,` as their own text, and an
@@ -767,6 +776,17 @@ fn a_pattern_the_tool_would_read_differently_from_stylelint_fails_by_name() {
             [false, true, false, false],
             [false, true, false, true],
         ]
+    );
+
+    // A class whose ranges do not enclose a `/` is read, as picomatch reads
+    // it.
+    let matched = each_pattern_matches(
+        &["web[--.]x.css", "web[0-9.]x.css"],
+        &["web/x.css", "web-x.css", "web.x.css", "web0x.css"],
+    );
+    assert_eq!(
+        matched,
+        [[false, true, true, false], [false, false, true, true]]
     );
 }
 

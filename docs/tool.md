@@ -1482,8 +1482,10 @@ read, and an entry that holds one fails by name:
 - a group, `(...)`, with or without `*`, `?`, `+`, `@` or `!` before it, and a
   `|` anywhere, which parts alternatives there;
 - a class such as `[[:digit:]]`; a class that starts with `!`, such as
-  `[!_]`, in which picomatch reads the `!` as a character; and a class of plain
-  characters, such as `[ab]`, which picomatch also reads as its own text;
+  `[!_]`, in which picomatch reads the `!` as a character; a class of plain
+  characters, such as `[ab]`, which picomatch also reads as its own text; and
+  a class that does not start with `^` and holds a `/`, or a range whose ends
+  enclose one, such as `[/-]` or `[.-0]`, which can match a `/` there;
 - a sequence such as `{1..3}`; a pair of braces without a `,`, such as `{a}`,
   which picomatch reads as its own text; an empty alternative, as in `{,a}`;
   and an alternative that is a lone `*`, as in `{a,*}`, which can match the

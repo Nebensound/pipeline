@@ -799,6 +799,36 @@ fn every_entry_that_cannot_be_used_is_named() {
 }
 
 #[test]
+fn a_class_that_can_match_a_slash_is_named() {
+    // picomatch lets a class that does not start with `^` match a `/` it
+    // holds or a range of it encloses; the tool's matcher never lets a class
+    // match a `/`. A class whose ranges do not enclose one is read.
+    let (handed, problems) = handed(&[(
+        ".prettierrc.json",
+        r#"{ "overrides": [
+            { "files": "docs[/-]a.md" },
+            { "files": "docs[.-0]a.md" },
+            { "files": "docs[--.]a.md" }
+        ] }"#,
+    )]);
+
+    assert_eq!(handed.overrides.len(), 1);
+    let heads: Vec<String> = messages(&problems)
+        .iter()
+        .map(|message| message.split(", so ").next().unwrap().to_owned())
+        .collect();
+    assert_eq!(
+        heads,
+        [
+            ".prettierrc.json: `overrides[0].files` holds `docs[/-]a.md`, a class that can \
+             match a `/`, such as `[/-]` or `[.-0]`, a form of pattern the tool does not read",
+            ".prettierrc.json: `overrides[1].files` holds `docs[.-0]a.md`, a class that can \
+             match a `/`, such as `[/-]` or `[.-0]`, a form of pattern the tool does not read",
+        ]
+    );
+}
+
+#[test]
 fn the_file_lies_over_editorconfig() {
     let (handed, problems) = handed(&[
         (

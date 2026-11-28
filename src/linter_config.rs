@@ -250,7 +250,9 @@ pub(crate) fn written(yaml: &Yaml) -> Written {
 /// - a class such as `[[:digit:]]` is a digit there and a set of characters
 ///   here; a class that starts with `!` holds the `!` there and takes the
 ///   rest out here; a class that holds none of `-*+?.^${}()|[]`, such as
-///   `[ab]`, also matches its own text there;
+///   `[ab]`, also matches its own text there; a class that does not start
+///   with `^` and holds a `/`, or a range whose ends enclose one, such as
+///   `[/-]` or `[.-0]`, can match a `/` there and never matches one here;
 /// - a sequence, `{1..3}`, is expanded there and one alternative here; a
 ///   pair of braces without a `,` at its own level, such as `{x}`, is its own
 ///   text there and an alternative here; an empty alternative, as in `{,x}`,
@@ -409,9 +411,32 @@ fn unread_class(inside: &str) -> Option<&'static str> {
         Some("a class that starts with `!`, `[!...]`")
     } else if !inside.contains(|c| "-*+?.^${}()|[]".contains(c)) {
         Some("a class of plain characters, such as `[ab]`")
+    } else if !inside.starts_with('^') && class_can_match_slash(inside) {
+        Some("a class that can match a `/`, such as `[/-]` or `[.-0]`")
     } else {
         None
     }
+}
+
+/// Whether a class that does not take characters out, from what it holds,
+/// holds a `/` or a range `x-y` whose ends enclose one, so that picomatch lets
+/// it match a `/` where the tool's matcher never does; see [`unread_form`].
+fn class_can_match_slash(inside: &str) -> bool {
+    let chars: Vec<char> = inside.chars().collect();
+    let mut at = 0;
+    while let Some(&first) = chars.get(at) {
+        if let (Some('-'), Some(&last)) = (chars.get(at + 1), chars.get(at + 2)) {
+            if first <= '/' && '/' <= last {
+                return true;
+            }
+            at += 3;
+        } else if first == '/' {
+            return true;
+        } else {
+            at += 1;
+        }
+    }
+    false
 }
 
 /// The form a pair of braces in `glob` is read as differently, at any depth:
