@@ -1,0 +1,6 @@
+# An entry of `overrides` names a parser Prettier brings itself, and Prettier
+# reads the JSON files with it: `json-stringify` writes each element of a list
+# on a line of its own, where the parser `json` would put the list on one line.
+[repo]
+audience = "public"
+pipeline = "none"

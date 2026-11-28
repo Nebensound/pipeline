@@ -1,0 +1,6 @@
+overrides:
+  - files: "*.json"
+    options:
+      parser: toml
+      plugins: ["prettier-plugin-toml"]
+      tabWidth: 4

@@ -1,0 +1,7 @@
+# A configuration that sets `fix` and `quiet` to `true`, which would let a
+# finding pass unreported. The check refuses both by name and hands the rest
+# over: the long hex colour the file asks for passes, so no finding stands at
+# the stylesheet.
+[repo]
+audience = "public"
+pipeline = { check = ["css"] }

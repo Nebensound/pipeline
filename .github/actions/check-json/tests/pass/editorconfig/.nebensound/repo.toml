@@ -1,0 +1,6 @@
+# The root's `.editorconfig` says how a JSON file is indented, and Prettier is
+# handed it as an option: the file indented with a tab passes, as it did when
+# Prettier read `.editorconfig` itself.
+[repo]
+audience = "public"
+pipeline = "none"

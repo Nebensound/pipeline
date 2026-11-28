@@ -59,11 +59,12 @@ repository unchecked. markdownlint reads no file of the repository but the ones
 it lints: the tool reads its configuration from one file at the root, as data,
 fails on a key it does not know, on one that names code or another file and on
 every file it does not read, and hands markdownlint's library the rules of each
-file (see [the tool](tool.md#the-configuration-of-a-linter)). Stylelint is
-handed the same way a configuration object the tool built, holding rules and
-options that are data, and loads only the pinned packages, each named by its
-place in the pinned install (see [the tool](tool.md#stylelint)). The other
-linters still find and read the repository's configuration themselves.
+file (see [the tool](tool.md#the-configuration-of-a-linter)). Prettier is
+handed the options the tool read as flags (see [the tool](tool.md#prettier)),
+and Stylelint a configuration object the tool built, holding rules and options
+that are data, and loads only the pinned packages, each named by its place in
+the pinned install (see [the tool](tool.md#stylelint)). The other linters still
+find and read the repository's configuration themselves.
 
 ## 3. All logic is Rust, in the tool, and tested
 
@@ -238,10 +239,10 @@ yet, it says so.
   the build of the tool from source, for a commit that carries no release. No
   issue exists yet for the fingerprint and the build.
 - **Linters read their configuration themselves** (rule 2). markdownlint,
-  Stylelint and the link check get their configuration from the tool. The
-  other linters find the repository's configuration and read it, and some of
-  their ways load code of the repository: a configuration file in JavaScript,
-  a plugin, a module a configuration extends. Prettier: #200. Hadolint,
+  Prettier, Stylelint and the link check get their configuration from the tool.
+  The other linters find the repository's configuration and read it, and some
+  of their ways load code of the repository: a configuration file in
+  JavaScript, a plugin, a module a configuration extends. Hadolint,
   actionlint, the Dockerfile formatter and Ruff: #202. html-validate leaves the
   HTML check with #185. Taplo's formatter finds the
   repository's `taplo.toml` at the root itself; it becomes a library linked

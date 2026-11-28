@@ -14,8 +14,8 @@ use std::collections::BTreeMap;
 
 use nebensound_repo::Register;
 use nebensound_repo::linter_config::stylelint::{
-    CARRIED, Handed, Layer, Pinned, REFUSED, RULES, SCSS_PLUGIN_BROUGHT_BY, SCSS_RULES, SET_ASIDE,
-    WARNING, beside, is_rule, pinned, read, read_in,
+    CARRIED, Handed, Layer, NEUTRAL, Pinned, REFUSED, RULES, SCSS_PLUGIN_BROUGHT_BY, SCSS_RULES,
+    SET_ASIDE, WARNING, beside, is_rule, pinned, read, read_in,
 };
 use nebensound_repo::linter_config::{Problem, findings, locate};
 use nebensound_repo::names::ProgramName;
@@ -94,11 +94,18 @@ fn rules(layer: &Layer) -> String {
 #[test]
 fn every_key_of_a_configuration_is_known_once() {
     let set_aside: Vec<&str> = SET_ASIDE.iter().map(|(key, _)| *key).collect();
+    let neutral: Vec<&str> = NEUTRAL.iter().map(|(key, _)| *key).collect();
     let refused: Vec<&str> = REFUSED.iter().map(|(key, _)| *key).collect();
-    for list in [CARRIED, set_aside.as_slice(), refused.as_slice()] {
+    let lists = [
+        CARRIED,
+        set_aside.as_slice(),
+        neutral.as_slice(),
+        refused.as_slice(),
+    ];
+    for list in lists {
         assert!(list.windows(2).all(|pair| pair[0] < pair[1]), "{list:?}");
     }
-    let mut all: Vec<&str> = [CARRIED, set_aside.as_slice(), refused.as_slice()].concat();
+    let mut all: Vec<&str> = lists.concat();
     all.sort_unstable();
     all.dedup();
     // The keys of a configuration of Stylelint 18.0.0 that a file of data can
@@ -146,15 +153,15 @@ fn the_first_name_at_the_root_is_read_and_every_other_file_is_named() {
         .iter()
         .map(|unread| format!("{}: {}", unread.file, unread.why))
         .collect();
-    let names = "(`.stylelintrc`, `.stylelintrc.json`, `.stylelintrc.yaml`, `.stylelintrc.yml`, \
-                 `.config/stylelintrc`, `.config/stylelintrc.json`, `.config/stylelintrc.yaml`, \
-                 `.config/stylelintrc.yml`)";
+    let names = "(`.stylelintrc`, `.stylelintrc.json`, `.stylelintrc.yaml`, `.stylelintrc.yml`)";
     assert_eq!(
         unread,
         [
-            ".config/stylelintrc.json: not read: the tool reads the configuration of stylelint \
-             from one file at the root of the repository, and that is `.stylelintrc.yaml`"
-                .to_owned(),
+            format!(
+                ".config/stylelintrc.json: not read: the tool reads the configuration of \
+                 stylelint only as data, from one file at the root of the repository {names}, \
+                 and never runs this one"
+            ),
             format!(
                 ".stylelintrc.cjs: not read: the tool reads the configuration of stylelint only \
                  as data, from one file at the root of the repository {names}, and never runs \
@@ -495,15 +502,15 @@ fn the_patterns_of_an_entry_are_read_as_stylelint_reads_them() {
     assert_eq!(matched("web/site.css"), [false, false, false, true]);
 }
 
-/// Whether each pattern, alone in an entry of `overrides` in `file`, matches
-/// each of `stylesheets`.
-fn each_pattern_matches(file: &str, patterns: &[&str], stylesheets: &[&str]) -> Vec<Vec<bool>> {
+/// Whether each pattern, alone in an entry of `overrides` in the root's
+/// `.stylelintrc.json`, matches each of `stylesheets`.
+fn each_pattern_matches(patterns: &[&str], stylesheets: &[&str]) -> Vec<Vec<bool>> {
     let entries: Vec<String> = patterns
         .iter()
         .map(|pattern| format!("{{ \"files\": {}, \"rules\": {{}} }}", json!(pattern)))
         .collect();
     let (handed, problems) = configured(&[(
-        file,
+        ".stylelintrc.json",
         &format!("{{ \"overrides\": [{}] }}", entries.join(", ")),
     )]);
     assert!(problems.is_empty(), "{problems:?}");
@@ -518,40 +525,6 @@ fn each_pattern_matches(file: &str, patterns: &[&str], stylesheets: &[&str]) -> 
                 .collect()
         })
         .collect()
-}
-
-#[test]
-fn the_patterns_of_a_file_in_config_are_read_from_that_folder() {
-    // As Stylelint 18.0.0 matches them when it finds the file itself, so an
-    // editor and the check agree: each pattern is joined onto `.config`.
-    let matched = each_pattern_matches(
-        ".config/stylelintrc.json",
-        &[
-            "web/*.css",
-            "../web/*.css",
-            // A pattern matches the file's name as well, so this one matches
-            // in any folder.
-            "**/site.css",
-            // Above the root, a pattern matches no file there, and with `!`
-            // every file.
-            "../../web/*.css",
-            "!../../web/*.css",
-            // A pattern that starts with `/` is a path of its own.
-            "/web/*.css",
-        ],
-        &["web/site.css", ".config/web/site.css"],
-    );
-    assert_eq!(
-        matched,
-        [
-            [false, true],
-            [true, false],
-            [true, true],
-            [false, false],
-            [true, true],
-            [false, false],
-        ]
-    );
 }
 
 #[test]
@@ -573,10 +546,22 @@ fn a_pattern_that_does_not_read_fails_even_where_it_climbs_above_the_root() {
 }
 
 #[test]
-fn a_pattern_is_joined_onto_its_folder_as_node_joins_paths() {
+fn a_pattern_is_joined_onto_the_root_as_node_joins_paths() {
     let matched = each_pattern_matches(
-        ".stylelintrc.json",
-        &["web/../site.css", "web//./site.css", "web/"],
+        &[
+            "web/../site.css",
+            "web//./site.css",
+            "web/",
+            // A pattern matches the file's name as well, so this one matches
+            // in any folder.
+            "**/site.css",
+            // Above the root, a pattern matches no file there, and with `!`
+            // every file.
+            "../site.css",
+            "!../site.css",
+            // A pattern that starts with `/` is a path of its own.
+            "/site.css",
+        ],
         &["site.css", "web/site.css", "web"],
     );
     assert_eq!(
@@ -585,7 +570,110 @@ fn a_pattern_is_joined_onto_its_folder_as_node_joins_paths() {
             [true, false, false],
             [false, true, false],
             [false, false, false],
+            [true, true, false],
+            [false, false, false],
+            [true, true, true],
+            [false, false, false],
         ]
+    );
+}
+
+#[test]
+fn a_file_in_the_folder_config_is_not_read_and_its_patterns_count_for_nothing() {
+    // Only the root is read: the forms Stylelint would also find in `.config`
+    // are named, and nothing of them is handed over.
+    for name in [
+        ".config/stylelintrc",
+        ".config/stylelintrc.json",
+        ".config/stylelintrc.yaml",
+        ".config/stylelintrc.yml",
+    ] {
+        let (handed, problems) = configured(&[
+            (
+                name,
+                "{ \"overrides\": [{ \"files\": [\"../web/*.css\"], \"rules\": { \"color-named\": \"never\" } }] }",
+            ),
+            ("web/site.css", "a {}\n"),
+        ]);
+        assert!(handed.file.is_none(), "{name}");
+        assert!(handed.overrides.is_empty(), "{name}");
+        assert_eq!(problems.len(), 1, "{name}: {problems:?}");
+        assert_eq!(problems[0].file.to_string(), name);
+        assert!(
+            problems[0].message.ends_with(
+                "from one file at the root of the repository (`.stylelintrc`, \
+                           `.stylelintrc.json`, `.stylelintrc.yaml`, `.stylelintrc.yml`), and \
+                           never runs this one"
+            ),
+            "{name}: {problems:?}"
+        );
+    }
+
+    // Beside a file at the root, the root's patterns count from the root.
+    let (handed, problems) = configured(&[
+        (".config/stylelintrc.json", "{}"),
+        (
+            ".stylelintrc.json",
+            "{ \"overrides\": [{ \"files\": [\"web/*.css\"], \"rules\": {} }] }",
+        ),
+    ]);
+    assert_eq!(
+        handed.file.as_ref().map(ToString::to_string).as_deref(),
+        Some(".stylelintrc.json")
+    );
+    assert_eq!(messages(&problems).len(), 1, "{problems:?}");
+    assert!(handed.overrides[0].patterns.matches("web/site.css"));
+    assert!(!handed.overrides[0].patterns.matches(".config/web/site.css"));
+}
+
+#[test]
+fn fix_and_quiet_are_accepted_at_false_and_fail_by_name_at_any_other_value() {
+    // In every format the reader takes: plain JSON, and YAML under three
+    // names.
+    let write = |file: &str, key: &str, value: &str| {
+        if file == ".stylelintrc.json" {
+            format!("{{ \"{key}\": {value} }}")
+        } else {
+            format!("{key}: {value}\n")
+        }
+    };
+    for file in [
+        ".stylelintrc",
+        ".stylelintrc.json",
+        ".stylelintrc.yaml",
+        ".stylelintrc.yml",
+    ] {
+        for (key, why) in NEUTRAL {
+            let (handed, problems) = configured(&[(file, &write(file, key, "false"))]);
+            assert!(problems.is_empty(), "{file} {key}: {problems:?}");
+            assert_eq!(
+                handed.file.as_ref().map(ToString::to_string).as_deref(),
+                Some(file)
+            );
+            // Not handed over: Stylelint takes `false` without it.
+            assert!(handed.options.is_empty(), "{file} {key}");
+            assert_eq!(
+                handed.job(&default(), &["a.css".to_owned()]),
+                "{\"groups\":[{\"extends\":[\"stylelint-config-standard\"],\
+                 \"customSyntax\":null,\"config\":{\"rules\":{}},\"files\":[\"a.css\"]}]}"
+            );
+
+            for value in ["true", "null", "\"strict\"", "0"] {
+                let (handed, problems) = configured(&[(file, &write(file, key, value))]);
+                assert_eq!(
+                    messages(&problems),
+                    [format!(
+                        "{file}: `{key}` is not handed to Stylelint: any value but `false` {why}"
+                    )],
+                    "{file} {key}: {value}"
+                );
+                assert!(handed.options.is_empty(), "{file} {key}: {value}");
+            }
+        }
+    }
+    assert_eq!(
+        NEUTRAL.iter().map(|(key, _)| *key).collect::<Vec<_>>(),
+        ["fix", "quiet"]
     );
 }
 
@@ -707,11 +795,11 @@ fn a_file_that_holds_no_configuration_hands_nothing_over() {
     );
 
     // An empty file of YAML lays nothing over the default.
-    let (handed, problems) = configured(&[(".config/stylelintrc.yml", "")]);
+    let (handed, problems) = configured(&[(".stylelintrc.yml", "")]);
     assert!(problems.is_empty(), "{problems:?}");
     assert_eq!(
         handed.file.as_ref().map(ToString::to_string).as_deref(),
-        Some(".config/stylelintrc.yml")
+        Some(".stylelintrc.yml")
     );
     assert!(handed.rules.is_empty());
 }
@@ -780,6 +868,18 @@ fn a_package_json_with_a_configuration_of_stylelint_is_named() {
           `package.json`"
         ]
     );
+
+    // The check names it as well, as it reads the configuration.
+    let (handed, problems) = configured(&[
+        (".stylelintrc.json", "{}"),
+        ("web/package.json", "{ \"stylelint\": { \"rules\": {} } }"),
+    ]);
+    assert!(handed.file.is_some());
+    assert_eq!(
+        messages(&problems),
+        [named[0].clone()],
+        "the reader names what phase 0 names"
+    );
 }
 
 #[test]
@@ -789,6 +889,7 @@ fn phase_0_names_every_file_of_stylelint_that_is_not_read() {
     let analysis = analysis(
         declaration,
         &[
+            ".config/stylelintrc.json",
             ".nebensound/repo.toml",
             ".stylelintrc.json",
             "package.json",
@@ -814,6 +915,7 @@ fn phase_0_names_every_file_of_stylelint_that_is_not_read() {
     assert_eq!(
         summary,
         [
+            "unread-configuration .config/stylelintrc.json",
             "unread-configuration stylelint.config.mjs",
             "unread-configuration package.json",
         ]

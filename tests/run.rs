@@ -487,13 +487,134 @@ fn json_files_parse_and_are_formatted() {
     assert!(
         prettier.ends_with(
             " --no-require-pragma --no-check-ignore-pragma --range-start=0 --range-end=Infinity \
-             -- a.json b.jsonc"
+             --no-config -- a.json b.jsonc"
         ),
         "{prettier}"
     );
     assert!(!text.contains(&root.display().to_string()), "{text}");
     // What `run` wrote for the programs is gone again.
     assert_eq!(fs::read_dir(fixture.base.join("tmp")).unwrap().count(), 0);
+}
+
+/// Prettier, as the JSON check starts it, when the repository configures
+/// it: once for each group of files with the same options, each handed as a
+/// flag, and with `--no-config`, so that it looks for no file of its own.
+#[test]
+fn prettier_gets_the_options_of_each_file_from_the_tool() {
+    let fixture = Fixture::new();
+    fixture
+        .everything()
+        .file(
+            ".editorconfig",
+            "root = true\n\n[*]\nindent_style = space\nindent_size = 4\n",
+        )
+        .file(
+            ".prettierrc.yaml",
+            "printWidth: 100\noverrides:\n  - files: \"fixtures/deep/*.json\"\n    options:\n      \
+             useTabs: true\n",
+        )
+        .file("a.json", "{}\n")
+        .file("fixtures/deep/b.json", "{}\n")
+        .file("fixtures/c.json", "{}\n");
+    let files = ["a.json", "fixtures/c.json", "fixtures/deep/b.json"];
+
+    let (code, text) = fixture.run(Check::Json, &files, true);
+
+    assert_eq!(code, 0, "{text}");
+    has(
+        &text,
+        "Prettier formats 2 file(s) with --print-width=100 --tab-width=4 --use-tabs=false.",
+    );
+    has(
+        &text,
+        "Prettier formats 1 file(s) with --print-width=100 --tab-width=4 --use-tabs=true.",
+    );
+    let started: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with("prettier "))
+        .map(|line| line.split(" --range-end=Infinity ").nth(1).unwrap())
+        .collect();
+    assert_eq!(
+        started,
+        [
+            "--no-config --print-width=100 --tab-width=4 --use-tabs=false -- a.json \
+             fixtures/c.json",
+            "--no-config --print-width=100 --tab-width=4 --use-tabs=true -- fixtures/deep/b.json",
+        ]
+    );
+}
+
+/// A configuration in JavaScript, a plugin and an entry of `overrides` that
+/// names a parser only a plugin would bring: each is named and fails the
+/// check, and none of them reaches Prettier, which formats with what is
+/// left. A parser Prettier brings itself reaches it.
+#[test]
+fn what_prettier_is_not_handed_fails_the_check_by_name() {
+    let fixture = Fixture::new();
+    fixture
+        .everything()
+        .file(
+            "prettier.config.mjs",
+            "export default { plugins: [\"./plugin.mjs\"] };\n",
+        )
+        .file(
+            ".prettierrc.json",
+            "{ \"plugins\": [\"./plugin.mjs\"], \"semi\": false, \"requirePragma\": false, \
+             \"overrides\": [{ \"files\": \"*.json\", \"options\": { \"parser\": \"toml\" } }, \
+             { \"files\": \"b.json\", \"options\": { \"parser\": \"json5\" } }] }",
+        )
+        .file("a.json", "{}\n")
+        .file("b.json", "{}\n");
+
+    let (code, text) = fixture.run(Check::Json, &["a.json", "b.json"], true);
+
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error file=prettier.config.mjs::not read: the tool reads the configuration of prettier \
+         only as data, from one file at the root of the repository (`.prettierrc`, \
+         `.prettierrc.json`, `.prettierrc.yml`, `.prettierrc.yaml`, `.prettierrc.json5`, \
+         `.prettierrc.toml`), and never runs this one",
+    );
+    has(
+        &text,
+        "::error file=.prettierrc.json::`plugins` is not handed to Prettier: it names modules that \
+         would be loaded and run, and the check runs no code of the repository",
+    );
+    has(
+        &text,
+        "::error file=.prettierrc.json::`overrides[0].options.parser` is not the name of a parser \
+         Prettier brings itself; any other would need a plugin, so it is not handed to Prettier",
+    );
+    assert!(!text.contains("`requirePragma`"), "{text}");
+    has(&text, "Prettier formats 1 file(s) with --semi=false.");
+    has(
+        &text,
+        "Prettier formats 1 file(s) with --parser=json5 --semi=false.",
+    );
+    let started: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with("prettier "))
+        .map(|line| line.split(" --range-end=Infinity ").nth(1).unwrap())
+        .collect();
+    assert_eq!(
+        started,
+        [
+            "--no-config --semi=false -- a.json",
+            "--no-config --parser=json5 --semi=false -- b.json",
+        ]
+    );
+    assert!(!text.contains("--plugin"), "{text}");
+    assert!(!text.contains("--parser=toml"), "{text}");
+
+    // A repository with only an `.editorconfig` that sets nothing Prettier
+    // uses: Prettier formats with its own defaults, and says so.
+    fs::remove_file(fixture.root().join("prettier.config.mjs")).unwrap();
+    fs::remove_file(fixture.root().join(".prettierrc.json")).unwrap();
+    fixture.file(".editorconfig", "[*]\ncharset = utf-8\n");
+    let (code, text) = fixture.run(Check::Json, &["a.json"], true);
+    assert_eq!(code, 0, "{text}");
+    has(&text, "Prettier formats 1 file(s) with its own defaults.");
 }
 
 #[test]
@@ -2532,7 +2653,7 @@ fn stylesheets_are_formatted_and_pass_stylelint() {
     assert!(
         prettier.ends_with(
             " --no-require-pragma --no-check-ignore-pragma --range-start=0 --range-end=Infinity \
-             -- styles/a.css styles/b.scss"
+             --no-config -- styles/a.css styles/b.scss"
         ),
         "{prettier}"
     );
@@ -2594,6 +2715,7 @@ fn the_css_check_hands_stylelint_the_rules_of_the_repository_and_refuses_what_lo
              \"plugins\": [\"./plugin.mjs\"] }\n",
         )
         .file("stylelint.config.mjs", "export default {};\n")
+        .file("package.json", "{ \"stylelint\": { \"rules\": {} } }\n")
         .file("legacy/old.css", "a {}\n")
         .file("site.css", "a {}\n");
     let (code, text) = fixture.run(Check::Css, &["legacy/old.css", "site.css"], true);
@@ -2610,9 +2732,13 @@ fn the_css_check_hands_stylelint_the_rules_of_the_repository_and_refuses_what_lo
         &text,
         "::error file=stylelint.config.mjs::not read: the tool reads the configuration of \
          stylelint only as data, from one file at the root of the repository (`.stylelintrc`, \
-         `.stylelintrc.json`, `.stylelintrc.yaml`, `.stylelintrc.yml`, `.config/stylelintrc`, \
-         `.config/stylelintrc.json`, `.config/stylelintrc.yaml`, `.config/stylelintrc.yml`), \
-         and never runs this one",
+         `.stylelintrc.json`, `.stylelintrc.yaml`, `.stylelintrc.yml`), and never runs this one",
+    );
+    has(
+        &text,
+        "::error file=package.json::not read: the tool reads the configuration of stylelint \
+         only as data, from one file at the root of the repository, and not from the \
+         `stylelint` key of `package.json`",
     );
     has(
         &text,
@@ -2846,7 +2972,7 @@ fn pages_are_formatted_pass_html_validate_and_link_somewhere() {
     assert!(
         prettier.ends_with(
             " --no-require-pragma --no-check-ignore-pragma --range-start=0 --range-end=Infinity \
-             -- docs/header.htm index.html"
+             --no-config -- docs/header.htm index.html"
         ),
         "{prettier}"
     );

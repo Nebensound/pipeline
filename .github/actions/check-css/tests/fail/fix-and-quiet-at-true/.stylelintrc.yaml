@@ -1,0 +1,4 @@
+fix: true
+quiet: true
+rules:
+  color-hex-length: long

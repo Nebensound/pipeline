@@ -29,10 +29,14 @@
 //! [`markdownlint`] is the first linter under the rule. The check reads
 //! through it and hands the linter the result, the rules report shows the
 //! same result ([`crate::rules`]), and phase 0 names every file that is not
-//! read ([`findings`]), so what the report shows is what runs. [`stylelint`]
-//! follows it the same way in the CSS check: the check hands Stylelint a
-//! configuration object the tool built, and every package it loads by its
-//! place in the pinned install.
+//! read ([`findings`]), so what the report shows is what runs. [`prettier`]
+//! is the second: every check that formats with Prettier reads through it and
+//! hands Prettier the options of each file as flags. Prettier also reads
+//! `.editorconfig`, so the tool reads the root's beside Prettier's own file
+//! ([`editorconfig`]); Prettier has no default of the pipeline, so the rules
+//! report shows nothing of it. [`stylelint`] is the third, in the CSS check:
+//! the check hands Stylelint a configuration object the tool built, and every
+//! package it loads by its place in the pinned install.
 //!
 //! The link check's configuration ([`crate::lychee_config`]) follows the same
 //! shape and is older: lychee's `lychee.toml` is data by design and lychee
@@ -59,7 +63,9 @@
 //! names the files of a program the pipeline runs. Nothing runs that would
 //! follow them, so each is a warning, not an error.
 
+pub mod editorconfig;
 pub mod markdownlint;
+pub mod prettier;
 pub mod stylelint;
 
 use std::collections::BTreeSet;
@@ -334,12 +340,13 @@ pub fn locate<'a>(
 
 /// Every file of a linter's configuration in the repository that the tool
 /// does not read, for every program the register names files of its
-/// configuration for, and beside them the other files Stylelint would read
-/// ([`stylelint::beside`]), read through `read` where their content decides
-/// it: each one an error of phase 0 ([`Rule::UnreadConfiguration`]), since
-/// the linter would follow it wherever it runs by hand, and the check never
-/// does. After them, each configuration of a program that no check starts
-/// any more, a warning ([`crate::unread::findings`]).
+/// configuration for, and beside them the other files Prettier and Stylelint
+/// would read ([`prettier::beside`], [`stylelint::beside`]), read through
+/// `read` where their content decides it: each one an error of phase 0
+/// ([`Rule::UnreadConfiguration`]), since the linter would follow it wherever
+/// it runs by hand, and the check never does. After them, each configuration
+/// of a program that no check starts any more, a warning
+/// ([`crate::unread::findings`]).
 #[must_use]
 pub fn findings(analysis: &Analysis, register: &Register, read: &Read<'_>) -> Vec<Finding> {
     let nodes = analysis.tree.files();
@@ -355,9 +362,11 @@ pub fn findings(analysis: &Analysis, register: &Register, read: &Read<'_>) -> Ve
         .iter()
         .flat_map(|(name, program)| {
             let mut unread = locate(&files, &kept, name, program).unread;
-            if name.as_str() == stylelint::NAME {
-                unread.extend(stylelint::beside(&files, &kept, read));
-            }
+            unread.extend(match name.as_str() {
+                prettier::NAME => prettier::beside(&files, &kept, read),
+                stylelint::NAME => stylelint::beside(&files, &kept, read),
+                _ => Vec::new(),
+            });
             unread
         })
         .map(|unread| Finding::error(Rule::UnreadConfiguration, unread.why).at(unread.file))

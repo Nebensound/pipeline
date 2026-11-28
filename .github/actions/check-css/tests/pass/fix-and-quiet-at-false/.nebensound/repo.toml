@@ -1,0 +1,6 @@
+# A configuration that writes `fix` and `quiet` at `false`, the value
+# Stylelint takes without them. The check accepts both without a finding and
+# hands the rest over: the long hex colour the file asks for passes.
+[repo]
+audience = "public"
+pipeline = { check = ["css"] }

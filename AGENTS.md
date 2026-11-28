@@ -84,10 +84,10 @@ repository. A linter never looks for its configuration: the tool reads it in one
 place, from one file per linter at the root of the repository, as data, carries
 over only the keys it knows, fails on every other key and on every file it does
 not read by name, and hands the linter what it wrote (see
-[the tool](docs/tool.md#the-configuration-of-a-linter)). markdownlint and
-Stylelint hold to that, and so does the link check, whose lychee gets only the
-configuration the tool writes from the keys of `lychee.toml` it knows. The
-other linters (Prettier, html-validate, Hadolint, actionlint, the Dockerfile
+[the tool](docs/tool.md#the-configuration-of-a-linter)). markdownlint,
+Prettier and Stylelint hold to that, and so does the link check, whose lychee
+gets only the configuration the tool writes from the keys of `lychee.toml` it
+knows. The other linters (html-validate, Hadolint, actionlint, the Dockerfile
 formatter, Ruff, Taplo's formatter and Pyright) still read the repository's
 configuration themselves or follow a file it names, and some of their ways load
 code (see

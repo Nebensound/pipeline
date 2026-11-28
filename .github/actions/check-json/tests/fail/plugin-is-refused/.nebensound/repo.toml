@@ -1,0 +1,11 @@
+# Prettier's file names a plugin, a module that would be loaded and run. The
+# check refuses the key by name and fails; Prettier is not handed the plugin
+# and formats the file with the rest of the file's options. The plugin would
+# stop Prettier with an error if it were loaded.
+[repo]
+audience = "public"
+pipeline = "none"
+
+[[exclude]]
+path   = "plugin.mjs"
+reason = "the plugin under test; JavaScript, which no check of the case covers"

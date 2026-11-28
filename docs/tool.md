@@ -1300,8 +1300,8 @@ A reading check starts no code of the repository, so a linter under this rule
 never looks for its configuration itself: the tool reads it, in one place
 ([`src/linter_config.rs`](../src/linter_config.rs)), and hands the linter the
 configuration it wrote. The rules report and phase 0 read through the same
-place, so what the report shows is what runs. markdownlint and Stylelint are
-the linters under the rule today; the link check's lychee gets its
+place, so what the report shows is what runs. markdownlint, Prettier and
+Stylelint are the linters under the rule today; the link check's lychee gets its
 configuration from the tool the same way
 ([`src/lychee_config.rs`](../src/lychee_config.rs)). The others still find and
 read the repository's configuration themselves
@@ -1380,6 +1380,140 @@ others, in the order written. With `headings: false` and then `MD025: true`,
 `MD025` holds; with `single-title: true` and then `headings: false`, it does
 not.
 
+### Prettier
+
+Prettier formats in five checks: CSS, HTML, JSON, Markdown and YAML. Each of
+them starts it through the same code (`Session::prettier` in
+[`src/run.rs`](../src/run.rs)), which reads the repository's configuration
+through [`src/linter_config/prettier.rs`](../src/linter_config/prettier.rs)
+at the start of the check, so a configuration means the same in each, and a
+problem with it fails each of them at its file. The pipeline has no default
+style of its own: without a configuration, Prettier formats with its own
+defaults, as before.
+
+Prettier is started with `--no-config`: it looks for no file of its
+configuration in any folder, reads no `.editorconfig`, and so loads no
+configuration in JavaScript, no shared configuration and no plugin. It is
+handed `--ignore-path` with an empty file, so it reads no `.prettierignore`
+and no `.gitignore` either, and nothing else of the repository than the files
+it formats. What it formats with, the tool works out for each file and hands
+over as flags, one per option, such as `--tab-width=4`; Prettier is started
+once for each group of files with the same options, which costs one more start
+of Node.js (about 0.2 seconds) for each group beyond the first. The output
+names the options of each group.
+
+The tool reads two files at the root, in the order Prettier's documentation
+gives them, each laid over the one before:
+
+1. `.editorconfig`, read the way Prettier reads it: `indent_style`,
+   `indent_size` and `tab_width` give `useTabs` and `tabWidth`,
+   `max_line_length` gives `printWidth` (`off` for no limit), `quote_type`
+   gives `singleQuote` and `end_of_line` gives `endOfLine`. A section's
+   pattern without a `/` matches a file of that name in any folder; one with a
+   `/` matches from the root. Every other property is passed over: the file
+   belongs to editors and other programs as well. A file with a line that is no
+   section, property or comment, which Prettier would pass over whole, and a
+   section with a pattern the tool does not read (one with a group, `(...)`),
+   fail the check by name.
+2. Prettier's own file, the first of `.prettierrc` (JSON or YAML),
+   `.prettierrc.json` (plain JSON, as Prettier reads it: no comments, no
+   trailing commas), `.prettierrc.yml`, `.prettierrc.yaml`,
+   `.prettierrc.json5` and `.prettierrc.toml` at the root; then every entry of
+   its `overrides` whose patterns match the file, in their order. A file of
+   YAML with more than one document, at which Prettier stops, fails the check
+   by name.
+
+The keys the tool carries over and refuses stand in
+[`src/linter_config/prettier.rs`](../src/linter_config/prettier.rs):
+
+- Carried over: every option of the pinned Prettier that says how a file is
+  written, from `arrowParens` to `vueIndentScriptAndStyle`, each checked for a
+  value it takes; `parser`, where it names a parser the pinned Prettier brings
+  itself; and `overrides`. `printWidth` also takes no limit, written as for
+  `rangeEnd` in the table below. `$schema` is passed over.
+- Accepted only at the value that changes nothing, and then not handed over:
+  `requirePragma`, `checkIgnorePragma`, `rangeStart` and `rangeEnd`. Any other
+  value would pass a file or a part of it unchecked and fails the check by
+  name. Prettier is started with these four set to that value anyway.
+- Refused by name: `plugins` and `pluginSearchDirs`, which name code;
+  `filepath`, which names another file; `cursorOffset`, which is for an
+  editor. A file that holds text in place of options names a shared
+  configuration, a module, and is refused whole.
+
+`parser` says how Prettier reads a file, for example that files of one name
+are JSON5 (`{ "files": "*.json", "options": { "parser": "json5" } }`). The
+names it takes are the parsers Prettier brings itself, without a plugin:
+`acorn`, `angular`, `babel`, `babel-flow`, `babel-ts`, `css`, `espree`, `flow`,
+`glimmer`, `graphql`, `html`, `json`, `json-stringify`, `json5`, `jsonc`,
+`less`, `lwc`, `markdown`, `mdx`, `meriyah`, `mjml`, `scss`, `typescript`,
+`vue` and `yaml`. Any other name, such as `toml`, is one only a plugin would
+bring, and fails the check by name. `parser` changes only how a file is read
+that a check already formats, chosen by its name as the register gives it; it
+brings no other file into a check. The list is taken from the pinned Prettier
+itself: the choices of its option `parser` in its `index.mjs`, which its
+`index.d.ts` gives as `BuiltInParserName`. A test holds the version the list
+was read from to the version the register pins, so raising the pin fails the
+tool's tests until the list is read again from the new version.
+
+The value that changes nothing is the one Prettier takes when the key is not
+written. JavaScript holds every number as a double, and so does the tool:
+
+| Key                 | Value  | JSON    | JSON5                   | YAML                            | TOML          |
+| ------------------- | ------ | ------- | ----------------------- | ------------------------------- | ------------- |
+| `requirePragma`     | false  | `false` | `false`                 | `false`                         | `false`       |
+| `checkIgnorePragma` | false  | `false` | `false`                 | `false`                         | `false`       |
+| `rangeStart`        | 0      | `0`     | `0`                     | `0`                             | `0`           |
+| `rangeEnd`          | no end | `1e999` | `Infinity`, `+Infinity` | `.inf`, `.Inf`, `.INF`, `+.inf` | `inf`, `+inf` |
+
+JSON has no word for a number without an end; a number too large for a
+double, such as `1e999`, is read as one, as JavaScript reads it, and JSON5 and
+YAML read it the same way. TOML does not: the tool cannot read `1e999` in
+`.prettierrc.toml` and names the whole file, so TOML writes `inf`. `0.0` and
+`-0` are 0 as well. `null`, text such as `"false"` or `"Infinity"`, and any
+other number take effect or are no value Prettier takes, and fail by name.
+
+An entry of `overrides` is matched as Prettier matches it, over the path from
+the root: a pattern of `files` without a `/` matches the file's name in any
+folder, one with a `/` the whole path; `*` stops at a `/`, `**` does not;
+`excludeFiles` takes files out of the entry. Three forms of pattern are not
+read, and an entry that holds one fails by name: a group, `(...)`, with or
+without `*`, `?`, `+`, `@` or `!` before it; a class such as `[[:digit:]]`; and
+a sequence such as `{1..3}`. Braces with a list, `{a,b}`, are read.
+
+```yaml
+overrides:
+  - files: "crates/*/tests/fixtures/**/*.json"
+    options:
+      tabWidth: 4
+```
+
+Not read, and named (`unread-configuration`): another of the names at the
+root, one in a folder below it, a configuration in JavaScript or TypeScript
+(`.prettierrc.js`, `prettier.config.mjs` and the others), wherever it lies,
+and the `prettier` key of a `package.json` or `package.yaml`.
+
+An `.editorconfig` in a folder below the root is not read either, and not
+named: the pipeline's defaults take every `.editorconfig` out with an
+`[[exclude]]` entry, and a file taken out appears in no finding. A repository
+writes a difference for a folder into a section of the root's `.editorconfig`
+instead, with a pattern that holds the folder:
+
+```ini
+[docs/**]
+indent_size = 4
+```
+
+Otherwise the files below a folder with its own `.editorconfig` show as not
+formatted, with no finding that names the cause: Prettier formats them
+without what that file says, and a file written to it differs.
+
+What a repository can make Prettier do is therefore what its options say:
+how wide a line is, how a file is indented, which quotes and line endings it
+has, which of its own parsers reads a file a check formats, and so on, per
+file by pattern. It cannot make Prettier load or run anything, read another
+file, read a file with a parser a plugin brings, or leave a file or a part of
+it unchecked.
+
 ### Stylelint
 
 The CSS check hands Stylelint, for each group of stylesheets with the same
@@ -1400,9 +1534,8 @@ out a file that `files` names.
 
 The tool reads the first of `.stylelintrc` (YAML), `.stylelintrc.json` (plain
 JSON, as Stylelint read it: no comments), `.stylelintrc.yaml` and
-`.stylelintrc.yml` at the root, or of the same names without the leading dot in
-the folder `.config` there. The keys the tool carries over, sets aside and
-refuses by name stand in
+`.stylelintrc.yml` at the root. The keys the tool carries over, sets aside,
+accepts only at `false` and refuses by name stand in
 [`src/linter_config/stylelint.rs`](../src/linter_config/stylelint.rs):
 
 - Carried over: `rules` and `overrides`, and the options that are data and fail
@@ -1422,24 +1555,26 @@ refuses by name stand in
   [Exclusions](../README.md#exclusions)), `cache`, `maxWarnings` (the check
   fails on every error and on no warning), `validate` (Stylelint checks the
   options of every rule) and `$schema`.
+- Accepted only at `false`, the value Stylelint takes where the key is not
+  written, and then not handed over: `fix`, which would fix what it can in
+  memory and report only the rest, and `quiet`, which would drop every warning.
+  Any other value, `true` among them, fails the check by name.
 - Refused by name: `extends`, `plugins`, `customSyntax`, `processors`,
-  `referenceFiles` and `formatter`, which name a module or another file; `fix`,
-  which would fix what it can in memory and report only the rest; `quiet`,
-  which would drop every warning; and `defaultSeverity: warning`, which would
-  make every rule that names no severity of its own a warning and so switch the
-  failing of the whole check off. Any other key fails by name as unknown.
+  `referenceFiles` and `formatter`, which name a module or another file, and
+  `defaultSeverity: warning`, which would make every rule that names no
+  severity of its own a warning and so switch the failing of the whole check
+  off. Any other key fails by name as unknown.
 
 A difference by pattern is an entry of `overrides` with `files` and `rules`,
 and `name` for a label; any other key in an entry fails by name, so a pattern
 can carry rules and nothing else. Every entry whose `files` match a stylesheet
 counts for it, in their order, each laid over the rules before it, as
-Stylelint 18.0.0 matches them: from the folder of the file that holds them, so
-from the root for `.stylelintrc*` and from `.config` for `.config/stylelintrc*`
-(where `../web/*.css` names `web/*.css` at the root), with `.`, `..` and a
-leading `./` worked out as Node's `path.join` does. `*` stops at a `/` and `**`
-does not, a pattern also matches the file's name alone, so one without a `/`
-matches in any folder, and a pattern with a leading `!` matches every path its
-pattern does not, so beside other patterns it takes nothing back.
+Stylelint 18.0.0 matches the patterns of a file at the root: from the root of
+the repository, with `.`, `..` and a leading `./` worked out as Node's
+`path.join` does. `*` stops at a `/` and `**` does not, a pattern also matches
+the file's name alone, so one without a `/` matches in any folder, and a
+pattern with a leading `!` matches every path its pattern does not, so beside
+other patterns it takes nothing back.
 
 ```yaml
 rules:
@@ -1459,7 +1594,9 @@ wherever it was written. Stylelint would report it there as an unknown rule,
 even switched off.
 
 Not read, and named (`unread-configuration`): another of the names at the
-root, one in a folder below it, a configuration in JavaScript or TypeScript
+root, one in a folder below it, the same four forms in the folder `.config`
+(`.config/stylelintrc`, `.config/stylelintrc.json` and the others), which
+Stylelint would also find, a configuration in JavaScript or TypeScript
 (`.stylelintrc.js`, `stylelint.config.mjs` and the others), wherever it lies,
 and the `stylelint` key of a `package.json`, wherever it lies.
 

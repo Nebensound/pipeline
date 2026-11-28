@@ -6,15 +6,16 @@
 //! is named by its place in the pinned install (see `run::css`). The tool
 //! reads the repository's file itself ([`read`]): the first of the names the
 //! register gives Stylelint that stands at the root, `.stylelintrc` (YAML),
-//! `.stylelintrc.json`, `.stylelintrc.yaml` or `.stylelintrc.yml`, or one of
-//! them in the folder `.config` there, without the leading dot. A `.json` file
-//! is read as JSON, which takes no comment, the others as YAML, as Stylelint
-//! read them. The lists below follow the keys of a configuration of Stylelint
-//! 18.0.0, the version the register pins.
+//! `.stylelintrc.json`, `.stylelintrc.yaml` or `.stylelintrc.yml`. A `.json`
+//! file is read as JSON, which takes no comment, the others as YAML, as
+//! Stylelint read them. The lists below follow the keys of a configuration of
+//! Stylelint 18.0.0, the version the register pins.
 //!
 //! Each key of the file is carried over ([`CARRIED`]), set aside because the
-//! check decides it itself ([`SET_ASIDE`]), refused by name with the reason
-//! ([`REFUSED`]), or unknown, which fails as well. `defaultSeverity` is
+//! check decides it itself ([`SET_ASIDE`]), accepted only at the value that
+//! lets no finding pass unreported, `false` ([`NEUTRAL`]), refused by name
+//! with the reason ([`REFUSED`]), or unknown, which fails as well.
+//! `defaultSeverity` is
 //! carried over as `error` only: `warning` would make every rule that names
 //! no severity of its own a warning, which fails nothing, and is refused
 //! ([`WARNING`]). Each key of `rules`, at the top and in an entry of
@@ -25,10 +26,8 @@
 //!
 //! A difference by pattern is an entry of `overrides` that holds `files`, its
 //! patterns, and `rules`, and may hold `name`, a label; any other key in it
-//! fails. Its patterns are read as Stylelint 18.0.0 reads them, from the
-//! folder of the file that holds them: from the root for `.stylelintrc*`, and
-//! from `.config` for `.config/stylelintrc*`, so that the check and an editor
-//! that runs Stylelint on the same file agree ([`Patterns::matches`]). Every
+//! fails. Its patterns are read as Stylelint 18.0.0 reads them in a file at
+//! the root, from the root of the repository ([`Patterns::matches`]). Every
 //! entry whose patterns match a file counts for it, in their order.
 //!
 //! The rules of a file are laid as Stylelint lays them, rule by rule, a later
@@ -43,9 +42,9 @@
 //! meaning; the tool keeps them in the order written all the same.
 //!
 //! Stylelint would also read the `stylelint` key of a `package.json`, a file
-//! of its configuration in any folder below the root, and one written in
-//! JavaScript. The tool reads none of them and names each ([`beside`], and
-//! [`super::locate`] for the names the register gives).
+//! of its configuration in any folder below the root, `.config` among them,
+//! and one written in JavaScript. The tool reads none of them and names each
+//! ([`beside`], and [`super::locate`] for the names the register gives).
 
 use globset::{GlobBuilder, GlobMatcher};
 use serde_json::Value;
@@ -364,9 +363,24 @@ pub const SET_ASIDE: &[(&str, &str)] = &[
     ),
 ];
 
+/// The keys of a configuration the check accepts only at `false`, the value
+/// Stylelint takes where the key is not written, each with what any other
+/// would make Stylelint do: pass a finding unreported. One at `false` is not
+/// handed over, since Stylelint takes that value without it.
+pub const NEUTRAL: &[(&str, &str)] = &[
+    (
+        "fix",
+        "would make Stylelint fix what it can and report only the rest, so that a finding it \
+         can fix would pass unreported",
+    ),
+    (
+        "quiet",
+        "would drop every warning from what the check shows",
+    ),
+];
+
 /// The keys of a configuration the check refuses, each with what it would
-/// make Stylelint do: load and run code, read another file, or pass a finding
-/// unreported.
+/// make Stylelint do: load and run code, or read another file.
 pub const REFUSED: &[(&str, &str)] = &[
     (
         "customSyntax",
@@ -377,11 +391,6 @@ pub const REFUSED: &[(&str, &str)] = &[
         "extends",
         "names further configuration, a module or another file, which would be loaded, and the \
          tool reads one file",
-    ),
-    (
-        "fix",
-        "makes Stylelint fix what it can and report only the rest, so that a finding it can fix \
-         would pass unreported",
     ),
     (
         "formatter",
@@ -396,10 +405,6 @@ pub const REFUSED: &[(&str, &str)] = &[
         "processors",
         "names modules that would rewrite what is linted, which would be loaded and run, and the \
          CSS check runs no code of the repository",
-    ),
-    (
-        "quiet",
-        "would drop every warning from what the check shows",
     ),
     (
         "referenceFiles",
@@ -420,9 +425,9 @@ pub type Rules = Vec<(String, Value)>;
 struct Pattern {
     /// Whether it had a leading `!`.
     negated: bool,
-    /// The pattern without `!`, joined onto the folder of the file that holds
-    /// it, as a path from the root; [`None`] where it climbs above the root,
-    /// so that it matches no file there.
+    /// The pattern without `!`, joined onto the root, as a path from the
+    /// root; [`None`] where it climbs above the root, so that it matches no
+    /// file there.
     glob: Option<GlobMatcher>,
     /// The pattern as written, without a leading `./`, matched against a
     /// file's name; [`None`] for one with `!`.
@@ -442,9 +447,9 @@ impl Patterns {
     /// Whether they match a file, a path from the repository root, as
     /// Stylelint 18.0.0 matches the patterns of an entry of `overrides`
     /// (`compileOverrideMatchers`, with picomatch, dots included): one of
-    /// them matches it. A pattern is joined onto the folder of the file that
-    /// holds it, as Node's `path.join` joins them, and matches the path from
-    /// the root, where `*` stops at a `/` and `**` does not. Every pattern
+    /// them matches it. A pattern is joined onto the root, as Node's
+    /// `path.join` joins them, and matches the path from the root, where `*`
+    /// stops at a `/` and `**` does not. Every pattern
     /// without `!` also matches the file's name as written, so one without a
     /// `/` matches in any folder. One with a leading `!` matches every path
     /// its pattern does not, so that beside others it takes nothing back.
@@ -477,16 +482,16 @@ fn from_root(mut pattern: &str) -> &str {
     pattern
 }
 
-/// A pattern joined onto `base`, a folder from the root, as Node's
-/// `path.join` joins them: an empty segment and `.` are dropped, `..` takes
-/// the segment before it off, and a trailing `/` stays. [`None`] where `..`
-/// climbs above the root. A pattern that starts with `/` is a path of its
-/// own and is not joined, as with `path.join`'s caller in Stylelint.
-fn joined(base: &[String], pattern: &str) -> Option<String> {
+/// A pattern joined onto the root, as Node's `path.join` joins them: an
+/// empty segment and `.` are dropped, `..` takes the segment before it off,
+/// and a trailing `/` stays. [`None`] where `..` climbs above the root. A
+/// pattern that starts with `/` is a path of its own and is not joined, as
+/// with `path.join`'s caller in Stylelint.
+fn joined(pattern: &str) -> Option<String> {
     if pattern.starts_with('/') {
         return Some(pattern.to_owned());
     }
-    let mut segments: Vec<&str> = base.iter().map(String::as_str).collect();
+    let mut segments: Vec<&str> = Vec::new();
     for segment in pattern.split('/') {
         match segment {
             "" | "." => {}
@@ -513,9 +518,8 @@ fn glob(pattern: &str) -> Result<GlobMatcher, String> {
 }
 
 /// The patterns of `files`, built: a pattern or a list of them that holds one
-/// at least, each a pattern that reads. `base` is the folder of the file that
-/// holds them, from the root.
-fn patterns(value: Written, base: &[String]) -> Result<Patterns, String> {
+/// at least, each a pattern that reads.
+fn patterns(value: Written) -> Result<Patterns, String> {
     let not = || "is neither a pattern nor a list of patterns".to_owned();
     let written: Vec<String> = match value.into_value() {
         Value::String(one) => vec![one],
@@ -540,7 +544,7 @@ fn patterns(value: Written, base: &[String]) -> Result<Patterns, String> {
             };
             Ok(Pattern {
                 negated,
-                glob: joined(base, rest).as_deref().map(glob).transpose()?,
+                glob: joined(rest).as_deref().map(glob).transpose()?,
                 by_name: if negated {
                     None
                 } else {
@@ -614,7 +618,7 @@ pub fn pinned(text: &str) -> Result<Pinned, String> {
                 let files = Written::take(&mut entry, "files")
                     .ok_or_else(|| format!("`{at}` has no `files`"))?;
                 let patterns =
-                    patterns(files, &[]).map_err(|reason| format!("`{at}.files` {reason}"))?;
+                    patterns(files).map_err(|reason| format!("`{at}.files` {reason}"))?;
                 Ok((patterns, layer(entry, &format!("{at}."))?))
             })
             .collect::<Result<_, _>>()?,
@@ -807,6 +811,7 @@ pub fn read(
     let mut problems: Vec<Problem> = located
         .unread
         .into_iter()
+        .chain(beside(files, kept, read))
         .map(|unread| Problem {
             file: unread.file,
             message: unread.why,
@@ -875,14 +880,22 @@ fn keys(found: &mut Found<'_>, handed: &mut Handed, top: Vec<(String, Written)>)
             },
             _ if CARRIED.contains(&key.as_str()) => handed.options.push((key, value.into_value())),
             _ if SET_ASIDE.iter().any(|(name, _)| *name == key) => {}
-            _ => match REFUSED.iter().find(|(name, _)| *name == key) {
-                Some((_, why)) => {
+            _ => {
+                if let Some((_, why)) = NEUTRAL.iter().find(|(name, _)| *name == key) {
+                    if value.into_value() != Value::Bool(false) {
+                        found.problem(&format!(
+                            "`{key}` is not handed to Stylelint: any value but `false` {why}"
+                        ));
+                    }
+                } else if let Some((_, why)) = REFUSED.iter().find(|(name, _)| *name == key) {
                     found.problem(&format!("`{key}` is not handed to Stylelint: it {why}"));
+                } else {
+                    found.problem(&format!(
+                        "`{key}` is not a setting the CSS check knows, so it is not handed to \
+                         Stylelint"
+                    ));
                 }
-                None => found.problem(&format!(
-                    "`{key}` is not a setting the CSS check knows, so it is not handed to Stylelint"
-                )),
-            },
+            }
         }
     }
 }
@@ -960,8 +973,7 @@ impl Found<'_> {
             ));
             return None;
         };
-        let base = self.file.segments();
-        let patterns = match patterns(files, &base[..base.len().saturating_sub(1)]) {
+        let patterns = match patterns(files) {
             Ok(patterns) => patterns,
             Err(reason) => {
                 self.problem(&format!(

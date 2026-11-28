@@ -605,11 +605,40 @@ digest = "sha512:a8729e5361356ddc8d013d3bee0a361554cd5ef61c92d379207b45e97c9e0f5
 
 # The npm registry's `dist.integrity`, in hexadecimal; `engines.node` is
 # ">=14".
+#
+# `configuration` names the files a repository writes its configuration of
+# Prettier in, at the root, in a format of data, in the order Prettier looks
+# for them in a folder; beside the first of them there the tool reads the
+# root's `.editorconfig`. `configuration-not-read` names the files Prettier
+# would also read, written in JavaScript or TypeScript: the tool runs none of
+# them and names each.
 [program.prettier]
-version         = "3.9.6"
-command         = "prettier"
-runtime         = "node"
+version = "3.9.6"
+command = "prettier"
+runtime = "node"
 runtime-minimum = "14.0.0"
+configuration = [
+  ".prettierrc",
+  ".prettierrc.json",
+  ".prettierrc.yml",
+  ".prettierrc.yaml",
+  ".prettierrc.json5",
+  ".prettierrc.toml",
+]
+configuration-not-read = [
+  ".prettierrc.js",
+  "prettier.config.js",
+  ".prettierrc.ts",
+  "prettier.config.ts",
+  ".prettierrc.mjs",
+  "prettier.config.mjs",
+  ".prettierrc.mts",
+  "prettier.config.mts",
+  ".prettierrc.cjs",
+  "prettier.config.cjs",
+  ".prettierrc.cts",
+  "prettier.config.cts",
+]
 
 [program.prettier.download.any]
 url    = "https://registry.npmjs.org/prettier/-/prettier-3.9.6.tgz"
@@ -672,9 +701,11 @@ executable = "ruff.exe"
 # `configuration` names the files a repository writes its configuration of
 # Stylelint in, at the root, in a format of data, in the order Stylelint looks
 # for them in a folder. `configuration-not-read` names the files Stylelint
-# would also read, written in JavaScript or TypeScript: the tool runs none of
-# them and names each. Stylelint would read the `stylelint` key of a
-# `package.json` as well, before all of them; the tool names such a file too.
+# would also read: the same four forms in the folder `.config`, which the tool
+# does not read, since it reads one file per linter at the root, and the files
+# written in JavaScript or TypeScript, which it runs none of. The tool names
+# each of them. Stylelint would read the `stylelint` key of a `package.json` as
+# well, before all of them; the tool names such a file too.
 [program.stylelint]
 version = "18.0.0"
 command = "stylelint"
@@ -685,12 +716,12 @@ configuration = [
   ".stylelintrc.json",
   ".stylelintrc.yaml",
   ".stylelintrc.yml",
+]
+configuration-not-read = [
   ".config/stylelintrc",
   ".config/stylelintrc.json",
   ".config/stylelintrc.yaml",
   ".config/stylelintrc.yml",
-]
-configuration-not-read = [
   ".stylelintrc.js",
   ".stylelintrc.ts",
   ".stylelintrc.cjs",

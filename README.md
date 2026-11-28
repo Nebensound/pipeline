@@ -355,9 +355,14 @@ part runs even when one before it failed, so one run shows every finding.
   of the check whose name ends in `.lock` is such a lockfile, as the register
   gives `json` no other.
 - The three extensions are formatted the way Prettier writes them, with the
-  repository's Prettier configuration, without its ignore files, and with
-  `requirePragma`, `checkIgnorePragma`, `rangeStart` and `rangeEnd` set aside,
-  which would pass a whole file unchecked.
+  options the tool reads from the repository's Prettier file and
+  `.editorconfig` at the root and hands Prettier, which looks for no
+  configuration and no ignore file itself (see
+  [the configuration of a linter](docs/tool.md#prettier)). `requirePragma`,
+  `checkIgnorePragma`, `rangeStart` and `rangeEnd` fail the check by name at
+  any value but the one that changes nothing, since they would pass a whole
+  file or a part of it unchecked; `parser` fails it by name where it names a
+  parser only a plugin would bring.
 
 Every part runs even when one before it failed, so one run shows every finding.
 
@@ -866,25 +871,27 @@ entry takes them out. A key the tool does not know or one that names code or
 another file, such as `customRules` or `extends`, fails the check (see
 [the configuration of a linter](docs/tool.md#the-configuration-of-a-linter)).
 A file may also switch a rule of the default off or loosen it; the rules report
-shows every difference. markdownlint and Stylelint are under this rule, beside
-lychee, whose `lychee.toml` the tool reads key by key. The other linters still
-find and read the repository's configuration themselves, or follow a file it
-names: Prettier, html-validate, Hadolint, actionlint, the Dockerfile
-formatter, Ruff, Taplo's formatter and Pyright (see
+shows every difference. markdownlint, Prettier and Stylelint are under this
+rule, beside lychee, whose `lychee.toml` the tool reads key by key. The tool
+reads Prettier's options from Prettier's one file and `.editorconfig` at the
+root and hands them over as flags (see [the tool](docs/tool.md#prettier));
+Stylelint follows below. The other linters still find and read the repository's configuration
+themselves, or follow a file it names: html-validate, Hadolint, actionlint, the
+Dockerfile formatter, Ruff, Taplo's formatter and Pyright (see
 [what does not hold yet](docs/principles.md#what-does-not-hold-yet)).
 
 Stylelint never looks for its configuration either: the tool reads the first
 of `.stylelintrc`, `.stylelintrc.json`, `.stylelintrc.yaml` and
-`.stylelintrc.yml` at the root, or of the same names in the folder `.config`
-there, as data, and hands Stylelint the rules of each stylesheet. It carries
-over `rules`, `overrides` entries that hold `files` and `rules`, and options
-that are data, such as `reportNeedlessDisables`; every rule is one of the
-pinned Stylelint or of its plugin for SCSS, whose rules count for the `.scss`
-files only. Another of the files at the root,
-one in a folder below it, one written in JavaScript and the `stylelint` key of
-a `package.json` are not read and are named, and every key that names a module
-or another file (`extends`, `plugins`, `customSyntax`, `processors`,
-`referenceFiles`, `formatter`), `fix`, `quiet`, `defaultSeverity: warning` and
+`.stylelintrc.yml` at the root, as data, and hands Stylelint the rules of each
+stylesheet. It carries over `rules`, `overrides` entries that hold `files` and
+`rules`, their patterns counted from the root, and options that are data, such
+as `reportNeedlessDisables`; every rule is one of the pinned Stylelint or of
+its plugin for SCSS, whose rules count for the `.scss` files only. Another of
+the files at the root, one in a folder below it (`.config` too), one written in
+JavaScript and the `stylelint` key of a `package.json` are not read and are
+named, and every key that names a module or another file (`extends`,
+`plugins`, `customSyntax`, `processors`, `referenceFiles`, `formatter`),
+`fix` and `quiet` at any value but `false`, `defaultSeverity: warning` and
 every key the tool does not know fail the check by name (see
 [the tool](docs/tool.md#stylelint)). html-validate reads the
 `.htmlvalidate.json` (`.mjs`, `.cjs`, `.js`) of a page's folder and of every
@@ -958,8 +965,10 @@ from the `lychee.toml` they read, and rustfmt's `ignore`, which comes
 along with the repository's rustfmt configuration and takes effect on a nightly
 toolchain, and Ruff's `# ruff: noqa`, which a Python file holds itself.
 Settings in a tool's configuration that pass a whole file unchecked are set
-aside on the command line: Prettier's `requirePragma`, `checkIgnorePragma`,
-`rangeStart` and `rangeEnd`, and rustfmt's `disable_all_formatting`;
+aside on the command line: rustfmt's `disable_all_formatting`, and Prettier's
+`requirePragma`, `checkIgnorePragma`, `rangeStart` and `rangeEnd`, which the
+tool also fails by name in the configuration it reads at any value but the one
+that changes nothing;
 `check-python` runs Pyright without its `ignore` and `exclude` and Ruff with
 `--no-force-exclude`, and judges coverage itself, so that coverage.py's `omit`
 takes nothing out. Run by

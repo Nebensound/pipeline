@@ -209,10 +209,11 @@ fn configuration(register: &Register) -> String {
          reads for it: the first of those under Read that stands at the root of the\n\
          repository, as data. Every other one of them at the root, every one in a folder\n\
          below it and every one under Not read, wherever it lies, the tool names as not\n\
-         read (see [the tool](tool.md#the-configuration-of-a-linter)). For Stylelint the\n\
-         tool also names a `package.json` whose `stylelint` key holds a configuration\n\
-         (see [Stylelint](tool.md#stylelint)). A program not named here still reads its\n\
-         configuration itself.",
+         read (see [the tool](tool.md#the-configuration-of-a-linter)). For Prettier the\n\
+         tool reads `.editorconfig` at the root as well (see\n\
+         [Prettier](tool.md#prettier)). For Stylelint the tool also names a `package.json`\n\
+         whose `stylelint` key holds a configuration (see [Stylelint](tool.md#stylelint)).\n\
+         A program not named here still reads its configuration itself.",
         &["Program", "Read", "Not read"],
         &rows,
     )

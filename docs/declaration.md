@@ -1030,11 +1030,12 @@ the repository, as data, and hands the linter what it wrote (see
 of the linter's files at the root beside the one it reads, one in a folder below
 the root, or one written in JavaScript, wherever it lies; run by hand, the
 linter would follow each of them. The register names the files per linter (see
-[the register](register.md#configuration-of-the-programs)); today markdownlint
-and Stylelint are the linters under the rule. For Stylelint, a `package.json`
-whose `stylelint` key holds a configuration is reported as well. Move what the
-file says into the one file at
-the root, a difference for a folder as a pattern, or remove it. A file an
+[the register](register.md#configuration-of-the-programs)); today markdownlint,
+Prettier and Stylelint are the linters under the rule. For Prettier the
+`prettier` key of a `package.json` or `package.yaml` that holds a configuration
+is not read either, wherever it lies, and for Stylelint the `stylelint` key of
+a `package.json`. Move what the file says into the one file at the root, a
+difference for a folder as a pattern, or remove it. A file an
 `[[exclude]]` entry takes out is not reported as an error. The check that runs
 the linter fails on the file as well.
 

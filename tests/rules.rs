@@ -689,6 +689,7 @@ fn stylelint_reads_the_one_file_at_the_root_and_names_every_other() {
              { \"files\": [\"*.scss\", \"admin/*\"], \"name\": \"none\" }] }\n",
         ),
         (".config/stylelintrc.yml", "rules:\n  color-named: never\n"),
+        (".stylelintrc.yml", "rules:\n  color-named: never\n"),
         (
             "web/.stylelintrc.yaml",
             "extends: stylelint-config-recess-order\n",
@@ -719,11 +720,17 @@ fn stylelint_reads_the_one_file_at_the_root_and_names_every_other() {
     );
     // Every other file of Stylelint's configuration is named, and nothing of
     // it is read.
-    assert_eq!(after(&text, ".config/stylelintrc.yml").len(), 1, "{text}");
+    assert_eq!(after(&text, ".stylelintrc.yml").len(), 1, "{text}");
     assert!(
-        after(&text, ".config/stylelintrc.yml")[0].ends_with(
+        after(&text, ".stylelintrc.yml")[0].ends_with(
             "from one file at the root of the repository, and that is `.stylelintrc.json`"
         ),
+        "{text}"
+    );
+    // The folder `.config` is not read either.
+    assert_eq!(after(&text, ".config/stylelintrc.yml").len(), 1, "{text}");
+    assert!(
+        after(&text, ".config/stylelintrc.yml")[0].ends_with("and never runs this one"),
         "{text}"
     );
     assert_eq!(after(&text, "web/.stylelintrc.yaml").len(), 1, "{text}");
