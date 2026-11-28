@@ -24,8 +24,8 @@
 //! written: Stylelint checks its options and names a wrong one.
 //!
 //! A difference by pattern is an entry of `overrides` that holds `files`, its
-//! patterns, and `rules`, and may hold `name`, a label; any other key in it
-//! fails. Its patterns are read as Stylelint 18.0.0 reads them in a file at
+//! patterns, and `rules`, and may hold `name`, a label, and `fix` and
+//! `quiet` at `false`, as at the top; any other key in it fails. Its patterns are read as Stylelint 18.0.0 reads them in a file at
 //! the root, from the root of the repository ([`Patterns::matches`]); a
 //! pattern the tool would read differently fails by name. Every entry whose
 //! patterns match a file counts for it, in their order.
@@ -427,9 +427,8 @@ struct Pattern {
     /// Whether it had a leading `!`.
     negated: bool,
     /// The pattern without `!`, joined onto the root, as a path from the
-    /// root; [`None`] where it climbs above the root, so that it matches no
-    /// file there.
-    glob: Option<GlobMatcher>,
+    /// root.
+    glob: GlobMatcher,
     /// The pattern as written, without a leading `./`, matched against a
     /// file's name; [`None`] for one with `!`.
     by_name: Option<GlobMatcher>,
@@ -458,10 +457,7 @@ impl Patterns {
     pub fn matches(&self, file: &str) -> bool {
         let name = file.rsplit('/').next().unwrap_or(file);
         self.built.iter().any(|pattern| {
-            let at_path = pattern
-                .glob
-                .as_ref()
-                .is_some_and(|glob| glob.is_match(file));
+            let at_path = pattern.glob.is_match(file);
             if pattern.negated {
                 !at_path
             } else {
@@ -477,8 +473,8 @@ impl Patterns {
 
 /// A pattern joined onto the root, as Node's `path.join` joins them: an
 /// empty segment and `.` are dropped, `..` takes the segment before it off,
-/// and a trailing `/` stays. [`None`] where `..` climbs above the root. A
-/// pattern that starts with `/` never comes here (see [`patterns`]).
+/// and a trailing `/` stays. [`None`] where `..` climbs above the root, which
+/// fails by name (see [`patterns`]), as does a pattern that starts with `/`.
 fn joined(pattern: &str) -> Option<String> {
     let mut segments: Vec<&str> = Vec::new();
     for segment in pattern.split('/') {
@@ -509,9 +505,11 @@ fn glob(pattern: &str) -> Result<GlobMatcher, String> {
 /// The patterns of `files`, built: a pattern or a list of them that holds one
 /// at least, each a pattern that reads. A pattern that holds a form the tool
 /// would read differently from picomatch fails by name ([`unread_form`]), and
-/// so does one that starts with `/`, with or without `!`: Stylelint takes it
-/// as an absolute path and matches it against the full path of a file, so
-/// what it matches depends on where the repository lies on the machine.
+/// so do one that starts with `/` and one whose `..` climbs above the root,
+/// with or without `!`: Stylelint joins it onto the root and matches it
+/// against the full path of a file, so what it matches depends on where the
+/// repository lies on the machine. An empty pattern fails too: picomatch
+/// throws at it, and Stylelint refuses the whole configuration.
 fn patterns(value: Written) -> Result<Patterns, String> {
     let not = || "is neither a pattern nor a list of patterns".to_owned();
     let written: Vec<String> = match value.into_value() {
@@ -534,6 +532,9 @@ fn patterns(value: Written) -> Result<Patterns, String> {
             let unread = |form: &str| {
                 format!("holds `{pattern}`, {form}, a form of pattern the tool does not read")
             };
+            if pattern.is_empty() {
+                return Err("holds an empty pattern".to_owned());
+            }
             if let Some(form) = unread_form(pattern) {
                 return Err(unread(form));
             }
@@ -544,9 +545,12 @@ fn patterns(value: Written) -> Result<Patterns, String> {
             if rest.starts_with('/') {
                 return Err(unread("a path from the root of the machine, `/...`"));
             }
+            let Some(joined) = joined(rest) else {
+                return Err(unread("a path above the root of the repository, `../...`"));
+            };
             Ok(Pattern {
                 negated,
-                glob: joined(rest).as_deref().map(glob).transpose()?,
+                glob: glob(&joined)?,
                 by_name: if negated {
                     None
                 } else {
@@ -893,12 +897,8 @@ fn keys(found: &mut Found<'_>, handed: &mut Handed, top: Vec<(String, Written)>)
             _ if CARRIED.contains(&key.as_str()) => handed.options.push((key, value.into_value())),
             _ if SET_ASIDE.iter().any(|(name, _)| *name == key) => {}
             _ => {
-                if let Some((_, why)) = NEUTRAL.iter().find(|(name, _)| *name == key) {
-                    if value.into_value() != Value::Bool(false) {
-                        found.problem(&format!(
-                            "`{key}` is not handed to Stylelint: any value but `false` {why}"
-                        ));
-                    }
+                if let Some(why) = neutral(&key) {
+                    found.neutral("", &key, why, &value);
                 } else if let Some((_, why)) = REFUSED.iter().find(|(name, _)| *name == key) {
                     found.problem(&format!("`{key}` is not handed to Stylelint: it {why}"));
                 } else {
@@ -910,6 +910,15 @@ fn keys(found: &mut Found<'_>, handed: &mut Handed, top: Vec<(String, Written)>)
             }
         }
     }
+}
+
+/// What any value but `false` of a key of [`NEUTRAL`] would make Stylelint
+/// do; [`None`] for another key.
+fn neutral(key: &str) -> Option<&'static str> {
+    NEUTRAL
+        .iter()
+        .find(|(name, _)| *name == key)
+        .map(|(_, why)| *why)
 }
 
 /// The file being read, and what is wrong in it.
@@ -925,6 +934,18 @@ impl Found<'_> {
             file: self.file.clone(),
             message: message.to_owned(),
         });
+    }
+
+    /// A key of [`NEUTRAL`] with its value, and what any other value would
+    /// make Stylelint do; `at` is where it stands, such as `overrides[0].`. At
+    /// `false` it passes without a problem and is not handed over, since
+    /// Stylelint takes that value without it; any other value is a problem.
+    fn neutral(&mut self, at: &str, key: &str, why: &str, value: &Written) {
+        if !matches!(value, Written::Scalar(Value::Bool(false))) {
+            self.problem(&format!(
+                "`{at}{key}` is not handed to Stylelint: any value but `false` {why}"
+            ));
+        }
     }
 
     /// The rules of a value, each key checked, in the order written; `at` is
@@ -953,8 +974,11 @@ impl Found<'_> {
     }
 
     /// An entry of `overrides`, or [`None`] where it cannot be used, which is
-    /// a problem. Any key beside `files`, `rules` and `name` is a problem,
-    /// and the rest of the entry is still handed over.
+    /// a problem. Any key beside `files`, `rules` and `name`, and beside the
+    /// keys of [`NEUTRAL`] at `false`, is a problem, and the rest of the
+    /// entry is still handed over. Stylelint lays every key of an entry that
+    /// matches over the file's configuration, so a key of [`NEUTRAL`] means
+    /// in an entry what it means at the top.
     fn entry(&mut self, index: usize, value: Written) -> Option<Override> {
         let at = format!("overrides[{index}]");
         let Written::Mapping(mut entry) = value else {
@@ -966,7 +990,11 @@ impl Found<'_> {
         let files = Written::take(&mut entry, "files");
         let rules = Written::take(&mut entry, "rules");
         Written::take(&mut entry, "name");
-        for (key, _) in &entry {
+        for (key, value) in &entry {
+            if let Some(why) = neutral(key) {
+                self.neutral(&format!("{at}."), key, why, value);
+                continue;
+            }
             match REFUSED.iter().find(|(name, _)| name == key) {
                 Some((_, why)) => {
                     self.problem(&format!(

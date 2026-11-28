@@ -528,12 +528,12 @@ fn each_pattern_matches(patterns: &[&str], stylesheets: &[&str]) -> Vec<Vec<bool
 }
 
 #[test]
-fn a_pattern_that_does_not_read_fails_even_where_it_climbs_above_the_root() {
-    // Joined onto the root it names no file there, and it still matches a
-    // file's name, so it has to read.
+fn a_pattern_that_does_not_read_fails_even_where_its_dot_dot_takes_that_part_off() {
+    // Joined onto the root, `[` is taken off, and the pattern still matches a
+    // file's name as written, so it has to read.
     let (handed, problems) = configured(&[(
         ".stylelintrc.json",
-        "{ \"overrides\": [{ \"files\": \"../[\", \"rules\": {} }] }",
+        "{ \"overrides\": [{ \"files\": \"web/[/..\", \"rules\": {} }] }",
     )]);
     assert!(handed.overrides.is_empty());
     assert_eq!(problems.len(), 1, "{problems:?}");
@@ -546,6 +546,32 @@ fn a_pattern_that_does_not_read_fails_even_where_it_climbs_above_the_root() {
 }
 
 #[test]
+fn an_empty_pattern_fails_by_name() {
+    // picomatch throws at it, so Stylelint would refuse the whole
+    // configuration. A lone `!` reads in both.
+    let (handed, problems) = configured(&[(
+        ".stylelintrc.json",
+        "{ \"overrides\": [\n\
+           { \"files\": [\"*.css\", \"\"], \"rules\": {} },\n\
+           { \"files\": \"\", \"rules\": {} },\n\
+           { \"files\": \"!\", \"rules\": {} }\n\
+         ] }",
+    )]);
+    assert_eq!(
+        messages(&problems),
+        [
+            ".stylelintrc.json: `overrides[0].files` holds an empty pattern, so the entry is not \
+             handed to Stylelint",
+            ".stylelintrc.json: `overrides[1].files` holds an empty pattern, so the entry is not \
+             handed to Stylelint",
+        ]
+    );
+    assert_eq!(handed.overrides.len(), 1);
+    assert_eq!(handed.overrides[0].patterns.written, ["!"]);
+    assert!(handed.overrides[0].patterns.matches("site.css"));
+}
+
+#[test]
 fn a_pattern_is_joined_onto_the_root_as_node_joins_paths() {
     let matched = each_pattern_matches(
         &[
@@ -555,10 +581,8 @@ fn a_pattern_is_joined_onto_the_root_as_node_joins_paths() {
             // A pattern matches the file's name as well, so this one matches
             // in any folder.
             "**/site.css",
-            // Above the root, a pattern matches no file there, and with `!`
-            // every file.
-            "../site.css",
-            "!../site.css",
+            // A `..` that stays inside the root reads.
+            "web/x/../site.css",
         ],
         &["site.css", "web/site.css", "web"],
     );
@@ -569,8 +593,7 @@ fn a_pattern_is_joined_onto_the_root_as_node_joins_paths() {
             [false, true, false],
             [false, false, false],
             [true, true, false],
-            [false, false, false],
-            [true, true, true],
+            [false, true, false],
         ]
     );
 }
@@ -579,11 +602,14 @@ fn a_pattern_is_joined_onto_the_root_as_node_joins_paths() {
 fn a_pattern_the_tool_would_read_differently_from_stylelint_fails_by_name() {
     // picomatch reads a group, a class such as `[[:digit:]]` and a sequence
     // as the tool's matcher does not, and Stylelint matches a pattern that
-    // starts with `/` against the full path of a file on the machine.
+    // starts with `/`, or whose `..` climbs above the root, against the full
+    // path of a file on the machine, so what it matches would depend on where
+    // the repository lies.
     let group = "a group, `(...)`";
     let class = "a class of characters, `[[:...:]]`";
     let sequence = "a sequence, `{a..b}`";
     let absolute = "a path from the root of the machine, `/...`";
+    let above = "a path above the root of the repository, `../...`";
     for (pattern, form) in [
         ("web/+(legacy|old)/*.css", group),
         ("web/@(legacy)/*.css", group),
@@ -594,6 +620,11 @@ fn a_pattern_the_tool_would_read_differently_from_stylelint_fails_by_name() {
         ("web/{a,{1..3}}.css", sequence),
         ("/**/*.css", absolute),
         ("!/site.css", absolute),
+        ("../r/*.css", above),
+        ("!../site.css", above),
+        ("./../site.css", above),
+        ("web/../../site.css", above),
+        ("../[", above),
     ] {
         let (handed, problems) = configured(&[(
             ".stylelintrc.json",
@@ -728,6 +759,45 @@ fn fix_and_quiet_are_accepted_at_false_and_fail_by_name_at_any_other_value() {
                     "{file} {key}: {value}"
                 );
                 assert!(handed.options.is_empty(), "{file} {key}: {value}");
+            }
+
+            // In an entry of `overrides` the same: Stylelint lays the keys of
+            // an entry that matches over the file's configuration.
+            let entry = |value: &str| {
+                if file == ".stylelintrc.json" {
+                    format!(
+                        "{{ \"overrides\": [{{ \"files\": \"*.css\", \"{key}\": {value}, \
+                         \"rules\": {{ \"color-named\": null }} }}] }}"
+                    )
+                } else {
+                    format!(
+                        "overrides:\n  - files: '*.css'\n    {key}: {value}\n    rules:\n      \
+                         color-named: null\n"
+                    )
+                }
+            };
+            let (handed, problems) = configured(&[(file, &entry("false"))]);
+            assert!(problems.is_empty(), "{file} overrides {key}: {problems:?}");
+            assert_eq!(handed.overrides.len(), 1, "{file} {key}");
+            assert_eq!(
+                handed.job(&default(), &["a.css".to_owned()]),
+                "{\"groups\":[{\"extends\":[\"stylelint-config-standard\"],\
+                 \"customSyntax\":null,\"config\":{\"rules\":{\"color-named\":null}},\
+                 \"files\":[\"a.css\"]}]}"
+            );
+            for value in ["true", "null", "\"strict\"", "0"] {
+                let (handed, problems) = configured(&[(file, &entry(value))]);
+                assert_eq!(
+                    messages(&problems),
+                    [format!(
+                        "{file}: `overrides[0].{key}` is not handed to Stylelint: any value but \
+                         `false` {why}"
+                    )],
+                    "{file} overrides {key}: {value}"
+                );
+                // The rest of the entry is still handed over.
+                assert_eq!(handed.overrides.len(), 1, "{file} {key}: {value}");
+                assert_eq!(handed.overrides[0].rules.len(), 1, "{file} {key}: {value}");
             }
         }
     }

@@ -1566,21 +1566,24 @@ accepts only at `false` and refuses by name stand in
   off. Any other key fails by name as unknown.
 
 A difference by pattern is an entry of `overrides` with `files` and `rules`,
-and `name` for a label; any other key in an entry fails by name, so a pattern
-can carry rules and nothing else. Every entry whose `files` match a stylesheet
-counts for it, in their order, each laid over the rules before it, as
-Stylelint 18.0.0 matches the patterns of a file at the root: from the root of
-the repository, with `.`, `..` and a leading `./` worked out as Node's
-`path.join` does. `*` stops at a `/` and `**` does not, a pattern also matches
+and `name` for a label. `fix` and `quiet` are taken in an entry as at the top:
+at `false` without a finding, at any other value failing by name. Any other key
+in an entry fails by name, so a pattern can carry rules and nothing else. Every
+entry whose `files` match a stylesheet counts for it, in their order, each laid
+over the rules before it, as Stylelint 18.0.0 matches the patterns of a file at
+the root: from the root of the repository, with `.`, `..` and a leading `./`
+worked out as Node's `path.join` does. `*` stops at a `/` and `**` does not, a pattern also matches
 the file's name alone, so one without a `/` matches in any folder, and a
 pattern with a leading `!` matches every path its pattern does not, so beside
 other patterns it takes nothing back. The forms picomatch reads differently
 from the tool's matcher are not read, as for Prettier, and an entry that holds
 one fails by name: a group, `(...)`, with or without `*`, `?`, `+`, `@` or `!`
 before it; a class such as `[[:digit:]]`; and a sequence such as `{1..3}`. So
-does a pattern that starts with `/`, with or without `!`: Stylelint matches it
-against the full path of a stylesheet on the machine, so what it matches would
-depend on where the repository lies.
+does a pattern that starts with `/`, or whose `..` climbs above the root of the
+repository, with or without `!`: Stylelint matches it against the full path of
+a stylesheet on the machine, so what it matches would depend on where the
+repository lies. An empty pattern fails by name too, since Stylelint would
+refuse the whole file at it.
 
 ```yaml
 rules:
