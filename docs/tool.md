@@ -1476,8 +1476,8 @@ An entry of `overrides` is matched as Prettier matches it, over the path from
 the root: a pattern of `files` without a `/` matches the file's name in any
 folder, one with a `/` the whole path; `*` stops at a `/`, `**` does not;
 `excludeFiles` takes files out of the entry. The forms of pattern that
-Prettier's matcher, picomatch, reads differently from the tool's are not read,
-and an entry that holds one fails by name:
+Prettier's matcher, picomatch, can read differently from the tool's are not
+read, and an entry that holds one fails by name:
 
 - a group, `(...)`, with or without `*`, `?`, `+`, `@` or `!` before it, and a
   `|` anywhere, which parts alternatives there;
@@ -1485,13 +1485,21 @@ and an entry that holds one fails by name:
   `[!_]`, in which picomatch reads the `!` as a character; and a class of plain
   characters, such as `[ab]`, which picomatch also reads as its own text;
 - a sequence such as `{1..3}`; a pair of braces without a `,`, such as `{a}`,
-  which picomatch reads as its own text; and an empty alternative, as in
-  `{,a}`;
+  which picomatch reads as its own text; an empty alternative, as in `{,a}`;
+  and an alternative that is a lone `*`, as in `{a,*}`, which can match the
+  empty text, so that `web/**/{a,*}` matches `web`;
+- a `+` right after a class or braces, `]+` or `}+`, which picomatch reads as a
+  repetition, and a doubled plus, `++`;
+- a run of three `*` or more; a `**` beside a brace or a `,`, as in `**{a,b}`
+  or `{**,a}`, which crosses a `/` there; a pattern that ends in `**/`, which
+  matches no file there; and an empty segment beside a `**`, `//**` or `**//`;
+- a `!` after a leading `!` or `./`, as in `!!a` or `./!a`;
 - a double quote, inside which picomatch reads every character as plain text,
   and a backslash.
 
 Braces with a list, `{a,b}`, are read, and so are a class with a range or a
-`^` that takes characters out, such as `[a-z]` or `[^_]`.
+`^` that takes characters out, such as `[a-z]` or `[^_]`. Such a class never
+matches a `/`, as in picomatch: `web[^_]x.css` does not match `web/x.css`.
 
 ```yaml
 overrides:
@@ -1586,18 +1594,18 @@ entry whose `files` match a stylesheet counts for it, in their order, each laid
 over the rules before it, as Stylelint 18.0.0 matches the patterns of a file at
 the root: from the root of the repository, with `.`, `..` and a leading `./`
 worked out as Node's `path.join` does. `*` stops at a `/` and `**` does not,
-and a pattern that ends in `/**` also matches the path before it, unless a `*`
-stands right before that `/`. A pattern also matches the file's name alone, so
-one without a `/` matches in any folder, and a pattern with a leading `!`
-matches every path its pattern does not, so beside other patterns it takes
+and a pattern that ends in `/**`, once or more, also matches the path before
+them, unless that path ends in `*`. A pattern also matches the file's name
+alone, so one without a `/` matches in any folder, and a pattern with a leading
+`!` matches every path its pattern does not, so beside other patterns it takes
 nothing back. Stylelint reads its patterns with picomatch too, and turns a
 backslash into a `/`, so the forms that [Prettier](#prettier) does not read are
-not read here either, and an entry that holds one fails by name. So does a
-pattern that starts with `/`, or whose `..` climbs above the root of the
-repository, with or without `!`: Stylelint matches it against the full path of
-a stylesheet on the machine, so what it matches would depend on where the
-repository lies. An empty pattern fails by name too, since Stylelint would
-refuse the whole file at it.
+not read here either, also once the pattern is joined onto the root, and an
+entry that holds one fails by name. So does a pattern that starts with `/`, or
+whose `..` climbs above the root of the repository, with or without `!`:
+Stylelint matches it against the full path of a stylesheet on the machine, so
+what it matches would depend on where the repository lies. An empty pattern
+fails by name too, since Stylelint would refuse the whole file at it.
 
 ```yaml
 rules:

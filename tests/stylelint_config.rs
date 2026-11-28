@@ -615,6 +615,14 @@ fn a_pattern_the_tool_would_read_differently_from_stylelint_fails_by_name() {
     let sequence = "a sequence, `{a..b}`";
     let one = "a pair of braces without a `,`, such as `{a}`";
     let empty = "an empty alternative, as in `{,a}`";
+    let repetition = "a repetition, `]+` or `}+`";
+    let doubled_plus = "a doubled plus, `++`";
+    let three_stars = "a run of three `*` or more, `***`";
+    let star_by_brace = "a `**` beside a brace or a `,`, such as `**{` or `{**,a}`";
+    let trailing = "a pattern that ends in `**/`";
+    let empty_segment = "an empty segment beside a `**`, `//**` or `**//`";
+    let lone_star = "an alternative that is a lone `*`, such as `{a,*}`";
+    let second_negation = "a `!` after a leading `!` or `./`, such as `!!a` or `./!a`";
     let absolute = "a path from the root of the machine, `/...`";
     let above = "a path above the root of the repository, `../...`";
     for (pattern, form) in [
@@ -651,6 +659,31 @@ fn a_pattern_the_tool_would_read_differently_from_stylelint_fails_by_name() {
         ("{x,}site.css", empty),
         ("{a,,b}.css", empty),
         ("a{b,{,c}}.css", empty),
+        // A `+` after a class or braces repeats it to picomatch, which reads
+        // `a++` as `a\++`, a run of three `*` as a `*` that may end in a `/`,
+        // a `**` beside a brace or a `,` as one that crosses a `/`, and a
+        // pattern that ends in `**/`, also once joined, as one that matches
+        // no file. It takes an empty segment together with a `**` beside it
+        // in the pattern it matches a name with, and an alternative that is a
+        // lone `*` may match the empty text, so that `web/**/{a,*}` matches
+        // `web`. A `!` after a leading `./` is a negation to the matcher of
+        // names, which gets the pattern as written.
+        ("[0-9]+.css", repetition),
+        ("{a,b}+.css", repetition),
+        ("a++.css", doubled_plus),
+        ("web/***", three_stars),
+        ("**{a,b}/**", star_by_brace),
+        ("{**/*.css,x}", star_by_brace),
+        ("{a,**}", star_by_brace),
+        ("**/", trailing),
+        ("./**/", trailing),
+        ("**/a/../", trailing),
+        ("[^/]/**//**", empty_segment),
+        ("web/**/{a,*}/**", lone_star),
+        ("{*,b}.css", lone_star),
+        ("./!a*.css", second_negation),
+        ("!!a.css", second_negation),
+        ("!./!a.css", second_negation),
         ("/**/*.css", absolute),
         ("!/site.css", absolute),
         ("../r/*.css", above),
@@ -718,6 +751,21 @@ fn a_pattern_the_tool_would_read_differently_from_stylelint_fails_by_name() {
             [false, false, false, false, true, false],
             [false, false, false, false, false, true],
             [false, true, false, true, true, true],
+        ]
+    );
+
+    // picomatch adds a `/` to a class that takes characters out, so such a
+    // class never matches a `/`, also where it ends in `-`.
+    let matched = each_pattern_matches(
+        &["web[^_]x.css", "web[^a-]x.css", "web[^-]x.css"],
+        &["web/x.css", "webbx.css", "web-x.css", "webax.css"],
+    );
+    assert_eq!(
+        matched,
+        [
+            [false, true, true, true],
+            [false, true, false, false],
+            [false, true, false, true],
         ]
     );
 }

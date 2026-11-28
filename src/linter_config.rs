@@ -242,7 +242,7 @@ pub(crate) fn written(yaml: &Yaml) -> Written {
 /// The form a linter's matcher reads in `glob` and the matcher the tool
 /// builds with would read as something else, in words; [`None`] where it
 /// holds none. Prettier (micromatch) and Stylelint both read a pattern with
-/// picomatch, which reads these forms differently from the tool:
+/// picomatch, which can read these forms differently from the tool:
 ///
 /// - a group, `(...)`, with or without `*`, `?`, `+`, `@` or `!` before it,
 ///   is either of its parts there and its own text here, and a `|` parts
@@ -254,17 +254,39 @@ pub(crate) fn written(yaml: &Yaml) -> Written {
 /// - a sequence, `{1..3}`, is expanded there and one alternative here; a
 ///   pair of braces without a `,` at its own level, such as `{x}`, is its own
 ///   text there and an alternative here; an empty alternative, as in `{,x}`,
-///   matches nothing there and is dropped here;
+///   matches the empty text there and is dropped here;
+/// - a `+` right after a class or a pair of braces repeats it there, once or
+///   more, and is its own text here, and `++` is read as `\++` there, or
+///   matches nothing as `+++`;
+/// - a run of three `*` or more is a `*` that may end in a `/` there, and
+///   Prettier's `&./***` even matches `a/b`;
+/// - a `**` beside a brace or a `,`, as in `**{a,b}` or `{**,a}`, crosses a
+///   `/` there, also where it is not a whole segment, and stops at one here;
+/// - a pattern that ends in `**/` matches no file there and every file here;
+/// - an empty segment beside a `**`, `//**` or `**//`, is taken together
+///   with that `**` there, to Stylelint in the pattern it matches a file's
+///   name with;
+/// - an alternative that is a lone `*`, as in `{a,*}`, matches the empty
+///   text there, so that `web/**/{a,*}` also matches `web`, which
+///   `web/**/*` does not;
+/// - a `!` after a leading `!` or `./` takes the `!` before it back to
+///   Prettier and is a negation to Stylelint, which hands the pattern as
+///   written to its matcher of names, and is its own text here;
 /// - a double quote makes what it encloses plain text there and is its own
 ///   text here;
 /// - a backslash is a `/` to Stylelint, which turns every `\` into one, and
 ///   starts an escape here, as it does for micromatch, where a `\` before a
 ///   letter reaches the regular expression as such (`\b`, `\d`).
 ///
-/// A pattern that holds one fails by name, so the check never reads a pattern
-/// differently from the linter in an editor.
+/// `glob` is the pattern as written, with its leading `!` and `./`. A pattern
+/// that holds one of these forms fails by name, so the check never reads a
+/// pattern differently from the linter in an editor. A class that takes
+/// characters out, `[^...]`, never matches a `/` there; the tool builds it so
+/// ([`separated`]).
 pub(crate) fn unread_form(glob: &str) -> Option<&'static str> {
-    if glob.contains('(') {
+    if second_negation(glob) {
+        Some("a `!` after a leading `!` or `./`, such as `!!a` or `./!a`")
+    } else if glob.contains('(') {
         Some("a group, `(...)`")
     } else if glob.contains('|') {
         Some("a bar, `|`")
@@ -276,6 +298,22 @@ pub(crate) fn unread_form(glob: &str) -> Option<&'static str> {
         Some("a class of characters, `[[:...:]]`")
     } else if let Some(form) = classes(glob).into_iter().find_map(unread_class) {
         Some(form)
+    } else if glob.contains("]+") || glob.contains("}+") {
+        Some("a repetition, `]+` or `}+`")
+    } else if glob.contains("++") {
+        Some("a doubled plus, `++`")
+    } else if glob.contains("***") {
+        Some("a run of three `*` or more, `***`")
+    } else if glob.match_indices("**").any(|(at, _)| {
+        glob[..at].ends_with(['{', ',']) || glob[at + 2..].starts_with(['{', ',', '}'])
+    }) {
+        Some("a `**` beside a brace or a `,`, such as `**{` or `{**,a}`")
+    } else if glob.ends_with("**/") {
+        Some("a pattern that ends in `**/`")
+    } else if glob.contains("//**") || glob.contains("**//") {
+        Some("an empty segment beside a `**`, `//**` or `**//`")
+    } else if ["{*,", ",*,", ",*}"].iter().any(|lone| glob.contains(lone)) {
+        Some("an alternative that is a lone `*`, such as `{a,*}`")
     } else if glob
         .split('{')
         .skip(1)
@@ -287,24 +325,81 @@ pub(crate) fn unread_form(glob: &str) -> Option<&'static str> {
     }
 }
 
-/// What a class holds, between its `[` and its `]`, for each class in
-/// `glob`. A `]` right after the `[`, or after a `!` or `^` that starts the
-/// class, belongs to it, as both matchers read it; a `[` that is never closed
-/// opens no class.
-fn classes(glob: &str) -> Vec<&str> {
-    let mut found = Vec::new();
+/// Whether a `!` follows a leading `!` or `./` (see [`unread_form`]).
+fn second_negation(glob: &str) -> bool {
     let mut rest = glob;
-    while let Some(open) = rest.find('[') {
-        let inside = &rest[open + 1..];
+    let mut led = false;
+    loop {
+        if let Some(after) = rest.strip_prefix("./") {
+            rest = after;
+            led = true;
+        } else if let Some(after) = rest.strip_prefix('!') {
+            if led {
+                return true;
+            }
+            rest = after;
+            led = true;
+        } else {
+            return false;
+        }
+    }
+}
+
+/// Where each class in `glob` lies: the byte range of what it holds, between
+/// its `[` and its `]`. A `]` right after the `[`, or after a `!` or `^` that
+/// starts the class, belongs to it, as both matchers read it; a `[` that is
+/// never closed opens no class.
+fn class_ranges(glob: &str) -> Vec<std::ops::Range<usize>> {
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(open) = glob[from..].find('[') {
+        let start = from + open + 1;
+        let inside = &glob[start..];
         let lead = usize::from(inside.starts_with(['!', '^']));
         let first = lead + usize::from(inside[lead..].starts_with(']'));
         let Some(close) = inside[first..].find(']') else {
             break;
         };
-        found.push(&inside[..first + close]);
-        rest = &inside[first + close + 1..];
+        let end = start + first + close;
+        found.push(start..end);
+        from = end + 1;
     }
     found
+}
+
+/// What a class holds, between its `[` and its `]`, for each class in
+/// `glob` (see [`class_ranges`]).
+fn classes(glob: &str) -> Vec<&str> {
+    class_ranges(glob)
+        .into_iter()
+        .map(|range| &glob[range])
+        .collect()
+}
+
+/// `glob` with a `/` added to every class that takes characters out,
+/// `[^...]`, as picomatch adds one, so that such a class never matches a `/`
+/// in the tool either: `web[^_]x.css` does not match `web/x.css`. The `/` is
+/// put last, before a `-` that ends the class, so that it starts no range.
+#[must_use]
+pub(crate) fn separated(glob: &str) -> String {
+    let mut built = String::with_capacity(glob.len());
+    let mut copied = 0;
+    for range in class_ranges(glob) {
+        if !glob[range.clone()].starts_with('^') {
+            continue;
+        }
+        let inside = &glob[range.clone()];
+        let at = if inside.len() > 2 && inside.ends_with('-') {
+            range.end - 1
+        } else {
+            range.end
+        };
+        built.push_str(&glob[copied..at]);
+        built.push('/');
+        copied = at;
+    }
+    built.push_str(&glob[copied..]);
+    built
 }
 
 /// The form a class is read as differently, from what it holds; see

@@ -615,6 +615,15 @@ fn the_patterns_of_an_entry_are_read_as_prettier_reads_them() {
     // A leading `!` takes the match back; an entry without options sets
     // nothing.
     assert!(flags(&handed, "a.yaml").is_empty());
+    // A class that takes characters out never matches a `/`, as picomatch
+    // adds one to it.
+    let (negated, problems) = self::handed(&[(
+        ".prettierrc.json",
+        r#"{ "overrides": [{ "files": "a/web[^_]x.md", "options": { "semi": false } }] }"#,
+    )]);
+    assert!(problems.is_empty(), "{problems:?}");
+    assert!(flags(&negated, "a/web/x.md").is_empty());
+    assert_eq!(flags(&negated, "a/webax.md"), ["--semi=false"]);
 }
 
 /// A parser Prettier brings itself is handed over, at the top and in an
@@ -692,7 +701,15 @@ fn every_entry_that_cannot_be_used_is_named() {
             { "files": "{,a}b.md" },
             { "files": "a|b.md" },
             { "files": "\"a\".md" },
-            { "files": "a\\b.md" }
+            { "files": "a\\b.md" },
+            { "files": "[0-9]+.md" },
+            { "files": "a++.md" },
+            { "files": "docs/***" },
+            { "files": "**{a,b}/**" },
+            { "files": "**/" },
+            { "files": "docs//**" },
+            { "files": "docs/**/{a,*}" },
+            { "files": "!!a.md" }
         ] }"#,
     )]);
 
@@ -744,6 +761,28 @@ fn every_entry_that_cannot_be_used_is_named() {
              form of pattern the tool does not read",
             ".prettierrc.json: `overrides[18].files` holds `a\\b.md`, a backslash, `\\`, a form \
              of pattern the tool does not read",
+            // picomatch repeats a class before a `+`, reads `a++` as `a\++`
+            // and three `*` as a `*` that may end in a `/`, lets a `**` beside
+            // a brace cross a `/`, matches no file with a pattern that ends in
+            // `**/`, takes an empty segment together with a `**` beside it,
+            // lets a lone `*` in braces match the empty text, and takes both
+            // `!` of `!!` off.
+            ".prettierrc.json: `overrides[19].files` holds `[0-9]+.md`, a repetition, `]+` or \
+             `}+`, a form of pattern the tool does not read",
+            ".prettierrc.json: `overrides[20].files` holds `a++.md`, a doubled plus, `++`, a \
+             form of pattern the tool does not read",
+            ".prettierrc.json: `overrides[21].files` holds `docs/***`, a run of three `*` or \
+             more, `***`, a form of pattern the tool does not read",
+            ".prettierrc.json: `overrides[22].files` holds `**{a,b}/**`, a `**` beside a brace \
+             or a `,`, such as `**{` or `{**,a}`, a form of pattern the tool does not read",
+            ".prettierrc.json: `overrides[23].files` holds `**/`, a pattern that ends in `**/`, \
+             a form of pattern the tool does not read",
+            ".prettierrc.json: `overrides[24].files` holds `docs//**`, an empty segment beside \
+             a `**`, `//**` or `**//`, a form of pattern the tool does not read",
+            ".prettierrc.json: `overrides[25].files` holds `docs/**/{a,*}`, an alternative \
+             that is a lone `*`, such as `{a,*}`, a form of pattern the tool does not read",
+            ".prettierrc.json: `overrides[26].files` holds `!!a.md`, a `!` after a leading `!` \
+             or `./`, such as `!!a` or `./!a`, a form of pattern the tool does not read",
         ]
     );
     assert!(

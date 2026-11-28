@@ -51,7 +51,7 @@ use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde_json::Value;
 use yaml_rust2::YamlLoader;
 
-use super::{Problem, Unread, Written, from_root, locate, unread_form};
+use super::{Problem, Unread, Written, from_root, locate, separated, unread_form};
 use crate::ignored::Read;
 use crate::names::ProgramName;
 use crate::path::RelativePath;
@@ -450,8 +450,8 @@ impl Patterns {
     /// (`compileOverrideMatchers`, with picomatch, dots included): one of
     /// them matches it. A pattern is joined onto the root, as Node's
     /// `path.join` joins them, and matches the path from the root, where `*`
-    /// stops at a `/` and `**` does not; one that ends in `/**` also matches
-    /// the path before it, unless that path ends in `*`. Every pattern without
+    /// stops at a `/` and `**` does not; one that ends in `/**`, once or more,
+    /// also matches the path before them, unless that path ends in `*`. Every pattern without
     /// `!` also matches the file's name as written, so one without a `/`
     /// matches in any folder. One with a leading `!` matches every path its
     /// pattern does not, so that beside others it takes nothing back.
@@ -495,13 +495,16 @@ fn joined(pattern: &str) -> Option<String> {
     Some(path)
 }
 
-/// A pattern built as a glob, where `*` stops at a `/`. One that ends in
-/// `/**`, once or more, also matches the path before it where that path does
-/// not end in `*`, as picomatch makes the `/` before the last `**` optional
-/// unless a `*` stands before it: `web/**` matches `web`, `*/**` does not
-/// match `site.css`.
+/// A pattern built as a glob, where `*` stops at a `/` and a class that
+/// takes characters out holds a `/` ([`separated`]). One that ends in `/**`,
+/// once or more, also matches the path before them where that path does not
+/// end in `*`, as picomatch makes the `/` before a last `**` optional unless
+/// a `*` stands before it: `web/**` and `web/**/**` match `web`, `*/**` does
+/// not match `site.css`.
 fn glob(pattern: &str) -> Result<GlobSet, String> {
     let unread = |error: globset::Error| format!("holds a pattern that does not read: {error}");
+    let pattern = separated(pattern);
+    let pattern = pattern.as_str();
     let mut parent = pattern;
     while let Some(before) = parent.strip_suffix("/**") {
         parent = before;
@@ -521,7 +524,8 @@ fn glob(pattern: &str) -> Result<GlobSet, String> {
 
 /// The patterns of `files`, built: a pattern or a list of them that holds one
 /// at least, each a pattern that reads. A pattern that holds a form the tool
-/// would read differently from picomatch fails by name ([`unread_form`]), and
+/// would read differently from picomatch, as written or once joined onto the
+/// root, fails by name ([`unread_form`]), and
 /// so do one that starts with `/` and one whose `..` climbs above the root,
 /// with or without `!`: Stylelint joins it onto the root and matches it
 /// against the full path of a file, so what it matches depends on where the
@@ -565,6 +569,9 @@ fn patterns(value: Written) -> Result<Patterns, String> {
             let Some(joined) = joined(rest) else {
                 return Err(unread("a path above the root of the repository, `../...`"));
             };
+            if let Some(form) = unread_form(&joined) {
+                return Err(unread(form));
+            }
             Ok(Pattern {
                 negated,
                 glob: glob(&joined)?,
