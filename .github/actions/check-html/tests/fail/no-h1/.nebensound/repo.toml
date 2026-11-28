@@ -1,0 +1,4 @@
+# A page without an h1: the finding stands at its body.
+[repo]
+audience = "public"
+pipeline = { check = ["html"] }

@@ -28,8 +28,6 @@
 //!   relative to that folder, for the files below it that no nearer
 //!   configuration governs. A configuration in JavaScript is not read, since
 //!   phase 0 runs no code of the repository; it still governs its folder.
-//! - html-validate: `.htmlvalidateignore` in every folder, relative to that
-//!   folder.
 //! - rustfmt: `ignore` in `.rustfmt.toml` or `rustfmt.toml`, in every folder,
 //!   relative to that folder, the hidden one first. Which of them rustfmt
 //!   applies to a file depends on where it runs and on the target it formats,
@@ -109,8 +107,6 @@ pub enum Tool {
     Rustfmt,
     /// The linter of `check-css`.
     Stylelint,
-    /// The linter of `check-html`.
-    HtmlValidate,
     /// The type checker of `check-python`.
     Pyright,
     /// The coverage tool of `check-python`.
@@ -130,7 +126,6 @@ impl Tool {
             Self::Lychee => "lychee",
             Self::Rustfmt => "rustfmt",
             Self::Stylelint => "Stylelint",
-            Self::HtmlValidate => "html-validate",
             Self::Pyright => "Pyright",
             Self::Coverage => "coverage.py",
             Self::Ruff => "Ruff",
@@ -147,7 +142,6 @@ impl Tool {
             Self::Lychee => &["html", "markdown"],
             Self::Rustfmt => &["rust"],
             Self::Stylelint => &["css"],
-            Self::HtmlValidate => &["html"],
             Self::Pyright | Self::Coverage | Self::Ruff => &["python"],
         }
     }
@@ -1520,10 +1514,6 @@ fn places<'a>(files: &[&'a RelativePath]) -> Vec<(&'a RelativePath, Tool)> {
         if hidden || plain {
             found.push((*file, Tool::Rustfmt));
         }
-        // html-validate reads the ignore file of every folder above a file.
-        if file.file_name() == Some(".htmlvalidateignore") {
-            found.push((*file, Tool::HtmlValidate));
-        }
         // Pyright and coverage.py, every file they may read their settings
         // from.
         match file.file_name() {
@@ -1564,7 +1554,7 @@ fn read_setting(
             markdownlint_jsonc(&source, &folder(file))
         }
         Tool::Markdownlint => markdownlint_yaml(&source, &folder(file)),
-        Tool::Stylelint | Tool::HtmlValidate => gitignore(source.lines(), &folder(file)).map(Some),
+        Tool::Stylelint => gitignore(source.lines(), &folder(file)).map(Some),
         Tool::Pyright if file.file_name() == Some("pyrightconfig.json") => {
             pyright_json(&source, &folder(file))
         }
@@ -1599,10 +1589,7 @@ fn remedy(tool: Tool) -> &'static str {
         | Tool::Pyright
         | Tool::Coverage
         | Tool::Ruff
-        | Tool::Stylelint
-        | Tool::HtmlValidate => {
-            "give it an [[exclude]] entry with a reason in .nebensound/repo.toml"
-        }
+        | Tool::Stylelint => "give it an [[exclude]] entry with a reason in .nebensound/repo.toml",
     }
 }
 

@@ -243,9 +243,8 @@ yet, it says so.
   The other linters find the repository's configuration and read it, and some
   of their ways load code of the repository: a configuration file in
   JavaScript, a plugin, a module a configuration extends. Hadolint,
-  actionlint, the Dockerfile formatter and Ruff: #202. html-validate leaves the
-  HTML check with #185. Taplo's formatter finds the
-  repository's `taplo.toml` at the root itself; it becomes a library linked
+  actionlint, the Dockerfile formatter and Ruff: #202. Taplo's formatter finds
+  the repository's `taplo.toml` at the root itself; it becomes a library linked
   into the tool with #184. Pyright gets the configuration the tool wrote, but
   that keeps an `extends`, which Pyright follows to another file; no issue
   exists yet.

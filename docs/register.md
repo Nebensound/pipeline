@@ -70,26 +70,26 @@ build scripts, its tests); the two never share a job. A check that is not
 written yet has no side: it is decided when the check is written, and until
 then the check fails by name.
 
-| Check        | Extensions                                               | File names                                                    | Programs                              | Coverage toolchain   | Side            |
-| ------------ | -------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------- | -------------------- | --------------- |
-| `asciidoc`   | `.adoc`, `.asciidoc`                                     | none                                                          | none                                  | none                 | not written yet |
-| `cpp`        | `.c`, `.h`, `.cpp`, `.hpp`, `.cc`, `.hh`, `.cxx`, `.ino` | none                                                          | none                                  | none                 | not written yet |
-| `css`        | `.css`, `.scss`                                          | none                                                          | `prettier`, `stylelint`               | none                 | `reading`       |
-| `dockerfile` | `.dockerfile`                                            | `Dockerfile`, `Containerfile`                                 | `dockerfmt`, `hadolint`               | none                 | `reading`       |
-| `html`       | `.html`, `.htm`                                          | none                                                          | `html-validate`, `lychee`, `prettier` | none                 | `reading`       |
-| `javascript` | `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.tsx`             | none                                                          | none                                  | none                 | not written yet |
-| `json`       | `.json`, `.jsonc`, `.geojson`                            | `composer.lock`, `flake.lock`, `Pipfile.lock`                 | `prettier`                            | none                 | `reading`       |
-| `markdown`   | `.md`, `.markdown`                                       | none                                                          | `lychee`, `markdownlint`, `prettier`  | none                 | `reading`       |
-| `php`        | `.php`                                                   | none                                                          | none                                  | none                 | not written yet |
-| `python`     | `.py`, `.pyi`                                            | none                                                          | `coverage`, `pyright`, `ruff`, `uv`   | none                 | `executing`     |
-| `qml`        | `.qml`                                                   | none                                                          | none                                  | none                 | not written yet |
-| `r`          | `.r`                                                     | none                                                          | none                                  | none                 | not written yet |
-| `rust`       | `.rs`                                                    | none                                                          | `cargo-llvm-cov`                      | `nightly-2026-11-14` | `executing`     |
-| `shell`      | `.sh`, `.bash`                                           | none                                                          | none                                  | none                 | not written yet |
-| `sql`        | `.sql`                                                   | none                                                          | none                                  | none                 | not written yet |
-| `toml`       | `.toml`                                                  | `Cargo.lock`, `uv.lock`, `poetry.lock`, `pdm.lock`, `Pipfile` | `taplo`                               | none                 | `reading`       |
-| `typst`      | `.typ`                                                   | none                                                          | none                                  | none                 | not written yet |
-| `yaml`       | `.yml`, `.yaml`                                          | none                                                          | `actionlint`, `prettier`              | none                 | `reading`       |
+| Check        | Extensions                                               | File names                                                    | Programs                             | Coverage toolchain   | Side            |
+| ------------ | -------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------ | -------------------- | --------------- |
+| `asciidoc`   | `.adoc`, `.asciidoc`                                     | none                                                          | none                                 | none                 | not written yet |
+| `cpp`        | `.c`, `.h`, `.cpp`, `.hpp`, `.cc`, `.hh`, `.cxx`, `.ino` | none                                                          | none                                 | none                 | not written yet |
+| `css`        | `.css`, `.scss`                                          | none                                                          | `prettier`, `stylelint`              | none                 | `reading`       |
+| `dockerfile` | `.dockerfile`                                            | `Dockerfile`, `Containerfile`                                 | `dockerfmt`, `hadolint`              | none                 | `reading`       |
+| `html`       | `.html`, `.htm`                                          | none                                                          | `lychee`, `prettier`                 | none                 | `reading`       |
+| `javascript` | `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.tsx`             | none                                                          | none                                 | none                 | not written yet |
+| `json`       | `.json`, `.jsonc`, `.geojson`                            | `composer.lock`, `flake.lock`, `Pipfile.lock`                 | `prettier`                           | none                 | `reading`       |
+| `markdown`   | `.md`, `.markdown`                                       | none                                                          | `lychee`, `markdownlint`, `prettier` | none                 | `reading`       |
+| `php`        | `.php`                                                   | none                                                          | none                                 | none                 | not written yet |
+| `python`     | `.py`, `.pyi`                                            | none                                                          | `coverage`, `pyright`, `ruff`, `uv`  | none                 | `executing`     |
+| `qml`        | `.qml`                                                   | none                                                          | none                                 | none                 | not written yet |
+| `r`          | `.r`                                                     | none                                                          | none                                 | none                 | not written yet |
+| `rust`       | `.rs`                                                    | none                                                          | `cargo-llvm-cov`                     | `nightly-2026-11-14` | `executing`     |
+| `shell`      | `.sh`, `.bash`                                           | none                                                          | none                                 | none                 | not written yet |
+| `sql`        | `.sql`                                                   | none                                                          | none                                 | none                 | not written yet |
+| `toml`       | `.toml`                                                  | `Cargo.lock`, `uv.lock`, `poetry.lock`, `pdm.lock`, `Pipfile` | `taplo`                              | none                 | `reading`       |
+| `typst`      | `.typ`                                                   | none                                                          | none                                 | none                 | not written yet |
+| `yaml`       | `.yml`, `.yaml`                                          | none                                                          | `actionlint`, `prettier`             | none                 | `reading`       |
 
 ## Programs
 
@@ -114,7 +114,6 @@ without a build only the computer's copy can be used: the default mode of
 | `coverage`       | `7.17.4`  | `python`, `3.11.0` or later | one package for every platform                                                                                                               |
 | `dockerfmt`      | `1.0.0`   | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`                                                                             |
 | `hadolint`       | `2.15.1`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                                                           |
-| `html-validate`  | `11.21.1` | `node`, `22.22.0` or later  | one package for every platform                                                                                                               |
 | `lychee`         | `0.24.2`  | none                        | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`                                                           |
 | `markdownlint`   | `0.41.1`  | `node`, `22.0.0` or later   | one package for every platform                                                                                                               |
 | `prettier`       | `3.9.6`   | `node`, `14.0.0` or later   | one package for every platform                                                                                                               |

@@ -1,6 +1,6 @@
-# A page without a description and with two h1. The repository's
-# configuration switches the description off and a comment disables the h1
-# rule; neither reaches the page rules.
+# A page without a description and with two h1. A comment would disable the h1
+# rule; it does not reach the page rules, and nothing would switch the
+# description off.
 [repo]
 audience = "public"
 pipeline = { check = ["html"] }

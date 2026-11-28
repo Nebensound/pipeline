@@ -1,4 +1,4 @@
-# The repository's configuration switches the description off, and a comment
-# disables the h1 rule for the second h1: neither reaches the page rules.
+# A comment disables the h1 rule for the second h1: it does not reach the page
+# rules.
 ::error file=index.html,line=3,col=4::page/description: the page has no description*
 ::error file=index.html,line=11,col=8::page/one-h1: the page has 2 <h1> elements*

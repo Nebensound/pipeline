@@ -43,6 +43,68 @@ fn every_configuration_of_yamllint_at_the_root_is_named_as_unread() {
 }
 
 #[test]
+fn every_configuration_of_html_validate_is_named_as_unread_where_the_check_found_it() {
+    let analysis = analysis(
+        QUIET,
+        &[
+            ".nebensound/repo.toml",
+            ".htmlvalidate.json",
+            ".htmlvalidateignore",
+            "html-validate.config.mjs",
+            "html-validate.config.cjs",
+            "html-validate.config.js",
+            "html-validate.config.mts",
+            "html-validate.config.cts",
+            "html-validate.config.ts",
+            "index.html",
+            "site/.htmlvalidate.mjs",
+            "site/.htmlvalidate.cjs",
+            "site/.htmlvalidate.js",
+            "site/.htmlvalidateignore",
+            "site/html-validate.config.mjs",
+            "site/htmlvalidate.json",
+        ],
+    );
+
+    let found = unread::findings(&analysis);
+
+    // The ignore files and the configuration in every folder, as
+    // html-validate read them for each page; the flat configuration at the
+    // root alone, where the check found it.
+    let named: Vec<String> = found
+        .iter()
+        .map(|finding| finding.path.as_ref().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        named,
+        [
+            ".htmlvalidate.json",
+            ".htmlvalidateignore",
+            "html-validate.config.cjs",
+            "html-validate.config.cts",
+            "html-validate.config.js",
+            "html-validate.config.mjs",
+            "html-validate.config.mts",
+            "html-validate.config.ts",
+            "site/.htmlvalidate.cjs",
+            "site/.htmlvalidate.js",
+            "site/.htmlvalidate.mjs",
+            "site/.htmlvalidateignore",
+        ]
+    );
+    for finding in &found {
+        assert_eq!(finding.rule, Rule::UnreadConfiguration);
+        assert_eq!(finding.severity, Severity::Warning);
+        assert_eq!(
+            finding.message,
+            "the HTML check no longer starts html-validate, so nothing the pipeline runs reads \
+             this file: its rules and what it leaves out change nothing. Remove it, or keep it \
+             for a html-validate run of your own"
+        );
+    }
+}
+
+#[test]
 fn phase_0_warns_and_passes() {
     let dir = repository(&[
         (".nebensound/repo.toml", QUIET),

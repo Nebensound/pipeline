@@ -598,8 +598,6 @@ fn every_tool_names_the_checks_it_reads() {
     assert_eq!(Tool::Rustfmt.name(), "rustfmt");
     assert_eq!(Tool::Stylelint.checks(), ["css"]);
     assert_eq!(Tool::Stylelint.name(), "Stylelint");
-    assert_eq!(Tool::HtmlValidate.checks(), ["html"]);
-    assert_eq!(Tool::HtmlValidate.name(), "html-validate");
     for (tool, name) in [
         (Tool::Pyright, "Pyright"),
         (Tool::Coverage, "coverage.py"),
@@ -1516,22 +1514,17 @@ fn a_stylelint_configuration_that_does_not_read_is_reported() {
 }
 
 #[test]
-fn html_validate_ignore_files_count_in_every_folder() {
+fn an_ignore_file_of_html_validate_is_not_held_against_the_declaration() {
+    // No check starts html-validate, so its ignore files take nothing out of
+    // anything; phase 0 names them as configuration nobody reads instead.
     let found = found(
         QUIET,
         &web(&[
             ("web/.htmlvalidateignore", "admin/\n"),
-            ("web/admin/.htmlvalidateignore", "*.css\n"),
+            ("web/admin/.htmlvalidateignore", "*.htm\n"),
         ]),
     );
-
-    // Only the pages count, and every ignore file relative to its folder.
-    assert_eq!(summary(&found), ["unexcused-ignore web/admin/index.htm"]);
-    assert!(
-        found[0].message.contains("html-validate"),
-        "{}",
-        found[0].message
-    );
+    assert_eq!(summary(&found), Vec::<String>::new());
 }
 
 #[test]

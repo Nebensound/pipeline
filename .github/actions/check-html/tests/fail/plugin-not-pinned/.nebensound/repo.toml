@@ -1,4 +1,0 @@
-# A configuration that names a plugin the block does not install.
-[repo]
-audience = "public"
-pipeline = { check = ["html"] }

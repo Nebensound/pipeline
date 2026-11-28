@@ -63,7 +63,9 @@ include = [
 # JSON Schema of the declaration. jsonschema validates the Dependabot
 # configuration in the YAML check against the schema the tool compiles in;
 # without its default features it fetches no schema over HTTP or from a file,
-# so it links no HTTP or TLS library either.
+# so it links no HTTP or TLS library either. html5ever parses the files of the
+# HTML check by the HTML standard, as a browser does, so that the tool reads the
+# page rules off the document itself.
 # getrandom draws the token of each stretch in which the runner of GitHub
 # Actions processes no workflow command (see `console`): the randomness of the
 # operating system, in every build. It is in the tree already through tempfile.
@@ -77,6 +79,7 @@ clap         = { version = "4", features = ["derive"] }
 flate2       = { version = "1", optional = true }
 getrandom    = "0.4"
 globset      = "0.4"
+html5ever    = { version = "0.40", optional = true }
 ignore       = "0.4"
 jsonc-parser = { version = "0.34", features = ["serde"] }
 ratatui      = { version = "0.30", optional = true }
@@ -134,6 +137,7 @@ tempfile     = "3"
 default = ["program"]
 program = [
   "dep:flate2",
+  "dep:html5ever",
   "dep:jsonschema",
   "dep:roxmltree",
   "dep:rustix",
@@ -161,6 +165,10 @@ required-features = ["program"]
 
 [[test]]
 name              = "run"
+required-features = ["program"]
+
+[[test]]
+name              = "run_html"
 required-features = ["program"]
 
 [[test]]

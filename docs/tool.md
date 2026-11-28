@@ -38,9 +38,9 @@ programs `run` starts, and the JSON Schema of `schema`. Building and installing
 the tool take no flag. What builds on the library alone switches the default
 features off and compiles none of it.
 
-`rules/` holds the defaults that the CSS, HTML and Markdown checks and
+`rules/` holds the defaults that the CSS and Markdown checks and
 `check-python` lay a repository's own linter configuration over. The tool
-compiles the ones of Stylelint, html-validate and Markdownlint in,
+compiles the ones of Stylelint and Markdownlint in,
 both to hand them to the linters in `run` and to show how a repository's rules
 stand to them ([The rules](#the-rules)), so both speak of the same files, and a
 change to one of them is a change to the tool, which builds it again. The
@@ -48,9 +48,9 @@ default of Ruff is compiled in the same way, for the Python check of `run` and
 to show it. What else `run` hands the programs
 is compiled in as well: `schemas/`, the JSON Schemas the TOML check assigns and
 the one the YAML check holds the Dependabot configuration against
-([their README](../schemas/README.md)), and the page rules of the HTML
-check, html-validate rules in JavaScript that stand in `src/run/html.rs` as
-text.
+([their README](../schemas/README.md)). The page rules of the HTML check are
+code of the tool ([`src/run/html/page.rs`](../src/run/html/page.rs)), which
+reads them off the document html5ever parses.
 
 The tool is published to no registry. Each release of this repository carries
 its binary for the targets of the build `cargo-release` as assets, built from
@@ -837,8 +837,7 @@ declaration — `.prettierignore`, `include` and `exclude` in `taplo.toml`,
 `ignore` of rustfmt, `include`, `ignore` and `exclude` of Pyright, `omit` of
 coverage.py, `exclude`, `extend-exclude`, `include`, `lint.exclude` and
 `format.exclude` of Ruff, through its `extend` as well, a Python file's
-`# ruff: noqa`, `.stylelintignore` and `ignoreFiles` of Stylelint,
-`.htmlvalidateignore` of html-validate — and fails on every file one of them
+`# ruff: noqa`, `.stylelintignore` and `ignoreFiles` of Stylelint — and fails on every file one of them
 takes out that no `[[exclude]]` entry does (`unexcused-ignore`). The checks
 read none of them except lychee's `exclude_path`, which `run markdown` and
 `run html` apply themselves, matched against the path from the root as phase 0
@@ -995,27 +994,24 @@ found as [for the other calls](#for-the-other-calls), with the flags that set
 their own ignore mechanisms aside, at the repository root, where the
 repository keeps their configuration. It installs nothing: a program that is
 neither pinned nor on the computer fails the check and names `setup`, and the
-parts of the check whose programs are there still run. Three
+parts of the check whose programs are there still run. Two
 programs are run through their internals, so that the repository's rules are
-laid over the pipeline's default ([The rules](#the-rules)): html-validate,
-markdownlint, a library with no command, and Stylelint, on Node.js. Of those
-three only the pinned copy is taken, since only its internals are known, and
+laid over the pipeline's default ([The rules](#the-rules)): markdownlint, a
+library with no command, and Stylelint, on Node.js. Of those two only the
+pinned copy is taken, since only its internals are known, and
 the check fails with a pointer to `setup --pinned` otherwise. markdownlint gets
 the files and, for each group of files with the same rules, the configuration
 the tool reads ([The configuration of a linter](#the-configuration-of-a-linter)),
 and reads nothing else. What the tool judges itself starts no program: whether
 a JSON, JSONC or YAML file parses, which a missing program never keeps from
-running, and whether the Dependabot configuration matches the schema compiled
-in. Stylelint
+running, whether the Dependabot configuration matches the schema compiled in,
+and whether an HTML page carries what a page must carry
+([The page rules](#the-page-rules)). Stylelint
 gets, for each group of stylesheets with the same configuration, a
 configuration object the tool built and looks for none
 ([Stylelint](#stylelint)); what the default extends and the syntax for SCSS it
 gets by their place in the pinned install, with an empty ignore file in place
-of `.stylelintignore`. html-validate gets, for each page, the `.htmlvalidate.*`
-files of its folder and the folders above it, up to the repository root, laid
-over the default, and the page rules over both, written into the folder of what
-`run` hands the programs and loaded from there; a flat configuration
-(`html-validate.config.*`) at the root fails the check. The link check of the
+of `.stylelintignore`. The link check of the
 HTML check resolves a link from the root of a site, such as `/login`, below an
 empty folder, and a second configuration behind the one the tool writes
 leaves out every address below it, written with the folder's path without
@@ -1041,7 +1037,7 @@ finding names
 its file, and its line and column where the program gives them: in a workflow
 run (`GITHUB_ACTIONS=true` without a terminal) as an annotation, elsewhere as a
 line such as `README.md:3: error: MD001/heading-increment …`. A finding that
-fails nothing, such as a Stylelint or html-validate warning, a Hadolint
+fails nothing, such as a Stylelint warning, a Hadolint
 finding below the failure threshold or dockerfmt's warning about a setting of `.editorconfig` it
 cannot use, is a warning: `::warning` in a workflow run, `Dockerfile:3:1: warning: …` elsewhere.
 In an annotation the file name and the message are escaped the way the runner reads
@@ -1066,8 +1062,8 @@ program it starts is given and which the runner masks in the log. An
 annotation waits until the tool writes its next other command, such as the
 end of a group, or until the call ends, so that what a program printed stands
 as one stretch and its findings follow it. No program's own annotation is
-passed through: the scripts it runs for Stylelint and html-validate hand
-theirs over as data, one JSON object per line of a file, which the tool
+passed through: the script it runs for Stylelint hands
+its findings over as data, one JSON object per line of a file, which the tool
 writes; the script for markdownlint writes what markdownlint's library returns,
 which the tool reads and writes, a line such as
 `README.md:3 error MD001/heading-increment …` and a finding on its line. This holds
@@ -1178,10 +1174,32 @@ does not hunt them down: the variables of uv it does not set, such as an index,
 and uv's configuration files in the user's folders. A hosted runner has none,
 so they are ways a local result can differ from the gate's.
 
+### The page rules
+
+The HTML check reads its page rules off each file itself, with html5ever, the
+HTML parser of the Servo project, linked into the tool: the file is parsed by
+the HTML standard, its tokenizer and its tree construction, as a browser builds
+the document, with scripting off, so that what a `<noscript>` holds is read as
+markup. A page is a file that holds a doctype or an `<html>` written as a tag;
+any other file is a fragment and passes. Every page has a `<title>` with text
+in it (`page/title`; the `<title>` of an inline `<svg>` does not count), a
+`<meta name="description">` whose content holds text (`page/description`, the
+name in any case), exactly one `<h1>` (`page/one-h1`), and an `alt` attribute
+on every `<img>`, which may be empty (`page/image-alt`). What a `<template>`
+holds counts as part of the page. Every finding is an error and names the line
+and column of the name in the start tag of the element it is about, counted in
+characters; a finding about the whole page stands at the `<head>`, else at the
+`<html>`, else at the first element written, else at line 1, and a missing
+`<h1>` at the `<body>` where one is written. An element the standard adds
+without a tag, such as the `<head>` of a page that writes none, has no place,
+so no finding stands there. A file that is not UTF-8 is read with every byte
+that is not replaced. Nothing switches a rule off but an `[[exclude]]` entry:
+the tool reads no configuration for them and no comment in the page.
+
 ### What it hands the programs, and its exit code
 
 What `run` hands the programs (an empty ignore file, the list of files, the
-configurations, the schemas with their own location, the page rules) goes into a folder of its
+configurations, the schemas with their own location) goes into a folder of its
 own in the system's temporary directory, which it removes again. The exit code
 is `0` when nothing was found, `1` when something was or a program is missing,
 and `2` for a check `run` does not carry out.
@@ -1213,7 +1231,7 @@ sentence and exit code `1`, for the same reason it gets no plan.
 
 ## The rules
 
-Markdownlint, Stylelint, html-validate and Ruff run with a default of
+Markdownlint, Stylelint and Ruff run with a default of
 the pipeline, which their blocks lay a repository's own configuration over rule
 by rule (see
 [Linter rules](../README.md#linter-rules)). `check` shows, per check, every
@@ -1233,15 +1251,15 @@ A rule the repository sets to what the default already gives it is `the same
 as the default`; any other one stands `over the default`, with the default's
 value. A rule the pipeline's file does not name keeps what lies beneath that
 file, which the tool does not compile in: Markdownlint's own default for the
-rule, and for Stylelint and html-validate what the file's `extends` sets.
+rule, and for Stylelint what the file's `extends` sets.
 The report says so (`the pipeline's file does not name it; Markdownlint's own
 default holds`, ``…; what its `extends: stylelint-config-standard` sets
 holds``). Markdownlint rules are matched by any of their names and tags, in any
 case, so `line-length` stands over the default's `MD013`; a tag over rules the
-default does not give one value says so. The defaults of Stylelint and
-html-validate name no rule of their own, only what they extend (`stylelint-config-standard`; html-validate's presets
-`recommended`, `a11y` and `prettier`), so every rule a repository sets for them
-is shown as one the pipeline's file does not name.
+default does not give one value says so. The default of Stylelint names no
+rule of its own, only what it extends (`stylelint-config-standard`), so every
+rule a repository sets for it is shown as one the pipeline's file does not
+name.
 
 Read are, for Markdownlint and Stylelint, the one file the Markdown and the
 CSS check read ([The configuration of a linter](#the-configuration-of-a-linter)),
@@ -1252,14 +1270,8 @@ handed over is shown at its file, with why. A file in JavaScript is named, not
 read: phase 0 runs no code of the repository. What an `extends` names is named,
 not read.
 
-Stylelint and html-validate are shown only where their check covers a file.
-For html-validate, every `.htmlvalidate.*` of a
-folder that holds a page or holds one below it is read, each laid over the
-default and what lies above it, up to a folder whose `.htmlvalidate.json` says
-`root: true`: that folder's files are shown `in place of any configuration
-above it`, and one above it is shown only where a page outside that folder
-reaches it.
-A `root` in a JavaScript file is not read.
+Stylelint is shown only where its check covers a file. The HTML check lays no
+configuration over a default, so it is not shown.
 
 Ruff is shown only where the python check covers a file, too. Read is, for
 each unit the check runs at, the configuration `check-python` lays over the

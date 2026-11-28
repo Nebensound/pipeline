@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use nebensound_repo::path::RelativePath;
 use nebensound_repo::register::Register;
-use nebensound_repo::rules::{Defaults, HTML_VALIDATE, MARKDOWNLINT, RUFF, STYLELINT, report};
+use nebensound_repo::rules::{Defaults, MARKDOWNLINT, RUFF, STYLELINT, report};
 use support::{QUIET, analysis, call, repository};
 
 /// What the report says of a Markdownlint rule the pipeline's file does not
@@ -132,7 +132,6 @@ fn a_change_of_the_default_reaches_a_repository_that_did_not_name_the_rule() {
     let changed = Defaults {
         markdownlint: "{ \"MD013\": false, \"MD041\": false }",
         stylelint: STYLELINT,
-        html_validate: HTML_VALIDATE,
         ruff: RUFF,
     };
 
@@ -299,7 +298,6 @@ fn a_markdownlint_tag_over_rules_the_default_treats_apart_says_so() {
     let defaults = Defaults {
         markdownlint: "{ \"MD001\": false, \"heading-style\": false, \"whitespace\": false }",
         stylelint: STYLELINT,
-        html_validate: HTML_VALIDATE,
         ruff: RUFF,
     };
 
@@ -327,7 +325,6 @@ fn the_default_of_markdownlint_stands_for_every_rule_it_does_not_name() {
     let defaults = Defaults {
         markdownlint: "{ \"Default\": false, \"MD013\": true }",
         stylelint: STYLELINT,
-        html_validate: HTML_VALIDATE,
         ruff: RUFF,
     };
 
@@ -352,7 +349,6 @@ fn the_rules_of_markdownlint_are_read_in_the_order_written() {
     let defaults = Defaults {
         markdownlint: "{ \"headings\": false, \"MD025\": true }",
         stylelint: STYLELINT,
-        html_validate: HTML_VALIDATE,
         ruff: RUFF,
     };
 
@@ -511,7 +507,6 @@ fn a_default_that_does_not_read_is_named() {
     let broken = Defaults {
         markdownlint: "{",
         stylelint: STYLELINT,
-        html_validate: HTML_VALIDATE,
         ruff: RUFF,
     };
 
@@ -534,7 +529,6 @@ fn a_default_of_markdownlint_that_holds_no_rules_is_named() {
         let broken = Defaults {
             markdownlint: default,
             stylelint: STYLELINT,
-            html_validate: HTML_VALIDATE,
             ruff: RUFF,
         };
 
@@ -554,7 +548,6 @@ fn a_default_of_markdownlint_that_names_what_it_extends_still_gives_its_rules() 
     let defaults = Defaults {
         markdownlint: "{ \"extends\": \"base.json\", \"MD001\": false }",
         stylelint: STYLELINT,
-        html_validate: HTML_VALIDATE,
         ruff: RUFF,
     };
 
@@ -655,27 +648,27 @@ fn web(files: &[(&str, &str)]) -> String {
 const CSS_UNNAMED: &str = "the pipeline's file does not name it; what its `extends: stylelint-config-standard` sets holds";
 
 #[test]
-fn stylesheets_and_pages_show_their_defaults_only_where_their_check_covers_a_file() {
+fn stylesheets_show_their_default_only_where_their_check_covers_a_file() {
     let text = web(&[]);
     assert_eq!(
         text.lines().skip(3).collect::<Vec<_>>(),
         [
             "  css                                                   Stylelint: the default, \
-             nothing laid over it",
-            "  html                                                  html-validate: the default, \
-             nothing laid over it",
+          nothing laid over it"
         ]
     );
     assert!(
         STYLELINT.contains("stylelint-config-standard-scss"),
         "{STYLELINT}"
     );
-    assert!(
-        HTML_VALIDATE.contains("html-validate:a11y"),
-        "{HTML_VALIDATE}"
-    );
 
-    // Without a stylesheet or a page, neither is shown.
+    // The pages show nothing: the HTML check reads no configuration of a
+    // linter, so a configuration of html-validate is not reported on here.
+    let text = web(&[(".htmlvalidate.json", "{ \"rules\": { \"a\": \"off\" } }\n")]);
+    assert_eq!(text.lines().count(), 4, "{text}");
+    assert!(!text.contains("html"), "{text}");
+
+    // Without a stylesheet, nothing is shown.
     assert_eq!(rules(&[]).lines().count(), 3);
 }
 
@@ -771,108 +764,18 @@ fn stylelint_names_every_key_it_does_not_hand_over() {
 }
 
 #[test]
-fn html_validate_reads_every_configuration_above_a_page() {
-    let text = web(&[
-        (
-            ".htmlvalidate.json",
-            "{ \"extends\": [\"html-validate:standard\"], \"rules\": { \"no-inline-style\": \"off\" } }\n",
-        ),
-        (".htmlvalidate.cjs", "module.exports = {};\n"),
-        ("web/admin/.htmlvalidate.json", "{ \"root\": true }\n"),
-        (
-            "docs/.htmlvalidate.json",
-            "{ \"rules\": { \"a\": \"off\" } }\n",
-        ),
-    ]);
-
-    assert!(
-        text.contains("html-validate: the default, with these laid over it"),
-        "{text}"
-    );
-    assert_eq!(
-        after(&text, ".htmlvalidate.json"),
-        ["laid over the default rule by rule"]
-    );
-    assert_eq!(
-        after(&text, "extends"),
-        ["html-validate:standard: what it sets lies beneath the rules here"]
-    );
-    assert_eq!(
-        after(&text, "no-inline-style"),
-        [
-            "\"off\" (the pipeline's file does not name it; what its `extends: \
-             html-validate:recommended, html-validate:a11y, html-validate:prettier` sets holds)"
-        ]
-    );
-    assert_eq!(
-        after(&text, ".htmlvalidate.cjs"),
-        ["written in JavaScript, which phase 0 does not run"]
-    );
-    assert_eq!(
-        after(&text, "web/admin/.htmlvalidate.json"),
-        [
-            "laid over the default rule by rule, in place of any configuration above it; \
-             it names no rule"
-        ]
-    );
-    assert!(!text.contains("docs/"), "{text}");
-}
-
-#[test]
-fn html_validate_reads_nothing_above_a_configuration_that_says_root() {
-    let paths = [
-        ".nebensound/repo.toml",
-        "site/index.html",
-        "site/admin/index.html",
-    ];
-    let text = report_for(
-        WEB,
-        &paths,
-        &[
-            (".htmlvalidate.json", "{ \"rules\": { \"a\": \"off\" } }\n"),
-            ("site/.htmlvalidate.json", "{ \"root\": true }\n"),
-            (
-                "site/admin/.htmlvalidate.json",
-                "{ \"root\": false, \"rules\": { \"b\": \"off\" } }\n",
-            ),
-        ],
-        Defaults::BUILT_IN,
-    );
-
-    assert_eq!(
-        after(&text, "site/.htmlvalidate.json"),
-        [
-            "laid over the default rule by rule, in place of any configuration above it; \
-             it names no rule"
-        ]
-    );
-    assert_eq!(
-        after(&text, "site/admin/.htmlvalidate.json"),
-        ["laid over the default and what lies above it, rule by rule"]
-    );
-    assert!(after(&text, ".htmlvalidate.json").is_empty(), "{text}");
-}
-
-#[test]
-fn a_rule_the_default_of_stylelint_or_html_validate_names_is_compared() {
+fn a_rule_the_default_of_stylelint_names_is_compared() {
     let defaults = Defaults {
         markdownlint: MARKDOWNLINT,
         stylelint: "rules:\n  color-named: never\n",
-        html_validate: "{ \"extends\": \"html-validate:standard\", \"rules\": { \"void-style\": \"off\" } }",
         ruff: RUFF,
     };
     let text = web_with(
         defaults,
-        &[
-            (
-                ".stylelintrc.yaml",
-                "rules:\n  color-named: never\n  color-no-hex: true\n",
-            ),
-            (
-                ".htmlvalidate.json",
-                "{ \"rules\": { \"void-style\": \"error\" } }\n",
-            ),
-        ],
+        &[(
+            ".stylelintrc.yaml",
+            "rules:\n  color-named: never\n  color-no-hex: true\n",
+        )],
     );
 
     assert_eq!(
@@ -883,14 +786,10 @@ fn a_rule_the_default_of_stylelint_or_html_validate_names_is_compared() {
         after(&text, "color-no-hex"),
         ["true (the pipeline's file does not name it, so it is off)"]
     );
-    assert_eq!(
-        after(&text, "void-style"),
-        ["\"error\" (over the default \"off\")"]
-    );
 }
 
 #[test]
-fn a_configuration_of_stylelint_or_html_validate_that_does_not_read_says_why() {
+fn a_configuration_of_stylelint_that_does_not_read_says_why() {
     for (file, source, why) in [
         (
             ".stylelintrc.json",
@@ -907,27 +806,6 @@ fn a_configuration_of_stylelint_or_html_validate_that_does_not_read_says_why() {
             "{ // a comment\n}",
             "cannot be read, so nothing of it is handed to Stylelint: ",
         ),
-        (
-            ".htmlvalidate.json",
-            "{ \"extends\": 3 }",
-            "cannot be read: `extends` is neither text nor a list of text",
-        ),
-        (
-            ".htmlvalidate.json",
-            "{ \"extends\": [3] }",
-            "cannot be read: `extends` holds an entry that is not text",
-        ),
-        (
-            ".htmlvalidate.json",
-            "{ \"rules\": [] }",
-            "cannot be read: `rules` is not a mapping",
-        ),
-        (
-            ".htmlvalidate.json",
-            "[1]",
-            "cannot be read: it holds no mapping",
-        ),
-        (".htmlvalidate.json", "{", "cannot be read: "),
     ] {
         let text = web(&[(file, source)]);
         let shown = after(&text, file);
@@ -940,7 +818,6 @@ fn a_configuration_of_stylelint_or_html_validate_that_does_not_read_says_why() {
     let broken = Defaults {
         markdownlint: MARKDOWNLINT,
         stylelint: "a: [\n",
-        html_validate: "{",
         ruff: RUFF,
     };
     let text = web_with(broken, &[]);
@@ -948,14 +825,10 @@ fn a_configuration_of_stylelint_or_html_validate_that_does_not_read_says_why() {
         text.contains("Stylelint: the pipeline's default does not read: "),
         "{text}"
     );
-    assert!(
-        text.contains("html-validate: the pipeline's default does not read: "),
-        "{text}"
-    );
 }
 
 #[test]
-fn a_configuration_of_stylelint_or_html_validate_the_disk_does_not_hold_says_so() {
+fn a_configuration_of_stylelint_the_disk_does_not_hold_says_so() {
     let text = report_for(
         WEB,
         &[
@@ -963,7 +836,6 @@ fn a_configuration_of_stylelint_or_html_validate_the_disk_does_not_hold_says_so(
             "site.css",
             "index.html",
             ".stylelintrc.yml",
-            ".htmlvalidate.json",
         ],
         &[],
         Defaults::BUILT_IN,
@@ -972,10 +844,6 @@ fn a_configuration_of_stylelint_or_html_validate_the_disk_does_not_hold_says_so(
     assert_eq!(
         after(&text, ".stylelintrc.yml"),
         ["cannot be read, so nothing of it is handed to Stylelint: no such file"]
-    );
-    assert_eq!(
-        after(&text, ".htmlvalidate.json"),
-        ["cannot be read: no such file"]
     );
 }
 

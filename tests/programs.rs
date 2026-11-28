@@ -34,7 +34,7 @@ fn every_check_with_a_building_block_names_the_programs_it_calls() {
     for (name, programs) in [
         ("css", &["prettier", "stylelint"][..]),
         ("dockerfile", &["dockerfmt", "hadolint"]),
-        ("html", &["html-validate", "lychee", "prettier"]),
+        ("html", &["lychee", "prettier"]),
         ("json", &["prettier"]),
         ("markdown", &["lychee", "markdownlint", "prettier"]),
         ("python", &["coverage", "pyright", "ruff", "uv"]),
@@ -71,7 +71,6 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
         ("coverage", "7.17.4", Some(("python", "3.11.0"))),
         ("dockerfmt", "1.0.0", None),
         ("hadolint", "2.15.1", None),
-        ("html-validate", "11.21.1", Some(("node", "22.22.0"))),
         ("lychee", "0.24.2", None),
         ("markdownlint", "0.41.1", Some(("node", "22.0.0"))),
         ("prettier", "3.9.6", Some(("node", "14.0.0"))),
@@ -104,7 +103,7 @@ fn every_program_is_pinned_to_the_version_its_building_block_installs() {
             assert!(download.url.contains(version), "{name} {platform}");
         }
     }
-    assert_eq!(register.program.len(), 15);
+    assert_eq!(register.program.len(), 14);
 
     // Stylelint brings the configurations the pipeline's default extends and
     // the syntax it reads SCSS with; no other program brings anything.

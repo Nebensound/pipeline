@@ -1,8 +1,8 @@
 //! The rules a repository sets differently from the pipeline's default.
 //!
-//! Three programs of the checks read a rule configuration that the pipeline
-//! gives a default for: Markdownlint in the Markdown check, Stylelint in the
-//! CSS check and html-validate in the HTML check.
+//! Two programs of the checks read a rule configuration that the pipeline
+//! gives a default for: Markdownlint in the Markdown check and Stylelint in
+//! the CSS check.
 //! `run` lays the repository's own configuration over that default rule by
 //! rule, so the repository's file names only what differs, and a change of the
 //! default reaches every repository that did not name the rule. The defaults
@@ -22,22 +22,17 @@
 //!   differences by pattern, and every file of its configuration the check
 //!   does not read, and every key it does not hand over, each with why. The
 //!   check prints the same lines ([`stylelint`]).
-//! - html-validate: `rules` in every `.htmlvalidate.json` (`.mjs`, `.cjs`,
-//!   `.js`) of a folder that holds a file the html check covers, or holds one
-//!   below it, up to a folder whose `.htmlvalidate.json` says `root: true`.
-//!   `run` lays them over the default, each nearer one over the ones above
-//!   it; one in a folder that says `root: true` lies over the default alone.
 //!
-//! The two of them are shown only where their check covers a file, and so is
-//! Ruff, the fourth program with a default, whose `check-python` lays the
-//! repository's configuration over it through Ruff's `extend`: the module
-//! `ruff` within this one says what is read of it and how.
+//! Stylelint is shown only where its check covers a file, and so is Ruff, the
+//! third program with a default, whose `check-python` lays the repository's
+//! configuration over it through Ruff's `extend`: the module `ruff` within
+//! this one says what is read of it and how.
 //!
 //! A file written in JavaScript is named, not read: phase 0 runs no code of
 //! the repository. What an `extends` names is named, not read.
 //!
 //! A rule the pipeline's file does not name keeps what lies beneath that file:
-//! Markdownlint's own default for the rule, and for the others what the file's
+//! Markdownlint's own default for the rule, and for Stylelint what the file's
 //! `extends` sets. The report says so rather than comparing with it, since
 //! neither program's own defaults are compiled in.
 
@@ -51,7 +46,7 @@ use crate::path::RelativePath;
 use serde_json::{Number, Value};
 use yaml_rust2::Yaml;
 
-use crate::ignored::{Read, folder};
+use crate::ignored::Read;
 use crate::linter_config::markdownlint::{Combine, Handed, Problem, Rules};
 use crate::linter_config::{self, Written, stylelint as styled};
 use crate::register::Register;
@@ -63,9 +58,6 @@ pub const MARKDOWNLINT: &str = include_str!("../rules/markdownlint.jsonc");
 /// The pipeline's default for Stylelint, as `run css` hands it over.
 pub const STYLELINT: &str = include_str!("../rules/stylelint.yaml");
 
-/// The pipeline's default for html-validate, as `run html` hands it over.
-pub const HTML_VALIDATE: &str = include_str!("../rules/html-validate.json");
-
 /// The pipeline's default for Ruff, as `check-python` reads it.
 pub const RUFF: &str = include_str!("../rules/ruff.toml");
 
@@ -76,8 +68,6 @@ pub struct Defaults<'a> {
     pub markdownlint: &'a str,
     /// The default for Stylelint, in YAML.
     pub stylelint: &'a str,
-    /// The default for html-validate, in JSON.
-    pub html_validate: &'a str,
     /// The default for Ruff, in TOML.
     pub ruff: &'a str,
 }
@@ -88,7 +78,6 @@ impl Defaults<'static> {
     pub const BUILT_IN: Self = Self {
         markdownlint: MARKDOWNLINT,
         stylelint: STYLELINT,
-        html_validate: HTML_VALIDATE,
         ruff: RUFF,
     };
 }
@@ -194,21 +183,11 @@ const MARKDOWNLINT_NAMES: &[(&[&str], &[&str])] = &[
     (&["MD060", "table-column-style"], &["table"]),
 ];
 
-/// The configuration files of html-validate in a folder, all of which it
-/// reads, in this order.
-const HTML_VALIDATE_FILES: &[&str] = &[
-    ".htmlvalidate.json",
-    ".htmlvalidate.mjs",
-    ".htmlvalidate.cjs",
-    ".htmlvalidate.js",
-];
-
 /// A program whose rules have a default of the pipeline.
 #[derive(Debug, Clone, Copy)]
 enum Program {
     Markdownlint,
     Stylelint,
-    HtmlValidate,
 }
 
 impl Program {
@@ -217,7 +196,6 @@ impl Program {
         match self {
             Self::Markdownlint => "markdown",
             Self::Stylelint => "css",
-            Self::HtmlValidate => "html",
         }
     }
 
@@ -226,7 +204,6 @@ impl Program {
         match self {
             Self::Markdownlint => "Markdownlint",
             Self::Stylelint => "Stylelint",
-            Self::HtmlValidate => "html-validate",
         }
     }
 
@@ -238,7 +215,6 @@ impl Program {
                 extends: Some(pinned.base.extends.join(", ")).filter(|names| !names.is_empty()),
                 rules: pinned.base.rules,
             }),
-            Self::HtmlValidate => rules_of(parse(text)?),
         }
     }
 
@@ -264,10 +240,8 @@ impl Program {
                 }
                 standing(defaults.first().copied().flatten(), |under| value == under)
             }
-            // Both take a rule's value as a whole.
-            Self::Stylelint | Self::HtmlValidate => {
-                standing(get(&default.rules, rule), |under| value == under)
-            }
+            // Stylelint takes a rule's value as a whole.
+            Self::Stylelint => standing(get(&default.rules, rule), |under| value == under),
         }
     }
 
@@ -276,12 +250,10 @@ impl Program {
         const UNNAMED: &str = "the pipeline's file does not name it";
         match (self, &default.extends) {
             (Self::Markdownlint, _) => format!("{UNNAMED}; Markdownlint's own default holds"),
-            (Self::Stylelint | Self::HtmlValidate, Some(extends)) => {
+            (Self::Stylelint, Some(extends)) => {
                 format!("{UNNAMED}; what its `extends: {extends}` sets holds")
             }
-            (Self::Stylelint | Self::HtmlValidate, None) => {
-                format!("{UNNAMED}, so it is off")
-            }
+            (Self::Stylelint, None) => format!("{UNNAMED}, so it is off"),
         }
     }
 }
@@ -380,16 +352,6 @@ pub(crate) fn format(file: &RelativePath) -> Format {
     }
 }
 
-fn text(error: impl std::fmt::Display) -> String {
-    error.to_string()
-}
-
-/// The value a file of html-validate's configuration holds, which is JSON
-/// with comments. A file in JavaScript is never handed here.
-fn parse(source: &str) -> Result<Value, String> {
-    jsonc_parser::parse_to_serde_value(source, &jsonc_parser::ParseOptions::default()).map_err(text)
-}
-
 /// A YAML value as the JSON value it stands for. A key that is not text is
 /// written out as YAML would show it.
 pub(crate) fn json(yaml: &Yaml) -> Value {
@@ -441,198 +403,6 @@ fn config(value: Written) -> Result<Config, String> {
         .map(|(key, value)| (key, value.into_value()))
         .collect();
     Ok(Config { extends, rules })
-}
-
-/// The rules of a configuration of Stylelint or html-validate: its `rules`,
-/// beside `extends`, which names one configuration or a list of them.
-fn rules_of(value: Value) -> Result<Config, String> {
-    let Value::Object(mut top) = value else {
-        return Err(NO_MAPPING.to_owned());
-    };
-    let extends = match top.remove("extends") {
-        None => None,
-        Some(Value::String(name)) => Some(name),
-        Some(Value::Array(names)) => Some(
-            names
-                .iter()
-                .map(|name| {
-                    name.as_str()
-                        .ok_or_else(|| "`extends` holds an entry that is not text".to_owned())
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", "),
-        ),
-        Some(_) => return Err("`extends` is neither text nor a list of text".to_owned()),
-    };
-    let rules = match top.remove("rules") {
-        None => Rules::new(),
-        Some(Value::Object(rules)) => rules.into_iter().collect(),
-        Some(_) => return Err("`rules` is not a mapping".to_owned()),
-    };
-    Ok(Config { extends, rules })
-}
-
-/// Where a file's rules stand.
-#[derive(Clone, Copy)]
-enum Place {
-    /// Laid over the default, and over what lies above it.
-    Over,
-    /// Laid over the default, in place of any configuration in a folder
-    /// above it: html-validate's in a folder that says `root: true`.
-    Nearest,
-}
-
-/// One file of html-validate's configuration that is laid over the default.
-struct Layer {
-    file: RelativePath,
-    place: Place,
-}
-
-impl Layer {
-    /// The folder whose files it is for: its own.
-    fn owner(&self) -> RelativePath {
-        folder(&self.file)
-    }
-
-    /// What it names, or [`None`] for a file in JavaScript.
-    fn read(&self, read: &Read<'_>) -> Result<Option<Config>, String> {
-        if let Format::Script = format(&self.file) {
-            return Ok(None);
-        }
-        let source = read(&self.file)?;
-        rules_of(parse(&source)?).map(Some)
-    }
-}
-
-/// A file of a folder, by its name.
-fn file_in<'a>(
-    files: &[&'a RelativePath],
-    dir: &RelativePath,
-    name: &str,
-) -> Option<&'a RelativePath> {
-    let wanted = dir.join(name);
-    files.iter().find(|file| ***file == wanted).copied()
-}
-
-/// Whether a configuration of html-validate says `root: true`, so that
-/// html-validate reads nothing above its folder. Only a JSON file is read; one
-/// written in JavaScript or one that does not read is taken not to say it.
-fn says_root(file: &RelativePath, read: &Read<'_>) -> bool {
-    file.file_name() == Some(".htmlvalidate.json")
-        && read(file)
-            .ok()
-            .and_then(|source| parse(&source).ok())
-            .and_then(|value| value.get("root").and_then(Value::as_bool))
-            == Some(true)
-}
-
-/// Every configuration html-validate reads for the files the html check
-/// covers: all of its files in the folder of such a file and in each folder
-/// above it, up to a folder whose JSON file says `root: true`, the root first.
-/// Such a folder's files lie over the default alone.
-fn html_validate_layers(
-    files: &[&RelativePath],
-    pages: &[&RelativePath],
-    read: &Read<'_>,
-) -> Vec<Layer> {
-    let in_folder = |dir: &RelativePath| -> Vec<&RelativePath> {
-        HTML_VALIDATE_FILES
-            .iter()
-            .filter_map(|name| file_in(files, dir, name))
-            .collect()
-    };
-    let mut folders: BTreeSet<RelativePath> = BTreeSet::new();
-    let mut roots: BTreeSet<RelativePath> = BTreeSet::new();
-    for page in pages {
-        let mut dir = folder(page);
-        loop {
-            let here = in_folder(&dir);
-            if !here.is_empty() {
-                folders.insert(dir.clone());
-            }
-            if here.iter().any(|file| says_root(file, read)) {
-                roots.insert(dir.clone());
-                break;
-            }
-            if dir.is_root() {
-                break;
-            }
-            dir = folder(&dir);
-        }
-    }
-    folders
-        .iter()
-        .flat_map(|dir| {
-            let place = if roots.contains(dir) && !dir.is_root() {
-                Place::Nearest
-            } else {
-                Place::Over
-            };
-            in_folder(dir).into_iter().map(move |file| Layer {
-                file: file.clone(),
-                place,
-            })
-        })
-        .collect()
-}
-
-/// The lines of one program: what lies over its default, and how every rule
-/// stands to it.
-fn section(program: Program, default: &str, layers: &[Layer], read: &Read<'_>) -> Vec<String> {
-    let head = column(2, program.check());
-    let name = program.name();
-    let default = match program.default(default) {
-        Ok(default) => default,
-        Err(error) => {
-            return vec![format!(
-                "{head}{name}: the pipeline's default does not read: {}",
-                shown(&error)
-            )];
-        }
-    };
-    if layers.is_empty() {
-        return vec![format!("{head}{name}: the default, nothing laid over it")];
-    }
-    let mut lines = vec![format!(
-        "{head}{name}: the default, with these laid over it"
-    )];
-    for layer in layers {
-        let file = column(6, &shown(&layer.file.to_string()));
-        let place = match layer.place {
-            Place::Over if layer.owner().is_root() => "laid over the default rule by rule",
-            Place::Over => "laid over the default and what lies above it, rule by rule",
-            Place::Nearest => {
-                "laid over the default rule by rule, in place of any configuration above it"
-            }
-        };
-        let config = match layer.read(read) {
-            Ok(Some(config)) => config,
-            Ok(None) => {
-                lines.push(format!(
-                    "{file}written in JavaScript, which phase 0 does not run"
-                ));
-                continue;
-            }
-            Err(error) => {
-                lines.push(format!("{file}cannot be read: {}", shown(&error)));
-                continue;
-            }
-        };
-        if config.extends.is_none() && config.rules.is_empty() {
-            lines.push(format!("{file}{place}; it names no rule"));
-            continue;
-        }
-        lines.push(format!("{file}{place}"));
-        if let Some(extends) = &config.extends {
-            lines.push(format!(
-                "{}{}: what it sets lies beneath the rules here",
-                column(10, "extends"),
-                shown(extends)
-            ));
-        }
-        lines.extend(rule_lines(program, &config.rules, &default));
-    }
-    lines
 }
 
 /// One line for every rule, with how it stands to the default.
@@ -808,15 +578,6 @@ pub fn report(
     if !covered(Program::Stylelint).is_empty() {
         let (handed, problems) = styled::read_in(register, &files, &kept, read);
         lines.extend(stylelint(defaults.stylelint, &handed, &problems));
-    }
-    let pages = covered(Program::HtmlValidate);
-    if !pages.is_empty() {
-        lines.extend(section(
-            Program::HtmlValidate,
-            defaults.html_validate,
-            &html_validate_layers(&files, &pages, read),
-            read,
-        ));
     }
     if let Some(section) = ruff::section(analysis, &files, read, defaults.ruff) {
         lines.extend(section);
