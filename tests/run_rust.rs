@@ -782,8 +782,8 @@ fn only_the_files_of_the_checked_packages_are_read_for_what_lowers_the_three() {
     assert_eq!(code, 0, "{text}");
     has(
         &text,
-        "Nothing in the 2 Rust file(s) of the checked packages and no configuration of Clippy \
-         lowers todo!, unimplemented! or dbg! below an error.",
+        "Nothing in the 2 Rust file(s) read and no configuration of Clippy lowers todo!, \
+         unimplemented! or dbg! below an error.",
     );
     assert!(
         at(&text, "::group::todo!") < at(&text, "::group::Clippy"),
@@ -873,22 +873,30 @@ fn a_file_the_search_cannot_read_is_a_finding_and_one_without_tokens_is_left_to_
 }
 
 #[test]
-fn a_file_belongs_to_the_package_of_the_nearest_manifest_above_it() {
-    let local = |dir: &str| Local {
+fn the_search_reads_every_rust_file_unless_a_package_left_out_or_an_unseen_project_holds_it() {
+    let local = |dir: &str, member: bool, reason: Option<&str>| Local {
         name: dir.to_owned(),
         dir: dir.to_owned(),
-        member: true,
+        member,
         nested: Vec::new(),
-        reason: None,
+        reason: reason.map(str::to_owned),
         targets: Vec::new(),
         rust_version: None,
     };
-    let locals = [local("."), local("crates/a"), local("/outside")];
+    // A workspace alone at the root, no package of its own.
+    let locals = [
+        local("crates/a", true, None),
+        local("crates/out", true, Some("a vendored copy")),
+        local("crates/dep", false, None),
+        local("/outside", true, None),
+    ];
     let tracked: Vec<RelativePath> = [
         "Cargo.toml",
         "crates/a/Cargo.toml",
         "crates/a/fixtures/project/Cargo.toml",
         "crates/a/src/lib.rs",
+        "crates/dep/Cargo.toml",
+        "crates/out/Cargo.toml",
         "crates/NotCargo.toml",
         "README.md",
     ]
@@ -898,19 +906,42 @@ fn a_file_belongs_to_the_package_of_the_nearest_manifest_above_it() {
     let manifests = rust::manifest_folders(&tracked);
     assert_eq!(
         manifests.iter().map(String::as_str).collect::<Vec<_>>(),
-        [".", "crates/a", "crates/a/fixtures/project"]
+        [
+            ".",
+            "crates/a",
+            "crates/a/fixtures/project",
+            "crates/dep",
+            "crates/out"
+        ]
     );
-    let owner = |file: &str| rust::owner(&locals, &manifests, file).map(|local| local.dir.as_str());
-    assert_eq!(owner("build.rs"), Some("."));
-    assert_eq!(owner("src/lib.rs"), Some("."));
-    assert_eq!(owner("crates/b/src/lib.rs"), Some("."));
-    assert_eq!(owner("crates/a/src/lib.rs"), Some("crates/a"));
-    assert_eq!(owner("crates/a/tests/deep/t.rs"), Some("crates/a"));
-    // A project Cargo does not see is no package of the workspace.
-    assert_eq!(owner("crates/a/fixtures/project/src/lib.rs"), None);
-    // Nor is the manifest of a workspace alone.
-    assert_eq!(rust::owner(&locals[1..], &manifests, "src/lib.rs"), None);
-    assert_eq!(rust::owner(&locals, &BTreeSet::new(), "src/lib.rs"), None);
+    let searched = |file: &str| rust::searched(&locals, &manifests, ".", file);
+    assert!(searched("crates/a/src/lib.rs"));
+    assert!(searched("crates/a/tests/deep/t.rs"));
+    // A file no package holds, which a checked package can pull in with
+    // `#[path]` or a target `path`.
+    assert!(searched("shared/helper.rs"));
+    assert!(searched("build.rs"));
+    assert!(searched("crates/b/src/lib.rs"));
+    // A package that is out, a path dependency formatted only, and a project
+    // Cargo does not see are not read.
+    assert!(!searched("crates/out/src/lib.rs"));
+    assert!(!searched("crates/dep/src/lib.rs"));
+    assert!(!searched("crates/a/fixtures/project/src/lib.rs"));
+    // A manifest that is no package's and not the workspace's is a project
+    // Cargo does not see.
+    assert!(!rust::searched(
+        &locals,
+        &manifests,
+        "crates",
+        "shared/helper.rs"
+    ));
+    // No manifest above the file at all.
+    assert!(rust::searched(&locals, &BTreeSet::new(), ".", "src/lib.rs"));
+    // A package at the root counts as any other.
+    let root = [local(".", true, None)];
+    assert!(rust::searched(&root, &manifests, ".", "src/lib.rs"));
+    let out = [local(".", true, Some("a vendored copy"))];
+    assert!(!rust::searched(&out, &manifests, ".", "src/lib.rs"));
 }
 
 #[test]

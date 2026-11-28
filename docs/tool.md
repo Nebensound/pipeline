@@ -1158,11 +1158,16 @@ An attribute in the source wins over the command line, and no form of the
 command line gives both an error that a crate cannot lower and the exemption:
 `-F` (forbid) refuses every attribute that names the lint, the exemption
 included, and `--force-warn` passes over every attribute but only warns. So
-the step before Clippy reads the tokens of every Rust file of a checked package
-(a member that is not excluded; a file belongs to the package of the nearest
-`Cargo.toml` above it) and fails on every other attribute that lowers one of
-the three or the group `clippy::restriction` below an error, each a finding on
-its line:
+the step before Clippy reads the tokens of every Rust file of the unit and fails
+on every other attribute that lowers one of the three or the group
+`clippy::restriction` below an error, each a finding on its line. A file
+belongs to the package of the nearest `Cargo.toml` above it, and the step
+leaves out only the files of a package the check does not check (an excluded
+one, or a path dependency that is formatted only) and of a project Cargo does
+not see. A file whose nearest `Cargo.toml` is that of the workspace alone, or
+that has none above it, belongs to no package and is read, because a checked
+package can pull it in with `#[path]` or a target `path`, and Clippy lints it
+there:
 
 | In the source                                                      | Result                                           |
 | ------------------------------------------------------------------ | ------------------------------------------------ |

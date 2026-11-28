@@ -447,42 +447,53 @@ pub fn manifest_folders(tracked: &[RelativePath]) -> BTreeSet<String> {
         .collect()
 }
 
-/// The local package a file of the repository belongs to: the one whose
-/// manifest stands in the nearest folder above the file that holds one of
-/// `manifests` ([`manifest_folders`]). None when that manifest is no local
-/// package's, such as the manifest of a workspace alone or of a project Cargo
-/// does not see.
+/// Whether the step that holds `todo!`, `unimplemented!` and `dbg!` reads a
+/// Rust file of the unit: unless the manifest in the nearest folder above it
+/// that holds one of `manifests` ([`manifest_folders`]) is that of a package
+/// the check does not check (excluded, or a path dependency that is formatted
+/// only) or of a project Cargo does not see.
+///
+/// The file is read when that manifest is a checked package's, and also when
+/// it is the manifest of the workspace (`workspace`, the unit's folder) that
+/// is no package, or when there is none: such a file belongs to no package,
+/// and Clippy lints it as part of every checked package that pulls it in with
+/// `#[path]` or a target `path`.
 #[must_use]
-pub fn owner<'l>(
-    locals: &'l [Local],
+pub fn searched(
+    locals: &[Local],
     manifests: &BTreeSet<String>,
+    workspace: &str,
     file: &str,
-) -> Option<&'l Local> {
+) -> bool {
     let mut dir = file;
     loop {
         dir = dir.rsplit_once('/').map_or(".", |(above, _)| above);
         if manifests.contains(dir) {
-            return locals.iter().find(|local| local.dir == dir);
+            return locals
+                .iter()
+                .find(|local| local.dir == dir)
+                .map_or(dir == workspace, Local::checked);
         }
         if dir == "." {
-            return None;
+            return true;
         }
     }
 }
 
 /// What holds `todo!`, `unimplemented!` and `dbg!` beside Clippy
-/// ([`leftovers`](self::leftovers)): every attribute in a Rust file of a
-/// checked package that lowers them and is no exemption, and every
+/// ([`leftovers`](self::leftovers)): every attribute in a Rust file the step
+/// reads ([`searched`]) that lowers them and is no exemption, and every
 /// configuration of Clippy the repository keeps that lets `dbg!` pass in its
 /// tests, each a finding on its line. A file that cannot be read is a finding
 /// as well. Whether nothing was found.
 fn leftovers(session: &mut Session<'_, '_, '_>, locals: &[Local]) -> bool {
     let repository = session.context.packages.repository;
     let manifests = manifest_folders(session.context.packages.tracked);
+    let workspace = session.unit.to_string();
     let sources: Vec<String> = session
         .files
         .iter()
-        .filter(|file| owner(locals, &manifests, file).is_some_and(Local::checked))
+        .filter(|file| searched(locals, &manifests, &workspace, file))
         .cloned()
         .collect();
     let configurations: Vec<String> = session
@@ -542,8 +553,8 @@ fn leftovers(session: &mut Session<'_, '_, '_>, locals: &[Local]) -> bool {
     }
     if found == 0 {
         session.log.line(&format!(
-            "Nothing in the {} Rust file(s) of the checked packages and no configuration of \
-             Clippy lowers todo!, unimplemented! or dbg! below an error.",
+            "Nothing in the {} Rust file(s) read and no configuration of Clippy lowers \
+             todo!, unimplemented! or dbg! below an error.",
             sources.len()
         ));
     }
