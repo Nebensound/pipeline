@@ -14,6 +14,7 @@
 
 mod support;
 
+use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
@@ -126,6 +127,9 @@ struct Fixture {
     files: Vec<&'static str>,
     /// Every file Git tracks.
     tracked: Vec<&'static str>,
+    /// The files of `tracked` that no `[[exclude]]` entry takes out, as far
+    /// as a test names them.
+    kept: Vec<&'static str>,
     /// The packages `[[exclude]]` takes out, folder and reason.
     excluded: Vec<(&'static str, &'static str)>,
     /// The versions the package test writes.
@@ -190,6 +194,7 @@ impl Fixture {
                 "vendor/old/kept/src/lib.rs",
                 "vendor/old/src/lib.rs",
             ],
+            kept: Vec::new(),
             excluded: vec![
                 ("vendor/old", "a vendored copy"),
                 ("third", "code of others"),
@@ -218,6 +223,8 @@ impl Fixture {
             .file("vendor/old/Cargo.toml", "[package]\nname = \"old\"\n")
             .file("vendor/old/kept/Cargo.toml", "[package]\nname = \"kept\"\n")
             .file("third/Cargo.toml", "[package]\nname = \"third\"\n")
+            .file("src/lib.rs", "//! The crate.\n")
+            .file("inner/src/lib.rs", "//! The inner crate.\n")
             .mark("packaged", "demo-1.2.3\ninner-1.2.3\n");
         let metadata = fixture.metadata("0.0.0");
         fixture.mark("metadata", &metadata.to_string());
@@ -327,6 +334,7 @@ impl Fixture {
         let root = self.root();
         let repository = Repository::at(&root);
         let tracked: Vec<RelativePath> = self.tracked.iter().map(|file| path(file)).collect();
+        let kept: Vec<RelativePath> = self.kept.iter().map(|file| path(file)).collect();
         let excluded: Vec<Excluded> = self
             .excluded
             .iter()
@@ -343,7 +351,7 @@ impl Fixture {
             packages: Packages {
                 repository: &repository,
                 tracked: &tracked,
-                kept: &[],
+                kept: &kept,
                 excluded: &excluded,
                 orders: &self.orders,
             },
@@ -406,6 +414,7 @@ fn every_step_runs_in_its_order_and_leaves_out_what_is_excluded() {
             "Install the toolchain the workspace pins",
             "Find the packages",
             "Formatting",
+            "todo!, unimplemented! and dbg! stay errors",
             "Clippy, all features",
             "Clippy, no default features",
             "Tests, all features",
@@ -460,9 +469,9 @@ fn every_step_runs_in_its_order_and_leaves_out_what_is_excluded() {
     // Every step from here leaves out the excluded member.
     for line in [
         "> cargo clippy --locked --workspace --exclude=old --all-features --all-targets --no-deps \
-         -- -D warnings",
+         -- -D warnings -D clippy::todo -D clippy::unimplemented -D clippy::dbg_macro",
         "> cargo clippy --locked --workspace --exclude=old --no-default-features --all-targets \
-         --no-deps -- -D warnings",
+         --no-deps -- -D warnings -D clippy::todo -D clippy::unimplemented -D clippy::dbg_macro",
         "> cargo test --locked --workspace --exclude=old --all-features",
         "> cargo test --locked --workspace --exclude=old --all-features --doc",
         "> cargo test --locked --workspace --exclude=old --no-default-features",
@@ -762,6 +771,177 @@ fn an_unformatted_file_is_a_finding_on_it_and_the_differences_follow() {
             root.display()
         ),
     );
+}
+
+#[test]
+fn only_the_files_of_the_checked_packages_are_read_for_what_lowers_the_three() {
+    let fixture = Fixture::new();
+    // The path dependency that is formatted only is never linted.
+    fixture.file("vendor/old/kept/src/lib.rs", "#![allow(clippy::todo)]\n");
+    let (code, text) = fixture.run();
+    assert_eq!(code, 0, "{text}");
+    has(
+        &text,
+        "Nothing in the 2 Rust file(s) read and no configuration of Clippy lowers todo!, \
+         unimplemented! or dbg! below an error.",
+    );
+    assert!(
+        at(&text, "::group::todo!") < at(&text, "::group::Clippy"),
+        "{text}"
+    );
+}
+
+#[test]
+fn what_lowers_todo_unimplemented_or_dbg_fails_before_clippy_runs() {
+    let mut fixture = Fixture::new();
+    fixture
+        .file(
+            "src/lib.rs",
+            "//! The crate.\n#![allow(clippy::todo)]\n\n#[expect(clippy::dbg_macro, reason = \
+             \"a trace\")]\nfn f() {}\n",
+        )
+        .file(
+            "inner/src/lib.rs",
+            "#[expect(clippy::todo, reason = \"comes with the next issue\")]\nfn f() {}\n",
+        )
+        .file(
+            "inner/tests/t.rs",
+            "#[cfg_attr(test, allow(clippy::dbg_macro))]\nfn t() {}\n",
+        )
+        // A path dependency that is formatted only is never linted, so what
+        // it says about Clippy's lints plays no part.
+        .file("vendor/old/kept/src/lib.rs", "#![allow(clippy::todo)]\n")
+        .file("crates/clippy.toml", "allow-dbg-in-tests = true\n")
+        .file(".clippy.toml", "msrv = \"1.85\"\n")
+        // A configuration an `[[exclude]]` entry takes out is not read.
+        .file("vendor/old/clippy.toml", "allow-dbg-in-tests = true\n");
+    fixture.files.push("inner/tests/t.rs");
+    fixture.kept = vec!["crates/clippy.toml", ".clippy.toml", "src/lib.rs"];
+    let (code, text) = fixture.run();
+    assert_eq!(code, 1, "{text}");
+    has(
+        &text,
+        "::error file=src/lib.rs,line=2,col=4::#![allow(clippy::todo)] covers the whole crate or \
+         module, and the Rust check holds todo!, unimplemented! and dbg! as errors there; exempt \
+         the one item with #[expect(…, reason = \"…\")] on it",
+    );
+    has(
+        &text,
+        "::error file=inner/tests/t.rs,line=1,col=18::allow(clippy::dbg_macro) lowers what the \
+         Rust check holds as errors; exempt the one item with #[expect(…, reason = \"…\")] on \
+         it, written as it stands",
+    );
+    has(
+        &text,
+        "::error file=crates/clippy.toml,line=1,col=22::allow-dbg-in-tests = true lets dbg! pass \
+         in every test, and the Rust check holds it as an error there; exempt the one item with \
+         #[expect(clippy::dbg_macro, reason = \"…\")] on it",
+    );
+    assert_eq!(text.matches("::error ").count(), 3, "{text}");
+    has(&text, "todo!, unimplemented! and dbg! stay errors: failed");
+    assert!(!text.contains("cargo clippy"), "{text}");
+}
+
+#[test]
+fn a_file_the_search_cannot_read_is_a_finding_and_one_without_tokens_is_left_to_clippy() {
+    let mut fixture = Fixture::new();
+    fixture.file("inner/src/broken.rs", "fn f() {\n");
+    // A file of a package that is out is not read.
+    fixture.files.extend([
+        "inner/src/broken.rs",
+        "inner/src/gone.rs",
+        "third/src/gone.rs",
+    ]);
+    fixture.kept = vec!["clippy.toml"];
+    let (code, text) = fixture.run();
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains("::error file=inner/src/gone.rs::cannot be read: "),
+        "{text}"
+    );
+    assert!(
+        text.contains("::error file=clippy.toml::cannot be read: "),
+        "{text}"
+    );
+    assert!(!text.contains("file=third/src/gone.rs"), "{text}");
+    has(
+        &text,
+        "inner/src/broken.rs holds no tokens Rust could read; Clippy reports that where it \
+         compiles the file.",
+    );
+    has(&text, "todo!, unimplemented! and dbg! stay errors: failed");
+}
+
+#[test]
+fn the_search_reads_every_rust_file_unless_a_package_left_out_or_an_unseen_project_holds_it() {
+    let local = |dir: &str, member: bool, reason: Option<&str>| Local {
+        name: dir.to_owned(),
+        dir: dir.to_owned(),
+        member,
+        nested: Vec::new(),
+        reason: reason.map(str::to_owned),
+        targets: Vec::new(),
+        rust_version: None,
+    };
+    // A workspace alone at the root, no package of its own.
+    let locals = [
+        local("crates/a", true, None),
+        local("crates/out", true, Some("a vendored copy")),
+        local("crates/dep", false, None),
+        local("/outside", true, None),
+    ];
+    let tracked: Vec<RelativePath> = [
+        "Cargo.toml",
+        "crates/a/Cargo.toml",
+        "crates/a/fixtures/project/Cargo.toml",
+        "crates/a/src/lib.rs",
+        "crates/dep/Cargo.toml",
+        "crates/out/Cargo.toml",
+        "crates/NotCargo.toml",
+        "README.md",
+    ]
+    .iter()
+    .map(|file| path(file))
+    .collect();
+    let manifests = rust::manifest_folders(&tracked);
+    assert_eq!(
+        manifests.iter().map(String::as_str).collect::<Vec<_>>(),
+        [
+            ".",
+            "crates/a",
+            "crates/a/fixtures/project",
+            "crates/dep",
+            "crates/out"
+        ]
+    );
+    let searched = |file: &str| rust::searched(&locals, &manifests, ".", file);
+    assert!(searched("crates/a/src/lib.rs"));
+    assert!(searched("crates/a/tests/deep/t.rs"));
+    // A file no package holds, which a checked package can pull in with
+    // `#[path]` or a target `path`.
+    assert!(searched("shared/helper.rs"));
+    assert!(searched("build.rs"));
+    assert!(searched("crates/b/src/lib.rs"));
+    // A package that is out, a path dependency formatted only, and a project
+    // Cargo does not see are not read.
+    assert!(!searched("crates/out/src/lib.rs"));
+    assert!(!searched("crates/dep/src/lib.rs"));
+    assert!(!searched("crates/a/fixtures/project/src/lib.rs"));
+    // A manifest that is no package's and not the workspace's is a project
+    // Cargo does not see.
+    assert!(!rust::searched(
+        &locals,
+        &manifests,
+        "crates",
+        "shared/helper.rs"
+    ));
+    // No manifest above the file at all.
+    assert!(rust::searched(&locals, &BTreeSet::new(), ".", "src/lib.rs"));
+    // A package at the root counts as any other.
+    let root = [local(".", true, None)];
+    assert!(rust::searched(&root, &manifests, ".", "src/lib.rs"));
+    let out = [local(".", true, Some("a vendored copy"))];
+    assert!(!rust::searched(&out, &manifests, ".", "src/lib.rs"));
 }
 
 #[test]
