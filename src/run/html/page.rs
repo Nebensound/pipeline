@@ -8,10 +8,9 @@
 //! start tag of the element it is about (`<head>` is found at its `head`),
 //! counted in characters from 1.
 //!
-//! A page is a file whose document begins with `<!doctype html>` or has an
-//! `<html>` root written as a tag. Any other HTML file, such as a fragment or a
-//! header that a generator includes, is no page, and the rules find nothing in
-//! it. Every page has
+//! A page is a file that holds a doctype, or whose `<html>` root is written as
+//! a tag. Any other HTML file, such as a fragment or a header that a generator
+//! includes, is no page, and the rules find nothing in it. Every page has
 //!
 //! - a title: a `<title>` element with text in it (a `<title>` of an inline
 //!   `<svg>` belongs to the image, not to the page);

@@ -833,17 +833,17 @@ and so is a repository with errors, for the same reason it gets no plan.
 
 Phase 0 also holds the tools' own ways of leaving a file out against the
 declaration — `.prettierignore`, `include` and `exclude` in `taplo.toml`,
-`ignores` of markdownlint-cli2, `exclude_path` of lychee,
-`ignore` of rustfmt, `include`, `ignore` and `exclude` of Pyright, `omit` of
-coverage.py, `exclude`, `extend-exclude`, `include`, `lint.exclude` and
-`format.exclude` of Ruff, through its `extend` as well, a Python file's
-`# ruff: noqa`, `.stylelintignore` and `ignoreFiles` of Stylelint — and fails on every file one of them
-takes out that no `[[exclude]]` entry does (`unexcused-ignore`). The checks
-read none of them except lychee's `exclude_path`, which `run markdown` and
-`run html` apply themselves, matched against the path from the root as phase 0
-matches it, and rustfmt's `ignore`, which takes effect on a nightly toolchain,
-and Ruff's `# ruff: noqa`, which the file holds itself; run by hand, the tools
-read them all.
+`ignores` of markdownlint-cli2, `exclude_path` of lychee, `ignore` of rustfmt,
+`include`, `ignore` and `exclude` of Pyright, `omit` of coverage.py, `exclude`,
+`extend-exclude`, `include`, `lint.exclude` and `format.exclude` of Ruff,
+through its `extend` as well, a Python file's `# ruff: noqa`, `.stylelintignore`
+and `ignoreFiles` of Stylelint — and fails on every file one of them takes out
+that no `[[exclude]]` entry does (`unexcused-ignore`). The checks read none of
+them except lychee's `exclude_path`, which `run markdown` and `run html` apply
+themselves, matched against the path from the root as phase 0 matches it, and
+rustfmt's `ignore`, which takes effect on a nightly toolchain, and Ruff's
+`# ruff: noqa`, which the file holds itself; run by hand, the tools read them
+all.
 
 ## Setting up the programs
 
@@ -994,24 +994,22 @@ found as [for the other calls](#for-the-other-calls), with the flags that set
 their own ignore mechanisms aside, at the repository root, where the
 repository keeps their configuration. It installs nothing: a program that is
 neither pinned nor on the computer fails the check and names `setup`, and the
-parts of the check whose programs are there still run. Two
-programs are run through their internals, so that the repository's rules are
-laid over the pipeline's default ([The rules](#the-rules)): markdownlint, a
-library with no command, and Stylelint, on Node.js. Of those two only the
-pinned copy is taken, since only its internals are known, and
-the check fails with a pointer to `setup --pinned` otherwise. markdownlint gets
-the files and, for each group of files with the same rules, the configuration
-the tool reads ([The configuration of a linter](#the-configuration-of-a-linter)),
-and reads nothing else. What the tool judges itself starts no program: whether
-a JSON, JSONC or YAML file parses, which a missing program never keeps from
-running, whether the Dependabot configuration matches the schema compiled in,
-and whether an HTML page carries what a page must carry
-([The page rules](#the-page-rules)). Stylelint
-gets, for each group of stylesheets with the same configuration, a
-configuration object the tool built and looks for none
-([Stylelint](#stylelint)); what the default extends and the syntax for SCSS it
-gets by their place in the pinned install, with an empty ignore file in place
-of `.stylelintignore`. The link check of the
+parts of the check whose programs are there still run. Two programs are run
+through their internals, so that the repository's rules are laid over the
+pipeline's default ([The rules](#the-rules)): markdownlint, a library with no
+command, and Stylelint, on Node.js. Of those two only the pinned copy is taken,
+since only its internals are known, and the check fails with a pointer to
+`setup --pinned` otherwise. markdownlint gets the files and, for each group of
+files with the same rules, the configuration the tool reads ([The configuration
+of a linter](#the-configuration-of-a-linter)), and reads nothing else. What the
+tool judges itself starts no program: whether a JSON, JSONC or YAML file parses,
+which a missing program never keeps from running, whether the Dependabot
+configuration matches the schema compiled in, and whether an HTML page carries
+what a page must carry ([The page rules](#the-page-rules)). Stylelint gets, for
+each group of stylesheets with the same configuration, a configuration object
+the tool built and looks for none ([Stylelint](#stylelint)); what the default
+extends and the syntax for SCSS it gets by their place in the pinned install,
+with an empty ignore file in place of `.stylelintignore`. The link check of the
 HTML check resolves a link from the root of a site, such as `/login`, below an
 empty folder, and a second configuration behind the one the tool writes
 leaves out every address below it, written with the folder's path without

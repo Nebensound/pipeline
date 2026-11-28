@@ -301,9 +301,9 @@ output of a run is not.
   (`<meta name="description">`, `page/description`), exactly one `h1`
   (`page/one-h1`), and alternative text on every image (`page/image-alt`; an
   empty `alt=""` counts, for an image that only decorates). A page is a file
-  whose document begins with `<!doctype html>` or has an `<html>` root; any
-  other HTML file, such as a fragment or header a generator includes, gets the
-  other checks without these. The page rules are code of the tool
+  that holds a doctype, or whose `<html>` root is written as a tag; any other
+  HTML file, such as a fragment or header a generator includes, gets the other
+  checks without these. The page rules are code of the tool
   ([`src/run/html/page.rs`](src/run/html/page.rs)): it parses each file with
   html5ever, by the HTML standard, as a browser does, and reads the rules off
   the document. No configuration of the repository and no comment in a page
@@ -997,15 +997,15 @@ finds in each folder, relative to that folder, in order with its negated
 patterns, and counts for the files below it that no nearer configuration
 governs; a configuration in JavaScript is not judged. The CSS check reads none
 of it: it hands Stylelint no `ignoreFiles`, and a file Stylelint still leaves
-out fails in the block. coverage.py takes its settings from the first of `.coveragerc` (or the
-file `--rcfile` or `COVERAGE_RCFILE` names), `.coveragerc.toml`, `setup.cfg`,
-`tox.ini` and `pyproject.toml` in the folder it runs in that exists, where
-`setup.cfg`, `tox.ini` and `pyproject.toml` count only when they hold settings
-of its own; since that depends on where it runs, phase 0 reads `omit` of the
-run and report sections in every one of them in every folder, relative to that
-folder. In `.coveragerc` the sections are `[coverage:run]` and
-`[coverage:report]`, or `[run]` and `[report]` where the prefixed section is
-missing; in `setup.cfg` and `tox.ini` `[coverage:run]` and
+out fails in the block. coverage.py takes its settings from the first of
+`.coveragerc` (or the file `--rcfile` or `COVERAGE_RCFILE` names),
+`.coveragerc.toml`, `setup.cfg`, `tox.ini` and `pyproject.toml` in the folder it
+runs in that exists, where `setup.cfg`, `tox.ini` and `pyproject.toml` count
+only when they hold settings of its own; since that depends on where it runs,
+phase 0 reads `omit` of the run and report sections in every one of them in
+every folder, relative to that folder. In `.coveragerc` the sections are
+`[coverage:run]` and `[coverage:report]`, or `[run]` and `[report]` where the
+prefixed section is missing; in `setup.cfg` and `tox.ini` `[coverage:run]` and
 `[coverage:report]`; in `pyproject.toml` `[tool.coverage.run]` and
 `[tool.coverage.report]`; and in `.coveragerc.toml` the latter, or `[run]` and
 `[report]` where the prefixed table is missing, as coverage.py looks them up.
