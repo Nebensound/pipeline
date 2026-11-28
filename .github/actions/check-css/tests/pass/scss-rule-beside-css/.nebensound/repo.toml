@@ -1,0 +1,9 @@
+# A stylesheet and an SCSS file, and a .stylelintrc.json that switches a rule
+# of the plugin for SCSS off for the whole repository. The plugin is loaded for
+# the SCSS file only, and Stylelint would report the rule as unknown for the
+# stylesheet, so the check hands it over for the SCSS file alone: the SCSS
+# file's variable name, which the rule would forbid, passes, and so does the
+# stylesheet.
+[repo]
+audience = "public"
+pipeline = { check = ["css"] }

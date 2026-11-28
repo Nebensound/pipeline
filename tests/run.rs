@@ -126,10 +126,10 @@ if [ "$1" = "--version" ]; then echo v24.0.0; exit 0; fi
 echo "node $1 $2 TOOLS=$TOOLS"
 case "$3" in
   *'load("stylelint"'*)
-    echo "default: $(grep -c -e '- stylelint-config-standard' "$DEFAULT") configurations extended"
+    echo "stylelint job: $(cat "$JOB")"
     echo "nothing ignored: [$(cat "$NOTHING")]"
     status=0
-    for f in $(tr '\0' ' ' < "$LIST"); do
+    for f in $(grep -oE '"[^"]*\.s?css"' "$JOB" | tr -d '"'); do
       case "$f" in
         *styled*)
           echo "{\"level\":\"error\",\"file\":\"$f\",\"line\":2,\"column\":10,\"message\":\"Expected \\\"#00aa77\\\" to be \\\"#0a7\\\" (color-hex-length)\"}" >> "$FINDINGS"
@@ -143,7 +143,6 @@ case "$3" in
         *vanished*) printf '\377\n' >> "$FINDINGS" ;;
       esac
     done
-    echo "Rules: the pipeline default"
     exit "$status" ;;
   *'"html-validate", "dist"'*)
     echo "default: $(grep -c 'html-validate:' "$DEFAULT") presets"
@@ -1417,6 +1416,19 @@ fn every_kind_of_yaml_finding_is_reported() {
 }
 
 #[test]
+fn a_key_of_a_dependabot_configuration_that_is_no_text_is_held_against_the_schema_as_text() {
+    let fixture = Fixture::new();
+    fixture.everything().file(
+        ".github/dependabot.yml",
+        "version: 2\nupdates:\n  - package-ecosystem: cargo\n    directory: /\n    \
+         schedule:\n      interval: weekly\n1: x\n",
+    );
+    let (code, text) = fixture.run(Check::Yaml, &[".github/dependabot.yml"], true);
+    assert_eq!(code, 1, "{text}");
+    assert!(text.contains("('1' was unexpected)"), "{text}");
+}
+
+#[test]
 fn a_dependabot_configuration_that_does_not_parse_is_not_held_against_the_schema() {
     let fixture = Fixture::new();
     fixture
@@ -2646,22 +2658,107 @@ fn stylesheets_are_formatted_and_pass_stylelint() {
         "{prettier}"
     );
     // Stylelint runs on its runtime, from its pinned folder, with the
-    // default compiled into the tool and an empty ignore file.
+    // default compiled into the tool, by package, and an empty ignore file:
+    // the plain stylesheet with the standard configuration, the SCSS file
+    // with its counterpart and syntax as well.
     let folder = fixture.folder("stylelint", "18.0.0");
     has(
         &text,
         &format!("node --input-type=module --eval TOOLS={}", folder.display()),
     );
-    has(&text, "default: 2 configurations extended");
+    has(
+        &text,
+        "stylelint job: {\"groups\":[\
+         {\"extends\":[\"stylelint-config-standard\"],\"customSyntax\":null,\
+         \"config\":{\"rules\":{}},\"files\":[\"styles/a.css\"]},\
+         {\"extends\":[\"stylelint-config-standard\",\"stylelint-config-standard-scss\"],\
+         \"customSyntax\":\"postcss-scss\",\"config\":{\"rules\":{}},\
+         \"files\":[\"styles/b.scss\"]}]}",
+    );
     has(&text, "nothing ignored: []");
-    has(&text, "Rules: the pipeline default");
-    assert!(css::STYLELINT.contains("ignoreFiles: []"));
+    assert!(
+        text.contains("Stylelint: the default, nothing laid over it"),
+        "{text}"
+    );
+    // The script hands Stylelint a configuration object and the packages
+    // by their place, and looks for no configuration of its own.
+    for written in [
+        "config,",
+        "ignoreFiles: []",
+        "disableDefaultIgnores: true",
+        "group.extends.map(pinned)",
+        "config.customSyntax = pinned(group.customSyntax)",
+    ] {
+        assert!(css::STYLELINT.contains(written), "{written}");
+    }
+    for absent in ["cosmiconfig", "configBasedir", "configFile", "explorer"] {
+        assert!(!css::STYLELINT.contains(absent), "{absent}");
+    }
 
     let (code, text) = fixture.run(Check::Css, &[], true);
     assert_eq!(code, 0, "{text}");
     assert_eq!(
         text,
         "No stylesheet below '.'; there is nothing to check.\n"
+    );
+}
+
+#[test]
+fn the_css_check_hands_stylelint_the_rules_of_the_repository_and_refuses_what_loads_code() {
+    let fixture = Fixture::new();
+    fixture
+        .everything()
+        .file(
+            ".stylelintrc.json",
+            "{ \"defaultSeverity\": \"error\", \"rules\": { \"color-hex-length\": \"long\" },\n\
+             \"overrides\": [{ \"files\": [\"legacy/**\"], \"rules\": { \"color-named\": null } }],\n\
+             \"plugins\": [\"./plugin.mjs\"] }\n",
+        )
+        .file("stylelint.config.mjs", "export default {};\n")
+        .file("package.json", "{ \"stylelint\": { \"rules\": {} } }\n")
+        .file("legacy/old.css", "a {}\n")
+        .file("site.css", "a {}\n");
+    let (code, text) = fixture.run(Check::Css, &["legacy/old.css", "site.css"], true);
+    assert_eq!(code, 1, "{text}");
+    // Every problem with the configuration is a finding at its file, and
+    // the rest of it is handed over.
+    has(
+        &text,
+        "::error file=.stylelintrc.json::`plugins` is not handed to Stylelint: it names modules \
+         of rules, which would be loaded and run, and the CSS check runs no code of the \
+         repository",
+    );
+    has(
+        &text,
+        "::error file=stylelint.config.mjs::not read: the tool reads the configuration of \
+         stylelint only as data, from one file at the root of the repository (`.stylelintrc`, \
+         `.stylelintrc.json`, `.stylelintrc.yaml`, `.stylelintrc.yml`), and never runs this one",
+    );
+    has(
+        &text,
+        "::error file=package.json::not read: the tool reads the configuration of stylelint \
+         only as data, from one file at the root of the repository, and not from the \
+         `stylelint` key of `package.json`",
+    );
+    has(
+        &text,
+        "stylelint job: {\"groups\":[\
+         {\"extends\":[\"stylelint-config-standard\"],\"customSyntax\":null,\
+         \"config\":{\"defaultSeverity\":\"error\",\
+         \"rules\":{\"color-hex-length\":\"long\",\"color-named\":null}},\
+         \"files\":[\"legacy/old.css\"]},\
+         {\"extends\":[\"stylelint-config-standard\"],\"customSyntax\":null,\
+         \"config\":{\"defaultSeverity\":\"error\",\"rules\":{\"color-hex-length\":\"long\"}},\
+         \"files\":[\"site.css\"]}]}",
+    );
+    // The check prints what the rules report shows.
+    assert!(
+        text.contains("Stylelint: the default, with these laid over it"),
+        "{text}"
+    );
+    assert!(
+        text.contains("for `legacy/**`: laid over the default and the rules above, rule by rule"),
+        "{text}"
     );
 }
 

@@ -1007,10 +1007,11 @@ and reads nothing else. What the tool judges itself starts no program: whether
 a JSON, JSONC or YAML file parses, which a missing program never keeps from
 running, and whether the Dependabot configuration matches the schema compiled
 in. Stylelint
-gets, for each stylesheet, the configuration nearest to it as the last of what
-its configuration extends, after the default, with `ignoreFiles` set aside and
-an empty ignore file in place of `.stylelintignore`, and finds only the pinned
-packages beside it. html-validate gets, for each page, the `.htmlvalidate.*`
+gets, for each group of stylesheets with the same configuration, a
+configuration object the tool built and looks for none
+([Stylelint](#stylelint)); what the default extends and the syntax for SCSS it
+gets by their place in the pinned install, with an empty ignore file in place
+of `.stylelintignore`. html-validate gets, for each page, the `.htmlvalidate.*`
 files of its folder and the folders above it, up to the repository root, laid
 over the default, and the page rules over both, written into the folder of what
 `run` hands the programs and loaded from there; a flat configuration
@@ -1242,21 +1243,17 @@ html-validate name no rule of their own, only what they extend (`stylelint-confi
 `recommended`, `a11y` and `prettier`), so every rule a repository sets for them
 is shown as one the pipeline's file does not name.
 
-Read are, for Markdownlint, the one file the Markdown check reads
-([The configuration of a linter](#the-configuration-of-a-linter)), with each
-difference by pattern shown under it. The Markdown check prints the same lines
-for Markdownlint before it lints, so what the report shows is what runs. Every
-file of Markdownlint's configuration that is not read and every key that is not
+Read are, for Markdownlint and Stylelint, the one file the Markdown and the
+CSS check read ([The configuration of a linter](#the-configuration-of-a-linter)),
+with each difference by pattern shown under it. Each check prints the same
+lines for its linter before it lints, so what the report shows is what runs.
+Every file of their configuration that is not read and every key that is not
 handed over is shown at its file, with why. A file in JavaScript is named, not
 read: phase 0 runs no code of the repository. What an `extends` names is named,
 not read.
 
 Stylelint and html-validate are shown only where their check covers a file.
-For Stylelint, the configuration nearest to each stylesheet is read: the first
-of the names Stylelint looks for in its folder or the nearest folder above it,
-`package.json` only where it holds a `stylelint` key. Below the root it is
-shown `in place of any configuration above it`, as the block lays only the
-nearest one over the default. For html-validate, every `.htmlvalidate.*` of a
+For html-validate, every `.htmlvalidate.*` of a
 folder that holds a page or holds one below it is read, each laid over the
 default and what lies above it, up to a folder whose `.htmlvalidate.json` says
 `root: true`: that folder's files are shown `in place of any configuration
@@ -1303,8 +1300,8 @@ A reading check starts no code of the repository, so a linter under this rule
 never looks for its configuration itself: the tool reads it, in one place
 ([`src/linter_config.rs`](../src/linter_config.rs)), and hands the linter the
 configuration it wrote. The rules report and phase 0 read through the same
-place, so what the report shows is what runs. markdownlint and Prettier are
-the linters under the rule today; the link check's lychee gets its
+place, so what the report shows is what runs. markdownlint, Prettier and
+Stylelint are the linters under the rule today; the link check's lychee gets its
 configuration from the tool the same way
 ([`src/lychee_config.rs`](../src/lychee_config.rs)). The others still find and
 read the repository's configuration themselves
@@ -1478,10 +1475,33 @@ other number take effect or are no value Prettier takes, and fail by name.
 An entry of `overrides` is matched as Prettier matches it, over the path from
 the root: a pattern of `files` without a `/` matches the file's name in any
 folder, one with a `/` the whole path; `*` stops at a `/`, `**` does not;
-`excludeFiles` takes files out of the entry. Three forms of pattern are not
-read, and an entry that holds one fails by name: a group, `(...)`, with or
-without `*`, `?`, `+`, `@` or `!` before it; a class such as `[[:digit:]]`; and
-a sequence such as `{1..3}`. Braces with a list, `{a,b}`, are read.
+`excludeFiles` takes files out of the entry. The forms of pattern that
+Prettier's matcher, picomatch, can read differently from the tool's are not
+read, and an entry that holds one fails by name:
+
+- a group, `(...)`, with or without `*`, `?`, `+`, `@` or `!` before it, and a
+  `|` anywhere, which parts alternatives there;
+- a class such as `[[:digit:]]`; a class that starts with `!`, such as
+  `[!_]`, in which picomatch reads the `!` as a character; a class of plain
+  characters, such as `[ab]`, which picomatch also reads as its own text; and
+  a class that does not start with `^` and holds a `/`, or a range whose ends
+  enclose one, such as `[/-]` or `[.-0]`, which can match a `/` there;
+- a sequence such as `{1..3}`; a pair of braces without a `,`, such as `{a}`,
+  which picomatch reads as its own text; an empty alternative, as in `{,a}`;
+  and an alternative that is a lone `*`, as in `{a,*}`, which can match the
+  empty text, so that `web/**/{a,*}` matches `web`;
+- a `+` right after a class or braces, `]+` or `}+`, which picomatch reads as a
+  repetition, and a doubled plus, `++`;
+- a run of three `*` or more; a `**` beside a brace or a `,`, as in `**{a,b}`
+  or `{**,a}`, which crosses a `/` there; a pattern that ends in `**/`, which
+  matches no file there; and an empty segment beside a `**`, `//**` or `**//`;
+- a `!` after a leading `!` or `./`, as in `!!a` or `./!a`;
+- a double quote, inside which picomatch reads every character as plain text,
+  and a backslash.
+
+Braces with a list, `{a,b}`, are read, and so are a class with a range or a
+`^` that takes characters out, such as `[a-z]` or `[^_]`. Such a class never
+matches a `/`, as in picomatch: `web[^_]x.css` does not match `web/x.css`.
 
 ```yaml
 overrides:
@@ -1516,6 +1536,113 @@ has, which of its own parsers reads a file a check formats, and so on, per
 file by pattern. It cannot make Prettier load or run anything, read another
 file, read a file with a parser a plugin brings, or leave a file or a part of
 it unchecked.
+
+### Stylelint
+
+The CSS check hands Stylelint, for each group of stylesheets with the same
+configuration, a configuration object the tool built, and Stylelint looks for
+no file of configuration: not the repository's, not one in a folder above it,
+not one in a home folder. Nothing in that object comes from the repository but
+rules and options that are data. What it extends and the syntax it reads SCSS
+with come from the pipeline's default
+([`rules/stylelint.yaml`](../rules/stylelint.yaml)) alone, by package: the
+check hands Stylelint each of them by its absolute place in the pinned install,
+resolved from the folder of the pinned packages and refused where it would lie
+anywhere else, and Stylelint runs with that folder as its working directory.
+So a `node_modules` folder the repository commits, holding a package of the
+same name as a pinned one, is never loaded. Each stylesheet is handed over as
+its content, with an empty ignore file in place of `.stylelintignore`, and
+Stylelint's own leaving out of `node_modules` is switched off: nothing takes
+out a file that `files` names.
+
+The tool reads the first of `.stylelintrc` (YAML), `.stylelintrc.json` (plain
+JSON, as Stylelint read it: no comments), `.stylelintrc.yaml` and
+`.stylelintrc.yml` at the root. The keys the tool carries over, sets aside,
+accepts only at `false` and refuses by name stand in
+[`src/linter_config/stylelint.rs`](../src/linter_config/stylelint.rs):
+
+- Carried over: `rules` and `overrides`, and the options that are data and fail
+  nothing that would fail without them: `defaultSeverity` as `error`,
+  `ignoreDisables`, `configurationComment`, `languageOptions` and the four
+  `report…Disables`. Every key of `rules` is a rule of the pinned Stylelint
+  18.0.0, or of stylelint-scss, the plugin the default brings along for
+  `.scss`, written `scss/<name>`. The tool knows those names from lists
+  compiled in, taken from the two packages (`lib/rules/index.mjs` and
+  `src/rules/index.js`), and loads nothing to learn them; a key that is no
+  such rule fails the check by name. The value of a rule is handed over as
+  written: Stylelint checks its options and names a wrong one, and a rule may
+  be switched off (`null`) or set to warn, as before.
+- Set aside, since the check decides them itself: `ignoreFiles` and
+  `allowEmptyInput` (the files are those `files` names, and phase 0 holds
+  `ignoreFiles` against the declaration, see
+  [Exclusions](../README.md#exclusions)), `cache`, `maxWarnings` (the check
+  fails on every error and on no warning), `validate` (Stylelint checks the
+  options of every rule) and `$schema`.
+- Accepted only at `false`, the value Stylelint takes where the key is not
+  written, and then not handed over: `fix`, which would fix what it can in
+  memory and report only the rest, and `quiet`, which would drop every warning.
+  Any other value, `true` among them, fails the check by name.
+- Refused by name: `extends`, `plugins`, `customSyntax`, `processors`,
+  `referenceFiles` and `formatter`, which name a module or another file, and
+  `defaultSeverity: warning`, which would make every rule that names no
+  severity of its own a warning and so switch the failing of the whole check
+  off. Any other key fails by name as unknown.
+
+A difference by pattern is an entry of `overrides` with `files` and `rules`,
+and `name` for a label. `fix` and `quiet` are taken in an entry as at the top:
+at `false` without a finding, at any other value failing by name. Any other key
+in an entry fails by name, so a pattern can carry rules and nothing else. Every
+entry whose `files` match a stylesheet counts for it, in their order, each laid
+over the rules before it, as Stylelint 18.0.0 matches the patterns of a file at
+the root: from the root of the repository, with `.`, `..` and a leading `./`
+worked out as Node's `path.join` does. `*` stops at a `/` and `**` does not,
+and a pattern that ends in `/**`, once or more, also matches the path before
+them, unless that path ends in `*`. A pattern also matches the file's name
+alone, so one without a `/` matches in any folder, and a pattern with a leading
+`!` matches every path its pattern does not, so beside other patterns it takes
+nothing back. Stylelint reads its patterns with picomatch too, and turns a
+backslash into a `/`, so the forms that [Prettier](#prettier) does not read are
+not read here either, also once the pattern is joined onto the root, and an
+entry that holds one fails by name. So does a pattern that starts with `/`, or
+whose `..` climbs above the root of the repository, with or without `!`:
+Stylelint matches it against the full path of a stylesheet on the machine, so
+what it matches would depend on where the repository lies. An empty pattern
+fails by name too, since Stylelint would refuse the whole file at it.
+
+```yaml
+rules:
+  color-hex-length: long
+overrides:
+  - files: ["legacy/**"]
+    rules:
+      color-named: null
+```
+
+The rules of a stylesheet are laid rule by rule, a later value in place of an
+earlier one: the default, with its own entry for `.scss`, then the file's
+rules, then each entry of its `overrides` that matches. A rule of the plugin
+for SCSS (`scss/<name>`) counts only for a stylesheet the default reads as
+SCSS, since only there it loads the plugin; for a `.css` file it is left out,
+wherever it was written. Stylelint would report it there as an unknown rule,
+even switched off.
+
+Not read, and named (`unread-configuration`): another of the names at the
+root, one in a folder below it, the same four forms in the folder `.config`
+(`.config/stylelintrc`, `.config/stylelintrc.json` and the others), which
+Stylelint would also find and which are named as files in a folder below the
+root, a configuration in JavaScript or TypeScript (`.stylelintrc.js`,
+`stylelint.config.mjs` and the others), wherever it lies, and the `stylelint`
+key of a `package.json`, wherever it lies. A YAML file with more than one
+document, at which Stylelint stops, fails by name and hands nothing over.
+
+What a repository can make Stylelint do is therefore: switch a rule of the
+default off, set it to warn, set its options, or switch on a rule of the pinned
+Stylelint, for the whole repository or by pattern, and the same for a rule of
+its plugin for SCSS, which counts for the `.scss` files among them;
+report its disable comments or ignore them; and teach the syntax checks what
+its CSS knows beyond the standard. It cannot make Stylelint load or run
+anything, read another file, leave a stylesheet out, or turn every rule into a
+warning.
 
 ## Where the file list comes from
 

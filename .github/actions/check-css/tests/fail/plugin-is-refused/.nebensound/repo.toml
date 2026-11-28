@@ -1,0 +1,11 @@
+# A configuration that names a plugin of the repository. The check refuses
+# `plugins` by name and hands the rest over: the long hex colour the file asks
+# for passes, and the plugin is never loaded, so no finding stands at the
+# stylesheet.
+[repo]
+audience = "public"
+pipeline = { check = ["css"] }
+
+[[exclude]]
+path   = "plugin.mjs"
+reason = "the plugin under test; JavaScript, which no check of the case covers"

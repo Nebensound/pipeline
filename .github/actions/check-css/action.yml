@@ -11,14 +11,15 @@ description: >-
 # `nebensound-repo files` names for the check and the unit (what Git tracks
 # below that path with an extension the register gives the check, less what an
 # `[[exclude]]` entry of the declaration takes out), starts Prettier and
-# Stylelint as the register pins them, lays the repository's Stylelint
-# configuration over the pipeline's default, which is compiled into the tool,
-# and reports every finding with its file, and its line and column where the
-# program gives them, as an annotation of the run: an error, or a warning for
-# what fails nothing. A file nobody committed is not judged, a committed one is
-# not missed, and no ignore mechanism of a program takes one out. It runs the
-# same way on a developer's computer; the reference says what each program is
-# handed.
+# Stylelint as the register pins them, reads the repository's Stylelint
+# configuration as data and lays it over the pipeline's default, which is
+# compiled into the tool, hands Stylelint the result so that it looks for no
+# configuration of its own, and reports every finding with its file, and its
+# line and column where the program gives them, as an annotation of the run: an
+# error, or a warning for what fails nothing. A file nobody committed is not
+# judged, a committed one is not missed, and no ignore mechanism of a program
+# takes one out. It runs the same way on a developer's computer; the reference
+# says what each program is handed.
 
 inputs:
   working-directory:
@@ -34,8 +35,8 @@ runs:
     # register is the only place their versions and digests stand, here as on a
     # developer's computer. They go into the tool's folder in the cache
     # directory, outside the checkout, so that nothing of them ends up in the
-    # tree being checked. Nothing else is installed, so a configuration of the
-    # repository that names another package fails.
+    # tree being checked. Nothing else is installed, and the check hands
+    # Stylelint each of these packages by its place there.
     - name: Set up the programs of the stylesheet check
       shell: bash
       run: nebensound-repo setup --pinned --with-runtimes css

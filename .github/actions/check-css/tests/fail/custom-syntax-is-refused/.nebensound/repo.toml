@@ -1,0 +1,11 @@
+# A configuration that names a syntax of the repository to read stylesheets
+# with. The check refuses `customSyntax` by name and hands the rest over: the
+# long hex colour the file asks for passes, and the syntax is never loaded, so
+# no finding stands at the stylesheet.
+[repo]
+audience = "public"
+pipeline = { check = ["css"] }
+
+[[exclude]]
+path   = "syntax.mjs"
+reason = "the syntax under test; JavaScript, which no check of the case covers"

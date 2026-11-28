@@ -189,14 +189,14 @@ pub struct Context<'a> {
     /// removes again.
     pub temp: &'a Path,
     /// What the Rust check reads of the repository beyond its files, and
-    /// what the checks read for the configuration of markdownlint and
-    /// Prettier.
+    /// what the checks read for the configuration of markdownlint, Prettier
+    /// and Stylelint.
     pub packages: Packages<'a>,
 }
 
 /// What the Rust check reads of the repository beyond its files, and what
-/// the checks read for the configuration of markdownlint and Prettier
-/// ([`crate::linter_config`]).
+/// the checks read for the configuration of markdownlint, Prettier and
+/// Stylelint ([`crate::linter_config`]).
 pub struct Packages<'a> {
     /// The repository, into whose manifests the package test writes the
     /// versions, and from which the configuration is read.

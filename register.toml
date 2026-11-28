@@ -695,13 +695,46 @@ executable = "ruff.exe"
 # The npm registry's `dist.integrity`, in hexadecimal; `engines.node` is
 # "^22.22.2 || ^24.15.0 || >=26.0.0". Its companions are no commands: the
 # configurations the pipeline's default extends, and the syntax it reads SCSS
-# with, installed beside it so that the default finds them, each with the
-# registry's digest as well.
+# with, installed beside it, each with the registry's digest as well. The CSS
+# check hands Stylelint each of them by its place in that install.
+#
+# `configuration` names the files a repository writes its configuration of
+# Stylelint in, at the root, in a format of data, in the order Stylelint looks
+# for them in a folder. `configuration-not-read` names the files Stylelint
+# would also read: the same four forms in the folder `.config`, which the tool
+# does not read, since it reads one file per linter at the root, and the files
+# written in JavaScript or TypeScript, which it runs none of. The tool names
+# each of them. Stylelint would read the `stylelint` key of a `package.json` as
+# well, before all of them; the tool names such a file too.
 [program.stylelint]
-version         = "18.0.0"
-command         = "stylelint"
-runtime         = "node"
+version = "18.0.0"
+command = "stylelint"
+runtime = "node"
 runtime-minimum = "22.22.2"
+configuration = [
+  ".stylelintrc",
+  ".stylelintrc.json",
+  ".stylelintrc.yaml",
+  ".stylelintrc.yml",
+]
+configuration-not-read = [
+  ".config/stylelintrc",
+  ".config/stylelintrc.json",
+  ".config/stylelintrc.yaml",
+  ".config/stylelintrc.yml",
+  ".stylelintrc.js",
+  ".stylelintrc.ts",
+  ".stylelintrc.cjs",
+  ".stylelintrc.mjs",
+  ".config/stylelintrc.js",
+  ".config/stylelintrc.ts",
+  ".config/stylelintrc.cjs",
+  ".config/stylelintrc.mjs",
+  "stylelint.config.js",
+  "stylelint.config.ts",
+  "stylelint.config.cjs",
+  "stylelint.config.mjs",
+]
 
 [program.stylelint.download.any]
 url    = "https://registry.npmjs.org/stylelint/-/stylelint-18.0.0.tgz"

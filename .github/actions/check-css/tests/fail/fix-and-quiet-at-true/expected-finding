@@ -1,0 +1,2 @@
+::error file=.stylelintrc.yaml::`fix` is not handed to Stylelint: any value but `false` would make Stylelint fix what it can and report only the rest, so that a finding it can fix would pass unreported
+::error file=.stylelintrc.yaml::`quiet` is not handed to Stylelint: any value but `false` would drop every warning from what the check shows

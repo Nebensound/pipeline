@@ -1,0 +1,12 @@
+# A configuration of Stylelint in JavaScript that throws when it is loaded.
+# Phase 0 names such a file as not read wherever no exclusion takes it out;
+# here one has to, since no check of the case covers JavaScript. The check runs
+# with the pipeline's default, so the stylesheet fails the rule the module would
+# switch off, and no finding says that Stylelint could not check it.
+[repo]
+audience = "public"
+pipeline = { check = ["css"] }
+
+[[exclude]]
+path   = "stylelint.config.mjs"
+reason = "the configuration under test; JavaScript, which no check of the case covers"

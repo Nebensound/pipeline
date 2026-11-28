@@ -1,0 +1,11 @@
+# A configuration that extends a module of the repository. The check refuses
+# `extends` by name and hands the rest over: the long hex colour the file asks
+# for passes, and the module is never loaded, so no finding stands at the
+# stylesheet.
+[repo]
+audience = "public"
+pipeline = { check = ["css"] }
+
+[[exclude]]
+path   = "shared.mjs"
+reason = "the module under test; JavaScript, which no check of the case covers"

@@ -459,23 +459,41 @@ fn every_kind_of_yaml_value_is_shown_as_the_json_it_stands_for() {
     let text = web(&[(
         ".stylelintrc.yml",
         "rules:\n\
-         \x20 a: 3\n\
-         \x20 b: 1.5\n\
-         \x20 c: .inf\n\
-         \x20 d: ~\n\
-         \x20 e: true\n\
-         \x20 f: [x, 2]\n\
-         \x20 g: { 1: x }\n",
+         \x20 alpha-value-notation: 3\n\
+         \x20 block-no-empty: 1.5\n\
+         \x20 color-named: .inf\n\
+         \x20 color-no-hex: ~\n\
+         \x20 comment-no-empty: true\n\
+         \x20 font-weight-notation: [x, 2]\n\
+         \x20 hue-degree-notation: { 1: x }\n",
     )]);
 
-    assert_eq!(after(&text, "a"), [format!("3 ({CSS_UNNAMED})")]);
-    assert_eq!(after(&text, "b"), [format!("1.5 ({CSS_UNNAMED})")]);
-    assert_eq!(after(&text, "c"), [format!("\".inf\" ({CSS_UNNAMED})")]);
-    assert_eq!(after(&text, "d"), [format!("null ({CSS_UNNAMED})")]);
-    assert_eq!(after(&text, "e"), [format!("true ({CSS_UNNAMED})")]);
-    assert_eq!(after(&text, "f"), [format!("[\"x\",2] ({CSS_UNNAMED})")]);
     assert_eq!(
-        after(&text, "g"),
+        after(&text, "alpha-value-notation"),
+        [format!("3 ({CSS_UNNAMED})")]
+    );
+    assert_eq!(
+        after(&text, "block-no-empty"),
+        [format!("1.5 ({CSS_UNNAMED})")]
+    );
+    assert_eq!(
+        after(&text, "color-named"),
+        [format!("\".inf\" ({CSS_UNNAMED})")]
+    );
+    assert_eq!(
+        after(&text, "color-no-hex"),
+        [format!("null ({CSS_UNNAMED})")]
+    );
+    assert_eq!(
+        after(&text, "comment-no-empty"),
+        [format!("true ({CSS_UNNAMED})")]
+    );
+    assert_eq!(
+        after(&text, "font-weight-notation"),
+        [format!("[\"x\",2] ({CSS_UNNAMED})")]
+    );
+    assert_eq!(
+        after(&text, "hue-degree-notation"),
         [format!("{{\"1\":\"x\"}} ({CSS_UNNAMED})")]
     );
 }
@@ -662,22 +680,21 @@ fn stylesheets_and_pages_show_their_defaults_only_where_their_check_covers_a_fil
 }
 
 #[test]
-fn stylelint_reads_the_nearest_configuration_of_each_stylesheet() {
+fn stylelint_reads_the_one_file_at_the_root_and_names_every_other() {
     let text = web(&[
-        ("package.json", "{ \"name\": \"site\" }\n"),
         (
             ".stylelintrc.json",
-            "{ \"rules\": { \"color-hex-length\": \"long\" } }\n",
+            "{ \"rules\": { \"color-hex-length\": \"long\" },\n\
+             \"overrides\": [{ \"files\": \"web/**\", \"rules\": { \"color-named\": null } },\n\
+             { \"files\": [\"*.scss\", \"admin/*\"], \"name\": \"none\" }] }\n",
         ),
+        (".config/stylelintrc.yml", "rules:\n  color-named: never\n"),
+        (".stylelintrc.yml", "rules:\n  color-named: never\n"),
         (
             "web/.stylelintrc.yaml",
             "extends: stylelint-config-recess-order\n",
         ),
-        (
-            "web/admin/package.json",
-            "{ \"stylelint\": { \"rules\": {} } }\n",
-        ),
-        ("docs/.stylelintrc", "rules:\n  a: 1\n"),
+        ("web/stylelint.config.mjs", "export default {};\n"),
     ]);
 
     assert!(
@@ -686,57 +703,70 @@ fn stylelint_reads_the_nearest_configuration_of_each_stylesheet() {
     );
     assert_eq!(
         after(&text, ".stylelintrc.json"),
-        ["laid over the default rule by rule"]
+        [
+            "laid over the default rule by rule",
+            "for `web/**`: laid over the default and the rules above, rule by rule",
+            "for `*.scss`, `admin/*`: laid over the default and the rules above, rule by rule; it \
+             names no rule",
+        ]
     );
     assert_eq!(
         after(&text, "color-hex-length"),
         [format!("\"long\" ({CSS_UNNAMED})")]
     );
     assert_eq!(
-        after(&text, "web/.stylelintrc.yaml"),
-        ["laid over the default rule by rule, in place of any configuration above it"]
+        after(&text, "color-named"),
+        [format!("null ({CSS_UNNAMED})")]
     );
-    assert_eq!(
-        after(&text, "extends"),
-        ["stylelint-config-recess-order: what it sets lies beneath the rules here"]
+    // Every other file of Stylelint's configuration is named, and nothing of
+    // it is read.
+    assert_eq!(after(&text, ".stylelintrc.yml").len(), 1, "{text}");
+    assert!(
+        after(&text, ".stylelintrc.yml")[0].ends_with(
+            "from one file at the root of the repository, and that is `.stylelintrc.json`"
+        ),
+        "{text}"
     );
-    assert_eq!(
-        after(&text, "web/admin/package.json"),
-        [
-            "laid over the default rule by rule, in place of any configuration above it; it \
-             names no rule"
-        ]
+    // The folder `.config` is not read either: a file of data there is
+    // named as one in a folder below the root.
+    assert_eq!(after(&text, ".config/stylelintrc.yml").len(), 1, "{text}");
+    assert!(
+        after(&text, ".config/stylelintrc.yml")[0]
+            .ends_with("a difference for a folder belongs in that file, as a pattern"),
+        "{text}"
     );
-    // A folder without a stylesheet below it is not read, nor is a
-    // package.json without a configuration of Stylelint.
-    assert!(!text.contains("docs/"), "{text}");
-    assert!(!text.contains("  package.json"), "{text}");
+    assert_eq!(after(&text, "web/.stylelintrc.yaml").len(), 1, "{text}");
+    assert!(
+        after(&text, "web/.stylelintrc.yaml")[0]
+            .ends_with("a difference for a folder belongs in that file, as a pattern"),
+        "{text}"
+    );
+    assert_eq!(after(&text, "web/stylelint.config.mjs").len(), 1, "{text}");
+    assert!(
+        after(&text, "web/stylelint.config.mjs")[0].ends_with("and never runs this one"),
+        "{text}"
+    );
+    assert!(!text.contains("recess-order"), "{text}");
 }
 
 #[test]
-fn stylelint_reads_a_configuration_in_the_config_folder_and_names_one_in_javascript() {
-    let text = web(&[
-        (".config/stylelintrc.yml", "rules:\n  color-named: never\n"),
-        ("web/stylelint.config.mjs", "export default {};\n"),
-        ("web/admin/package.json", "{ \"stylelint\": "),
-    ]);
+fn stylelint_names_every_key_it_does_not_hand_over() {
+    let text = web(&[(
+        ".stylelintrc.yaml",
+        "extends: stylelint-config-recess-order\nplugins: [./plugin.mjs]\nrules:\n  my-rule: true\n",
+    )]);
 
     assert_eq!(
-        after(&text, ".config/stylelintrc.yml"),
-        ["laid over the default rule by rule"]
-    );
-    assert_eq!(
-        after(&text, "color-named"),
-        [format!("\"never\" ({CSS_UNNAMED})")]
-    );
-    assert_eq!(
-        after(&text, "web/stylelint.config.mjs"),
-        ["written in JavaScript, which phase 0 does not run"]
-    );
-    assert_eq!(after(&text, "web/admin/package.json").len(), 1, "{text}");
-    assert!(
-        after(&text, "web/admin/package.json")[0].starts_with("cannot be read: "),
-        "{text}"
+        after(&text, ".stylelintrc.yaml"),
+        [
+            "laid over the default rule by rule; it names no rule",
+            "`extends` is not handed to Stylelint: it names further configuration, a module or \
+             another file, which would be loaded, and the tool reads one file",
+            "`plugins` is not handed to Stylelint: it names modules of rules, which would be \
+             loaded and run, and the CSS check runs no code of the repository",
+            "`rules.my-rule` is no rule of Stylelint 18.0.0 or of its plugin for SCSS, so it is \
+             not handed to Stylelint",
+        ]
     );
 }
 
@@ -865,29 +895,46 @@ fn a_configuration_of_stylelint_or_html_validate_that_does_not_read_says_why() {
         (
             ".stylelintrc.json",
             "[1]",
-            "cannot be read: it holds no mapping",
-        ),
-        (
-            ".stylelintrc.json",
-            "{ \"extends\": 3 }",
-            "cannot be read: `extends` is neither text nor a list of text",
-        ),
-        (
-            ".stylelintrc.json",
-            "{ \"extends\": [3] }",
-            "cannot be read: `extends` holds an entry that is not text",
+            "holds no mapping, so nothing of it is handed to Stylelint",
         ),
         (
             ".stylelintrc.json",
             "{ \"rules\": [] }",
+            "`rules` is not a mapping of rules, so it is not handed to Stylelint",
+        ),
+        (
+            ".stylelintrc.json",
+            "{ // a comment\n}",
+            "cannot be read, so nothing of it is handed to Stylelint: ",
+        ),
+        (
+            ".htmlvalidate.json",
+            "{ \"extends\": 3 }",
+            "cannot be read: `extends` is neither text nor a list of text",
+        ),
+        (
+            ".htmlvalidate.json",
+            "{ \"extends\": [3] }",
+            "cannot be read: `extends` holds an entry that is not text",
+        ),
+        (
+            ".htmlvalidate.json",
+            "{ \"rules\": [] }",
             "cannot be read: `rules` is not a mapping",
+        ),
+        (
+            ".htmlvalidate.json",
+            "[1]",
+            "cannot be read: it holds no mapping",
         ),
         (".htmlvalidate.json", "{", "cannot be read: "),
     ] {
         let text = web(&[(file, source)]);
         let shown = after(&text, file);
-        assert_eq!(shown.len(), 1, "{source}: {text}");
-        assert!(shown[0].starts_with(why), "{source}: {text}");
+        assert!(
+            shown.last().is_some_and(|last| last.starts_with(why)),
+            "{source}: {text}"
+        );
     }
 
     let broken = Defaults {
@@ -908,16 +955,26 @@ fn a_configuration_of_stylelint_or_html_validate_that_does_not_read_says_why() {
 }
 
 #[test]
-fn a_configuration_of_stylelint_the_disk_does_not_hold_says_so() {
+fn a_configuration_of_stylelint_or_html_validate_the_disk_does_not_hold_says_so() {
     let text = report_for(
         WEB,
-        &[".nebensound/repo.toml", "site.css", ".stylelintrc.yml"],
+        &[
+            ".nebensound/repo.toml",
+            "site.css",
+            "index.html",
+            ".stylelintrc.yml",
+            ".htmlvalidate.json",
+        ],
         &[],
         Defaults::BUILT_IN,
     );
 
     assert_eq!(
         after(&text, ".stylelintrc.yml"),
+        ["cannot be read, so nothing of it is handed to Stylelint: no such file"]
+    );
+    assert_eq!(
+        after(&text, ".htmlvalidate.json"),
         ["cannot be read: no such file"]
     );
 }

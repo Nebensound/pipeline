@@ -1,0 +1,1 @@
+::error file=.stylelintrc.yaml::`customSyntax` is not handed to Stylelint: it names a module that would read the stylesheets, which would be loaded and run, and the CSS check runs no code of the repository

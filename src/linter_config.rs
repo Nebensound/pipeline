@@ -34,7 +34,9 @@
 //! hands Prettier the options of each file as flags. Prettier also reads
 //! `.editorconfig`, so the tool reads the root's beside Prettier's own file
 //! ([`editorconfig`]); Prettier has no default of the pipeline, so the rules
-//! report shows nothing of it.
+//! report shows nothing of it. [`stylelint`] is the third, in the CSS check:
+//! the check hands Stylelint a configuration object the tool built, and every
+//! package it loads by its place in the pinned install.
 //!
 //! The link check's configuration ([`crate::lychee_config`]) follows the same
 //! shape and is older: lychee's `lychee.toml` is data by design and lychee
@@ -51,8 +53,8 @@
 //! tool hands the keys on in the order the repository wrote them and never
 //! changes what the file means.
 //!
-//! The other linters still read their configuration themselves (see
-//! `docs/principles.md`).
+//! The linters not named here still read their configuration themselves
+//! (see `docs/principles.md`).
 //!
 //! Phase 0 names through [`findings`] one more kind of file that is not
 //! read: the configuration of a program that no check starts any more
@@ -64,6 +66,7 @@
 pub mod editorconfig;
 pub mod markdownlint;
 pub mod prettier;
+pub mod stylelint;
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -194,8 +197,9 @@ impl<'de> Visitor<'de> for WrittenVisitor {
 }
 
 /// The value a file of a linter's configuration holds, its keys in the
-/// order written, read as [`rules::parse`] reads it. A file in JavaScript is
-/// never handed here. An empty file of YAML holds null.
+/// order written: JSON with comments, or YAML, its values as
+/// [`rules::json`] gives them. A file in JavaScript is never handed here. An
+/// empty file of YAML holds null.
 ///
 /// # Errors
 ///
@@ -217,7 +221,7 @@ pub(crate) fn parse(format: Format, source: &str) -> Result<Written, String> {
 
 /// A YAML value as [`Written`], its mappings in their order. A key that is
 /// not text is written out as YAML would show it, as [`rules::json`] does.
-fn written(yaml: &Yaml) -> Written {
+pub(crate) fn written(yaml: &Yaml) -> Written {
     match yaml {
         Yaml::Hash(hash) => {
             let mut entries = Vec::new();
@@ -233,6 +237,258 @@ fn written(yaml: &Yaml) -> Written {
         Yaml::Array(items) => Written::List(items.iter().map(written).collect()),
         other => Written::Scalar(rules::json(other)),
     }
+}
+
+/// The form a linter's matcher reads in `glob` and the matcher the tool
+/// builds with would read as something else, in words; [`None`] where it
+/// holds none. Prettier (micromatch) and Stylelint both read a pattern with
+/// picomatch, which can read these forms differently from the tool:
+///
+/// - a group, `(...)`, with or without `*`, `?`, `+`, `@` or `!` before it,
+///   is either of its parts there and its own text here, and a `|` parts
+///   alternatives there, also outside a group, and is its own text here;
+/// - a class such as `[[:digit:]]` is a digit there and a set of characters
+///   here; a class that starts with `!` holds the `!` there and takes the
+///   rest out here; a class that holds none of `-*+?.^${}()|[]`, such as
+///   `[ab]`, also matches its own text there; a class that does not start
+///   with `^` and holds a `/`, or a range whose ends enclose one, such as
+///   `[/-]` or `[.-0]`, can match a `/` there and never matches one here;
+/// - a sequence, `{1..3}`, is expanded there and one alternative here; a
+///   pair of braces without a `,` at its own level, such as `{x}`, is its own
+///   text there and an alternative here; an empty alternative, as in `{,x}`,
+///   matches the empty text there and is dropped here;
+/// - a `+` right after a class or a pair of braces repeats it there, once or
+///   more, and is its own text here, and `++` is read as `\++` there, or
+///   matches nothing as `+++`;
+/// - a run of three `*` or more is a `*` that may end in a `/` there, and
+///   Prettier's `&./***` even matches `a/b`;
+/// - a `**` beside a brace or a `,`, as in `**{a,b}` or `{**,a}`, crosses a
+///   `/` there, also where it is not a whole segment, and stops at one here;
+/// - a pattern that ends in `**/` matches no file there and every file here;
+/// - an empty segment beside a `**`, `//**` or `**//`, is taken together
+///   with that `**` there, to Stylelint in the pattern it matches a file's
+///   name with;
+/// - an alternative that is a lone `*`, as in `{a,*}`, matches the empty
+///   text there, so that `web/**/{a,*}` also matches `web`, which
+///   `web/**/*` does not;
+/// - a `!` after a leading `!` or `./` takes the `!` before it back to
+///   Prettier and is a negation to Stylelint, which hands the pattern as
+///   written to its matcher of names, and is its own text here;
+/// - a double quote makes what it encloses plain text there and is its own
+///   text here;
+/// - a backslash is a `/` to Stylelint, which turns every `\` into one, and
+///   starts an escape here, as it does for micromatch, where a `\` before a
+///   letter reaches the regular expression as such (`\b`, `\d`).
+///
+/// `glob` is the pattern as written, with its leading `!` and `./`. A pattern
+/// that holds one of these forms fails by name, so the check never reads a
+/// pattern differently from the linter in an editor. A class that takes
+/// characters out, `[^...]`, never matches a `/` there; the tool builds it so
+/// ([`separated`]).
+pub(crate) fn unread_form(glob: &str) -> Option<&'static str> {
+    if second_negation(glob) {
+        Some("a `!` after a leading `!` or `./`, such as `!!a` or `./!a`")
+    } else if glob.contains('(') {
+        Some("a group, `(...)`")
+    } else if glob.contains('|') {
+        Some("a bar, `|`")
+    } else if glob.contains('"') {
+        Some("a double quote, `\"`")
+    } else if glob.contains('\\') {
+        Some("a backslash, `\\`")
+    } else if glob.contains("[[:") {
+        Some("a class of characters, `[[:...:]]`")
+    } else if let Some(form) = classes(glob).into_iter().find_map(unread_class) {
+        Some(form)
+    } else if glob.contains("]+") || glob.contains("}+") {
+        Some("a repetition, `]+` or `}+`")
+    } else if glob.contains("++") {
+        Some("a doubled plus, `++`")
+    } else if glob.contains("***") {
+        Some("a run of three `*` or more, `***`")
+    } else if glob.match_indices("**").any(|(at, _)| {
+        glob[..at].ends_with(['{', ',']) || glob[at + 2..].starts_with(['{', ',', '}'])
+    }) {
+        Some("a `**` beside a brace or a `,`, such as `**{` or `{**,a}`")
+    } else if glob.ends_with("**/") {
+        Some("a pattern that ends in `**/`")
+    } else if glob.contains("//**") || glob.contains("**//") {
+        Some("an empty segment beside a `**`, `//**` or `**//`")
+    } else if ["{*,", ",*,", ",*}"].iter().any(|lone| glob.contains(lone)) {
+        Some("an alternative that is a lone `*`, such as `{a,*}`")
+    } else if glob
+        .split('{')
+        .skip(1)
+        .any(|after| after.split('}').next().unwrap_or(after).contains(".."))
+    {
+        Some("a sequence, `{a..b}`")
+    } else {
+        unread_braces(glob)
+    }
+}
+
+/// Whether a `!` follows a leading `!` or `./` (see [`unread_form`]).
+fn second_negation(glob: &str) -> bool {
+    let mut rest = glob;
+    let mut led = false;
+    loop {
+        if let Some(after) = rest.strip_prefix("./") {
+            rest = after;
+            led = true;
+        } else if let Some(after) = rest.strip_prefix('!') {
+            if led {
+                return true;
+            }
+            rest = after;
+            led = true;
+        } else {
+            return false;
+        }
+    }
+}
+
+/// Where each class in `glob` lies: the byte range of what it holds, between
+/// its `[` and its `]`. A `]` right after the `[`, or after a `!` or `^` that
+/// starts the class, belongs to it, as both matchers read it; a `[` that is
+/// never closed opens no class.
+fn class_ranges(glob: &str) -> Vec<std::ops::Range<usize>> {
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(open) = glob[from..].find('[') {
+        let start = from + open + 1;
+        let inside = &glob[start..];
+        let lead = usize::from(inside.starts_with(['!', '^']));
+        let first = lead + usize::from(inside[lead..].starts_with(']'));
+        let Some(close) = inside[first..].find(']') else {
+            break;
+        };
+        let end = start + first + close;
+        found.push(start..end);
+        from = end + 1;
+    }
+    found
+}
+
+/// What a class holds, between its `[` and its `]`, for each class in
+/// `glob` (see [`class_ranges`]).
+fn classes(glob: &str) -> Vec<&str> {
+    class_ranges(glob)
+        .into_iter()
+        .map(|range| &glob[range])
+        .collect()
+}
+
+/// `glob` with a `/` added to every class that takes characters out,
+/// `[^...]`, as picomatch adds one, so that such a class never matches a `/`
+/// in the tool either: `web[^_]x.css` does not match `web/x.css`. The `/` is
+/// put last, before a `-` that ends the class, so that it starts no range.
+#[must_use]
+pub(crate) fn separated(glob: &str) -> String {
+    let mut built = String::with_capacity(glob.len());
+    let mut copied = 0;
+    for range in class_ranges(glob) {
+        if !glob[range.clone()].starts_with('^') {
+            continue;
+        }
+        let inside = &glob[range.clone()];
+        let at = if inside.len() > 2 && inside.ends_with('-') {
+            range.end - 1
+        } else {
+            range.end
+        };
+        built.push_str(&glob[copied..at]);
+        built.push('/');
+        copied = at;
+    }
+    built.push_str(&glob[copied..]);
+    built
+}
+
+/// The form a class is read as differently, from what it holds; see
+/// [`unread_form`].
+fn unread_class(inside: &str) -> Option<&'static str> {
+    if inside.starts_with('!') {
+        Some("a class that starts with `!`, `[!...]`")
+    } else if !inside.contains(|c| "-*+?.^${}()|[]".contains(c)) {
+        Some("a class of plain characters, such as `[ab]`")
+    } else if !inside.starts_with('^') && class_can_match_slash(inside) {
+        Some("a class that can match a `/`, such as `[/-]` or `[.-0]`")
+    } else {
+        None
+    }
+}
+
+/// Whether a class that does not take characters out, from what it holds,
+/// holds a `/` or a range `x-y` whose ends enclose one, so that picomatch lets
+/// it match a `/` where the tool's matcher never does; see [`unread_form`].
+fn class_can_match_slash(inside: &str) -> bool {
+    let chars: Vec<char> = inside.chars().collect();
+    let mut at = 0;
+    while let Some(&first) = chars.get(at) {
+        if let (Some('-'), Some(&last)) = (chars.get(at + 1), chars.get(at + 2)) {
+            if first <= '/' && '/' <= last {
+                return true;
+            }
+            at += 3;
+        } else if first == '/' {
+            return true;
+        } else {
+            at += 1;
+        }
+    }
+    false
+}
+
+/// The form a pair of braces in `glob` is read as differently, at any depth:
+/// one without a `,` at its own level, or one with an empty alternative; see
+/// [`unread_form`]. Braces that do not pair fail when the pattern is built.
+fn unread_braces(glob: &str) -> Option<&'static str> {
+    /// A pair of braces that is open: whether it has a `,` at its own level,
+    /// and whether its current alternative holds anything yet.
+    struct Open {
+        comma: bool,
+        filled: bool,
+    }
+    let empty = Some("an empty alternative, as in `{,a}`");
+    let mut open: Vec<Open> = Vec::new();
+    for c in glob.chars() {
+        match (c, open.last_mut()) {
+            ('{', _) => open.push(Open {
+                comma: false,
+                filled: false,
+            }),
+            (',', Some(top)) => {
+                if !top.filled {
+                    return empty;
+                }
+                top.comma = true;
+                top.filled = false;
+            }
+            ('}', Some(top)) => {
+                if !top.comma {
+                    return Some("a pair of braces without a `,`, such as `{a}`");
+                }
+                if !top.filled {
+                    return empty;
+                }
+                open.pop();
+                if let Some(outer) = open.last_mut() {
+                    outer.filled = true;
+                }
+            }
+            (_, Some(top)) => top.filled = true,
+            (_, None) => {}
+        }
+    }
+    None
+}
+
+/// A pattern without the `./` it starts with, however often it is written.
+pub(crate) fn from_root(mut pattern: &str) -> &str {
+    while let Some(rest) = pattern.strip_prefix("./") {
+        pattern = rest;
+    }
+    pattern
 }
 
 /// Something in a linter's configuration that is not handed over, which
@@ -302,12 +558,16 @@ pub fn locate<'a>(
                 list.iter()
                     .any(|wanted| path == *wanted || path.ends_with(&format!("/{wanted}")))
             };
-            let why = if listed(&program.configuration_not_read) {
+            // A name the register lists as not read is code, which the tool
+            // never runs, or a file of data in a folder below the root, which
+            // it never reads; its format says which.
+            let code = matches!(rules::format(candidate), Format::Script);
+            let why = if code && listed(&program.configuration_not_read) {
                 format!(
                     "not read: the tool reads the configuration of {name} only as data, from one \
                      file at the root of the repository ({names}), and never runs this one"
                 )
-            } else if !listed(&program.configuration) {
+            } else if !listed(&program.configuration) && !listed(&program.configuration_not_read) {
                 return None;
             } else if program.configuration.contains(&path) {
                 format!(
@@ -336,12 +596,13 @@ pub fn locate<'a>(
 
 /// Every file of a linter's configuration in the repository that the tool
 /// does not read, for every program the register names files of its
-/// configuration for, and beside them the other files Prettier would read
-/// ([`prettier::beside`]), read through `read` where their content decides
-/// it: each one an error of phase 0 ([`Rule::UnreadConfiguration`]), since
-/// the linter would follow it wherever it runs by hand, and the check never
-/// does. After them, each configuration of a program that no check starts
-/// any more, a warning ([`crate::unread::findings`]).
+/// configuration for, and beside them the other files Prettier and Stylelint
+/// would read ([`prettier::beside`], [`stylelint::beside`]), read through
+/// `read` where their content decides it: each one an error of phase 0
+/// ([`Rule::UnreadConfiguration`]), since the linter would follow it wherever
+/// it runs by hand, and the check never does. After them, each configuration
+/// of a program that no check starts any more, a warning
+/// ([`crate::unread::findings`]).
 #[must_use]
 pub fn findings(analysis: &Analysis, register: &Register, read: &Read<'_>) -> Vec<Finding> {
     let nodes = analysis.tree.files();
@@ -357,9 +618,11 @@ pub fn findings(analysis: &Analysis, register: &Register, read: &Read<'_>) -> Ve
         .iter()
         .flat_map(|(name, program)| {
             let mut unread = locate(&files, &kept, name, program).unread;
-            if name.as_str() == prettier::NAME {
-                unread.extend(prettier::beside(&files, &kept, read));
-            }
+            unread.extend(match name.as_str() {
+                prettier::NAME => prettier::beside(&files, &kept, read),
+                stylelint::NAME => stylelint::beside(&files, &kept, read),
+                _ => Vec::new(),
+            });
             unread
         })
         .map(|unread| Finding::error(Rule::UnreadConfiguration, unread.why).at(unread.file))

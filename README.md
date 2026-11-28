@@ -254,11 +254,16 @@ and `.scss` file of the unit through `nebensound-repo run css`:
   error fails the check, a warning fails nothing.
 
 Stylelint and the packages the default extends are pinned in the register,
-Stylelint's companions beside it, and `setup` installs nothing else: a
-configuration that extends or loads another package fails, naming it. `run`
-takes only the pinned Stylelint, since it calls Stylelint's internals, and
-starts it on its runtime, Node.js. Both parts run even when the other failed,
-so one run shows every finding.
+Stylelint's companions beside it, and `setup` installs nothing else. The tool
+reads the repository's configuration and hands Stylelint a configuration
+object, so Stylelint looks for none, and hands it each pinned package by its
+place in the pinned install, so a package of the same name in the repository,
+in a committed `node_modules` for one, is never loaded. A configuration that
+would load anything (`extends`, `plugins`, `customSyntax`, `processors`, a
+configuration in JavaScript) fails by name instead. `run` takes only the
+pinned Stylelint, since it calls Stylelint's internals, and starts it on its
+runtime, Node.js. Both parts run even when the other failed, so one run shows
+every finding.
 
 ### `check-dockerfile`
 
@@ -866,29 +871,36 @@ entry takes them out. A key the tool does not know or one that names code or
 another file, such as `customRules` or `extends`, fails the check (see
 [the configuration of a linter](docs/tool.md#the-configuration-of-a-linter)).
 A file may also switch a rule of the default off or loosen it; the rules report
-shows every difference. markdownlint is the first linter under this rule, beside
-lychee, whose `lychee.toml` the tool reads key by key, and Prettier, whose
-options the tool reads from Prettier's one file and `.editorconfig` at the root
-and hands over as flags (see [the tool](docs/tool.md#prettier)). The other
-linters still find and read the repository's configuration themselves, or
-follow a file it names: Stylelint, html-validate, Hadolint, actionlint, the
-Dockerfile formatter, Ruff, Taplo's formatter and Pyright (see
+shows every difference. markdownlint, Prettier and Stylelint are under this
+rule, beside lychee, whose `lychee.toml` the tool reads key by key. The tool
+reads Prettier's options from Prettier's one file and `.editorconfig` at the
+root and hands them over as flags (see [the tool](docs/tool.md#prettier));
+Stylelint follows below. The other linters still find and read the
+repository's configuration themselves, or follow a file it names:
+html-validate, Hadolint, actionlint, the Dockerfile formatter, Ruff, Taplo's
+formatter and Pyright (see
 [what does not hold yet](docs/principles.md#what-does-not-hold-yet)).
 
-Stylelint reads, for each stylesheet, the configuration nearest to it: the
-first of the names it looks for (`package.json` with a `stylelint` key,
-`.stylelintrc`, `.stylelintrc.json`, `.stylelintrc.yaml`,
-`stylelint.config.mjs` and the others) in the file's folder or the nearest
-folder above it. `run css` hands it that configuration as the last of what
-its configuration extends, after the default, so Stylelint itself lays the one
-over the other rule by rule, and what the repository's `extends` names comes
-along over the default as well. An `overrides` entry matches its `files` from
-the repository root. html-validate reads the `.htmlvalidate.json` (`.mjs`,
-`.cjs`, `.js`) of a page's folder and of every folder above it, up to one that
-says `root: true`; `run html` lays them over the default, the nearer over
-the farther. The page rules lie over everything and cannot be switched off.
-Both checks find only the pinned packages, so a configuration that names
-another one, such as a plugin, fails with the package named.
+Stylelint never looks for its configuration either: the tool reads the first
+of `.stylelintrc`, `.stylelintrc.json`, `.stylelintrc.yaml` and
+`.stylelintrc.yml` at the root, as data, and hands Stylelint the rules of each
+stylesheet. It carries over `rules`, `overrides` entries that hold `files` and
+`rules`, their patterns counted from the root, and options that are data, such
+as `reportNeedlessDisables`; every rule is one of the pinned Stylelint or of
+its plugin for SCSS, whose rules count for the `.scss` files only. Another of
+the files at the root, one in a folder below it (`.config` too), one written in
+JavaScript and the `stylelint` key of a `package.json` are not read and are
+named, and every key that names a module or another file (`extends`,
+`plugins`, `customSyntax`, `processors`, `referenceFiles`, `formatter`),
+`fix` and `quiet` at any value but `false`, `defaultSeverity: warning` and
+every key the tool does not know fail the check by name (see
+[the tool](docs/tool.md#stylelint)). html-validate reads the
+`.htmlvalidate.json` (`.mjs`, `.cjs`, `.js`) of a page's folder and of every
+folder above it, up to one that says `root: true`; `run html` lays them over
+the default, the nearer over the farther. The page rules lie over everything
+and cannot be switched off. The HTML check finds only the pinned packages, so
+a configuration that names another one, such as a plugin, fails with the
+package named.
 
 Ruff runs with a default of the pipeline as well:
 [`rules/ruff.toml`](rules/ruff.toml),
@@ -999,9 +1011,9 @@ by an `[[exclude]]` entry of its own, only by one that takes out its whole
 package. Stylelint's `ignoreFiles` is read in the configuration Stylelint
 finds in each folder, relative to that folder, in order with its negated
 patterns, and counts for the files below it that no nearer configuration
-governs; a configuration in JavaScript is not judged, the block sets its
-`ignoreFiles` aside all the same, and a file that something it extends would
-still take out fails in the block. html-validate's `.htmlvalidateignore` is
+governs; a configuration in JavaScript is not judged. The CSS check reads none
+of it: it hands Stylelint no `ignoreFiles`, and a file Stylelint still leaves
+out fails in the block. html-validate's `.htmlvalidateignore` is
 read in every folder, relative to that folder, as html-validate's command line
 reads it. coverage.py takes its settings from the first of `.coveragerc` (or the
 file `--rcfile` or `COVERAGE_RCFILE` names), `.coveragerc.toml`, `setup.cfg`,

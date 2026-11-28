@@ -51,7 +51,7 @@ use serde_json::Value;
 use yaml_rust2::{Yaml, YamlLoader};
 
 use super::editorconfig::{self, EditorConfig, Property};
-use super::{Problem, Unread, Written, locate};
+use super::{Problem, Unread, Written, from_root, locate, separated, unread_form};
 use crate::ignored::Read;
 use crate::names::ProgramName;
 use crate::path::RelativePath;
@@ -933,8 +933,10 @@ impl Found<'_> {
     }
 }
 
-/// A pattern of `files` or `excludeFiles`, built as micromatch reads it; an
-/// error says why it cannot be.
+/// A pattern of `files` or `excludeFiles`, built as micromatch reads it, a
+/// class that takes characters out with a `/` ([`separated`]); an error says
+/// why it cannot be, also for a form the tool would read differently, which
+/// is looked for in the pattern as written ([`unread_form`]).
 fn built(written: &str) -> Result<Pattern, String> {
     let slashes = written.contains('/');
     let rest = from_root(written);
@@ -942,12 +944,12 @@ fn built(written: &str) -> Result<Pattern, String> {
         Some(rest) if !rest.starts_with('(') => (true, from_root(rest)),
         _ => (false, rest),
     };
-    if let Some(form) = unread_form(glob) {
+    if let Some(form) = unread_form(written) {
         return Err(format!(
             "holds `{written}`, {form}, a form of pattern the tool does not read"
         ));
     }
-    let glob = GlobBuilder::new(glob)
+    let glob = GlobBuilder::new(&separated(glob))
         .literal_separator(true)
         .build()
         .map_err(|error| format!("holds a pattern that does not read: {error}"))?
@@ -958,36 +960,6 @@ fn built(written: &str) -> Result<Pattern, String> {
         negated,
         glob,
     })
-}
-
-/// The form micromatch reads in `glob` and the matcher the tool builds with
-/// would read as something else, in words; [`None`] where it holds none. A
-/// group, `(...)`, with or without `*`, `?`, `+`, `@` or `!` before it, is
-/// either of its parts to micromatch and its own text here; a class such as
-/// `[[:digit:]]` is a digit there and a set of characters here; a sequence,
-/// `{1..3}`, is expanded there and one alternative here.
-fn unread_form(glob: &str) -> Option<&'static str> {
-    if glob.contains('(') {
-        Some("a group, `(...)`")
-    } else if glob.contains("[[:") {
-        Some("a class of characters, `[[:...:]]`")
-    } else if glob
-        .split('{')
-        .skip(1)
-        .any(|after| after.split('}').next().unwrap_or(after).contains(".."))
-    {
-        Some("a sequence, `{a..b}`")
-    } else {
-        None
-    }
-}
-
-/// A pattern without the `./` it starts with, however often it is written.
-fn from_root(mut pattern: &str) -> &str {
-    while let Some(rest) = pattern.strip_prefix("./") {
-        pattern = rest;
-    }
-    pattern
 }
 
 /// The value an option of this kind is handed, where `value` is one it
