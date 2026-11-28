@@ -116,8 +116,8 @@ pipeline's default rule by rule, so it names only the rule it wants different;
 nothing of the default has to be repeated. [Linter rules](../README.md#linter-rules)
 in the README states how, with an example of a one-rule configuration file.
 The same holds for Stylelint, whose one file at the root the tool reads the
-same way, for html-validate, and for Ruff, whose configuration `check-python`
-lays over the default through Ruff's own `extend`.
+same way, and for Ruff, whose configuration `check-python` lays over the
+default through Ruff's own `extend`.
 `nebensound-repo check` shows each rule a repository's configuration sets and
 how it stands to the default.
 

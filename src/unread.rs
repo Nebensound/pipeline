@@ -15,18 +15,61 @@
 //! anchor that does not exist is now the tool's own judgement, and it reads
 //! none of them.
 //!
+//! The HTML check started html-validate, which read the `.htmlvalidate.json`
+//! (`.mjs`, `.cjs`, `.js`) of a page's folder and of every folder above it,
+//! and phase 0 held the `.htmlvalidateignore` of every folder against the
+//! declaration; a flat configuration at the root (`html-validate.config.*`)
+//! failed the check. The page rules are now the tool's own judgement, and
+//! nothing reads any of these files, in whatever folder.
+//!
 //! It is a **warning**: the file changes nothing the pipeline does, and a
 //! repository that runs the program by hand may keep it.
 
 use crate::Analysis;
 use crate::finding::{Finding, Rule};
 
-/// The files, at the root of the repository, each with the program that read
-/// it and the check that started that program.
-const UNREAD: &[(&str, &str, &str)] = &[
-    (".yamllint", "yamllint", "YAML"),
-    (".yamllint.yaml", "yamllint", "YAML"),
-    (".yamllint.yml", "yamllint", "YAML"),
+/// Where a check found a file of a program's configuration.
+enum Place {
+    /// At the root of the repository only.
+    Root,
+    /// In every folder.
+    Anywhere,
+}
+
+use Place::{Anywhere, Root};
+
+/// The files of a program's configuration, each with where the check found
+/// it.
+type Files = &'static [(&'static str, Place)];
+
+/// The programs, each with the check that started it and its files.
+const UNREAD: &[(&str, &str, Files)] = &[
+    (
+        "yamllint",
+        "YAML",
+        &[
+            (".yamllint", Root),
+            (".yamllint.yaml", Root),
+            (".yamllint.yml", Root),
+        ],
+    ),
+    (
+        "html-validate",
+        "HTML",
+        &[
+            (".htmlvalidate.json", Anywhere),
+            (".htmlvalidate.mjs", Anywhere),
+            (".htmlvalidate.cjs", Anywhere),
+            (".htmlvalidate.js", Anywhere),
+            (".htmlvalidateignore", Anywhere),
+            ("html-validate.config.mjs", Root),
+            ("html-validate.config.cjs", Root),
+            ("html-validate.config.js", Root),
+            ("html-validate.config.mts", Root),
+            ("html-validate.config.cts", Root),
+            ("html-validate.config.ts", Root),
+        ],
+    ),
 ];
 
 /// Every configuration file of the repository that a check read once and
@@ -36,10 +79,13 @@ pub fn findings(analysis: &Analysis) -> Vec<Finding> {
     let nodes = analysis.tree.files();
     let mut findings = Vec::new();
     for (node, _) in nodes {
-        let unread = UNREAD.iter().find(|(name, ..)| {
-            node.path.segments().len() == 1 && node.path.file_name() == Some(name)
+        let at_root = node.path.segments().len() == 1;
+        let unread = UNREAD.iter().find(|(_, _, files)| {
+            files.iter().any(|(name, place)| {
+                node.path.file_name() == Some(name) && (at_root || matches!(place, Anywhere))
+            })
         });
-        if let Some((_, program, check)) = unread {
+        if let Some((program, check, _)) = unread {
             findings.push(
                 Finding::warning(
                     Rule::UnreadConfiguration,

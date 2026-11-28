@@ -1,5 +1,0 @@
-# A fragment with a style attribute, which the default forbids and the
-# repository's .htmlvalidate.json allows.
-[repo]
-audience = "public"
-pipeline = { check = ["html"] }

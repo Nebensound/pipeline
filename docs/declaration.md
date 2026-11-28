@@ -1043,7 +1043,11 @@ A warning is the configuration of a program that no check starts any more, at
 the place where a check once read it, so its rules and what it leaves out
 change nothing the pipeline does. Today that is a `.yamllint`, `.yamllint.yaml`
 or `.yamllint.yml` at the root: the YAML check judges itself whether a file is
-valid YAML. Such a program is in no register entry, so its files are not
+valid YAML. And it is a `.htmlvalidate.json`, `.htmlvalidate.mjs`,
+`.htmlvalidate.cjs`, `.htmlvalidate.js` or `.htmlvalidateignore` in any folder,
+and an `html-validate.config.*` (`.mjs`, `.cjs`, `.js`, `.mts`, `.cts`, `.ts`)
+at the root: the HTML check judges its page rules itself and starts no
+html-validate. Such a program is in no register entry, so its files are not
 named there. The warning is given whether or not an `[[exclude]]` entry takes
 the file out. Remove the file, or keep it for a run of the program by hand; the
 finding stays as long as the file does.

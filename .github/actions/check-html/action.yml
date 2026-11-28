@@ -1,9 +1,8 @@
 name: check-html
 description: >-
   The HTML check over one unit: every `.html` and `.htm` file the unit holds is
-  formatted the way Prettier writes it, passes html-validate, carries what a
-  page must carry if it is a page, and its links into the repository lead
-  somewhere.
+  formatted the way Prettier writes it, carries what a page must carry if it is
+  a page, and its links into the repository lead somewhere.
 
 # One input, and it is not a setting: where the unit is. It comes from the plan
 # of phase 0. The calling job checks the repository out and puts the tool on the
@@ -12,12 +11,10 @@ description: >-
 # The check itself is the tool's: `nebensound-repo run html` takes the files
 # `nebensound-repo files` names for the check and the unit (what Git tracks
 # below that path with an extension the register gives the check, less what an
-# `[[exclude]]` entry of the declaration takes out), starts Prettier,
-# html-validate and lychee as the register pins them, lays the repository's
-# html-validate configuration over the pipeline's default and the page rules
-# over both, all of them compiled into the tool, and reports every finding with
-# its file, and its line and column where the program gives them, as an
-# annotation of the run: an error, or a warning for what fails nothing. A file
+# `[[exclude]]` entry of the declaration takes out), starts Prettier and lychee
+# as the register pins them, reads the page rules off each file itself, on the
+# document its HTML parser builds, and reports every finding with its file, and
+# its line and column where it has them, as an annotation of the run. A file
 # nobody committed is not judged, a committed one is not missed, and no ignore
 # mechanism of a program takes one out. HTML that a build generates is checked
 # like written HTML once it is committed. It runs the same way on a developer's
@@ -36,8 +33,7 @@ runs:
     # their versions and digests stand, here as on a developer's computer. They
     # go into the tool's folder in the cache directory, outside the checkout, so
     # that nothing of them ends up in the tree being checked. Nothing else is
-    # installed, so a configuration of the repository that names another
-    # package, such as a plugin, fails.
+    # installed.
     - name: Set up the programs of the HTML check
       shell: bash
       run: nebensound-repo setup --pinned --with-runtimes html

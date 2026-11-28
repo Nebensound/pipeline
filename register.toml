@@ -96,7 +96,7 @@ extensions = [".qml"]
 
 [check.html]
 extensions = [".html", ".htm"]
-programs   = ["html-validate", "lychee", "prettier"]
+programs   = ["lychee", "prettier"]
 kind       = "reading"
 
 # `.scss` is linted with the SCSS counterpart of the standard configuration,
@@ -524,18 +524,6 @@ executable = "hadolint"
 url        = "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-windows-x86_64.exe"
 digest     = "sha256:01d927294962b5387f9ead4f18679158452be4f17c765ad0bdffe5264b9c7b0a"
 executable = "hadolint.exe"
-
-# The npm registry's `dist.integrity`, in hexadecimal; `engines.node` is
-# "^22.22.0 || >= 24.8.0". It names its version as `html-validate-<version>`.
-[program.html-validate]
-version         = "11.21.1"
-command         = "html-validate"
-runtime         = "node"
-runtime-minimum = "22.22.0"
-
-[program.html-validate.download.any]
-url    = "https://registry.npmjs.org/html-validate/-/html-validate-11.21.1.tgz"
-digest = "sha512:c28a7dc164ad1fc860b0356fef34d93c5de2daa0152ded5e546ad2544ef603c41444ce849f5272b53b523138fb1f45118b669e482b97740ffea7ed036f032b31"
 
 # The `.sha256` files of the release; the same digests stand on the release
 # assets.

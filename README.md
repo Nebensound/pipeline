@@ -230,15 +230,14 @@ once `nebensound-repo setup` has put the programs in place. `run` installs
 nothing: it takes the pinned copy of a program first and the computer's
 otherwise, and fails with a pointer to `setup` where there is neither, while
 the parts of the check whose programs are there still run.
-html-validate, markdownlint and Stylelint are run through their internals, so
-that the repository's rules are laid over the pipeline's default, and of those
-three `run` takes only the pinned copy; markdownlint is a library with no
-command. Whether a JSON or a YAML file parses, and whether the Dependabot
-configuration matches its schema, the tool judges itself and starts no program
-for it. What `run` hands the programs, the schemas for Taplo and for the
-Dependabot configuration, the pipeline's
-linter defaults and the page rules of the HTML check, is compiled into the
-tool.
+markdownlint and Stylelint are run through their internals, so that the
+repository's rules are laid over the pipeline's default, and of those two `run`
+takes only the pinned copy; markdownlint is a library with no command. Whether
+a JSON or a YAML file parses, whether the Dependabot configuration matches its
+schema, and whether an HTML page carries what a page must carry, the tool
+judges itself and starts no program for it. What `run` hands the programs, the
+schemas for Taplo and for the Dependabot configuration and the pipeline's
+linter defaults, is compiled into the tool.
 
 ### `check-css`
 
@@ -298,26 +297,20 @@ build generates is checked like written HTML once it is committed; the build
 output of a run is not.
 
 - Formatted the way Prettier writes it, run as in `check-json`.
-- No html-validate finding, with the repository's configuration laid over the
-  pipeline's default, the presets `recommended`, `a11y` and `prettier` (see
-  [Linter rules](#linter-rules)). Its `.htmlvalidateignore` files take nothing
-  out. A flat configuration (`html-validate.config.*`), which html-validate
-  would read in place of every `.htmlvalidate.*`, is not read and fails the
-  check.
 - Every page carries a title (`page/title`), a description
   (`<meta name="description">`, `page/description`), exactly one `h1`
   (`page/one-h1`), and alternative text on every image (`page/image-alt`; an
   empty `alt=""` counts, for an image that only decorates). A page is a file
-  whose document begins with `<!doctype html>` or has an `<html>` root; any
-  other HTML file, such as a fragment or header a generator includes, gets the
-  checks above without these. The page rules are html-validate rules compiled
-  into the tool
-  ([`src/run/html.rs`](src/run/html.rs)), switched on
-  after the repository's configuration, so neither that configuration nor an
-  inline `html-validate-disable` comment switches them off: only an
-  `[[exclude]]` entry takes a page out. Each finding names the page, the line
-  and the field. Every html-validate finding is an annotation at its line and
-  column: an error fails the check, a warning fails nothing.
+  that holds a doctype, or whose `<html>` root is written as a tag; any other
+  HTML file, such as a fragment or header a generator includes, gets the other
+  checks without these. The page rules are code of the tool
+  ([`src/run/html/page.rs`](src/run/html/page.rs)): it parses each file with
+  html5ever, by the HTML standard, as a browser does, and reads the rules off
+  the document. No configuration of the repository and no comment in a page
+  switches them off: only an `[[exclude]]` entry takes a page out. Each
+  finding is an error at the line and column of the element it is about (the
+  `<head>` for a missing title or description, the `<body>` for a missing
+  `h1`), with the rule and what is missing.
 - Every link into the repository leads to a file and an `id` that exist,
   lychee run as in `check-markdown`, with the same `lychee.toml` handling: a
   stylesheet or an image counts as much as an anchor. A link from the root of a
@@ -327,12 +320,12 @@ output of a run is not.
   in it is a finding on the page that holds it, at the line and column lychee
   names.
 
-html-validate is pinned in the register, and `setup` installs nothing beside
-it: a configuration that names another package, such as a plugin, fails,
-naming it. `run` takes only the pinned html-validate, since it calls
-html-validate's internals, and starts it on its runtime, Node.js. A template
-that does not parse as HTML needs an `[[exclude]]` entry with its reason. Every
-part runs even when one before it failed, so one run shows every finding.
+The check starts no linter for HTML: a configuration of html-validate in the
+repository (`.htmlvalidate.*`, `.htmlvalidateignore`, `html-validate.config.*`)
+is read by nothing, and phase 0 names it with the warning
+[`unread-configuration`](docs/declaration.md#unread-configuration). A template
+Prettier cannot read needs an `[[exclude]]` entry with its reason. Every part
+runs even when one before it failed, so one run shows every finding.
 
 ### `check-json`
 
@@ -822,15 +815,12 @@ them (see
 
 ### Linter rules
 
-Markdownlint, Stylelint and html-validate run with a default of the
-pipeline:
+Markdownlint and Stylelint run with a default of the pipeline:
 [`rules/markdownlint.jsonc`](rules/markdownlint.jsonc)
-(`MD013` off, since Prettier does not wrap prose),
+(`MD013` off, since Prettier does not wrap prose) and
 [`rules/stylelint.yaml`](rules/stylelint.yaml)
-(`stylelint-config-standard`, for `.scss` `stylelint-config-standard-scss`) and
-[`rules/html-validate.json`](rules/html-validate.json)
-(the presets `recommended` and `a11y`, less what contradicts Prettier through
-html-validate's own preset `prettier`). `run` hands each linter the default
+(`stylelint-config-standard`, for `.scss` `stylelint-config-standard-scss`).
+`run` hands each linter the default
 compiled into the tool of the pipeline version that runs. A repository's own
 configuration is laid over that default rule by rule: its file names only the
 rules it wants different, every rule it does not name keeps the default's value,
@@ -876,8 +866,8 @@ rule, beside lychee, whose `lychee.toml` the tool reads key by key. The tool
 reads Prettier's options from Prettier's one file and `.editorconfig` at the
 root and hands them over as flags (see [the tool](docs/tool.md#prettier));
 Stylelint follows below. The other linters still find and read the
-repository's configuration themselves, or follow a file it names:
-html-validate, Hadolint, actionlint, the Dockerfile formatter, Ruff, Taplo's
+repository's configuration themselves, or follow a file it names: Hadolint,
+actionlint, the Dockerfile formatter, Ruff, Taplo's
 formatter and Pyright (see
 [what does not hold yet](docs/principles.md#what-does-not-hold-yet)).
 
@@ -894,13 +884,8 @@ named, and every key that names a module or another file (`extends`,
 `plugins`, `customSyntax`, `processors`, `referenceFiles`, `formatter`),
 `fix` and `quiet` at any value but `false`, `defaultSeverity: warning` and
 every key the tool does not know fail the check by name (see
-[the tool](docs/tool.md#stylelint)). html-validate reads the
-`.htmlvalidate.json` (`.mjs`, `.cjs`, `.js`) of a page's folder and of every
-folder above it, up to one that says `root: true`; `run html` lays them over
-the default, the nearer over the farther. The page rules lie over everything
-and cannot be switched off. The HTML check finds only the pinned packages, so
-a configuration that names another one, such as a plugin, fails with the
-package named.
+[the tool](docs/tool.md#stylelint)). The HTML check runs no linter with rules
+of its own: its page rules are code of the tool and cannot be switched off.
 
 Ruff runs with a default of the pipeline as well:
 [`rules/ruff.toml`](rules/ruff.toml),
@@ -993,7 +978,6 @@ does. A setting that takes out less is fine. Phase 0 reads:
 | Ruff              | `include`, `lint.exclude`, `format.exclude` in the configuration that governs a file                     |
 | rustfmt           | `ignore` in `.rustfmt.toml` or `rustfmt.toml`, in every folder                                           |
 | Stylelint         | `.stylelintignore` at the root; `ignoreFiles` in the configuration of every folder                       |
-| html-validate     | `.htmlvalidateignore` in every folder                                                                    |
 
 Only the files the tool reads in a block count: a `.prettierignore` that takes
 out a Rust file takes out nothing Prettier would have looked at. Taplo's
@@ -1013,17 +997,15 @@ finds in each folder, relative to that folder, in order with its negated
 patterns, and counts for the files below it that no nearer configuration
 governs; a configuration in JavaScript is not judged. The CSS check reads none
 of it: it hands Stylelint no `ignoreFiles`, and a file Stylelint still leaves
-out fails in the block. html-validate's `.htmlvalidateignore` is
-read in every folder, relative to that folder, as html-validate's command line
-reads it. coverage.py takes its settings from the first of `.coveragerc` (or the
-file `--rcfile` or `COVERAGE_RCFILE` names), `.coveragerc.toml`, `setup.cfg`,
-`tox.ini` and `pyproject.toml` in the folder it runs in that exists, where
-`setup.cfg`, `tox.ini` and `pyproject.toml` count only when they hold settings
-of its own; since that depends on where it runs, phase 0 reads `omit` of the
-run and report sections in every one of them in every folder, relative to that
-folder. In `.coveragerc` the sections are `[coverage:run]` and
-`[coverage:report]`, or `[run]` and `[report]` where the prefixed section is
-missing; in `setup.cfg` and `tox.ini` `[coverage:run]` and
+out fails in the block. coverage.py takes its settings from the first of
+`.coveragerc` (or the file `--rcfile` or `COVERAGE_RCFILE` names),
+`.coveragerc.toml`, `setup.cfg`, `tox.ini` and `pyproject.toml` in the folder it
+runs in that exists, where `setup.cfg`, `tox.ini` and `pyproject.toml` count
+only when they hold settings of its own; since that depends on where it runs,
+phase 0 reads `omit` of the run and report sections in every one of them in
+every folder, relative to that folder. In `.coveragerc` the sections are
+`[coverage:run]` and `[coverage:report]`, or `[run]` and `[report]` where the
+prefixed section is missing; in `setup.cfg` and `tox.ini` `[coverage:run]` and
 `[coverage:report]`; in `pyproject.toml` `[tool.coverage.run]` and
 `[tool.coverage.report]`; and in `.coveragerc.toml` the latter, or `[run]` and
 `[report]` where the prefixed table is missing, as coverage.py looks them up.
@@ -1231,7 +1213,7 @@ setup --pinned <name>`, the first call of a block that needs programs: it
 installs the pinned version of every program the check or build calls where it
 is missing (for `cargo-package`, none), so that the cases do not depend on which
 blocks ran before the xtask. A runtime one of those programs needs, such as the
-Node.js of Stylelint, html-validate, Prettier and markdownlint, is the one
+Node.js of Stylelint, Prettier and markdownlint, is the one
 `nebensound-repo` finds: a pinned one in the tool's folder first, else the
 computer's, when it is new enough for the programs. On a developer's computer
 the setup goes without `--with-runtimes` and installs no runtime, so a missing

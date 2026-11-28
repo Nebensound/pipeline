@@ -11,14 +11,15 @@
 //! The files are those `files` names for the check and the unit. The programs
 //! are those the register names for the check, found the way
 //! [`locate`](crate::setup::find::locate) finds them: the pinned copy in the
-//! tool's folder first, the one on the computer otherwise. Three of them are
+//! tool's folder first, the one on the computer otherwise. Two of them are
 //! called through their internals, so that the repository's rules are laid
-//! over the pipeline's default: html-validate, markdownlint, a library with no
-//! command, and Stylelint. Of those three only the pinned copy is taken, since
-//! only its internals are known. A program that is not there fails the check
-//! and names `setup`, which installs it; `run` installs nothing. What the tool
-//! can judge itself starts no program: whether a JSON or a YAML file parses,
-//! and whether a Dependabot configuration matches its schema.
+//! over the pipeline's default: markdownlint, a library with no command, and
+//! Stylelint. Of those two only the pinned copy is taken, since only its
+//! internals are known. A program that is not there fails the check and names
+//! `setup`, which installs it; `run` installs nothing. What the tool can judge
+//! itself starts no program: whether a JSON or a YAML file parses, whether a
+//! Dependabot configuration matches its schema, and whether an HTML page
+//! carries what a page must carry.
 //!
 //! Every program is called with the flags that set its own ignore mechanisms
 //! aside: what is not to be checked is not in the list. Each part of a check
