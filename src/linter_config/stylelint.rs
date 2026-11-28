@@ -15,14 +15,13 @@
 //! check decides it itself ([`SET_ASIDE`]), accepted only at the value that
 //! lets no finding pass unreported, `false` ([`NEUTRAL`]), refused by name
 //! with the reason ([`REFUSED`]), or unknown, which fails as well.
-//! `defaultSeverity` is
-//! carried over as `error` only: `warning` would make every rule that names
-//! no severity of its own a warning, which fails nothing, and is refused
-//! ([`WARNING`]). Each key of `rules`, at the top and in an entry of
-//! `overrides`, is a rule of Stylelint 18.0.0 ([`RULES`]) or of the plugin for
-//! SCSS the pipeline's default brings along ([`SCSS_RULES`]); any other key is
-//! unknown. The value of a rule is data and is handed over as written:
-//! Stylelint checks its options and names a wrong one.
+//! `defaultSeverity` is carried over as `error` only: `warning` would make
+//! every rule that names no severity of its own a warning, which fails
+//! nothing, and is refused ([`WARNING`]). Each key of `rules`, at the top and
+//! in an entry of `overrides`, is a rule of Stylelint 18.0.0 ([`RULES`]) or of
+//! the plugin for SCSS the pipeline's default brings along ([`SCSS_RULES`]);
+//! any other key is unknown. The value of a rule is data and is handed over as
+//! written: Stylelint checks its options and names a wrong one.
 //!
 //! A difference by pattern is an entry of `overrides` that holds `files`, its
 //! patterns, and `rules`, and may hold `name`, a label; any other key in it
@@ -37,9 +36,9 @@
 //! that match the file. A rule of the plugin for SCSS counts only for a file
 //! whose configuration loads the plugin ([`SCSS_PLUGIN_BROUGHT_BY`]), a file
 //! read as SCSS; for any other it is left out, wherever it was written.
-//! Stylelint takes the value of a rule as a whole and
-//! looks each rule up by its name, so the order of the keys carries no
-//! meaning; the tool keeps them in the order written all the same.
+//! Stylelint takes the value of a rule as a whole and looks each rule up by
+//! its name, so the order of the keys carries no meaning; the tool keeps them
+//! in the order written all the same.
 //!
 //! Stylelint would also read the `stylelint` key of a `package.json`, a file
 //! of its configuration in any folder below the root, `.config` among them,
@@ -449,10 +448,10 @@ impl Patterns {
     /// (`compileOverrideMatchers`, with picomatch, dots included): one of
     /// them matches it. A pattern is joined onto the root, as Node's
     /// `path.join` joins them, and matches the path from the root, where `*`
-    /// stops at a `/` and `**` does not. Every pattern
-    /// without `!` also matches the file's name as written, so one without a
-    /// `/` matches in any folder. One with a leading `!` matches every path
-    /// its pattern does not, so that beside others it takes nothing back.
+    /// stops at a `/` and `**` does not. Every pattern without `!` also
+    /// matches the file's name as written, so one without a `/` matches in
+    /// any folder. One with a leading `!` matches every path its pattern does
+    /// not, so that beside others it takes nothing back.
     #[must_use]
     pub fn matches(&self, file: &str) -> bool {
         let name = file.rsplit('/').next().unwrap_or(file);
